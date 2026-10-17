@@ -926,3 +926,8 @@ mod missions;
 
 #[path = "fake_tui_wizard.rs"]
 mod wizard;
+
+// ---- screen-read agents: card ids, clean replies, the model (zero tokens) -------------------------------------
+
+#[path = "fake_tui_screen_agents.rs"]
+mod screen_agents;

@@ -63,6 +63,17 @@ fn line_table(table: &Option<LineRegexTable>, at: &str) -> Result<Vec<Regex>, De
     }
 }
 
+/// The identity of the question a prompt table matched: its kind is added by the caller, this is the
+/// normalised text of the line(s) the LAST match of `detect_regex` sits on (letters and digits only, lowercase,
+/// so box art, wrapping spaces and a blinking cursor glyph do not count). Everything else on the screen (a
+/// spinner row, an elapsed-time counter, the scrollback above) is not part of the question.
+fn question_identity(detect: &Regex, clean: &str) -> String {
+    let Some(found) = detect.find_iter(clean).last() else { return String::new() };
+    let start = clean[..found.start()].rfind('\n').map_or(0, |at| at + 1);
+    let end = clean[found.end()..].find('\n').map_or(clean.len(), |at| found.end() + at);
+    clean[start..end].chars().filter(|ch| ch.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+}
+
 /// `text` limited to `SCREEN_CAP` bytes, keeping the end (the live part of a screen).
 pub fn cap(text: &str) -> &str {
     if text.len() <= SCREEN_CAP {
@@ -113,6 +124,7 @@ pub struct TuiEngine {
     idle: Vec<Regex>,
     chrome: Vec<Regex>,
     tool_activity: Vec<Regex>,
+    thinking: Vec<Regex>,
     activity: Vec<Regex>,
     error: Vec<Regex>,
     menu: Vec<Regex>,
@@ -196,6 +208,7 @@ impl TuiEngine {
             idle,
             chrome: line_table(&tui.chrome, "tui.chrome.line_regex")?,
             tool_activity: line_table(&tui.tool_activity, "tui.tool_activity.line_regex")?,
+            thinking: line_table(&tui.thinking, "tui.thinking.line_regex")?,
             activity: build_all(&tui.activity_regex, "tui.activity_regex")?,
             error: build_all(&tui.error_regex, "tui.error_regex")?,
             menu: match &tui.menu {
@@ -283,6 +296,11 @@ impl TuiEngine {
 
     pub fn is_tool_activity_line(&self, lower: &str) -> bool {
         Self::line_matches(&self.tool_activity, lower)
+    }
+
+    /// `[tui.thinking] line_regex` on one trimmed, lowercased line.
+    pub fn is_thinking_line(&self, lower: &str) -> bool {
+        Self::line_matches(&self.thinking, lower)
     }
 
     /// The phrase of the newest visible line an `activity_regex` matches (`text` group, else group
@@ -385,18 +403,25 @@ impl TuiEngine {
     pub fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<Value> {
         let clean = strip_ansi(cap(screen));
         let prompt = self.matching_prompt(&clean)?;
+        let identity = question_identity(&prompt.detect, &clean);
         let choices: Vec<&str> = prompt
             .choices
             .iter()
             .map(|c| c.id.as_str())
             .filter(|id| allow_broad || !(*id == "allow_all" && prompt.broad))
             .collect();
-        Some(serde_json::json!({
+        let mut found = serde_json::json!({
             "agent_type": self.id,
             "kind": prompt.kind,
             "text": clean.trim(),
             "choices": choices,
-        }))
+        });
+        // What the question IS, not what is drawn around it: the id handed to a caller must survive a
+        // spinner tick, a cursor blink or a timer redrawing below the question.
+        if !identity.is_empty() {
+            found["identity"] = Value::String(identity);
+        }
+        Some(found)
     }
 
     /// True when a table prompt's `detect_regex` matches even if `not_when_regex` suppresses it: the

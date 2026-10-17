@@ -350,6 +350,9 @@ pub struct TuiTable {
     pub busy: Option<BusyTable>,
     pub chrome: Option<LineRegexTable>,
     pub tool_activity: Option<LineRegexTable>,
+    /// Rows the agent prints while it thinks or works (`Thinking...`, a spinner status row, `Thought for 4s`): never
+    /// reply text, whether they are on screen while the turn runs or stay in the transcript afterwards.
+    pub thinking: Option<LineRegexTable>,
     /// Activity line patterns: matched against visible lines, newest first. The phrase is the
     /// named group `text`, else group 1, else the whole match.
     #[serde(default)]

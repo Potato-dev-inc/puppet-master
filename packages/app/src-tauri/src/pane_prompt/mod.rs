@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tauri::AppHandle;
 
 pub mod answers;
+mod generic_menu;
 
 /// Phrases that open an approval dialog. The prompt text is taken from the last such line, so
 /// output scrolling above the dialog cannot change its id while the same question is showing.
@@ -63,15 +64,16 @@ pub fn detect_at(
     pane_id: &str,
     allow_broad: bool,
 ) -> Option<(Value, Option<u64>)> {
-    let (agent_type, screen, pos, workspace) = {
+    let (agent_type, screen, pos, workspace, status) = {
         let reg = registry.lock();
         let pane = reg.panes.get(pane_id)?;
         let parser = pane.screen.lock();
         let pos = crate::pty::stream_pos::get(pane_id).map(|p| p.processed.load(std::sync::atomic::Ordering::SeqCst));
         let contents = parser.screen().contents();
-        (pane.info.agent_type.clone(), contents, pos, pane.info.cwd.clone())
+        let status = pane.status.lock().as_str();
+        (pane.info.agent_type.clone(), contents, pos, pane.info.cwd.clone(), status)
     };
-    let mut prompt = detect_in_screen(&agent_type, &screen, allow_broad)?;
+    let mut prompt = detect_in_screen_with_status(&agent_type, &screen, allow_broad, Some(status))?;
     // The pane's folder is known here, so "outside this project" can be judged properly.
     attach_risk(&mut prompt, Some(&workspace));
     Some((prompt, pos))
@@ -99,6 +101,53 @@ pub(crate) fn attach_risk(prompt: &mut Value, workspace: Option<&str>) {
     if let Ok(value) = serde_json::to_value(&risk) {
         prompt["risk"] = value;
     }
+}
+
+/// [`detect_in_screen`], and when no profile describes what the pane shows: a menu read by its shape
+/// (`generic_menu`), but only for a pane whose observed `status` is `waiting_input`. A pane that is working, idle or
+/// unknown is never offered a card for a list that happens to look like a menu.
+pub(crate) fn detect_in_screen_with_status(agent_type: &str, screen: &str, allow_broad: bool, status: Option<&str>) -> Option<Value> {
+    let found = detect_in_screen(agent_type, screen, allow_broad);
+    // A profile's own reading wins. The shared text heuristic (`generic::detect_prompt`: "allow once" somewhere on the
+    // screen, answered with `y` / `n`) is a blind guess for a menu: typing `y` into a numbered or arrow menu answers
+    // nothing. Where the screen is such a menu, the menu is read as a menu.
+    if found.as_ref().is_some_and(|prompt| !is_shared_guess(agent_type, screen, allow_broad, prompt)) {
+        return found;
+    }
+    if matches!(
+        crate::tui::profile_for(agent_type).features().kind,
+        crate::tui::Kind::NativeProtocol | crate::tui::Kind::Shell
+    ) {
+        return found;
+    }
+    let Some(mut card) = generic_menu::unknown_question(agent_type, screen, status) else { return found };
+    // A one-line [y/n] question is what the shared guess already answers right.
+    if found.is_some() && card.get("menu").and_then(Value::as_str) == Some("yes_no") {
+        return found;
+    }
+    let id = prompt_id_for(&card)?;
+    card["prompt_id"] = Value::String(id);
+    attach_risk(&mut card, None);
+    Some(card)
+}
+
+/// Whether `prompt` is nothing but the shared text heuristic's reading of this screen (no table, no identity, no
+/// command of the profile's own).
+fn is_shared_guess(agent_type: &str, screen: &str, allow_broad: bool, prompt: &Value) -> bool {
+    if prompt.get("identity").is_some() || prompt.get("command").is_some() || prompt.get("startup_gate").is_some() {
+        return false;
+    }
+    let Some(shared) = crate::tui::generic::detect_prompt(agent_type, &prompt_region(screen), allow_broad) else { return false };
+    shared.get("kind") == prompt.get("kind") && shared.get("choices") == prompt.get("choices") && shared.get("agent_type") == prompt.get("agent_type")
+}
+
+/// The reply that picks `choice` for a detected `prompt`: a question read by its shape has its own options; every
+/// other prompt is the profile's (`prompt_reply`).
+pub(crate) fn reply_for(agent_type: &str, prompt: &Value, choice: &str, allow_broad: bool) -> Result<crate::tui::Reply, String> {
+    if prompt.get("kind").and_then(Value::as_str) == Some("unknown_question") {
+        return generic_menu::reply(prompt, choice, allow_broad);
+    }
+    crate::agent_adapters::adapter_for(agent_type).prompt_reply(prompt, choice, allow_broad)
 }
 
 pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool) -> Option<Value> {
@@ -268,16 +317,7 @@ fn prompt_id_for(prompt: &Value) -> Option<String> {
         .get("identity")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .unwrap_or_else(|| {
-            prompt
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .chars()
-                .filter(|ch| ch.is_alphanumeric())
-                .flat_map(char::to_lowercase)
-                .collect()
-        });
+        .unwrap_or_else(|| stable_question_text(prompt.get("text").and_then(Value::as_str).unwrap_or_default()));
     // A named identity is the whole id: the choices on offer can differ between reads (a broad
     // answer is only listed when asked for) and must not change it.
     let named = prompt.get("identity").and_then(Value::as_str).is_some();
@@ -287,6 +327,56 @@ fn prompt_id_for(prompt: &Value) -> Option<String> {
         "choices": if named { Value::Null } else { prompt.get("choices").cloned().unwrap_or(Value::Null) },
         "identity": identity,
     }))
+}
+
+/// The part of a prompt's text that is the QUESTION: rows that ask something (`?`, `[y/n]`, an anchor phrase)
+/// or offer a choice (`1.`, `[a]`, `(y)`). A spinner row, an elapsed-time counter, a blinking cursor or output that
+/// scrolled in below the dialog change on every redraw and must not change the id the caller was handed
+/// (a trust question answered with the id just read was refused as stale). When no row looks like either, the whole
+/// text is the identity. Letters and digits only, lowercase: wrapping and box art do not count.
+fn stable_question_text(text: &str) -> String {
+    let alnum = |line: &str| -> String { line.chars().filter(|ch| ch.is_alphanumeric()).flat_map(char::to_lowercase).collect() };
+    let asks = |line: &str| {
+        let lower = line.to_ascii_lowercase();
+        lower.contains('?')
+            || lower.contains("[y/n]")
+            || lower.contains("(y/n)")
+            || PROMPT_ANCHORS.iter().any(|phrase| lower.contains(phrase))
+            || is_choice_row(line)
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let first = lines.iter().position(|line| asks(line));
+    let last = lines.iter().rposition(|line| asks(line));
+    match (first, last) {
+        // From a few rows above the first asking row (what is being approved is usually shown there) to the last
+        // asking or choice row. What is drawn below the question (a spinner, a counter, a cursor) and what scrolled
+        // in above it are not the question.
+        (Some(first), Some(last)) => lines[first.saturating_sub(CONTEXT_ROWS)..=last].iter().map(|line| alnum(line)).collect(),
+        _ => alnum(text),
+    }
+}
+
+/// Rows above the first asking row that still belong to the question's identity (the command or file being approved).
+const CONTEXT_ROWS: usize = 4;
+
+/// A row that offers an answer: `1. Yes`, `2) No`, `[a] Trust`, `(y) Run once`, `> 1. Yes`, with box art around it.
+fn is_choice_row(line: &str) -> bool {
+    let body = line.trim_start_matches(|ch: char| {
+        ch.is_whitespace() || matches!(ch, '>' | '|' | '*' | '-' | '\u{276f}' | '\u{203a}' | '\u{2502}' | '\u{2551}' | '\u{25cf}' | '\u{25cb}')
+    });
+    let mut chars = body.chars();
+    let Some(first) = chars.next() else { return false };
+    match first {
+        '[' | '(' => {
+            let inner: String = chars.by_ref().take_while(|ch| !matches!(ch, ']' | ')')).collect();
+            (1..=3).contains(&inner.chars().count()) && inner.chars().all(char::is_alphanumeric)
+        }
+        digit if digit.is_ascii_digit() => {
+            let rest = body.trim_start_matches(|ch: char| ch.is_ascii_digit());
+            rest.starts_with(['.', ')', ':']) && rest.len() > 1
+        }
+        _ => false,
+    }
 }
 
 /// The prompt blocking `pane_id` as a run's `required_action` (with an id, kind, options and a
@@ -424,14 +514,17 @@ fn reply_key(
             false,
         ));
     }
+    let unknown = prompt.get("kind").and_then(Value::as_str) == Some("unknown_question");
     let choice = match choice {
+        // A question read by its shape has no "allow_once": its options are the screen's own, and a broad one is
+        // refused inside `reply_for` unless `allow_broad` was given.
+        other if unknown => other,
         "once" => "allow_once",
         "reject" => "deny",
         "always" | "allow_broad" => "allow_all",
         other => other,
     };
-    let reply = crate::agent_adapters::adapter_for(agent_type)
-        .prompt_reply(prompt, choice, allow_broad)
+    let reply = reply_for(agent_type, prompt, choice, allow_broad)
         .map_err(|error| OperationError::new("INVALID_PROMPT_CHOICE", error, false))?;
     let key = reply.key.or(reply.text).ok_or_else(|| {
         OperationError::new(

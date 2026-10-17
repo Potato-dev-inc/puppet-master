@@ -259,6 +259,20 @@ impl Session {
         self.wait(handle, &[], 0).unwrap_or(Value::Null)
     }
 
+    /// Registers a SCREEN-READ agent for this test: `definition` is a declarative agent definition (TOML) and the
+    /// registered agent `id` is that real `DeclarativeProfile` launching `pm-fake-tui` with the script of the
+    /// moment. Every screen-reading method is the definition's own, so the test exercises exactly what a
+    /// wizard-written definition would. Removed again when the session drops.
+    pub fn screen_agent(&self, id: &'static str, definition: &str) {
+        let def = crate::tui::declarative::parse_definition(definition).unwrap_or_else(|e| panic!("the definition does not parse: {e}"));
+        let inner: Arc<dyn TuiProfile> =
+            Arc::new(crate::tui::declarative::DeclarativeProfile::new(def).unwrap_or_else(|e| panic!("the definition does not build: {e}")));
+        let registry = crate::tui::registry::registry();
+        let mut all: Vec<Arc<dyn TuiProfile>> = registry.snapshot().iter().cloned().collect();
+        all.push(Arc::new(FakeAgent::new(id, inner, self.world.exe.clone(), self.world.script.clone())));
+        registry.swap(all);
+    }
+
     /// A bare pane of `agent_type` in the project, 120x30, with nothing typed: for tests that read screens.
     pub fn spawn_pane(&self, agent_type: &str) -> Result<String, String> {
         crate::pty::registry_spawn_pane(
@@ -311,6 +325,11 @@ impl Session {
     /// The pane's screen as readiness reads it (the profile's `input_screen`).
     pub fn input_screen(&self, pane_id: &str) -> String {
         registry_read_snapshot_full(&self.world.registry, pane_id).unwrap_or_default()
+    }
+
+    /// Everything a viewer that mounts now would show: the scrollback followed by the screen.
+    pub fn history(&self, pane_id: &str) -> String {
+        crate::pty::registry_read_full_text(&self.world.registry, pane_id).unwrap_or_default()
     }
 
     pub fn pane_status(&self, pane_id: &str) -> Option<String> {

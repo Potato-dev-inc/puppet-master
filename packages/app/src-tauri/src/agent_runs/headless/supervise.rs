@@ -62,6 +62,8 @@ struct Supervisor {
     recorded_prompt: Option<String>,
     /// The dispatch baseline (`output_baseline`) the watch measures against, once adopted.
     adopted_baseline: Option<String>,
+    /// The model name the profile's `footer_model` last read off the pane during this run.
+    seen_model: Option<String>,
 }
 
 impl Supervisor {
@@ -83,6 +85,7 @@ impl Supervisor {
             host_shell: HostShellWatch::default(),
             recorded_prompt: None,
             adopted_baseline: None,
+            seen_model: None,
         }
     }
 
@@ -181,8 +184,19 @@ impl Supervisor {
         }
     }
 
+    /// Remember the model name when the profile can read one off the pane right now (the whole screen, not the
+    /// cropped copy completion reads): it is shown only at some moments (while working, in a banner that scrolls).
+    fn note_model(&mut self, pane_id: &str, agent_type: &str) {
+        let profile = crate::tui::profile_for(agent_type);
+        let whole = crate::pty::registry_read_snapshot_full(self.registry.as_ref(), pane_id).unwrap_or_default();
+        if let Some(model) = profile.detect_footer_model(&whole) {
+            self.seen_model = Some(model);
+        }
+    }
+
     /// Reads the pane of a running/waiting turn and acts on what the completion watch decides.
     fn observe_pane(&mut self, current: &OperationSnapshot, pane_id: &str) -> Step {
+        self.note_model(pane_id, &current.agent_type);
         let pane_status = self
             .registry
             .lock()
@@ -349,9 +363,13 @@ impl Supervisor {
         // The transcript entry does not depend on who parked the run first (this supervisor or the
         // pane observer): it is written once per prompt.
         record_approval(current, &action, &mut self.recorded_prompt);
-        if current.status == OperationStatus::WaitingInput
-            && current.required_action.as_ref() == Some(&action)
-        {
+        // The same question (same id) is already recorded: a redraw under it (a spinner, a timer) changes the raw
+        // text of the card but not the question, and must not re-park the run and re-publish it every tick.
+        let same_question = |stored: &serde_json::Value| {
+            stored == &action
+                || stored.get("prompt_id").is_some_and(|id| !id.is_null() && Some(id) == action.get("prompt_id"))
+        };
+        if current.status == OperationStatus::WaitingInput && current.required_action.as_ref().is_some_and(same_question) {
             return;
         }
         if let Ok(waiting) = operations::mark_operation_waiting_input(
@@ -374,7 +392,8 @@ impl Supervisor {
         result: String,
         capture: ResultCapture,
     ) -> bool {
-        record_completion_model(current, screen);
+        let history = crate::pty::registry_read_full_text(self.registry.as_ref(), pane_id).ok();
+        record_completion_model(current, screen, self.seen_model.as_deref(), history.as_deref());
         // The reply was read from the visible rows; one longer than the screen is re-read from
         // the scrollback, or flagged as truncated.
         let widened = match crate::pty::registry_read_full_text(self.registry.as_ref(), pane_id) {

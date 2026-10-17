@@ -171,12 +171,7 @@ pub fn observe_tui_turn(
     let turn_started = watch.saw_activity
         || watch.saw_task_echo
         || (watch.task.trim().is_empty() && !watch.baseline.trim().is_empty());
-    let evidence = turn_started
-        .then(|| tui_turn_evidence(screen, &watch.baseline, agent_type))
-        .flatten()
-        .and_then(|raw| {
-            clean_extracted_result_after(&raw, &watch.task, &watch.previous_task, agent_type)
-        });
+    let evidence = turn_started.then(|| turn_reply(screen, watch, agent_type)).flatten();
     if let Some(evidence) = evidence {
         watch.saw_reply = true;
         if watch.idle_evidence.as_deref() == Some(evidence.as_str()) {
@@ -222,6 +217,84 @@ pub fn observe_tui_turn(
     } else {
         TuiTurnDecision::Continue
     }
+}
+
+/// What this turn's reply is on `screen`.
+///
+/// The turn begins at the echo of the task THIS turn delivered, so the reply is what follows that echo, cleaned
+/// by the profile's chrome, thinking and tool-activity tables: the banner above the echo, the previous turn's
+/// text and the stale status rows are before it and can never be part of the reply. (The old rule, "whatever is
+/// new since the baseline", counted all of them as new whenever the baseline held only the last few rows of a
+/// busier screen, and counted every changing `Thinking... 4s` row as new text.) Only when the echo is not on the
+/// screen does the baseline decide: a task the agent never echoes is measured against the baseline, and a task
+/// whose echo scrolled off the top (seen earlier this turn) leaves the whole screen to the turn.
+fn turn_reply(screen: &str, watch: &TuiTurnWatch, agent_type: &str) -> Option<String> {
+    match reply_after_echo(screen, &watch.task, &watch.previous_task, agent_type) {
+        EchoSlice::Found(reply) => return reply,
+        EchoSlice::NoEcho => {}
+    }
+    let baseline = if watch.saw_task_echo && !same_task(&watch.task, &watch.previous_task) {
+        ""
+    } else {
+        watch.baseline.as_str()
+    };
+    tui_turn_evidence(screen, baseline, agent_type)
+        .and_then(|raw| clean_extracted_result_after(&raw, &watch.task, &watch.previous_task, agent_type))
+}
+
+/// The same instruction sent twice in a row: its echo on screen could be the earlier turn's.
+fn same_task(task: &str, previous: &str) -> bool {
+    let (a, b) = (normalize_echo(task), normalize_echo(previous));
+    !a.is_empty() && a == b
+}
+
+/// The outcome of looking for this turn's task echo on a screen.
+#[derive(Debug, PartialEq, Eq)]
+enum EchoSlice {
+    /// The screen shows no echo of the task (or the task is too short to look for, or it repeats the previous
+    /// turn's, whose echo cannot be told apart).
+    NoEcho,
+    /// The echo is there; this is the cleaned reply after it (`None`: nothing but chrome follows).
+    Found(Option<String>),
+}
+
+fn reply_after_echo(screen: &str, task: &str, previous_task: &str, agent_type: &str) -> EchoSlice {
+    if same_task(task, previous_task) {
+        return EchoSlice::NoEcho;
+    }
+    match echo_position(screen, task) {
+        Some(at) => {
+            let lines: Vec<&str> = screen.lines().collect();
+            let turn = lines[at..].join("
+");
+            EchoSlice::Found(
+                tui_turn_evidence(&turn, "", agent_type)
+                    .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task, agent_type)),
+            )
+        }
+        None => EchoSlice::NoEcho,
+    }
+}
+
+/// The index of the line where the LAST echo of `task` starts in `text`, if it is there.
+fn echo_position(text: &str, task: &str) -> Option<usize> {
+    let task_n = normalize_echo(task);
+    let head: String = task_n.chars().take(40).collect();
+    let head = head.trim_end();
+    if head.len() < 8 {
+        return None;
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    (0..lines.len()).rev().find(|&index| {
+        let own = normalize_echo(lines[index]);
+        if own.is_empty() || !(head.starts_with(own.as_str()) || own.starts_with(head)) {
+            return false;
+        }
+        own.len() >= 8 && {
+            let span = lines[index..lines.len().min(index + 6)].join(" ");
+            normalize_echo(&span).contains(head)
+        }
+    })
 }
 
 /// Whether the start of the task text is visible on screen (the TUI echoes the submitted prompt).
@@ -288,27 +361,10 @@ pub fn scrollback_reply(
     previous_task: &str,
     agent_type: &str,
 ) -> Option<String> {
-    let task_n = normalize_echo(task);
-    let head: String = task_n.chars().take(40).collect();
-    let head = head.trim_end();
-    if head.len() < 8 {
-        return None;
-    }
+    let at = echo_position(full, task)?;
     let lines: Vec<&str> = full.lines().collect();
-    let echo_at = (0..lines.len()).rev().find(|&index| {
-        let own = normalize_echo(lines[index]);
-        if own.is_empty() || !(head.starts_with(own.as_str()) || own.starts_with(head)) {
-            return false;
-        }
-        own.len() >= 8 && {
-            let span = lines[index..lines.len().min(index + 6)].join(" ");
-            normalize_echo(&span).contains(head)
-        }
-    })?;
-    let turn = lines[echo_at..].join(
-        "
-",
-    );
+    let turn = lines[at..].join("
+");
     tui_turn_evidence(&turn, "", agent_type)
         .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task, agent_type))
 }
@@ -321,10 +377,7 @@ pub fn recapture_reply(
     full: &str,
     agent_type: &str,
 ) -> Option<String> {
-    tui_turn_evidence(visible, &watch.baseline, agent_type)
-        .and_then(|raw| {
-            clean_extracted_result_after(&raw, &watch.task, &watch.previous_task, agent_type)
-        })
+    turn_reply(visible, watch, agent_type)
         .or_else(|| scrollback_reply(full, &watch.task, &watch.previous_task, agent_type))
 }
 

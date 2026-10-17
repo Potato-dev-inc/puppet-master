@@ -124,6 +124,17 @@ fn check_screen(p: &DeclarativeProfile, text: &str, expect: &Value, failures: &m
     if let Some(w) = expect.get("model") {
         eq_opt(failures, "model", w, p.detect_footer_model(text));
     }
+    for (key, want) in [("thinking_lines", true), ("not_thinking_lines", false)] {
+        for line in expect.get(key).and_then(Value::as_array).into_iter().flatten() {
+            let Some(line) = line.as_str() else {
+                failures.push(format!("{key}: entries must be strings"));
+                continue;
+            };
+            if p.is_thinking_line(&line.trim().to_lowercase()) != want {
+                failures.push(format!("{key}: {line:?} should{} be a thinking row", if want { "" } else { " not" }));
+            }
+        }
+    }
     for (key, want) in [("chrome_lines", true), ("not_chrome_lines", false)] {
         for line in expect.get(key).and_then(Value::as_array).into_iter().flatten() {
             let Some(line) = line.as_str() else {

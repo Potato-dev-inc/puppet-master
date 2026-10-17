@@ -230,3 +230,99 @@ fn prompt_events_fire_on_enter_change_and_leave_only() {
     assert_eq!(next_prompt_event(&mut t, true, || None), Some(None), "waiting with no parsed prompt still announces");
     assert_eq!(next_prompt_event(&mut t, true, || None), None);
 }
+
+// ---- the id is the question's, not the screen's (screen-read agents) ---------------------------------------------------
+
+const ID_PROBE: &str = r##"
+schema_version = 1
+
+[agent]
+id = "idprobe"
+label = "Id probe"
+experimental = true
+
+[binary]
+names = ["idprobe"]
+
+[tui]
+argv = []
+
+[[tui.prompt]]
+kind = "workspace_trust"
+detect_regex = 'do you trust the files in this (other )?folder'
+choices = [
+  { id = "allow_once", text = "1" },
+  { id = "deny", text = "2" },
+]
+"##;
+
+fn trust_screen(glyph: &str, seconds: u32, cursor: &str, folder: &str) -> String {
+    format!(
+        "IDPROBE 1.0\n\nDo you trust the files in this folder?{cursor}\n  {folder}\n\n> 1. Yes, trust this folder\n  2. No, exit\n\nPress Enter to confirm\n\n{glyph} Waiting for your answer...  {seconds}s\n"
+    )
+}
+
+#[test]
+fn a_declared_question_keeps_its_id_while_a_spinner_a_counter_and_a_cursor_redraw_under_it() {
+    let profile = std::sync::Arc::new(
+        crate::tui::declarative::DeclarativeProfile::new(crate::tui::declarative::parse_definition(ID_PROBE).expect("parses")).expect("builds"),
+    );
+    crate::tui::registry::registry().add_transient(profile).expect("registered");
+    let id_of = |screen: &str| detect_in_screen("idprobe", screen, false).expect("a card")["prompt_id"].as_str().expect("an id").to_string();
+    let first = id_of(&trust_screen("\u{280b}", 1, "", "/work/a"));
+    for (glyph, seconds, cursor) in [("\u{2819}", 2, " \u{258c}"), ("\u{2839}", 3, ""), ("\u{2838}", 41, " \u{258c}")] {
+        assert_eq!(first, id_of(&trust_screen(glyph, seconds, cursor, "/work/a")), "{glyph} {seconds}s {cursor:?}");
+    }
+    // the output of a previous turn scrolled in above does not change it either
+    let scrolled = format!("older output line\nand another one\n{}", trust_screen("\u{280b}", 9, "", "/work/a"));
+    assert_eq!(first, id_of(&scrolled));
+    // another question is another id
+    let other = trust_screen("\u{280b}", 1, "", "/work/a").replace("in this folder?", "in this other folder?");
+    assert_ne!(first, id_of(&other));
+    crate::tui::registry::registry().remove_transient("idprobe");
+}
+
+#[test]
+fn a_command_prompt_read_by_the_shared_rules_ignores_what_is_drawn_below_it_but_not_which_command() {
+    let a = "Run this command?\n  rm -rf build\n\n> 1. Yes\n  2. No\n";
+    let id_of = |text: &str| {
+        let mut prompt = json!({"agent_type": "x", "kind": "command_approval", "text": text, "choices": ["allow_once", "deny"]});
+        prompt["prompt_id"] = Value::String(prompt_id_for(&prompt).expect("an id"));
+        prompt["prompt_id"].as_str().unwrap().to_string()
+    };
+    let first = id_of(a);
+    assert_eq!(first, id_of(&format!("{a}\n\u{280b} waiting 12s\n")), "a spinner row under the choices");
+    assert_eq!(first, id_of(&format!("{a}\n\u{2819} waiting 13s\n")));
+    assert_ne!(first, id_of(&a.replace("rm -rf build", "rm -rf dist")), "another command is another question");
+    assert_ne!(first, id_of(&a.replace("Run this command?", "Run this other command?")));
+}
+
+#[test]
+fn a_menu_with_allow_once_in_it_is_read_as_a_menu_where_the_shared_guess_would_type_y() {
+    let profile = std::sync::Arc::new(
+        crate::tui::declarative::DeclarativeProfile::new(
+            crate::tui::declarative::parse_definition(&ID_PROBE.replace("idprobe", "menuprobe")).expect("parses"),
+        )
+        .expect("builds"),
+    );
+    crate::tui::registry::registry().add_transient(profile).expect("registered");
+    let menu = "MENUPROBE\n\nRun this command?\n    echo hi\n\n> 1. Allow once\n  2. Always allow in this project\n  3. Deny\n";
+    // a pane that is not waiting is offered nothing new: the shared reading stays what it was
+    let shared = detect_in_screen_with_status("menuprobe", menu, false, Some("running")).expect("the shared reading");
+    assert_eq!(shared["kind"], "command_approval");
+    // a waiting pane gets the menu as it is: options, the keys that pick them, recognised by shape
+    let card = detect_in_screen_with_status("menuprobe", menu, false, Some("waiting_input")).expect("a card");
+    assert_eq!(card["kind"], "unknown_question");
+    assert_eq!(card["choices"], json!(["option_1", "option_2", "option_3"]));
+    assert!(card["prompt_id"].as_str().is_some_and(|id| !id.is_empty()));
+    // a one-line [y/n] question is what the shared reading answers right: it stays
+    let yes_no = "MENUPROBE\n\nAllow once? [y/n]\n";
+    for status in [Some("running"), Some("waiting_input")] {
+        let found = detect_in_screen_with_status("menuprobe", yes_no, false, status).expect("a card");
+        assert_eq!(found["kind"], "command_approval", "{status:?}");
+    }
+    // and a profile's own table is never replaced
+    let trust = trust_screen("\u{280b}", 1, "", "/work/a").replace("IDPROBE", "MENUPROBE");
+    assert_eq!(detect_in_screen_with_status("menuprobe", &trust, false, Some("waiting_input")).expect("a card")["kind"], "workspace_trust");
+    crate::tui::registry::registry().remove_transient("menuprobe");
+}
