@@ -3,20 +3,33 @@
 
 /* ---------- dock: cards sit inside the Terminal tab; the tab strip never moves ---------- */
 .cockpit .ck-term-wrap {
+  position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
+/* The dock FLOATS over the top of the terminal instead of pushing it down. In flow it took up to 55% of the
+   pane, so every question an agent asked (and every answer) resized the terminal, which resized the PTY, and
+   an inline TUI reprints its whole screen on every resize: a pane a lead was driving flickered at each
+   approval. The terminal keeps its size; what the card covers is the oldest visible output, the live prompt
+   stays at the bottom. */
 .cockpit .ck-dock {
-  flex: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 0 6px;
   max-height: 55%;
   overflow-y: auto;
+  background: var(--bg);
+  border-bottom: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
 }
 /* The docked cards are the Inbox's cards (PaneApprovalCard, the stuck card), lined up with "1 more". */
 .cockpit .ck-dock .ib-dock {
