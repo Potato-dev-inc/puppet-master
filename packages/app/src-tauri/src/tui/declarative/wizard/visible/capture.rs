@@ -204,6 +204,9 @@ pub enum Action {
     /// 11.16). Only produced when the person left "answer setup questions for me" on, only by the
     /// answerer's rules, and the runner re-checks that the pane is the wizard's before pressing.
     Answer { keys: Vec<AnswerKey>, note: String },
+    /// Resize the pane's PTY and its viewer together to this grid (the reprint measurement, SPEC 11.17). Nothing is
+    /// typed: the agent only sees its window change size.
+    Resize { cols: u16, rows: u16 },
 }
 
 // ---- the typing guard --------------------------------------------------------------------------
@@ -282,7 +285,8 @@ pub fn may_type(g: &Gate) -> Result<(), Refusal> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapFrame {
-    /// `tui_idle`, `tui_working`, `tui_reply`, `tui_permission`, `tui_trust`, `tui_firstrun`.
+    /// `tui_idle`, `tui_working`, `tui_reply`, `tui_permission` (a file write), `tui_permission_command` (a command
+    /// run), `tui_trust`, `tui_firstrun`.
     pub name: String,
     /// Cleaned (secrets masked, user folder scrubbed); the real test words are still in it.
     pub text: String,
@@ -303,11 +307,97 @@ pub struct CaptureSet {
     pub hello_written: bool,
     /// The agent made hello.txt and never asked (a fact for the drafter and the Review screen).
     pub writes_without_asking: bool,
+    /// The agent ran the harmless command and never asked.
+    pub runs_without_asking: bool,
     pub startup_dialogs: Vec<String>,
     pub exit_screen: Option<String>,
     pub notes: Vec<String>,
     /// The questions the wizard answered for the person in its own pane (empty when the switch was off).
     pub answered: Vec<AnsweredQ>,
+    /// What happened to the conversation when the pane was resized after the reply: the measurement behind
+    /// `[features] reprints_on_resize`. `None`: it was not measured (the host cannot resize, or the step was skipped).
+    pub resize: Option<ResizeProbe>,
+}
+
+/// What the viewer's scrollback plus screen holds of the conversation, for the reprint measurement: the rows that
+/// hold the test word, and how many rows show up more than once. An agent that prints its whole conversation again
+/// on a resize adds copies of both (a conversation taller than the pane pushes the banner and the early turns into
+/// the history a second time). A row that is a rule or a handful of characters is no evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HistoryCounts {
+    /// Cleaned rows that hold the word.
+    pub word_rows: Vec<String>,
+    /// Extra copies of rows that are not the word's: `sum(copies - 1)`.
+    pub extra_copies: usize,
+    /// Those rows, once each, for the evidence.
+    pub repeated_rows: Vec<String>,
+}
+
+impl HistoryCounts {
+    pub fn of(history: &str, word: &str) -> Self {
+        let word = word.to_lowercase();
+        let text = clean(history);
+        let mut seen: Vec<(String, String, usize)> = Vec::new();
+        let mut word_rows = Vec::new();
+        for row in text.lines().map(str::trim).filter(|r| !r.is_empty()) {
+            if row.to_lowercase().contains(&word) {
+                word_rows.push(row.to_string());
+                continue;
+            }
+            let key = row.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+            if key.chars().filter(|c| c.is_alphanumeric()).count() < 10 {
+                continue;
+            }
+            match seen.iter_mut().find(|(k, _, _)| *k == key) {
+                Some(entry) => entry.2 += 1,
+                None => seen.push((key, row.to_string(), 1)),
+            }
+        }
+        let extra_copies = seen.iter().map(|(_, _, n)| n - 1).sum();
+        let repeated_rows = seen.into_iter().filter(|(_, _, n)| *n > 1).map(|(_, row, n)| format!("{row}   (x{n})")).collect();
+        Self { word_rows, extra_copies, repeated_rows }
+    }
+
+    /// The rows that show the conversation (word rows, then the repeated ones), for the evidence.
+    pub fn evidence(&self) -> Vec<String> {
+        self.word_rows.iter().cloned().chain(self.repeated_rows.iter().cloned()).collect()
+    }
+
+    /// `after` holds more copies of the conversation than `self` (taken before the resize).
+    pub fn grew_to(&self, after: &HistoryCounts) -> bool {
+        after.word_rows.len() > self.word_rows.len() || after.extra_copies > self.extra_copies
+    }
+}
+
+/// The reprint measurement: the pane went from `from` to `to` (columns, rows) after the reply, and the rows that
+/// hold the test word in the viewer's scrollback plus screen were counted before and after.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResizeProbe {
+    pub reprints: bool,
+    pub from: (u16, u16),
+    pub to: (u16, u16),
+    /// Cleaned rows holding the word before the resize (real words in them).
+    pub before: Vec<String>,
+    /// The same rows afterwards.
+    pub after: Vec<String>,
+}
+
+impl ResizeProbe {
+    pub fn to_json(&self, mask: &dyn Fn(&str) -> String) -> Value {
+        json!({
+            "reprints": self.reprints,
+            "from": {"cols": self.from.0, "rows": self.from.1},
+            "to": {"cols": self.to.0, "rows": self.to.1},
+            "before_rows": self.before.iter().map(|r| mask(r)).collect::<Vec<_>>(),
+            "after_rows": self.after.iter().map(|r| mask(r)).collect::<Vec<_>>(),
+        })
+    }
+
+    fn from_json(value: &Value) -> Option<Self> {
+        let pair = |key: &str| Some((value[key]["cols"].as_u64()? as u16, value[key]["rows"].as_u64()? as u16));
+        let rows = |key: &str| value[key].as_array().map(|a| a.iter().filter_map(|r| r.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        Some(ResizeProbe { reprints: value["reprints"].as_bool()?, from: pair("from")?, to: pair("to")?, before: rows("before_rows"), after: rows("after_rows") })
+    }
 }
 
 impl CaptureSet {
@@ -329,10 +419,12 @@ impl CaptureSet {
             "skipped": self.skipped,
             "hello_written": self.hello_written,
             "writes_without_asking": self.writes_without_asking,
+            "runs_without_asking": self.runs_without_asking,
             "startup_dialogs": self.startup_dialogs,
             "exit_screen": self.exit_screen,
             "notes": self.notes,
             "answered": self.answered.iter().map(|a| a.to_json(&|t: &str| t.to_string())).collect::<Vec<_>>(),
+            "resize": self.resize.as_ref().map(|r| r.to_json(&|t: &str| t.to_string())),
         })
     }
 
@@ -366,9 +458,11 @@ impl CaptureSet {
             skipped: list("skipped")?,
             hello_written: value["hello_written"].as_bool().unwrap_or(false),
             writes_without_asking: value["writes_without_asking"].as_bool().unwrap_or(false),
+            runs_without_asking: value["runs_without_asking"].as_bool().unwrap_or(false),
             startup_dialogs: list("startup_dialogs")?,
             exit_screen: value["exit_screen"].as_str().map(str::to_string),
             notes: list("notes")?,
+            resize: ResizeProbe::from_json(&value["resize"]),
             answered: value["answered"]
                 .as_array()
                 .map(|a| {
@@ -492,6 +586,33 @@ pub struct Capture {
     answerer: Option<Answerer>,
     out: Vec<Action>,
     answered: Vec<AnsweredQ>,
+    /// The permission step asks twice: 0 = a file write (`tui_permission`), 1 = a command run (`tui_permission_command`).
+    perm_phase: u8,
+    /// The agent ran the command and showed no question.
+    runs_without_asking: bool,
+    /// The resize measurement after the reply (SPEC 11.17).
+    probe: Probe,
+    resize_result: Option<ResizeProbe>,
+}
+
+/// How long after a resize the agent gets to redraw before the picture is judged.
+const RESIZE_SETTLE_MS: u64 = 1500;
+/// Narrower by this many columns for the measurement.
+const RESIZE_SHRINK_COLS: u16 = 20;
+/// The measurement gives up (nothing is recorded) after this long without a settled picture.
+const RESIZE_GIVE_UP_MS: u64 = 20_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Probe {
+    /// The reply step is not finished yet.
+    Off,
+    /// Waiting for a settled screen and the viewer's history to count the word in.
+    Measure { note: String },
+    /// The pane was made narrower at `at`; waiting for the agent to redraw.
+    Shrunk { at: u64, before: HistoryCounts, from: (u16, u16), to: (u16, u16), note: String },
+    /// Back at the original size; waiting for it to settle.
+    Restore { at: u64, note: String },
+    Done,
 }
 
 /// The cleaned text of a frame (`exec::clean`: ANSI gone, secrets masked, user folder scrubbed).
@@ -518,9 +639,14 @@ pub fn message_task_for(word: &str) -> String {
     format!("Reply with exactly the word: {word}")
 }
 
-/// The task of the permission step.
+/// The task of the permission step: a file write (`tui_permission`).
 pub fn permission_task(words: &TestWords) -> String {
     format!("Create a file named hello.txt in the current folder. It must contain the word {}.", words.sky)
+}
+
+/// The second task of the permission step: running a command (`tui_permission_command`). A command that only prints.
+pub fn command_task(words: &TestWords) -> String {
+    format!("Run this shell command in the current folder and tell me what it printed: echo {}", words.sky)
 }
 
 impl Capture {
@@ -567,6 +693,10 @@ impl Capture {
             answerer: None,
             out: Vec::new(),
             answered: Vec::new(),
+            perm_phase: 0,
+            runs_without_asking: false,
+            probe: Probe::Off,
+            resize_result: None,
         }
     }
 
@@ -730,6 +860,9 @@ impl Capture {
     }
 
     fn advance(&mut self, now: u64) {
+        if matches!(self.probe, Probe::Measure { .. } | Probe::Shrunk { .. } | Probe::Restore { .. }) {
+            self.probe = Probe::Done;
+        }
         self.needs = None;
         self.turn = Turn::new();
         while self.cur + 1 < self.steps.len() {
@@ -786,8 +919,9 @@ impl Capture {
         self.began_ms.get_or_insert(now);
         self.alive = look.alive;
         self.hello_written |= look.hello_written;
-        if let Some(grid) = look.grid.filter(|g| *g != self.grid) {
-            // The viewer grid must equal the PTY grid: a pane that changed size mid-capture says so.
+        if let Some(grid) = look.grid.filter(|g| *g != self.grid && matches!(self.probe, Probe::Off | Probe::Done)) {
+            // The viewer grid must equal the PTY grid: a pane that changed size mid-capture says so. (The wizard's
+            // own resize for the reprint measurement is not a surprise.)
             if !self.resized {
                 self.resized = true;
                 self.notes.push(format!(
@@ -830,6 +964,9 @@ impl Capture {
             };
             self.agent_quit(note, now);
             return Vec::new();
+        }
+        if step == StepId::Message && self.probe != Probe::Off && self.probe != Probe::Done {
+            return self.tick_probe(look, now);
         }
         match step {
             StepId::Start => self.tick_start(now),
@@ -878,10 +1015,10 @@ impl Capture {
         let step = self.current();
         let name = match (flavour, step) {
             (Flavour::Trust, _) => "tui_trust",
-            (Flavour::Permission | Flavour::Question, StepId::Permission | StepId::Message) => "tui_permission",
+            (Flavour::Permission | Flavour::Question, StepId::Permission | StepId::Message) => self.permission_name(),
             _ => "tui_firstrun",
         };
-        if name == "tui_permission" && self.speculative_permission {
+        if name.starts_with("tui_permission") && self.speculative_permission {
             // a real, recognised question replaces the guess
             self.speculative_permission = false;
             self.frames.retain(|f| f.name != name);
@@ -892,11 +1029,11 @@ impl Capture {
                 if let Some((text, variants)) = self.stab.best() {
                     self.store(name, &text, variants);
                 }
-                if name != "tui_permission" {
+                if !name.starts_with("tui_permission") {
                     self.startup_dialogs.push(flavour.as_str().to_string());
                 }
             }
-            if step == StepId::Permission || name == "tui_permission" {
+            if step == StepId::Permission || name.starts_with("tui_permission") {
                 self.turn.dialog_recorded = true;
             }
         }
@@ -1027,7 +1164,38 @@ impl Capture {
     }
 
     fn task_for(&self, step: StepId) -> String {
-        if step == StepId::Message { message_task(&self.words) } else { permission_task(&self.words) }
+        match (step, self.perm_phase) {
+            (StepId::Message, _) => message_task(&self.words),
+            (_, 0) => permission_task(&self.words),
+            _ => command_task(&self.words),
+        }
+    }
+
+    /// The name of the permission capture this phase makes.
+    fn permission_name(&self) -> &'static str {
+        if self.current() == StepId::Permission && self.perm_phase == 1 { "tui_permission_command" } else { "tui_permission" }
+    }
+
+    /// One permission question is done. The first one (a file write) is followed by the second (a command run), each in
+    /// its own turn; the step is done after the second.
+    fn after_permission(&mut self, note: &str, now: u64) {
+        if self.perm_phase == 0 {
+            self.perm_phase = 1;
+            self.turn = Turn::new();
+            self.needs = None;
+            self.speculative_permission = false;
+            self.unrecognised = None;
+            self.ready_for = None;
+            if let Some(a) = self.answerer.as_mut() {
+                a.reset();
+            }
+            if self.steps[self.cur].status == StepStatus::NeedsYou {
+                self.steps[self.cur].status = StepStatus::Running;
+            }
+            self.set_note("The file question is captured. Now the same for running a command.");
+        } else {
+            self.finish_step(StepStatus::Done, note, now);
+        }
     }
 
     fn tick_turn(&mut self, step: StepId, look: &Look, now: u64) -> Vec<Action> {
@@ -1124,6 +1292,85 @@ impl Capture {
         }
     }
 
+    /// The reply was captured. Before the step is done, the pane is resized once (and put back) to see whether the
+    /// agent reprints its conversation: `[features] reprints_on_resize` is written from this measurement, never guessed.
+    fn after_reply(&mut self, note: &str, now: u64) {
+        if self.probe == Probe::Off {
+            self.probe = Probe::Measure { note: note.to_string() };
+            self.set_note("Checking what the agent does when the pane is resized.");
+        } else {
+            self.finish_step(StepStatus::Done, note, now);
+        }
+    }
+
+    /// Does the viewer need to hand the engine its scrollback this tick?
+    pub fn wants_history(&self) -> bool {
+        matches!(self.probe, Probe::Measure { .. } | Probe::Shrunk { .. })
+    }
+
+    /// The host refused to resize the pane: the measurement is skipped, the capture goes on.
+    pub fn on_resize_refused(&mut self, why: &str, now: u64) {
+        let note = match std::mem::replace(&mut self.probe, Probe::Done) {
+            Probe::Measure { note } | Probe::Shrunk { note, .. } | Probe::Restore { note, .. } => note,
+            _ => return,
+        };
+        self.notes.push(format!("The pane could not be resized, so it is not known whether the agent reprints its conversation on a resize: {why}"));
+        self.finish_step(StepStatus::Done, &note, now);
+    }
+
+    fn counts(&self, history: &str) -> HistoryCounts {
+        HistoryCounts::of(history, &self.words.one)
+    }
+
+    fn tick_probe(&mut self, look: &Look, now: u64) -> Vec<Action> {
+        match self.probe.clone() {
+            Probe::Measure { note } => {
+                if look.history.trim().is_empty() {
+                    // The host cannot show the scrollback: nothing to count.
+                    self.probe = Probe::Done;
+                    self.finish_step(StepStatus::Done, &note, now);
+                    return Vec::new();
+                }
+                if self.stab.stable_for(now) < self.cfg.stable_ms {
+                    return Vec::new();
+                }
+                let from = self.grid;
+                let to = (from.0.saturating_sub(RESIZE_SHRINK_COLS).max(40), from.1);
+                let before = self.counts(&look.history);
+                if to == from || before.word_rows.is_empty() {
+                    self.probe = Probe::Done;
+                    self.finish_step(StepStatus::Done, &note, now);
+                    return Vec::new();
+                }
+                self.probe = Probe::Shrunk { at: now, before, from, to, note };
+                vec![Action::Resize { cols: to.0, rows: to.1 }]
+            }
+            Probe::Shrunk { at, before, from, to, note } => {
+                let settled = look.grid == Some(to) && now.saturating_sub(at) >= RESIZE_SETTLE_MS && self.stab.stable_for(now) >= self.cfg.stable_ms.min(RESIZE_SETTLE_MS);
+                if settled && !look.history.trim().is_empty() {
+                    let after = self.counts(&look.history);
+                    self.resize_result =
+                        Some(ResizeProbe { reprints: before.grew_to(&after), from, to, before: before.evidence(), after: after.evidence() });
+                } else if now.saturating_sub(at) > RESIZE_GIVE_UP_MS {
+                    self.notes.push("The pane was resized but its screen did not settle, so it is not known whether the agent reprints its conversation on a resize.".into());
+                } else {
+                    return Vec::new();
+                }
+                self.probe = Probe::Restore { at: now, note };
+                vec![Action::Resize { cols: from.0, rows: from.1 }]
+            }
+            Probe::Restore { at, note } => {
+                let back = look.grid == Some(self.grid) && now.saturating_sub(at) >= 800 && self.stab.stable_for(now) >= 500;
+                if back || now.saturating_sub(at) > RESIZE_GIVE_UP_MS {
+                    self.probe = Probe::Done;
+                    self.finish_step(StepStatus::Done, &note, now);
+                }
+                Vec::new()
+            }
+            Probe::Off | Probe::Done => Vec::new(),
+        }
+    }
+
     fn finish_message(&mut self, said: bool, now: u64) {
         let word = self.words.one.clone();
         let screen = self.screen.clone();
@@ -1145,12 +1392,12 @@ impl Capture {
             match working {
                 Some((text, variants)) => {
                     self.store("tui_working", &text, variants);
-                    self.finish_step(StepStatus::Done, "The agent answered.", now);
+                    self.after_reply("The agent answered.", now);
                 }
                 None => {
                     self.notes.push("No screen of the agent at work was caught; the working state has no capture.".into());
                     self.partial.push("message");
-                    self.finish_step(StepStatus::Done, "The agent answered, but no screen of it at work was caught.", now);
+                    self.after_reply("The agent answered, but no screen of it at work was caught.", now);
                 }
             }
             return;
@@ -1184,7 +1431,8 @@ impl Capture {
     /// permission picture (a guess) and ask the person what it is.
     fn raise_question(&mut self) {
         if let Some((text, variants)) = self.stab.best() {
-            self.store("tui_permission", &text, variants);
+            let name = self.permission_name();
+            self.store(name, &text, variants);
         }
         self.speculative_permission = true;
         self.turn.dialog_recorded = true;
@@ -1214,7 +1462,7 @@ impl Capture {
             if quiet && (idle || self.hello_written) {
                 self.speculative_permission = false;
                 let note = if self.answered.iter().any(|a| a.flavour == "permission") { "The wizard answered the permission question for you." } else { "You answered the permission question in the pane." };
-                self.finish_step(StepStatus::Done, note, now);
+                self.after_permission(note, now);
             } else {
                 self.permission_deadline(now);
             }
@@ -1228,18 +1476,28 @@ impl Capture {
         }
         // (a) the agent finished without a question: hello.txt is there, or the screen is back at the
         // shape of the Ready step and has held still
-        if self.hello_written && quiet {
+        if self.perm_phase == 0 && self.hello_written && quiet {
             self.note_writes_without_asking();
-            self.finish_step(StepStatus::Done, "No permission question appeared (the agent did not ask before writing the file).", now);
+            self.after_permission("No permission question appeared (the agent did not ask before writing the file).", now);
             return;
         }
         let stable = self.stab.stable_for(now);
         if quiet && idle && stable >= self.cfg.idle_done_ms {
-            self.notes.push("The agent finished the permission task without asking and without writing hello.txt; no permission screen was caught.".into());
-            if !self.partial.contains(&"permission") {
-                self.partial.push("permission");
+            if self.perm_phase == 0 {
+                self.notes.push("The agent finished the permission task without asking and without writing hello.txt; no permission screen was caught.".into());
+                if !self.partial.contains(&"permission") {
+                    self.partial.push("permission");
+                }
+                self.after_permission("The agent finished without asking and without writing the file.", now);
+            } else {
+                // It ran the command and showed no question: a fact, not a failure.
+                self.runs_without_asking = true;
+                let note = "This agent did not ask before running a command: the command ran and no question was shown.";
+                if !self.notes.iter().any(|n| n == note) {
+                    self.notes.push(note.to_string());
+                }
+                self.after_permission("No permission question appeared for the command (the agent did not ask before running it).", now);
             }
-            self.finish_step(StepStatus::Done, "The agent finished without asking and without writing the file.", now);
             return;
         }
         // (b) a picture that holds still and is neither the input box nor clearly working: ask the person
@@ -1321,10 +1579,10 @@ impl Capture {
                     self.steps[i].frames = 0;
                 }
                 let names: &[&str] = match target {
-                    StepId::Start => &["tui_trust", "tui_firstrun", "tui_idle", "tui_working", "tui_reply", "tui_permission"],
-                    StepId::Ready => &["tui_idle", "tui_working", "tui_reply", "tui_permission"],
-                    StepId::Message => &["tui_working", "tui_reply", "tui_permission"],
-                    StepId::Permission => &["tui_permission"],
+                    StepId::Start => &["tui_trust", "tui_firstrun", "tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"],
+                    StepId::Ready => &["tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"],
+                    StepId::Message => &["tui_working", "tui_reply", "tui_permission", "tui_permission_command"],
+                    StepId::Permission => &["tui_permission", "tui_permission_command"],
                     StepId::Exit => &[],
                 };
                 self.frames.retain(|f| !names.contains(&f.name.as_str()));
@@ -1333,6 +1591,8 @@ impl Capture {
                     // the file of an earlier try is gone (the runner deletes it), so it is not evidence now
                     self.hello_written = false;
                     self.writes_without_asking = false;
+                    self.runs_without_asking = false;
+                    self.perm_phase = 0;
                     self.notes.retain(|n| !n.starts_with("This agent did not ask") && !n.starts_with("The agent finished the permission task"));
                 }
                 self.unrecognised = None;
@@ -1401,7 +1661,8 @@ impl Capture {
                 if action == CaptureAction::Done {
                     // the screen is the finished agent: whatever was kept as a question was a guess
                     if self.speculative_permission {
-                        self.frames.retain(|f| f.name != "tui_permission");
+                        let name = self.permission_name();
+                        self.frames.retain(|f| f.name != name);
                         self.speculative_permission = false;
                         self.turn.dialog_recorded = false;
                     }
@@ -1410,12 +1671,13 @@ impl Capture {
                     if self.hello_written && !asked {
                         self.note_writes_without_asking();
                     }
-                    self.finish_step(StepStatus::Done, "You said the agent had finished.", now);
+                    self.after_permission("You said the agent had finished.", now);
                 } else {
                     // the screen is a question the classifier did not know: keep it as the permission picture
-                    if self.speculative_permission || self.frame("tui_permission").is_none() {
+                    let name = self.permission_name();
+                    if self.speculative_permission || self.frame(name).is_none() {
                         if let Some((text, variants)) = self.stab.best() {
-                            self.store("tui_permission", &text, variants);
+                            self.store(name, &text, variants);
                         }
                     }
                     self.speculative_permission = false;
@@ -1450,10 +1712,12 @@ impl Capture {
                 .collect(),
             hello_written: self.hello_written,
             writes_without_asking: self.writes_without_asking,
+            runs_without_asking: self.runs_without_asking,
             startup_dialogs: dedupe(&self.startup_dialogs),
             exit_screen: self.exit_screen.clone(),
             notes: self.notes.clone(),
             answered: self.answered.clone(),
+            resize: self.resize_result.clone(),
         }
     }
 
@@ -1481,6 +1745,8 @@ impl Capture {
         }
         json!({
             "step": step.as_str(),
+            // The permission step asks twice (a file write, then a command run): 0 or 1.
+            "permission_phase": self.perm_phase,
             "steps": steps,
             "screen_kind": self.kind.as_str(),
             "auto_answer": self.answerer.is_some(),

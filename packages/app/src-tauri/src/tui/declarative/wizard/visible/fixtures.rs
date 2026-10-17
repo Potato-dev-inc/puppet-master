@@ -23,7 +23,8 @@ use super::capture::{reply_rows, CapFrame, CaptureSet};
 use super::screen::rows;
 
 /// The captures the wizard can make, in the order they are written.
-pub const NAMES: [&str; 6] = ["tui_trust", "tui_firstrun", "tui_idle", "tui_working", "tui_reply", "tui_permission"];
+pub const NAMES: [&str; 7] =
+    ["tui_trust", "tui_firstrun", "tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"];
 
 /// What a capture is, for the expectation rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +43,7 @@ fn role(name: &str) -> Option<Role> {
         "tui_idle" => Role::Idle,
         "tui_working" => Role::Working,
         "tui_reply" => Role::Reply,
-        "tui_permission" | "tui_trust" => Role::Prompt,
+        "tui_permission" | "tui_permission_command" | "tui_trust" => Role::Prompt,
         "tui_firstrun" => Role::Startup,
         _ => return None,
     })
@@ -292,10 +293,16 @@ pub fn masked_json(set: &CaptureSet, words: &TestWords) -> Value {
             "skipped": set.skipped,
             "hello_written": set.hello_written,
             "writes_without_asking": set.writes_without_asking,
+            "runs_without_asking": set.runs_without_asking,
             "startup_dialogs": set.startup_dialogs,
             "exit_screen": set.exit_screen.as_deref().map(|s| mask(s)),
             "notes": set.notes,
             "answered": set.answered.iter().map(|a| a.to_json(&mask)).collect::<Vec<_>>(),
+            // Measured, not guessed: the pane was made narrower after the reply and the rows holding the test word
+            // were counted in the viewer's scrollback plus screen. `null`: not measured. The wizard writes
+            // `[features] reprints_on_resize` from this; the draft does not need to.
+            "reprints_on_resize": set.resize.as_ref().map(|r| r.reprints),
+            "resize_probe": set.resize.as_ref().map(|r| r.to_json(&mask)),
         },
     })
 }

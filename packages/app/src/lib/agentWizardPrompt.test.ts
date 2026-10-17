@@ -31,7 +31,7 @@ const facts = (over: Partial<PromptFacts> = {}): PromptFacts => ({
 
 describe('prompt sources', () => {
   it('has a version string', () => {
-    expect(PROMPT_VERSION).toBe('6');
+    expect(PROMPT_VERSION).toBe('7');
   });
 
   it('finds every section of the format guide it needs (guards a renamed heading)', () => {
@@ -294,6 +294,22 @@ describe('the visible prompt', () => {
     expect(text).toContain('# expect: <capture name>');
     expect(text).toContain('Do not add a [headless] table');
     expect(text).not.toContain('Prefer it to plain text'); // the headless rules are not in the visible prompt
+  });
+
+  it('v7 asks for thinking rows, a required model table and one prompt per permission capture, and says the wizard measures the reprint', () => {
+    const text = buildPrompt(visibleFacts({ captures: captures({ reprints_on_resize: true }) })).text;
+    expect(text).toContain('[tui.thinking]');
+    expect(text).toContain('EXACTLY the answer row');
+    expect(text).toContain('[tui.footer_model] is REQUIRED whenever any capture names the model');
+    expect(text).toContain('tui_permission_command');
+    expect(text).toContain('kind = "command_approval"');
+    expect(text).toContain('kind = "file_edit"');
+    expect(text).toContain('Do not write [features] reprints_on_resize');
+    expect(text).toContain('Resize measurement: the pane was made narrower after the reply and the agent printed its whole conversation again.');
+    expect(text).toContain('The wizard writes [features] reprints_on_resize = true itself');
+    const plain = buildPrompt(visibleFacts({ captures: captures({ reprints_on_resize: false }) })).text;
+    expect(plain).toContain('did not print its conversation again');
+    expect(buildPrompt(visibleFacts()).text).not.toContain('Resize measurement');
   });
 
   it('carries the visible half of the guide and the worked example, not the headless examples', () => {

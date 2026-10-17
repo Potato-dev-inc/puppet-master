@@ -29,6 +29,8 @@ pub struct FakePane {
     pub cwd: PathBuf,
     /// A status the test forces (otherwise: `running` for a moment after the screen changed, like a pane).
     pub forced_status: Option<String>,
+    /// Rows that scrolled off the top (the viewer's history above the screen).
+    pub scrollback: Vec<String>,
     changed_at: std::time::Instant,
 }
 
@@ -46,12 +48,18 @@ struct State {
 }
 
 type Hook = Box<dyn Fn(&FakeHost, &str, &str) -> Delivered + Send + Sync>;
+type ResizeHook = Box<dyn Fn(&FakeHost, &str, u16, u16) + Send + Sync>;
 type AnswerHook = Box<dyn Fn(&FakeHost, &str, &[AnswerKey]) + Send + Sync>;
 
 pub struct FakeHost {
     state: Mutex<State>,
     on_deliver: Mutex<Option<Hook>>,
     on_answer: Mutex<Option<AnswerHook>>,
+    on_resize: Mutex<Option<ResizeHook>>,
+    /// Hosts that can show a scrollback and resize (the default fake cannot, like a host without a viewer).
+    can_resize: std::sync::atomic::AtomicBool,
+    /// Every resize the wizard asked for: (pane, cols, rows).
+    resized: Mutex<Vec<(String, u16, u16)>>,
 }
 
 impl std::fmt::Debug for FakeHost {
@@ -62,7 +70,40 @@ impl std::fmt::Debug for FakeHost {
 
 impl FakeHost {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { state: Mutex::new(State::default()), on_deliver: Mutex::new(None), on_answer: Mutex::new(None) })
+        Arc::new(Self {
+            state: Mutex::new(State::default()),
+            on_deliver: Mutex::new(None),
+            on_answer: Mutex::new(None),
+            on_resize: Mutex::new(None),
+            can_resize: std::sync::atomic::AtomicBool::new(false),
+            resized: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// This host resizes panes and shows their scrollback; `hook(host, pane, cols, rows)` then plays what the agent
+    /// does about its new size (reprints its conversation, redraws only what is visible).
+    pub fn on_resize(&self, hook: impl Fn(&FakeHost, &str, u16, u16) + Send + Sync + 'static) {
+        *self.on_resize.lock() = Some(Box::new(hook));
+        self.can_resize.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Every resize the wizard asked for.
+    pub fn resizes(&self) -> Vec<(String, u16, u16)> {
+        self.resized.lock().clone()
+    }
+
+    /// Rows pushed into the scrollback (above the screen).
+    pub fn push_scrollback(&self, pane: &str, rows: &[&str]) {
+        if let Some(p) = self.state.lock().panes.get_mut(pane) {
+            p.scrollback.extend(rows.iter().map(|r| r.to_string()));
+        }
+    }
+
+    /// Drops the scrollback (what a viewer does at a resize when the profile says the agent reprints).
+    pub fn clear_scrollback(&self, pane: &str) {
+        if let Some(p) = self.state.lock().panes.get_mut(pane) {
+            p.scrollback.clear();
+        }
     }
 
     /// The next delivery calls `hook(host, pane_id, text)`.
@@ -171,6 +212,7 @@ impl PaneHost for FakeHost {
                 profile_id: spec.profile.id().to_string(),
                 cwd: spec.cwd.clone(),
                 forced_status: None,
+                scrollback: Vec::new(),
                 changed_at: std::time::Instant::now(),
             },
         );
@@ -192,6 +234,7 @@ impl PaneHost for FakeHost {
             output_pos: Some(st.counter),
             hello_written: false,
             grid: Some((p.cols, p.rows)),
+            history: String::new(),
         })
     }
 
@@ -226,6 +269,43 @@ impl PaneHost for FakeHost {
 
     fn cwd(&self, pane: &str) -> Option<PathBuf> {
         self.state.lock().panes.get(pane).map(|p| p.cwd.clone())
+    }
+
+    fn resize(&self, pane: &str, cols: u16, rows: u16) -> Result<(), String> {
+        if !self.can_resize.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("this host cannot resize a pane".into());
+        }
+        {
+            let mut st = self.state.lock();
+            let p = st.panes.get_mut(pane).ok_or("no such pane")?;
+            p.cols = cols;
+            p.rows = rows;
+            // What the pane registry does at a resize for a profile that says the agent reprints its conversation:
+            // the emulator drops its history (`wipe_history`) and the reprint that follows fills it again.
+            if crate::tui::registry::registry().find(&p.profile_id).is_some_and(|profile| profile.reprints_on_resize()) {
+                p.scrollback.clear();
+            }
+        }
+        self.resized.lock().push((pane.to_string(), cols, rows));
+        if let Some(hook) = self.on_resize.lock().as_ref() {
+            hook(self, pane, cols, rows);
+        }
+        Ok(())
+    }
+
+    fn history(&self, pane: &str) -> Option<String> {
+        if !self.can_resize.load(std::sync::atomic::Ordering::SeqCst) {
+            return None;
+        }
+        let st = self.state.lock();
+        let p = st.panes.get(pane)?;
+        Some(format!("{}
+{}", p.scrollback.join("
+"), p.screen))
+    }
+
+    fn viewer_grid(&self, pane: &str) -> Option<(u16, u16)> {
+        self.state.lock().panes.get(pane).map(|p| (p.cols, p.rows))
     }
 
     fn answer(&self, pane: &str, keys: &[AnswerKey]) -> Result<(), String> {
@@ -309,6 +389,7 @@ pub mod screens {
     pub const IDLE: &str = "NIMBUS 0.4 ready\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n";
     pub const TRUST: &str = "NIMBUS\n\nDo you trust the files in this folder?\n\n  1. Yes, trust this folder\n  2. No, exit\n";
     pub const PERMISSION: &str = "NIMBUS\n\nAllow nimbus to create hello.txt? [y/n]\n";
+    pub const COMMAND_PERMISSION: &str = "NIMBUS\n\nAllow nimbus to run `echo cccccc`? [y/n]\n";
 
     pub fn working(word: &str, n: usize) -> String {
         let spinner = ["\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}"][n % 4];
