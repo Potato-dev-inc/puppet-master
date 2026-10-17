@@ -52,7 +52,7 @@ steps = [
 ]
 ```
 
-Steps (`do = ...`): `think {ms, verb}` and `wait {ms}` stay busy; `say {text}`; `tool {label, detail, ms, failed}`; `approve {kind = "bash"|"edit"|"create", command|path, diff, auto_mode_option, on_allow, on_deny}` waits for a key (a refusal drops the rest of the turn); `write_file {path, content, append, quiet}` writes under the working directory; `suggest {text}` leaves a dimmed suggestion in the composer after the turn; `limit {text, reset, auto_continue}` prints the vendor's usage-limit message and ends the turn; `exit {code}` leaves the screen as it is (the host shell's prompt appears under it); `crash {message, code}` prints a panic line and exits 101; `screen {text}` adds literal rows.
+Steps (`do = ...`): `think {ms, verb}` and `wait {ms}` stay busy; `say {text}`; `tool {label, detail, ms, failed}`; `approve {kind = "bash"|"edit"|"create", command|path, diff, auto_mode_option, on_allow, on_deny}` waits for a key (a refusal drops the rest of the turn); `write_file {path, content, append, quiet}` writes under the working directory; `run {command}` runs a shell command there (`cmd /C` or `sh -c`; git, a test run; the exit code is drawn on the tool row and logged as `run`); `suggest {text}` leaves a dimmed suggestion in the composer after the turn; `limit {text, reset, auto_continue}` prints the vendor's usage-limit message and ends the turn; `exit {code}` leaves the screen as it is (the host shell's prompt appears under it); `crash {message, code}` prints a panic line and exits 101; `screen {text}` adds literal rows.
 
 **Nimbus-only options** (top level of the script), for the screen-read agent tests:
 

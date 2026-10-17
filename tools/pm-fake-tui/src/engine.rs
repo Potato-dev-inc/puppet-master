@@ -624,6 +624,10 @@ impl Engine {
                     let content = self.fill(&content);
                     self.write_file(&path, &content, append, quiet, now)
                 }
+                Step::Run { command } => {
+                    let command = self.fill(&command);
+                    self.run_command(&command, now)
+                }
                 Step::Suggest { text } => self.pending_suggestion = Some(text),
                 Step::Limit { text, reset, auto_continue } => {
                     let reset = reset.unwrap_or_else(|| "9:45 PM".into());
@@ -697,6 +701,41 @@ impl Engine {
             };
             self.blocks.push(Block::Tool { label, detail: Some(detail), failed: None });
         }
+    }
+
+    /// `Step::Run`: the command runs to its end here (a script's commands are short: git, a test run).
+    fn run_command(&mut self, command: &str, now: u64) {
+        #[cfg(windows)]
+        let mut cmd = {
+            // The command line goes to cmd.exe as it is written: no argument quoting in between.
+            use std::os::windows::process::CommandExt;
+            let mut c = std::process::Command::new("cmd");
+            c.arg("/C").raw_arg(command);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut cmd = {
+            let mut c = std::process::Command::new("sh");
+            c.args(["-c", command]);
+            c
+        };
+        let out = cmd.current_dir(&self.base_dir).stdin(std::process::Stdio::null()).output();
+        let (code, tail) = match &out {
+            Ok(o) => {
+                let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+                let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+                let from = lines.len().saturating_sub(5);
+                (o.status.code().unwrap_or(-1), lines[from..].join("\n"))
+            }
+            Err(e) => (-1, e.to_string()),
+        };
+        self.log(now, "run", json!({ "command": command, "code": code, "output": tail }));
+        let (label, detail) = match self.layout {
+            Layout::Claude => (format!("Bash({command})"), format!("exit {code}")),
+            Layout::Codex => (format!("Ran {command}"), format!("exit {code}")),
+            Layout::Nimbus => (format!("ran {command}"), format!("exit {code}")),
+        };
+        self.blocks.push(Block::Tool { label, detail: Some(detail), failed: (code != 0).then_some(code) });
     }
 
     fn interrupt(&mut self, now: u64) {
@@ -1061,6 +1100,22 @@ mod tests {
         stubborn.on_key(Key::Enter, 100);
         stubborn.on_key(Key::Esc, 200);
         assert!(stubborn.plain(200).contains("esc to interrupt"));
+    }
+
+    #[test]
+    fn run_executes_a_command_in_the_working_directory_and_logs_its_exit() {
+        let dir = std::env::temp_dir().join(format!("pm-fake-tui-run-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let command = if cfg!(windows) { "echo ran> ran.txt" } else { "echo ran > ran.txt" };
+        let script = Script::parse(&format!("[[turn]]
+steps = [{{ do = \"run\", command = {command:?} }}, {{ do = \"run\", command = \"exit 3\" }}]"), false).unwrap();
+        let mut e = Engine::new(script, dir.clone(), 100, 30, 0);
+        type_text(&mut e, "x", 0);
+        e.on_key(Key::Enter, 100);
+        assert!(dir.join("ran.txt").is_file(), "the command ran in the working directory");
+        let screen = e.plain(100);
+        assert!(screen.contains("Bash(echo ran") && screen.contains("exit 0") && screen.contains("exit 3"), "{screen}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
