@@ -12,7 +12,7 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 
 | Suite | Command (from repo root unless noted) | Expected |
 |---|---|---|
-| Rust lib | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\Ren-pc\cargo-target-shared'; cargo test --lib` | 927 passed, 0 failed, 2 ignored (PF3) |
+| Rust lib | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib` | 927 passed, 0 failed, 2 ignored (PF3) |
 | Rust: TUI only | `cargo test --lib tui::` (same dir/env) | about 252+ passed, 1 ignored |
 | Rust: tool registry | `cargo test --lib tool_registry` | about 22 passed (includes the pinned `catalog_version`) |
 | Rust: standby / preload | `cargo test --lib standby` (+ `app_windows`, `tray`) | about 50 passed (PreloadConfig, migration, default-project warming, count 2, replacement, project change) |

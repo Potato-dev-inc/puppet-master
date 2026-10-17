@@ -36,7 +36,7 @@ fn a_boxed_trust_dialog_is_stripped_but_other_boxes_survive() {
     assert!(!stripped.contains("Workspace Trust Required"), "{stripped}");
     assert!(!stripped.contains("Trust this workspace"), "{stripped}");
     // The dialog's own directory row goes; the `~\...` footer outside it is ordinary chrome.
-    assert!(!stripped.contains(r"C:\Users\Ren-pc\AppData\Local\Temp\cur-_b1a_ip3"));
+    assert!(!stripped.contains(r"C:\Users\you-pc\AppData\Local\Temp\cur-_b1a_ip3"));
     assert!(stripped.contains("Plan, search, build anything"), "TUI below the dialog stays");
     let table = "\u{256d}\u{2500}\u{2500}\u{256e}\n\u{2502} a \u{2502} b \u{2502}\n\u{2570}\u{2500}\u{2500}\u{256f}";
     assert_eq!(strip_dialog_boxes(table), table);

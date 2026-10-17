@@ -7,7 +7,7 @@
   │                                                                                                                   │
   │  Do you trust the contents of this directory?                                                                     │
   │                                                                                                                   │
-  │    C:\Users\Ren-pc\AppData\Local\Temp\cur-_b1a_ip3                                                                │
+  │    C:\Users\you-pc\AppData\Local\Temp\cur-_b1a_ip3                                                                │
   │                                                                                                                   │
   │                                                                                                                   │
   │    [a] Trust this workspace                                                                                       │  
