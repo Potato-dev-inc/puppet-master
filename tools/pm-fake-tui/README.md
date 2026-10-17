@@ -54,6 +54,17 @@ steps = [
 
 Steps (`do = ...`): `think {ms, verb}` and `wait {ms}` stay busy; `say {text}`; `tool {label, detail, ms, failed}`; `approve {kind = "bash"|"edit"|"create", command|path, diff, auto_mode_option, on_allow, on_deny}` waits for a key (a refusal drops the rest of the turn); `write_file {path, content, append, quiet}` writes under the working directory; `suggest {text}` leaves a dimmed suggestion in the composer after the turn; `limit {text, reset, auto_continue}` prints the vendor's usage-limit message and ends the turn; `exit {code}` leaves the screen as it is (the host shell's prompt appears under it); `crash {message, code}` prints a panic line and exits 101; `screen {text}` adds literal rows.
 
+**Nimbus-only options** (top level of the script), for the screen-read agent tests:
+
+| Key | What it does |
+|---|---|
+| `backlog_rows = N` | N filler rows ("earlier session note 1..N") under the banner from the start, so the banner scrolls off and a long conversation overflows the pane |
+| `status_model = "name"`, `status_model_when = "always"` or `"busy"` | a model name in the footer (`model: name` before the hints) or only on the working row |
+| `footer_right = "text"` | text flush against the last column of the footer row (a clipped column shows at once) |
+| `inline = true`, `reprint_on_resize = true` or `false` | paint like an inline TUI: the conversation is printed top-down into the scrollback and only the visible part is redrawn; on a resize `reprint_on_resize` clears the screen and prints the WHOLE conversation again (rows that overflow reach the history a second time), otherwise only the visible part is redrawn |
+| `approvals = "menus"` | a command asks with a numbered menu (`Run this command?` / `> 1. Allow once` / `2. Always allow in this project` / `3. Deny`; digits answer) and a file write with an arrow menu (`Write <path>?` / `Yes, write it` ...; arrows and Enter); default `yn` is the one-line `[y/n]` |
+| `[[startup]] animate = true` | the trust question redraws while it waits: a blinking block after the question and a spinner row with a seconds counter under it |
+
 A turn that runs out of steps ends like a real one: a summary row, then the composer. A prompt no turn matches gets the first turn without `on_prompt`, else "OK".
 
 ## Layout of the code
