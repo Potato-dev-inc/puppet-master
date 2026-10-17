@@ -23,8 +23,17 @@ interface UseTerminalSessionOptions {
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
   disableMobileInput?: boolean;
-  /** Bump to force a tiny resize/repaint (e.g. when re-entering the grid). */
+  /**
+   * Bump to re-fit at the container's current size and repaint locally. Cheap and safe: when the
+   * fitted grid equals what the PTY already has, nothing is sent and the agent does not reprint.
+   */
   reflowKey?: number | string;
+  /**
+   * Bump (a CHANGE; the value at mount is ignored) to also redraw an alternate-screen TUI by
+   * resizing the PTY one row down and back. Costs two PTY resizes, so only for a pane that really
+   * moved (it came back from its own window) or an explicit "reflow" click.
+   */
+  redrawKey?: number | string;
   /** Bump `n` to redraw a mirror from the PC's current screen (phone nudge after an action). */
   refreshSignal?: { n: number; skipIfScrolledUp: boolean };
   /** Owner window: the PTY size a phone holds right now (null when no phone holds the pane). */
@@ -76,6 +85,7 @@ export function useTerminalSession({
   mobileInputVisible,
   disableMobileInput,
   reflowKey,
+  redrawKey,
   refreshSignal,
   heldPtySize,
   onFitGrid,
@@ -95,8 +105,9 @@ export function useTerminalSession({
   const sizesPane = !!onFitGrid;
   const assumePtyGridRef = useRef(assumePtyGrid);
   assumePtyGridRef.current = assumePtyGrid;
+  // The explicit "nudge layout reflow" button: the person asked for a full redraw.
   const nudgeReflow = useCallback(() => {
-    sessionRef.current?.nudgeReflow();
+    sessionRef.current?.nudgeReflow({ redrawAltBuffer: true });
   }, []);
 
   const isScrolledUp = useCallback(() => sessionRef.current?.isScrolledUp() ?? false, []);
@@ -188,6 +199,27 @@ export function useTerminalSession({
       cancelAnimationFrame(frame);
     };
   }, [reflowKey]);
+
+  // The heavy redraw runs on a CHANGE of `redrawKey`, never for the value a pane mounts with: a
+  // pane that merely appeared (or whose neighbour did) must not resize its PTY twice.
+  const seenRedrawKey = useRef(redrawKey);
+  useEffect(() => {
+    if (redrawKey === undefined || Object.is(seenRedrawKey.current, redrawKey)) return;
+    seenRedrawKey.current = redrawKey;
+    let cancelled = false;
+    let frame = 0;
+    let attempts = 0;
+    const tryRedraw = () => {
+      if (cancelled) return;
+      const did = sessionRef.current?.nudgeReflow({ redrawAltBuffer: true }) ?? false;
+      if (!did && ++attempts < 10) frame = requestAnimationFrame(tryRedraw);
+    };
+    frame = requestAnimationFrame(tryRedraw);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [redrawKey]);
 
   const refreshN = refreshSignal?.n ?? 0;
   const refreshSkipRef = useRef(false);
