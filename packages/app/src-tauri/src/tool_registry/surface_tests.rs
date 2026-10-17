@@ -16,9 +16,9 @@ fn names_for(mode: McpMode) -> Vec<&'static str> {
 fn catalog_version_moved_when_the_listed_surface_was_introduced() {
     let version = catalog_version();
     assert_ne!(version, CATALOG_VERSION_BEFORE_SURFACE);
-    // No tool was removed: the callable catalog still has all 68, so the count prefix is stable.
-    assert!(version.starts_with("68-"), "{version}");
-    assert_eq!(external_mcp_tool_count(), 68);
+    // 68 tools before the Team tools were added (team_roster, team_events, team_wait, team_notify): 72 now.
+    assert!(version.starts_with("72-"), "{version}");
+    assert_eq!(external_mcp_tool_count(), 72);
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn listed_tool_count_per_mode_is_pinned() {
     assert_eq!(names_for(McpMode::Shell).len(), 16, "{:?}", names_for(McpMode::Shell));
     assert_eq!(names_for(McpMode::Both).len(), 32, "{:?}", names_for(McpMode::Both));
     // The old full list, behind mode `all`.
-    assert_eq!(names_for(McpMode::All).len(), 68);
+    assert_eq!(names_for(McpMode::All).len(), 72);
     assert_eq!(names_for(McpMode::All).len(), external_mcp_tool_count());
 }
 
@@ -169,12 +169,13 @@ fn unlisted_advanced_tools_are_still_callable_where_they_were() {
 
 #[test]
 fn nothing_became_callable_or_uncallable_in_agent_and_shell_modes() {
-    // The callable sets of agent and shell are the exact pre-change lists (33 and 18 names, with
-    // set_mode counted in agent mode only through its always-visible rule).
-    assert_eq!(callable_tools_for_mode(McpMode::Agent).len(), 33);
+    // The callable sets of agent and shell are the pre-change lists (33 and 18 names, with
+    // set_mode counted in agent mode only through its always-visible rule), plus the four Team
+    // tools in agent mode only.
+    assert_eq!(callable_tools_for_mode(McpMode::Agent).len(), 37);
     assert_eq!(callable_tools_for_mode(McpMode::Shell).len(), 19);
-    assert_eq!(callable_tools_for_mode(McpMode::Both).len(), 68);
-    assert_eq!(callable_tools_for_mode(McpMode::All).len(), 68);
+    assert_eq!(callable_tools_for_mode(McpMode::Both).len(), 72);
+    assert_eq!(callable_tools_for_mode(McpMode::All).len(), 72);
 }
 
 #[test]
@@ -224,4 +225,23 @@ fn instructions_lead_with_the_five_tool_happy_path_in_order() {
     for (alias, _) in ALIASES {
         assert!(text.contains(alias), "instructions should name the hidden alias {alias}");
     }
+}
+
+#[test]
+fn the_team_tools_are_callable_by_name_in_agent_mode_but_not_listed_by_default() {
+    for name in ["team_roster", "team_events", "team_wait", "team_notify"] {
+        assert_eq!(tool_tier(name), ToolTier::Advanced, "{name}");
+        assert!(tool_visible_in_mode(name, McpMode::Agent), "{name} agent");
+        assert!(tool_visible_in_mode(name, McpMode::Both), "{name} both");
+        assert!(tool_visible_in_mode(name, McpMode::All), "{name} all");
+        assert!(!tool_visible_in_mode(name, McpMode::Shell), "{name} shell: a terminal-control session has no business with the team");
+        assert!(!names_for(McpMode::Agent).contains(&name), "{name} listed in agent mode");
+        assert!(!names_for(McpMode::Both).contains(&name), "{name} listed in both");
+        assert!(names_for(McpMode::All).contains(&name), "{name} missing from all");
+    }
+    // The instructions say they exist, so an orchestrator on a team can find them.
+    for name in ["team_roster", "team_events", "team_wait", "team_notify"] {
+        assert!(mcp_instructions().contains(name), "{name}");
+    }
+    assert!(mcp_instructions().contains("untrusted data"));
 }

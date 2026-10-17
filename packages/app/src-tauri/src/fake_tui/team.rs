@@ -105,6 +105,10 @@ impl Person {
             "apply" => to_json(service::apply(text(args, "job_id")?)),
             "discard" => to_json(service::discard(text(args, "job_id")?).map(|()| Value::Null)),
             "diff" => to_json(service::diff(text(args, "job_id")?)),
+            // ---- the team tools of this person's agents (MCP): `team_roster`, `team_events`, `team_wait`, `team_notify`
+            "mcp" => self.mcp(args),
+            // How many envelopes the relay holds for the team, as this person's device sees them.
+            "relay_count" => self.relay_count(text(args, "relay")?, text(args, "team")?),
             // ---- the fake agents of this person
             "script" => {
                 self.session.script(text(args, "toml")?);
@@ -127,6 +131,39 @@ impl Person {
             "stranger_posts" => self.stranger_posts(args),
             other => Err(format!("unknown operation {other}")),
         }
+    }
+
+    /// One call of an agent's team tool, through the same bridge route code the MCP shim reaches
+    /// (`bridge/routes/team_mcp.rs`): `op` is `roster`, `events`, `wait` or `notify`, `body` its arguments.
+    /// By default the caller is an MCP session on this computer; `headers`, `remote` and `session`
+    /// let a test be someone else (a phone behind a tunnel). `Err` carries the error JSON as text.
+    fn mcp(&self, args: &Value) -> Result<Value, String> {
+        let op = text(args, "op")?;
+        let body = args.get("body").cloned().unwrap_or_else(|| json!({}));
+        let headers = args.get("headers").and_then(Value::as_str).unwrap_or("Host: 127.0.0.1\r\n");
+        let remote = args.get("remote").and_then(Value::as_bool).unwrap_or(false);
+        let session = match args.get("session") {
+            None => Some("e2e-agent"),
+            Some(Value::Null) => None,
+            Some(other) => other.as_str(),
+        };
+        match crate::bridge::team_agent_request("POST", &["team", "agent", op], &body, headers, !remote, session, &crate::bridge::LiveTeam) {
+            Some(Ok((_, value))) => Ok(value),
+            Some(Err((_, error))) => Err(error.to_string()),
+            None => Err(format!("no team tool route {op}")),
+        }
+    }
+
+    /// The envelopes in the team's mailbox on the relay: read from the start until nothing more comes.
+    fn relay_count(&self, relay: &str, team: &str) -> Result<Value, String> {
+        let wire = self.mailbox(relay, team)?;
+        let rx = wire.subscribe(0).map_err(|e| e.0)?;
+        let mut count = 0u64;
+        while rx.recv_timeout(Duration::from_millis(1500)).is_ok() {
+            count += 1;
+        }
+        wire.stop();
+        Ok(Value::from(count))
     }
 
     /// `run_agent` in `project`, and wait until the run is over.

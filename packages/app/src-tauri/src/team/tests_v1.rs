@@ -26,37 +26,37 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-const NOW: u64 = 1_790_000_000_000;
+pub(super) const NOW: u64 = 1_790_000_000_000;
 
-fn now() -> u64 {
+pub(super) fn now() -> u64 {
     super::transport::now_ms()
 }
 
-fn temp_dir(tag: &str) -> PathBuf {
+pub(super) fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("pmteam1-{tag}-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-fn person(name: &str) -> KeyStore {
+pub(super) fn person(name: &str) -> KeyStore {
     KeyStore::with_backend(Arc::new(MemoryBackend::new()), name)
 }
 
-fn folder(dir: &std::path::Path) -> Arc<dyn TeamTransport> {
+pub(super) fn folder(dir: &std::path::Path) -> Arc<dyn TeamTransport> {
     Arc::new(FolderTransport::new(dir.to_path_buf()))
 }
 
 /// Maya creates a team; each name in `others` is invited, asks to join with the right code, and
 /// is let in. Returns the admin's roster and everyone's key stores.
-struct World {
-    roster: Roster,
-    maya: KeyStore,
-    others: Vec<(String, KeyStore, Roster)>,
+pub(super) struct World {
+    pub(super) roster: Roster,
+    pub(super) maya: KeyStore,
+    pub(super) others: Vec<(String, KeyStore, Roster)>,
     #[allow(dead_code)]
     link: Option<InviteLink>,
 }
 
-fn world(transport: &Arc<dyn TeamTransport>, others: &[&str], at: u64) -> World {
+pub(super) fn world(transport: &Arc<dyn TeamTransport>, others: &[&str], at: u64) -> World {
     let maya = person("maya");
     let t = transport.clone();
     let mut roster = membership::create_team("Acme", "Maya", &maya, move |_| Ok(t), at).unwrap();
@@ -91,7 +91,7 @@ fn world(transport: &Arc<dyn TeamTransport>, others: &[&str], at: u64) -> World 
     World { roster, maya, others: joined, link: last_link }
 }
 
-fn event_from(keys: &KeyStore, team: &str, at: u64) -> TeamEvent {
+pub(super) fn event_from(keys: &KeyStore, team: &str, at: u64) -> TeamEvent {
     let subject = Subject {
         branch: Some("feat/auth".into()),
         commit: Some("0123456789abcdef0123456789abcdef01234567".into()),
@@ -121,7 +121,7 @@ fn event_from(keys: &KeyStore, team: &str, at: u64) -> TeamEvent {
     }
 }
 
-fn config_for(keys: &KeyStore, roster: &Roster, name: &str) -> TeamConfig {
+pub(super) fn config_for(keys: &KeyStore, roster: &Roster, name: &str) -> TeamConfig {
     TeamConfig {
         enabled: true,
         team: roster.team.clone(),

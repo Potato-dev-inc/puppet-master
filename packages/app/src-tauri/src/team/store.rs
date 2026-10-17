@@ -38,6 +38,10 @@ pub struct Draft {
     /// Local repository the push happened in.
     pub repo: String,
     pub created_at_ms: u64,
+    /// Set when an agent drafted it through the MCP tool `team_notify` (the label it gave, or
+    /// "An agent"). `None`: Puppet Master saw my own push. Either way only my click sends it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drafted_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -198,7 +202,7 @@ pub fn ingest(store: &mut TeamStore, config: &TeamConfig, verified: Verified, no
     if !local_fact {
         // Which card a teammate's event lands on follows from its own facts, never from a key the
         // sender chose (security review L4).
-        event.dedupe_key = super::event::dedupe_key(&event.project.key, event.kind, &event.subject);
+        event.dedupe_key = super::event::event_dedupe_key(&event);
     }
     if event.team != config.team {
         return Ingested::Ignored("another team");

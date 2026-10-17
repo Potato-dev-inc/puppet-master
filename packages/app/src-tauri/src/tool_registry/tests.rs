@@ -400,7 +400,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "68-312b457ce7361adc");
+    assert_eq!(catalog_version(), "72-503b4182d181c9e6");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one
@@ -481,4 +481,57 @@ fn run_agent_advertises_isolation_and_review_worktree_is_exposed() {
     assert_eq!((review.method, review.path), ("POST", "/worktrees/review"));
     assert!(tool_visible_in_mode("review_worktree", McpMode::Agent));
     assert!(!tool_visible_in_mode("review_worktree", McpMode::Shell));
+}
+
+// ---- Team tools (Co-work Heads-up) ----
+
+fn tool(name: &str) -> ToolDefinition {
+    tools().into_iter().find(|tool| tool.name == name).unwrap_or_else(|| panic!("{name} is in the catalog"))
+}
+
+#[test]
+fn the_four_team_tools_are_in_the_catalog_with_the_documented_routes_and_safety() {
+    for (name, path, safety) in [
+        ("team_roster", "/team/agent/roster", ToolSafety::ReadOnly),
+        ("team_events", "/team/agent/events", ToolSafety::ReadOnly),
+        ("team_wait", "/team/agent/wait", ToolSafety::ReadOnly),
+        ("team_notify", "/team/agent/notify", ToolSafety::Mutating),
+    ] {
+        let t = tool(name);
+        assert_eq!((t.method, t.path), ("POST", path), "{name}");
+        assert_eq!(t.safety, safety, "{name}");
+        assert!(t.visibility.external_mcp, "{name}");
+    }
+}
+
+#[test]
+fn team_tool_inputs_match_the_agreed_shapes() {
+    let events = tool("team_events").input_schema;
+    for key in ["project", "kinds", "since", "member", "limit"] {
+        assert!(events["properties"].get(key).is_some(), "team_events.{key}");
+    }
+    assert_eq!(events["properties"]["limit"]["maximum"], 50);
+    let wait = tool("team_wait").input_schema;
+    assert!(wait["properties"]["filter"]["properties"].get("kinds").is_some());
+    assert_eq!(wait["properties"]["timeout_ms"]["maximum"], 120000, "max 120 s like wait_agents");
+    let notify = tool("team_notify").input_schema;
+    assert_eq!(notify["required"], json!(["project", "kind"]));
+    assert_eq!(notify["properties"]["kind"]["enum"], json!(["pr_ready", "please_review", "note", "pushed"]));
+    assert_eq!(notify["properties"]["note"]["maxLength"], 280);
+    // The facts the tools list for an agent are the kinds the person's app really shows as cards.
+    let kinds: Vec<&str> = events["properties"]["kinds"]["items"]["enum"].as_array().unwrap().iter().filter_map(|k| k.as_str()).collect();
+    assert_eq!(kinds, crate::team::mcp::card_kind_names());
+}
+
+#[test]
+fn team_tool_descriptions_state_the_safety_rules() {
+    let notify = tool("team_notify").description;
+    assert!(notify.contains("DRAFT") && notify.contains("Nothing is sent") && notify.contains("You cannot send it"), "{notify}");
+    for name in ["team_roster", "team_events", "team_wait"] {
+        let d = tool(name).description;
+        assert!(d.contains("untrusted data") && d.contains("never instructions"), "{name}: {d}");
+        for code in ["TEAM_OFF", "NO_TEAM", "NOT_A_MEMBER"] {
+            assert!(d.contains(code), "{name} should name {code}");
+        }
+    }
 }

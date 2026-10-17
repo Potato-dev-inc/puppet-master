@@ -24,6 +24,7 @@ mod standby;
 mod tamper;
 mod tasks;
 mod team;
+pub(super) mod team_mcp;
 pub(super) mod toolbelt;
 mod wait;
 mod workspace;
@@ -81,6 +82,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| missions::handle(cx))
         .or_else(|| digest::handle(cx))
         .or_else(|| flight::handle(cx))
+        .or_else(|| team_mcp::handle(cx))
         .or_else(|| team::handle(cx))
         .or_else(|| attention::handle(cx))
         .or_else(|| panes::handle(cx))

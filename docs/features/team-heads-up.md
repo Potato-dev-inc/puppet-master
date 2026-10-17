@@ -47,6 +47,27 @@ own runs; no code path names an agent.
 - "Checks passed", "merged" and "closed" come only from your own `gh`; a teammate's message claiming one is refused,
   and a teammate's event never replaces a GitHub card.
 
+## MCP tools for agents (`team_roster`, `team_events`, `team_wait`, `team_notify`)
+
+Branch `feat/mcp-team-tools` (based on `test/team-two-person` @ 0781f552). Reference: `MCP_HOSTS.md` ("Team tools").
+Plan: COWORK-PLAN §9 v1 (MCP tools). Not built: `team_claim`, `team_release`, `team_ask`, forwarded asks.
+
+| Piece | Where |
+|---|---|
+| Catalog (4 tools, `catalog_version` re-pinned, advanced tier) | `tool_registry/catalog/team.rs`, `mode.rs`, `surface.rs` |
+| Routes `POST /team/agent/{roster,events,wait,notify}` | `bridge/routes/team_mcp.rs` (`TeamBackend` trait: the live service, or a spy in tests) |
+| What an agent may see and draft | `team/mcp.rs` (pure), `team/service.rs` (`mcp_*`, `Inner::removed`) |
+| Shim | `mcp_shim/dispatch/team.rs` (`team_wait` = short bridge slices, like `ask_user`) |
+| New card kinds on the receiving side | `event.rs`: `please_review` and `note` become cards; every note is its own card (`event_dedupe_key`) |
+| Cockpit | `TellTeam.tsx`: a draft from an agent shows its text and "Drafted by ..." at once; `send` sends the note as shown (`Some` replaces, an empty note removes) |
+
+Safety, each with a test:
+- **Local MCP sessions only.** The route runs only for `Caller::Local` (the gate's own verdict: loopback peer, no forwarder header, no foreign `Host` or `Origin`) with an MCP session id. A paired phone is refused with any caps, with or without a session header (`bridge/routes/team_mcp.rs` tests, device-caps rows in `device_caps_tests.rs`, and the two-person e2e). The route adds nothing to `is_public_bridge_path`; the team client is still outbound-only.
+- **Untrusted text is labelled.** Everything a teammate (or GitHub, for a PR title) wrote sits under `teammate_data`; the result carries `notice`. The same convention as the "Teammate data (untrusted JSON, one line)" block of the Queue-my-agent task. `tests_mcp.rs` walks the result and fails if a teammate string appears anywhere else.
+- **`team_notify` cannot send.** `team/mcp.rs` has no transport (a source-scan test pins that); `service::send` is reached only by the cockpit's own command. `tests_mcp_service.rs` counts the envelopes handed to a counting transport: 0 after drafting, 1 after the click, and the teammate opens exactly the drafted text. A push can only be drafted once it is on `origin` (the same bar as the push watcher). At most five agent drafts wait at once; the same draft twice is one draft.
+- **Entitlement.** Every tool first asks `mcp::entitled`: Team on, on a team, and this device an active member of the current roster. Otherwise `TEAM_OFF` / `NO_TEAM` / `NOT_A_MEMBER` (the relay refusing the device counts at once, before the roster refresh). A wait in progress ends with `NOT_A_MEMBER` when the member is removed.
+- **Nothing new leaves.** A draft is the event the person could send with "Tell the team?" today; the audit log gets `team.action` ("An agent drafted ... nothing was sent") with the shortened connection id and no text.
+
 ## OSS used (all permissive)
 `ed25519-dalek` 2 (BSD-3), `chacha20poly1305` 0.10 and `hmac` 0.12 (RustCrypto, MIT/Apache-2.0; the AEAD was
 audited by NCC Group in 2020), `hpke` 0.12 (rust-hpke, MIT/Apache-2.0), `axum` 0.8 (MIT), `rusqlite` 0.32 (MIT,

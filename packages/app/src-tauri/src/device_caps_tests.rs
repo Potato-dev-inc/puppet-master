@@ -164,6 +164,13 @@ const ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/team/cards/c1/dismiss", "answer|control"),
     ("POST", "/team/cards/c1/queue", "control"),
     ("POST", "/team/jobs/j1/apply", "control"),
+    // Team tools for agents (`bridge/routes/team_mcp.rs`): the gate lets a full-control phone reach
+    // them like any other control route, and the route itself then refuses every device
+    // (`team_mcp::tests`, the two-person e2e). No cap makes these routes a phone's.
+    ("POST", "/team/agent/roster", "control"),
+    ("POST", "/team/agent/events", "control"),
+    ("POST", "/team/agent/wait", "control"),
+    ("POST", "/team/agent/notify", "control"),
 ];
 
 fn allowed(caps: Caps, need: &str) -> bool {
