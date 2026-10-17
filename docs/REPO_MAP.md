@@ -622,6 +622,13 @@ live helpers: `scripts/spawn-close-agent.py`, `scripts/test-bridge.ps1`, `script
 to know it is back. The dev app may run as a "worker host". Debug builds re-stamp the build id only on
 source/git-ref changes (set `PM_FORCE_NEW_BUILD_ID=1` to force); release builds always re-stamp.
 
+Phone in dev: Vite (1420) serves the PWA and proxies `/bridge/*` via `packages/app/vite-bridge-proxy.ts`
+(test: `vite-bridge-proxy.test.ts`). The target is the port in the app's port file, found like
+`app_paths::bridge_port_file()` (env `PUPPET_MASTER_BRIDGE_PORT_FILE`, else `<app data>/com.puppetmaster.app[.profile-<name>]/`),
+and is re-read on every request and WebSocket upgrade (node `http-proxy` has no `router` option, so
+`configure` wraps `proxy.web`/`proxy.ws`). A dead bridge answers 502 `{code:"BRIDGE_UNREACHABLE"}`;
+`lib/bridge.ts` shows its message. The built app's `pwa_server.rs` does the same per request.
+
 ### MCP exe rebuild (do this after ANY change to `tool_registry/`, `bin/puppet-master-mcp.rs`, `mcp_shim/`, or bridge code the shim depends on)
 
 `node scripts/build-rust-mcp.mjs` (or `npm run build:rust --workspace=@puppet-master/mcp`) builds
