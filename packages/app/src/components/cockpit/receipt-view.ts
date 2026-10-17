@@ -20,6 +20,9 @@ const LABELS: Record<string, string> = {
   build_id: 'App build',
   standby_used: 'Started from',
   fallback: 'Ran in the background instead',
+  run_mode: 'How it ran',
+  'run_mode.mode': 'Mode',
+  'run_mode.source': 'Chosen by',
   'fallback.from': 'Wanted',
   'fallback.to': 'Ran',
   'fallback.reason': 'Why',
@@ -48,7 +51,13 @@ const VALUES: Record<string, Record<string, string>> = {
   outcome: OUTCOME,
   read_only: { enforced: 'Yes', unenforced: 'Asked for, not enforced by this agent', off: 'No' },
   result_capture: { authoritative: 'The agent', inferred: 'The screen', missing: 'Nothing captured' },
-  'fallback.reason': { visible_failed: 'The visible pane did not start', no_visible_mode: 'This agent has no visible pane' },
+  'fallback.reason': {
+    visible_failed: 'The visible pane did not start',
+    no_visible_mode: 'This agent has no visible pane',
+    not_verified: 'One-task mode is not verified for this agent',
+  },
+  'run_mode.mode': { one_task: 'One-task mode', visible: 'Visible pane' },
+  'run_mode.source': { agent_setting: 'The agent setting' },
   'worktree.state': { unreviewed: 'Not merged yet', merged: 'Merged', discarded: 'Discarded' },
 };
 

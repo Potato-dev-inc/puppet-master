@@ -35,6 +35,12 @@ pub struct RunReceipt {
     /// reason `no_visible_mode` or `visible_failed`. Null otherwise.
     #[serde(default)]
     pub fallback: Option<crate::operations::RunFallback>,
+    /// Set when the agent's "How agent runs work" setting decided the mode: `{mode, source}` with
+    /// mode `one_task` or `visible` and source `agent_setting`. When one-task mode was chosen but
+    /// not verified, mode is `visible` and `fallback` is `{from: "one_task", to: "visible",
+    /// reason: "not_verified"}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_mode: Option<crate::operations::RunModeNote>,
     /// The definition (id, source, fingerprint, pinned binary) a declarative agent ran from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_definition: Option<crate::tui::DefinitionRef>,
@@ -162,10 +168,17 @@ pub(super) fn build_receipt(
         not_verified.push("setting up the copy failed".to_string());
     }
     if let Some(fallback) = &snapshot.worker.fallback {
-        not_verified.push(format!(
-            "ran headless, not in a visible pane ({})",
-            fallback.reason
-        ));
+        if fallback.is_one_task_to_visible() {
+            not_verified.push(format!(
+                "one-task mode is set for this agent but not verified; ran in a visible pane ({})",
+                fallback.reason
+            ));
+        } else {
+            not_verified.push(format!(
+                "ran headless, not in a visible pane ({})",
+                fallback.reason
+            ));
+        }
     }
     if held.experimental {
         not_verified.push("experimental agent: screen heuristics only".to_string());
@@ -201,6 +214,7 @@ pub(super) fn build_receipt(
         build_id: env!("PM_BUILD_ID").to_string(),
         standby_used: snapshot.worker.standby_used,
         fallback: snapshot.worker.fallback.clone(),
+        run_mode: snapshot.worker.run_mode.clone(),
         agent_definition: snapshot.worker.agent_definition.clone(),
         worktree: snapshot.worker.worktree.as_ref().map(|worktree| ReceiptWorktree {
             path: worktree.path.clone(),

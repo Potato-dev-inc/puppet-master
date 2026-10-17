@@ -55,7 +55,7 @@ pub(in crate::bridge) fn registry_route(
         )),
         // Static listing of the registered agent types (SPEC 7.5). Sits under `/agents/`, so the
         // router's session gate for agent APIs applies to it.
-        ("GET", ["agents", "types"]) => Some((200, crate::tui::agent_types_listing())),
+        ("GET", ["agents", "types"]) => Some((200, crate::agent_run_mode::decorate_listing(crate::tui::agent_types_listing()))),
         _ => None,
     }
 }
@@ -72,7 +72,7 @@ pub(in crate::bridge) fn types_route(session: Option<&str>, headers: &str, peer_
 }
 
 pub(in crate::bridge) fn agent_types_for(app_session: bool) -> serde_json::Value {
-    redact_definition_paths(crate::tui::agent_types_listing(), app_session)
+    redact_definition_paths(crate::agent_run_mode::decorate_listing(crate::tui::agent_types_listing()), app_session)
 }
 
 pub(in crate::bridge) fn redact_definition_paths(mut listing: serde_json::Value, keep: bool) -> serde_json::Value {

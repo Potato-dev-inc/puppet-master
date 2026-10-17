@@ -255,6 +255,10 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return a.name === 'anthropic_api_key' ? { set: true, last4: 'WXYZ' } : { set: false, last4: null };
         case 'get_opencode_key_status':
           return { active_profile: 'a', profiles: [{ id: 'a', label: 'Primary', configured: true }, { id: 'b', label: 'Secondary', configured: false }], key_automation_mode: 'notify_only', restart_pane_on_rotate: true };
+        case 'agent_run_mode_get':
+        case 'agent_run_mode_set':
+          // The dev harness has no custom agents to choose for.
+          return { agents: [] };
         case 'agent_authority_get':
           return authority;
         case 'agent_authority_set': {

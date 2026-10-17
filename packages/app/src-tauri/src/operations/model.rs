@@ -410,6 +410,10 @@ pub struct WorkerPersist {
     /// This turn asked for a visible pane but ran headless (see `agent_runs::fallback`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<RunFallback>,
+    /// Set when the agent's "How agent runs work" setting decided this turn's mode
+    /// (`agent_run_mode`); absent when the caller chose or the default applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_mode: Option<RunModeNote>,
     /// Programs pre-authorised for allow-once on Cursor shell prompts (see approval_policy).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_commands: Vec<String>,
@@ -446,6 +450,31 @@ pub struct RunFallback {
 impl RunFallback {
     pub fn to_headless(reason: &str) -> Self {
         Self { from: "visible".into(), to: "headless".into(), reason: reason.into() }
+    }
+
+    /// One-task mode was chosen for the agent but is not (or no longer) verified: the run used a
+    /// visible pane instead (`reason` `not_verified`).
+    pub fn one_task_to_visible(reason: &str) -> Self {
+        Self { from: "one_task".into(), to: "visible".into(), reason: reason.into() }
+    }
+
+    /// True for the fallback to the visible pane (not the usual one to headless).
+    pub fn is_one_task_to_visible(&self) -> bool {
+        self.from == "one_task"
+    }
+}
+
+/// Which mode a run used and why, when the agent's setting decided it: `mode` is `one_task` or
+/// `visible`, `source` is `agent_setting`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunModeNote {
+    pub mode: String,
+    pub source: String,
+}
+
+impl RunModeNote {
+    pub fn new(mode: &str, source: &str) -> Self {
+        Self { mode: mode.into(), source: source.into() }
     }
 }
 

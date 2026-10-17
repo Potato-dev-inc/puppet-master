@@ -21,8 +21,8 @@ use std::sync::Arc;
 use tauri::AppHandle;
 use wait::{transcript, wait_agents};
 use wire::{
-    parse, project_path, query_value, AgentHandleRequest, AnswerPromptRequest, SendAgentRequest,
-    WaitAgentsRequest,
+    headless_left_out, parse, project_path, query_value, AgentHandleRequest, AnswerPromptRequest,
+    SendAgentRequest, WaitAgentsRequest,
 };
 
 pub(crate) use answer::{answer_decided, answer_for_pane};
@@ -64,6 +64,8 @@ pub fn handle_request_as(
     }
     let result = match (method, segments) {
         ("POST", ["agents", "run"]) => parse::<AgentRunRequest>(body).and_then(|mut request| {
+            // The caller left `headless` out (or null): the agent's run-mode setting may decide.
+            request.headless_unset = headless_left_out(body);
             if request
                 .project_path
                 .as_deref()

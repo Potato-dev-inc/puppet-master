@@ -400,7 +400,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "72-503b4182d181c9e6");
+    assert_eq!(catalog_version(), "72-ffde8e7c2c763567");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one
@@ -533,5 +533,22 @@ fn team_tool_descriptions_state_the_safety_rules() {
         for code in ["TEAM_OFF", "NO_TEAM", "NOT_A_MEMBER"] {
             assert!(d.contains(code), "{name} should name {code}");
         }
+    }
+}
+
+/// "How agent runs work": the catalog tells a lead how the agent's setting interacts with `headless`
+/// and where to read `headless_verified` (output fields only; no input property was added).
+#[test]
+fn run_agent_and_list_agents_describe_the_agent_run_mode() {
+    let run = tools().into_iter().find(|t| t.name == "run_agent").expect("run_agent");
+    assert!(run.description.contains("One-task mode") && run.description.contains("not_verified"));
+    let headless = run.input_schema["properties"]["headless"]["description"].as_str().unwrap();
+    assert!(headless.contains("agent's own setting") && headless.contains("always wins"), "{headless}");
+    let output = run.output_schema.as_ref().expect("output schema").to_string();
+    assert!(output.contains("\"run_mode\"") && output.contains("agent_setting") && output.contains("not_verified"), "{output}");
+    let list = tools().into_iter().find(|t| t.name == "list_agents").expect("list_agents");
+    let types = &list.output_schema.as_ref().unwrap()["properties"]["agent_types"]["items"]["properties"];
+    for field in ["id", "headless_supported", "headless_verified", "run_mode"] {
+        assert!(types.get(field).is_some(), "list_agents agent_types lacks {field}");
     }
 }

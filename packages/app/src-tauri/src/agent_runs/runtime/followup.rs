@@ -134,6 +134,8 @@ pub fn send_agent(
         until_checks_pass: false,
         backup_agents: None,
         join_worktree: None,
+        // A follow-up continues in the mode of its run; the setting is never read again.
+        headless_unset: false,
     };
     drop(serial);
     run_agent(request, registry, app, session_id)
