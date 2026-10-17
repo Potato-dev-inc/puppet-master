@@ -33,6 +33,8 @@ const BACKOFF: Duration = Duration::from_secs(3);
 const MODE_OFFLINE: u8 = 0;
 const MODE_LIVE: u8 = 1;
 const MODE_POLLING: u8 = 2;
+/// The relay answered "not on this team": the access list no longer has this device.
+const MODE_DENIED: u8 = 3;
 
 pub struct RelayTransport {
     /// `https://relay.example.com` (or `http://127.0.0.1:8787`), no trailing slash.
@@ -279,7 +281,7 @@ impl ReaderCtx {
                         }
                     }
                     Err(error) => {
-                        self.mode.store(MODE_OFFLINE, Ordering::SeqCst);
+                        self.mode.store(if error.is_denied() { MODE_DENIED } else { MODE_OFFLINE }, Ordering::SeqCst);
                         tracing::debug!(%error, "team: relay poll failed");
                         std::thread::sleep(BACKOFF);
                     }
@@ -428,6 +430,10 @@ impl TeamTransport for RelayTransport {
             MODE_POLLING => "polling",
             _ => "offline",
         }
+    }
+
+    fn lost_access(&self) -> bool {
+        self.mode.load(Ordering::SeqCst) == MODE_DENIED
     }
 
     fn stop(&self) {

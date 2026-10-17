@@ -28,6 +28,8 @@ pub mod event;
 pub mod git;
 pub mod invite;
 pub mod keystore;
+#[cfg(any(test, feature = "dev-fake-tui"))]
+pub mod leakcheck;
 pub mod membership;
 pub mod merge_green;
 pub mod phone;
