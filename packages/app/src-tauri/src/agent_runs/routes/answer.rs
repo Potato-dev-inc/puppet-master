@@ -445,14 +445,15 @@ fn answer_prompt(
             let contents = pane.screen.lock().screen().contents();
             contents
         };
-        let adapter = crate::agent_adapters::adapter_for(&snapshot.agent_type);
         // The id handed to callers comes from `pane_prompt` (stable per command), so the live
         // prompt must be re-identified the same way. Hashing the whole screen here made every
         // answer to a command approval STALE_PROMPT.
-        let prompt = crate::pane_prompt::detect_in_screen(
+        let status = registry.lock().panes.get(pane_id).map(|pane| pane.status.lock().as_str());
+        let prompt = crate::pane_prompt::detect_in_screen_with_status(
             &snapshot.agent_type,
             &screen,
             request.allow_broad,
+            status,
         )
         .ok_or_else(|| {
             OperationError::new(
@@ -477,14 +478,15 @@ fn answer_prompt(
             });
             return Err(error);
         }
+        let unknown = prompt.get("kind").and_then(Value::as_str) == Some("unknown_question");
         let choice = match request.choice.as_str() {
+            choice if unknown => choice,
             "once" => "allow_once",
             "reject" => "deny",
             "always" | "allow_broad" if request.allow_broad => "allow_all",
             choice => choice,
         };
-        let reply = adapter
-            .prompt_reply(&prompt, choice, request.allow_broad)
+        let reply = crate::pane_prompt::reply_for(&snapshot.agent_type, &prompt, choice, request.allow_broad)
             .map_err(|error| OperationError::new("INVALID_PROMPT_CHOICE", error, false))?;
         let text = reply.key.or(reply.text).ok_or_else(|| {
             OperationError::new(

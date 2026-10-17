@@ -85,7 +85,7 @@ fn a_good_draft_passes_every_check_and_the_session_is_tested() {
     assert_eq!(v["state"], "tested");
     assert_eq!(
         checks(&v).iter().map(|(n, s)| format!("{n}:{s}")).collect::<Vec<_>>(),
-        ["starts:passed", "startup:skipped", "ready:passed", "delivery:passed", "busy:passed", "done_reply:passed", "permission:passed", "exit:passed"]
+        ["starts:passed", "startup:skipped", "ready:passed", "delivery:passed", "busy:passed", "done_reply:passed", "model:skipped", "resize:skipped", "permission:passed", "permission_command:skipped", "exit:passed"]
     );
     assert_eq!((v["passed"].as_u64(), v["total"].as_u64()), (Some(7), Some(7)));
     // two tasks were typed: a plain message with the SECOND random word, and the hello.txt request

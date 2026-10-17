@@ -155,6 +155,8 @@ fn the_guided_capture_runs_end_to_end_and_finish_returns_masked_screens() {
         host.on_deliver(move |host, pane, text| {
             if text.contains("hello.txt") {
                 host.set_screen_of(pane, screens::PERMISSION);
+            } else if text.contains("echo ") {
+                host.set_screen_of(pane, screens::COMMAND_PERMISSION);
             } else {
                 host.set_screen_of(pane, &screens::working(&one, 0));
             }
@@ -181,6 +183,13 @@ fn the_guided_capture_runs_end_to_end_and_finish_returns_masked_screens() {
     let s = wait_status(&wizard, &id, "the permission question", |s| s["needs_you"]["kind"] == "permission");
     assert!(s["needs_you"]["message"].as_str().unwrap().contains("answers nothing"));
     assert_eq!(host.delivered().len(), 2, "nothing is typed into the permission question");
+    // the same for a command: the second permission task is typed, its question is shown and left alone
+    host.set_screen(screens::IDLE);
+    wait_for(20, || (host.delivered().len() >= 3).then_some(())).expect("the command task is typed");
+    assert!(host.delivered()[2].starts_with("Run this shell command") && host.delivered()[2].contains("echo "));
+    let s = wait_status(&wizard, &id, "the command question", |s| s["needs_you"]["kind"] == "permission" && s["permission_phase"] == 1);
+    assert_eq!(s["step"], "permission");
+    assert_eq!(host.delivered().len(), 3, "nothing is typed into the command question");
     host.set_screen(screens::IDLE);
     wait_status(&wizard, &id, "the exit step", |s| s["step"] == "exit");
     ok(&wizard, "capture", json!({"session": id, "op": "act", "action": "closed"}));
@@ -188,7 +197,7 @@ fn the_guided_capture_runs_end_to_end_and_finish_returns_masked_screens() {
     assert!(host.killed().contains(&host.pane_id()), "finish closes the pane");
     let files = finished["captures"]["files"].as_array().unwrap();
     let names: Vec<&str> = files.iter().filter_map(|f| f["name"].as_str()).collect();
-    assert_eq!(names, ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_permission"]);
+    assert_eq!(names, ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"]);
     // masked: the AI never sees the random words
     let shown = finished["captures"].to_string();
     assert!(!shown.contains(&words.one) && !shown.contains(&words.sky), "{shown}");

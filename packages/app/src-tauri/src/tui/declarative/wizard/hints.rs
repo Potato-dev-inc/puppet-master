@@ -94,10 +94,19 @@ pub fn fix_for(code: &str, path: &str) -> String {
         }
         "VISIBLETEST_BUSY_FAILED" => "The profile did not see the agent working. Make [tui.busy] `working_regex` match the working capture.",
         "VISIBLETEST_DONE_REPLY_FAILED" => {
-            "The reply was not read from the finished screen. Make [tui.chrome] and [tui.tool_activity] (lowercase line regexes) cover the banner, footer and tool rows but not the reply row, and check [tui.busy] does not match the finished screen."
+            "The reply was not read from the finished screen. Make [tui.chrome], [tui.thinking] and [tui.tool_activity] (lowercase line regexes) cover the banner, footer, thinking / status and tool rows but not the reply row, and check [tui.busy] does not match the finished screen. The reply must come out as exactly the one answer row."
+        }
+        "VISIBLETEST_MODEL_FAILED" => {
+            "The capture names the model but the profile read none. Add `[tui.footer_model] regex` with a named group `model`; it is matched against the whole screen (and the scrollback), so it may match a footer, a status line or the banner."
+        }
+        "VISIBLETEST_RESIZE_FAILED" => {
+            "The pane was resized and the conversation showed again (or the viewer's grid differed from the PTY's). Do not guess `[features] reprints_on_resize`: the wizard measures it in the capture. Say so to the person if it is still wrong."
         }
         "VISIBLETEST_PERMISSION_FAILED" => {
             "The permission question did not become an approval card. Make a [[tui.prompt]] `detect_regex` match the permission capture, with choices allow_once and deny that each have a key or text."
+        }
+        "VISIBLETEST_PERMISSION_COMMAND_FAILED" => {
+            "The command question did not become an approval card. A command run and a file write are usually different screens: write a [[tui.prompt]] (kind = \"command_approval\") whose `detect_regex` matches the tui_permission_command capture, with choices allow_once and deny that each have a key or text."
         }
         "VISIBLETEST_EXIT_FAILED" => "The pane did not close after the test.",
         "LIVETEST_NO_OUTPUT" => {

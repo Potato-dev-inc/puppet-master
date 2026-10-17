@@ -15,6 +15,7 @@
 pub mod api;
 pub mod ask;
 pub mod exec;
+pub mod features;
 pub mod finish;
 pub mod fixtures;
 pub mod hints;

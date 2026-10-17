@@ -3,7 +3,7 @@
 //! console loop is `runtime.rs`.
 
 use crate::keys::Key;
-use crate::render::{self, Banner, Block, Dialog, Frame, GateView, Mode, View};
+use crate::render::{self, Banner, Block, Dialog, Frame, GateView, Mode, Opts, View};
 use crate::script::{ApprovalKind, BurstEffect, Gate, GateKind, Layout, Script, Step};
 use serde_json::json;
 use std::collections::VecDeque;
@@ -42,6 +42,7 @@ pub struct Engine {
     layout: Layout,
     base_dir: PathBuf,
     banner: Banner,
+    opts: Opts,
     cols: usize,
     rows: usize,
     phase: Phase,
@@ -92,6 +93,12 @@ impl Engine {
             .and_then(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).ok());
         let mut engine = Engine {
             gates: script.startup.iter().cloned().collect(),
+            opts: Opts {
+                backlog_rows: script.backlog_rows,
+                status_model: script.status_model.clone(),
+                status_model_busy_only: script.status_model_when == crate::script::StatusWhen::Busy,
+                footer_right: script.footer_right.clone(),
+            },
             script,
             layout,
             base_dir,
@@ -295,7 +302,7 @@ impl Engine {
         }
         let Some(choice) = confirm else { return };
         let (kind, layout, warm_ms, linger_ms, style) = (gate.gate, self.layout, gate.warm_ms, gate.linger_ms, gate.style);
-        let view = GateView { kind: gate.gate, selected: *selected, style: gate.style };
+        let view = GateView { kind: gate.gate, selected: *selected, style: gate.style, animate: gate.animate };
         match kind {
             GateKind::UpdateMenu => match choice {
                 0 => {
@@ -391,6 +398,14 @@ impl Engine {
             Key::Down => dialog.selected = (dialog.selected + 1).min(options - 1),
             Key::Enter => confirm = Some(dialog.selected),
             Key::Esc => confirm = Some(options - 1),
+            // The arrow menu of a nimbus file question takes arrows and Enter only; the y/n line takes neither digits
+            // beyond its two rows nor letters beyond y and n; a numbered command menu takes its digits.
+            Key::Char(_) if self.layout == Layout::Nimbus && dialog.menu == render::NimbusMenu::File => {}
+            Key::Char(c) if self.layout == Layout::Nimbus && dialog.menu == render::NimbusMenu::Command => {
+                if let Some(n) = c.to_digit(10).filter(|n| (1..=options as u32).contains(n)) {
+                    confirm = Some(n as usize - 1);
+                }
+            }
             Key::Char(c) => {
                 if let Some(n) = c.to_digit(10).filter(|n| (1..=options as u32).contains(n)) {
                     confirm = Some(n as usize - 1);
@@ -498,7 +513,13 @@ impl Engine {
                     }
                 }
                 Step::Approve { kind, command, path, diff, auto_mode_option, on_allow, on_deny } => {
+                    let menu = match (self.layout, self.script.approvals, kind) {
+                        (Layout::Nimbus, crate::script::Approvals::Menus, ApprovalKind::Bash) => render::NimbusMenu::Command,
+                        (Layout::Nimbus, crate::script::Approvals::Menus, _) => render::NimbusMenu::File,
+                        _ => render::NimbusMenu::YesNo,
+                    };
                     let dialog = Dialog {
+                        menu,
                         kind,
                         command: command.unwrap_or_default(),
                         path: path.unwrap_or_default(),
@@ -627,7 +648,7 @@ impl Engine {
 
     fn exit_with(&mut self, code: i32, now: u64) {
         let frozen = match &self.phase {
-            Phase::Gate { gate, selected } => Some(GateView { kind: gate.gate, selected: *selected, style: gate.style }),
+            Phase::Gate { gate, selected } => Some(GateView { kind: gate.gate, selected: *selected, style: gate.style, animate: gate.animate }),
             _ => None,
         };
         self.log(now, "exit", json!({ "code": code }));
@@ -640,6 +661,23 @@ impl Engine {
     // ---- drawing ----------------------------------------------------------------------------
 
     pub fn frame(&self, now: u64) -> Frame {
+        self.build_frame(now, true)
+    }
+
+    /// Every row of the conversation (inline painting): not cut to the screen's height.
+    pub fn frame_all(&self, now: u64) -> Frame {
+        self.build_frame(now, false)
+    }
+
+    pub fn inline(&self) -> bool {
+        self.script.inline
+    }
+
+    pub fn reprints_on_resize(&self) -> bool {
+        self.script.reprint_on_resize
+    }
+
+    fn build_frame(&self, now: u64, fit_height: bool) -> Frame {
         let mode = match &self.phase {
             Phase::Loading { .. } => Mode::Loading,
             Phase::BeforeGate { gate, .. } if !gate.composer_first => Mode::Loading,
@@ -647,7 +685,7 @@ impl Engine {
             Phase::Warming { frozen: Some(view), .. } => Mode::Gate(view.clone()),
             // Still loading after a startup screen, but drawn like a ready composer (that is the trap).
             Phase::BeforeGate { .. } | Phase::Warming { .. } | Phase::Ready | Phase::Busy | Phase::LimitWait => Mode::Ready,
-            Phase::Gate { gate, selected } => Mode::Gate(GateView { kind: gate.gate, selected: *selected, style: gate.style }),
+            Phase::Gate { gate, selected } => Mode::Gate(GateView { kind: gate.gate, selected: *selected, style: gate.style, animate: gate.animate }),
             Phase::Approval { dialog, .. } => Mode::Approval(dialog.clone()),
             Phase::Hold => Mode::Hold,
             Phase::Exited { frozen: Some(gate) } => Mode::Gate(gate.clone()),
@@ -657,7 +695,7 @@ impl Engine {
             Phase::Busy => Some((self.sleep.as_ref().map_or(self.verb.as_str(), |s| s.verb.as_str()), now.saturating_sub(self.turn_started))),
             _ => None,
         };
-        render::frame(&View {
+        let view = View {
             layout: self.layout,
             cols: self.cols,
             rows: self.rows,
@@ -670,7 +708,13 @@ impl Engine {
             busy,
             notice: self.notice.as_ref().map(|(text, _)| text.as_str()),
             tick: now / 200,
-        })
+            opts: &self.opts,
+        };
+        if fit_height {
+            render::frame(&view)
+        } else {
+            render::frame_all(&view)
+        }
     }
 
     /// The whole screen as plain text, for tests.
@@ -1011,6 +1055,75 @@ mod nimbus_tests {
         type_text(&mut e, "/exit", 0);
         e.on_key(Key::Enter, 10);
         assert_eq!(e.exit_code(), Some(0));
+    }
+
+    #[test]
+    fn an_animated_trust_question_changes_on_every_redraw_but_its_words_do_not() {
+        let mut e = engine("[[startup]]\ngate = \"trust\"\nanimate = true");
+        e.tick(0);
+        let a = e.plain(0);
+        let b = e.plain(200);
+        assert_ne!(a, b, "a spinner and a counter move");
+        for screen in [&a, &b] {
+            assert!(screen.contains("Do you trust the files in this folder?") && screen.contains("Waiting for your answer..."), "{screen}");
+        }
+        e.on_key(Key::Char('1'), 300);
+        assert_eq!(e.exit_code(), None, "the digit still answers it");
+    }
+
+    #[test]
+    fn a_status_model_shows_in_the_footer_or_only_on_the_working_row() {
+        let mut always = engine("model = \"zeta-banner\"\nstatus_model = \"zeta-live\"");
+        assert!(always.plain(0).contains("model: zeta-live | /help for commands"), "{}", always.plain(0));
+        assert!(always.plain(0).contains("NIMBUS 0.4.2 | zeta-banner"), "{}", always.plain(0));
+        let mut busy = engine("status_model = \"zeta-live\"\nstatus_model_when = \"busy\"\n[[turn]]\nsteps = [{ do = \"think\", ms = 1000 }, { do = \"say\", text = \"ok\" }]");
+        assert!(!busy.plain(0).contains("zeta-live"));
+        type_text(&mut busy, "go", 0);
+        busy.on_key(Key::Enter, 10);
+        assert!(busy.plain(300).contains("ctrl+c to stop  model: zeta-live"), "{}", busy.plain(300));
+        busy.tick(1500);
+        assert!(!busy.plain(1500).contains("zeta-live"), "{}", busy.plain(1500));
+        let _ = &mut always;
+    }
+
+    #[test]
+    fn a_backlog_pushes_the_banner_out_of_a_short_screen_and_a_right_footer_reaches_the_last_column() {
+        let e = engine("backlog_rows = 60\nfooter_right = \"effort: high\"");
+        let all = e.frame_all(0);
+        assert!(all.rows.len() > 60 && all.rows[0].contains("NIMBUS"), "{}", all.rows.len());
+        let fit = e.frame(0);
+        assert_eq!(fit.rows.len(), 40);
+        assert!(!fit.rows.iter().any(|row| row.contains("NIMBUS")), "the banner scrolled off");
+        let footer = render::visible_len(fit.rows.last().unwrap());
+        assert_eq!(footer, 120, "the footer ends in the last column: {:?}", fit.rows.last());
+        assert!(strip(fit.rows.last().unwrap()).ends_with("effort: high"));
+        let mut narrow = engine("footer_right = \"effort: high\"");
+        narrow.resize(100, 40, 5);
+        assert_eq!(render::visible_len(narrow.frame(5).rows.last().unwrap()), 100, "redrawn for the new width");
+    }
+
+    #[test]
+    fn menus_style_asks_a_command_with_a_numbered_menu_and_a_file_with_an_arrow_menu() {
+        let toml = "approvals = \"menus\"\n[[turn]]\nsteps = [{ do = \"approve\", kind = \"bash\", command = \"python --version\", on_allow = [{ do = \"say\", text = \"ran\" }] }, { do = \"approve\", kind = \"create\", path = \"hello.txt\", on_allow = [{ do = \"say\", text = \"wrote\" }] }]";
+        let mut e = engine(toml);
+        type_text(&mut e, "go", 0);
+        e.on_key(Key::Enter, 10);
+        let command = e.plain(20);
+        assert!(command.contains("Run this command?") && command.contains("> 1. Allow once") && command.contains("  3. Deny"), "{command}");
+        assert!(!command.contains("[y/n]"));
+        e.on_key(Key::Char('y'), 30);
+        assert!(e.plain(40).contains("Run this command?"), "y does nothing on a numbered menu");
+        e.on_key(Key::Char('1'), 50);
+        let file = e.plain(60);
+        assert!(file.contains("Write hello.txt?") && file.contains("\u{276f} Yes, write it") && file.contains("up/down to move, enter to confirm"), "{file}");
+        e.on_key(Key::Char('1'), 70);
+        assert!(e.plain(80).contains("Write hello.txt?"), "digits do nothing on the arrow menu");
+        e.on_key(Key::Down, 90);
+        e.on_key(Key::Down, 100);
+        assert!(e.plain(110).contains("\u{276f} No, keep it as it is"), "{}", e.plain(110));
+        e.on_key(Key::Enter, 120);
+        let done = e.plain(130);
+        assert!(done.contains("denied: hello.txt") && !done.contains("wrote"), "{done}");
     }
 
     #[test]

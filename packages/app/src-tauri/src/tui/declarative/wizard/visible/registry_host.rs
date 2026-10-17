@@ -63,7 +63,7 @@ impl PaneHost for RegistryHost {
         let alive = crate::agent_runs::delivery::pane_process_state(&self.registry, pane)
             != crate::pty::agent_proc::AgentProcess::Exited;
         let grid = self.registry.lock().list().into_iter().find(|p| p.id == pane).map(|p| (p.cols, p.rows));
-        Some(Look { screen, watch, status, alive, output_pos, hello_written: false, grid })
+        Some(Look { screen, watch, status, alive, output_pos, hello_written: false, grid, history: String::new() })
     }
 
     fn deliver(&self, pane: &str, text: &str, trace: &mut Vec<String>) -> Delivered {
@@ -101,6 +101,30 @@ impl PaneHost for RegistryHost {
 
     fn cwd(&self, pane: &str) -> Option<PathBuf> {
         self.owned.lock().get(pane).cloned()
+    }
+
+    fn resize(&self, pane: &str, cols: u16, rows: u16) -> Result<(), String> {
+        if !self.owned.lock().contains_key(pane) {
+            return Err("this is not a pane the wizard started, so the wizard resizes nothing".into());
+        }
+        // The PTY and the viewer move together: the pane registry resizes the PTY and its emulator in one call, and
+        // the same two notices a phone's size lease sends make an open pop-out window follow (`pty://resized` in
+        // stream order), so the window's grid is the PTY's grid.
+        if crate::pty::registry_resize(&self.registry, pane, cols, rows)? {
+            crate::bridge::notify_pane_resized(pane, cols, rows);
+            crate::bridge::notify_pty_resized_by_lease(pane, cols, rows);
+        }
+        Ok(())
+    }
+
+    fn history(&self, pane: &str) -> Option<String> {
+        crate::pty::registry_read_full_text(self.registry.as_ref(), pane).ok()
+    }
+
+    fn viewer_grid(&self, pane: &str) -> Option<(u16, u16)> {
+        let screen = self.registry.lock().panes.get(pane)?.screen.clone();
+        let (rows, cols) = screen.lock().screen().size();
+        Some((cols, rows))
     }
 
     fn answer(&self, pane: &str, keys: &[AnswerKey]) -> Result<(), String> {

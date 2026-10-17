@@ -76,10 +76,52 @@ pub struct Script {
     /// `PM_FAKE_TUI_LOG` wins.
     #[serde(default)]
     pub log: Option<String>,
+    /// Nimbus only: this many filler rows of an "earlier session" sit under the banner from the start, so the
+    /// banner scrolls off the top and a long conversation overflows the screen.
+    #[serde(default)]
+    pub backlog_rows: usize,
+    /// Nimbus only: how permission questions look. `yn`: one line `Allow nimbus to ...? [y/n]` for everything.
+    /// `menus`: a command asks with a numbered menu (`1. Allow once` / `2. Always allow ...` / `3. Deny`, digits answer),
+    /// a file write asks with an arrow menu (`Yes, write it` ... , up/down and enter), two different questions.
+    #[serde(default)]
+    pub approvals: Approvals,
+    /// Nimbus only: a model name shown in a status line (`model: <name>`), separate from the banner's.
+    #[serde(default)]
+    pub status_model: Option<String>,
+    /// When the status line shows it: in the footer all the time (`always`, default) or on the working row only (`busy`).
+    #[serde(default)]
+    pub status_model_when: StatusWhen,
+    /// Nimbus only: text drawn flush against the right edge of the footer row (a clipped column shows at once).
+    #[serde(default)]
+    pub footer_right: Option<String>,
+    /// Nimbus only: paint like an inline TUI. No cell addressing from the top of the screen: the conversation
+    /// is printed top-down into the scrollback, only the bottom of it (the part still on screen) is redrawn.
+    #[serde(default)]
+    pub inline: bool,
+    /// Nimbus inline only: a resize prints the WHOLE conversation again (the screen is cleared first, the rows
+    /// that overflow it scroll into the history a second time). False: only the visible part is redrawn.
+    #[serde(default)]
+    pub reprint_on_resize: bool,
     #[serde(default)]
     pub startup: Vec<Gate>,
     #[serde(default)]
     pub turn: Vec<Turn>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Approvals {
+    #[default]
+    Yn,
+    Menus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StatusWhen {
+    #[default]
+    Always,
+    Busy,
 }
 
 fn yes() -> bool {
@@ -140,6 +182,10 @@ pub struct Gate {
     /// Nimbus only: how the trust question looks.
     #[serde(default)]
     pub style: TrustStyle,
+    /// Nimbus only: the screen keeps redrawing while it waits (a spinner row with a seconds counter under the
+    /// question and a blinking block after it), like an agent that shows it is alive.
+    #[serde(default)]
+    pub animate: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

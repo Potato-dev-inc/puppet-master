@@ -29,7 +29,7 @@ use super::super::report::{render, CheckError, Source as ReportSource, WizardErr
 use super::super::session::{sha256_hex, Draft, Session, State, VisibleTested, Wizard, WizardEnv};
 use super::answer::{scope_ok, AnswerCfg, AnswerKey, Answerer, AnsweredQ, Hint, Input as AnswerInput, Step as AnswerStep};
 use super::api::make_project;
-use super::capture::{message_task_for, permission_task, reply_rows};
+use super::capture::{command_task, message_task_for, permission_task, reply_rows, HistoryCounts};
 use super::host::{Look, PaneHost, PaneSpec};
 use super::runner::TestLimits;
 use super::screen::{classify, Flavour, ScreenKind, Stability, GRID_COLS, GRID_ROWS};
@@ -127,14 +127,17 @@ impl Outcome {
     }
 }
 
-const CHECKS: [(&str, &str); 8] = [
+const CHECKS: [(&str, &str); 11] = [
     ("starts", "The agent starts in a pane"),
     ("startup", "A startup question becomes a card"),
     ("ready", "It reaches its empty input box"),
     ("delivery", "A task is typed and sent"),
     ("busy", "It is seen working"),
     ("done_reply", "It finishes and the reply is read"),
+    ("model", "The model name is read"),
+    ("resize", "It survives a resize"),
     ("permission", "A permission question becomes a card"),
+    ("permission_command", "A command question becomes a card"),
     ("exit", "The pane closes"),
 ];
 
@@ -165,6 +168,8 @@ enum Wait<R> {
 
 struct Test<'a> {
     host: &'a dyn PaneHost,
+    /// The pane under test. The command question is checked in a second pane (a question that is not answered
+    /// leaves the first pane stuck behind it), so this changes once.
     pane: String,
     profile: Arc<DeclarativeProfile>,
     agent_type: String,
@@ -190,9 +195,38 @@ struct Test<'a> {
     auto: Option<parking_lot::Mutex<Answerer>>,
     scope: (PathBuf, PathBuf),
     answered: parking_lot::Mutex<Vec<AnsweredQ>>,
+    /// A model name the capture showed (`model: <name>`), when it showed one: the draft must read it too.
+    capture_model: Option<String>,
+    /// The last model name the profile's `footer_model` read in the test pane.
+    seen_model: parking_lot::Mutex<Option<String>>,
+}
+
+/// A model name in a capture: `model: <name>` or `model = <name>`, on a screen of the agent at rest or at work.
+static MODEL_NAMED: once_cell::sync::Lazy<regex::Regex> =
+    once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?i)\bmodel\b\s*[:=]\s*(?P<name>[A-Za-z0-9][\w.\-/:+]*)").expect("model regex"));
+
+/// The model name the captures show, if any. Only the screens of the agent at rest or at work count (a menu in a
+/// dialog that says `model:` is not the agent naming its model).
+fn model_in_captures(session: &Session, draft: &Draft) -> Option<String> {
+    let from_screens = session.visible.captures.lock().as_ref().and_then(|set| {
+        ["tui_idle", "tui_working", "tui_reply"]
+            .iter()
+            .filter_map(|name| set.get(name))
+            .find_map(|f| MODEL_NAMED.captures(&f.text).map(|c| c["name"].to_string()))
+    });
+    from_screens.or_else(|| {
+        // The drafter said so itself: an expectation block with `model = "..."`.
+        draft.expects.values().find_map(|text| text.parse::<toml::Table>().ok()?.get("model")?.as_str().map(str::to_string))
+    })
 }
 
 impl Test<'_> {
+    fn note_model(&self, screen: &str) {
+        if let Some(model) = self.profile.detect_footer_model(screen) {
+            *self.seen_model.lock() = Some(model);
+        }
+    }
+
     fn ms(&self) -> u64 {
         self.began.elapsed().as_millis() as u64
     }
@@ -202,6 +236,7 @@ impl Test<'_> {
     }
 
     fn publish(&self, current: Option<&str>, needs: Option<(&str, &str)>, screen: &str) {
+        self.note_model(screen);
         let rows: Vec<&str> = screen.lines().collect();
         let from = rows.len().saturating_sub(40);
         let shown = self.masked(&rows[from..].join("\n"));
@@ -536,6 +571,29 @@ impl Test<'_> {
                     if result.chars().count() > 400 {
                         return Err(fail(format!("The reply that was read is {} characters long: it carries screen chrome. Add the banner and footer rows to `[tui.chrome] line_regex`. It read: {shown:?}", result.chars().count()), &look.watch));
                     }
+                    // The reply must be CLEAN: the answer and nothing else. Any other row is something the tables
+                    // should have dropped; naming the rows tells the drafter which table to put each in.
+                    let rows: Vec<String> = result.lines().map(str::trim).filter(|r| !r.is_empty()).map(|r| self.masked(r)).collect();
+                    if rows.len() > 1 {
+                        let word_l = word.to_lowercase();
+                        let extra: Vec<String> = result
+                            .lines()
+                            .map(str::trim)
+                            .filter(|r| !r.is_empty())
+                            .enumerate()
+                            .filter(|(_, r)| !r.to_lowercase().contains(&word_l))
+                            .map(|(_, r)| format!("{:?}", self.masked(r)))
+                            .collect();
+                        let which = if extra.is_empty() {
+                            format!("The answer itself appears on {} rows: {}", rows.len(), rows.iter().map(|r| format!("{r:?}")).collect::<Vec<_>>().join(", "))
+                        } else {
+                            format!("Besides the answer it holds {} extra row(s): {}", extra.len(), extra.join(", "))
+                        };
+                        return Err(fail(
+                            format!("The reply that was read is not clean. {which}. The reply must be exactly the one answer row. Put banner, box, footer and \"done in\" rows in `[tui.chrome]`, rows the agent prints while it thinks or works (`Thinking...`, a spinner status, `Thought for 4s`) in `[tui.thinking]`, and tool-call rows in `[tui.tool_activity]` (lowercase line regexes; the rows above are shown as the screen has them)."),
+                            &look.watch,
+                        ));
+                    }
                     return Ok(format!("The reply was read: {shown:?}."));
                 }
                 TuiTurnDecision::WaitingInput if look.status != "waiting_input" && !has_prompt => {}
@@ -651,6 +709,95 @@ impl Test<'_> {
         }
     }
 
+    /// Skipped unless the capture showed a model name. Then the draft's `[tui.footer_model]` must read one in the test
+    /// pane: from the screen now, from any look during the test, or from the scrollback (a banner that scrolled).
+    fn check_model(&self) -> Result<Option<String>, Fail> {
+        let Some(expected) = &self.capture_model else { return Ok(None) };
+        let now = self.look();
+        let screen = now.as_ref().map(|l| l.screen.clone()).unwrap_or_default();
+        let read = self
+            .profile
+            .detect_footer_model(&screen)
+            .or_else(|| self.seen_model.lock().clone())
+            .or_else(|| self.host.history(&self.pane).and_then(|h| self.profile.detect_footer_model(&h)));
+        match read {
+            Some(model) => Ok(Some(format!("The model was read: {model:?}."))),
+            None => Err(fail(
+                format!(
+                    "The capture shows a model name (it reads `model: {expected}`) but `[tui.footer_model]` read none in the test pane, so a finished run would report its model as unresolved. Add or fix `[tui.footer_model] regex` with a group named `model` that matches the row naming the model (a footer, a status line or the banner)."
+                ),
+                &screen,
+            )),
+        }
+    }
+
+    /// Resize the pane once, after the reply, and put it back. The profile-driven viewer (the pane's emulator, which
+    /// wipes its history at the resize when the profile says the agent reprints) must show the conversation once,
+    /// and the viewer's grid must be the PTY's. Skipped when the host cannot resize.
+    fn check_resize(&self, word: &str) -> Result<Option<String>, Fail> {
+        let Some(origin) = self.host.grid(&self.pane) else { return Ok(None) };
+        let Some(history) = self.host.history(&self.pane) else { return Ok(None) };
+        let before = HistoryCounts::of(&history, word);
+        let target = (origin.0.saturating_sub(20).max(40), origin.1);
+        if target == origin || before.word_rows.is_empty() {
+            return Ok(None);
+        }
+        if self.host.resize(&self.pane, target.0, target.1).is_err() {
+            return Ok(None);
+        }
+        let began = Instant::now();
+        let mut stab = Stability::new();
+        let mut last = self.look();
+        let settled = loop {
+            if self.cancel.load(Ordering::SeqCst) {
+                return Err(fail("The test was cancelled.", ""));
+            }
+            let Some(look) = self.look() else { return Err(self.gone("resizing", last)) };
+            if !look.alive {
+                return Err(self.gone("resizing", Some(look)));
+            }
+            stab.observe(&look.screen, self.ms());
+            let quiet = stab.stable_for(self.ms()) >= self.stable_ms.min(1500) && began.elapsed() >= Duration::from_millis(1500);
+            last = Some(look);
+            if quiet {
+                break true;
+            }
+            if began.elapsed() > Duration::from_secs(20) {
+                break false;
+            }
+            std::thread::sleep(self.limits.tick);
+        };
+        let screen = last.as_ref().map(|l| l.screen.clone()).unwrap_or_default();
+        let pty = self.host.grid(&self.pane);
+        let viewer = self.host.viewer_grid(&self.pane);
+        let after_text = self.host.history(&self.pane).unwrap_or_default();
+        let after = HistoryCounts::of(&after_text, word);
+        // restore before judging, so the pane the later checks use is as it was
+        let _ = self.host.resize(&self.pane, origin.0, origin.1);
+        if !settled {
+            return Err(fail("After the pane was made narrower the screen kept changing for 20 s. The agent may redraw forever on a resize.", &screen));
+        }
+        if pty != Some(target) || viewer.is_some_and(|v| Some(v) != pty) {
+            return Err(fail(
+                format!("After the resize the viewer's grid ({viewer:?}) is not the PTY's ({pty:?}). The two must always be the same grid."),
+                &screen,
+            ));
+        }
+        if before.grew_to(&after) {
+            return Err(fail(
+                format!(
+                    "After the pane was resized from {}x{} to {}x{} the conversation shows again in the viewer's scrollback: the test word is on {} rows (it was on {}) and {} rows are repeated (they were {}). The agent reprints its whole conversation on every resize. Set `[features] reprints_on_resize = true` (the wizard normally writes it from its own measurement; this capture did not measure one).",
+                    origin.0, origin.1, target.0, target.1, after.word_rows.len(), before.word_rows.len(), after.extra_copies, before.extra_copies
+                ),
+                &exec::clean(&after_text),
+            ));
+        }
+        Ok(Some(format!(
+            "Resized {}x{} -> {}x{} and back: the conversation shows once ({} rows with the test word) and the viewer's grid is the PTY's.",
+            origin.0, origin.1, target.0, target.1, after.word_rows.len()
+        )))
+    }
+
     fn check_exit(&self) -> Result<String, Fail> {
         self.host.kill(&self.pane);
         let until = Instant::now() + Duration::from_secs(5);
@@ -738,6 +885,8 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         host.show(&pane);
     }
 
+    // Read before the struct below is built: its fields hold the captures lock until the statement ends.
+    let capture_model = model_in_captures(session, draft);
     let mut test = Test {
         host: &*host,
         pane,
@@ -763,6 +912,8 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         auto: session.auto_answer.then(|| parking_lot::Mutex::new(Answerer::new("visibletest", AnswerCfg::default()))),
         scope: (session.work_dir.clone(), env.temp_root.clone()),
         answered: parking_lot::Mutex::new(Vec::new()),
+        capture_model,
+        seen_model: parking_lot::Mutex::new(None),
     };
     let words = &session.words;
     let task = message_task_for(&words.two);
@@ -772,7 +923,16 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         let ms = started.elapsed().as_millis() as u64;
         let (status, note) = match result {
             Ok(Some(note)) => ("passed", note),
-            Ok(None) => ("skipped", "No permission question appeared, so there was nothing to check.".to_string()),
+            Ok(None) => (
+                "skipped",
+                match name {
+                    "model" => "The capture did not show a model name, so there was nothing to check.",
+                    "resize" => "The pane could not be resized here, so there was nothing to check.",
+                    "permission_command" => "The capture has no command question, or none appeared, so there was nothing to check.",
+                    _ => "No permission question appeared, so there was nothing to check.",
+                }
+                .to_string(),
+            ),
             Err(f) => {
                 let note = test.masked(&f.note);
                 let screen = test.masked(&f.screen);
@@ -849,12 +1009,26 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
             let t = Instant::now();
             let r = test.check_done_reply(&task, &baseline, &words.two).map(Some);
             turn_ok = record(&mut test, &mut outcome, "done_reply", t, r) == "passed";
+            if turn_ok {
+                let t = Instant::now();
+                let r = test.check_model();
+                record(&mut test, &mut outcome, "model", t, r);
+                let t = Instant::now();
+                let r = test.check_resize(&words.two);
+                record(&mut test, &mut outcome, "resize", t, r);
+            } else {
+                skipped(&mut outcome, &mut test, "model", "not run: the reply check did not pass");
+                skipped(&mut outcome, &mut test, "resize", "not run: the reply check did not pass");
+            }
         } else {
             skipped(&mut outcome, &mut test, "busy", "not run: the task was not delivered");
             skipped(&mut outcome, &mut test, "done_reply", "not run: the task was not delivered");
+            skipped(&mut outcome, &mut test, "model", "not run: the task was not delivered");
+            skipped(&mut outcome, &mut test, "resize", "not run: the task was not delivered");
+            skipped(&mut outcome, &mut test, "permission_command", "not run: the task was not delivered");
         }
     } else {
-        for name in ["delivery", "busy", "done_reply"] {
+        for name in ["delivery", "busy", "done_reply", "model", "resize", "permission_command"] {
             skipped(&mut outcome, &mut test, name, &format!("not run: {}", dead_end.unwrap_or("an earlier check failed")));
         }
     }
@@ -876,6 +1050,42 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         }
     } else {
         skipped(&mut outcome, &mut test, "permission", "not run: the reply check did not pass");
+    }
+    // 6b. the command question, in a pane of its own: the first pane is left behind the file question, which the test
+    // never answers. The folder question can come again (the person answers it, or the wizard when the switch is on).
+    let command_captured = session.visible.captures.lock().as_ref().is_some_and(|set| set.has("tui_permission_command"));
+    if !command_captured {
+        skipped(&mut outcome, &mut test, "permission_command", "The capture has no command question.");
+    } else if !turn_ok {
+        skipped(&mut outcome, &mut test, "permission_command", "not run: the reply check did not pass");
+    } else {
+        test.host.kill(&test.pane);
+        match test.host.spawn(&spec) {
+            Ok(second) => {
+                test.pane = second.clone();
+                guard.pane = Some(second.clone());
+                *session.visible.test_pane.lock() = Some((second.clone(), test.agent_type.clone()));
+                if env.visible.window {
+                    host.show(&second);
+                }
+                test.startup.lock().take();
+                let limit = test.limits.ready;
+                let t = Instant::now();
+                match test.await_ready("permission_command", limit) {
+                    Ok(_) => {
+                        let r = test.check_permission(&command_task(words));
+                        record(&mut test, &mut outcome, "permission_command", t, r);
+                    }
+                    Err(f) => {
+                        record(&mut test, &mut outcome, "permission_command", t, Err(f));
+                    }
+                }
+            }
+            Err(e) => {
+                let t = Instant::now();
+                record(&mut test, &mut outcome, "permission_command", t, Err(fail(format!("a second test pane could not be started for the command question: {e}"), "")));
+            }
+        }
     }
     // 7. exit
     let t = Instant::now();

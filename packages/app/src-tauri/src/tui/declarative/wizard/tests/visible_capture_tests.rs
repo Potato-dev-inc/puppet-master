@@ -4,7 +4,7 @@
 
 use crate::tui::declarative::wizard::session::TestWords;
 use crate::tui::declarative::wizard::visible::capture::{
-    may_type, message_task, permission_task, reply_rows, Action, Capture, CaptureAction, Config, Gate, Refusal, StepId, StepStatus, MAX_DELIVERIES,
+    command_task, may_type, message_task, permission_task, reply_rows, Action, Capture, CaptureAction, Config, Gate, Refusal, StepId, StepStatus, MAX_DELIVERIES,
 };
 use crate::tui::declarative::wizard::visible::host::Look;
 use crate::tui::declarative::wizard::visible::screen::{Flavour, ScreenKind};
@@ -16,6 +16,7 @@ fn words() -> TestWords {
 const IDLE: &str = "NIMBUS 0.4 ready\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n";
 const TRUST: &str = "NIMBUS\n\nDo you trust the files in this folder?\n\n  1. Yes, trust this folder\n  2. No, exit\n";
 const PERMISSION: &str = "NIMBUS\n\nAllow nimbus to create hello.txt? [y/n]\n";
+const COMMAND_QUESTION: &str = "NIMBUS\n\nAllow nimbus to run `echo cccccc`? [y/n]\n";
 const LOGIN: &str = "NIMBUS\n\nPlease sign in to continue.\n\n  1. Yes, open the browser\n  2. No, quit\n";
 
 fn working(n: usize) -> String {
@@ -42,7 +43,7 @@ impl Drive {
     }
 
     fn look(&self, screen: &str) -> Look {
-        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: self.alive, output_pos: None, hello_written: self.hello, grid: self.grid }
+        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: self.alive, output_pos: None, hello_written: self.hello, grid: self.grid, history: String::new() }
     }
 
     /// Show `screen` for `ms` milliseconds, one look every 250 ms. Deliveries are not answered here.
@@ -124,7 +125,14 @@ fn the_whole_capture_on_a_made_up_agent() {
     assert_eq!(d.status(StepId::Permission), StepStatus::NeedsYou);
     assert_eq!(d.c.needs_you().unwrap().kind, "permission");
     assert!(d.c.frame("tui_permission").unwrap().text.contains("Allow nimbus"));
-    // 7. the person answers; the box is back
+    // 7. the person answers; the box is back; the same for a command
+    let got = d.show(IDLE, 4000);
+    assert_eq!(only_deliver(&got), command_task(&words()));
+    assert_eq!(d.status(StepId::Permission), StepStatus::Running, "one question is not the whole step");
+    d.delivered(true, "");
+    assert!(d.animate(1500).is_empty());
+    assert!(d.show(COMMAND_QUESTION, 15_000).is_empty(), "no key goes into the command question either");
+    assert!(d.c.frame("tui_permission_command").unwrap().text.contains("run `echo"));
     assert!(d.show(IDLE, 4000).is_empty());
     assert_eq!(d.status(StepId::Permission), StepStatus::Done);
     assert_eq!(d.c.current(), StepId::Exit);
@@ -140,7 +148,7 @@ fn the_whole_capture_on_a_made_up_agent() {
     let set = d.c.into_set();
     assert_eq!(set.exit_method, "slash_exit");
     assert_eq!(set.grid, (120, 40));
-    for name in ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_permission"] {
+    for name in ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"] {
         assert!(set.has(name), "{name}");
     }
     assert!(set.partial.is_empty(), "{:?}", set.partial);
@@ -346,11 +354,12 @@ fn an_agent_that_writes_the_file_without_asking_ends_the_permission_step_with_a_
     d.delivered(true, "");
     d.animate(1500);
     d.hello = true;
-    d.show(IDLE, 4000);
+    then_the_command_without_a_question(&mut d);
     assert_eq!(d.status(StepId::Permission), StepStatus::Done);
     assert!(d.c.step(StepId::Permission).note.contains("did not ask"));
     assert!(d.c.frame("tui_permission").is_none());
-    assert!(d.c.into_set().hello_written);
+    let set = d.c.into_set();
+    assert!(set.hello_written && set.runs_without_asking);
 }
 
 #[test]
@@ -437,6 +446,19 @@ I will create hello.txt now. Working...
 /// A question nothing in the classifier knows: no [y/n], no numbered yes/no, no Allow/Deny.
 const ODD_QUESTION: &str = "NIMBUS 0.4\n\nWhere should hello.txt go?\n\n   project folder      scratch folder      cancel\n\nuse the arrow keys\n";
 
+/// The permission step asks twice: the file write, then a command run. After the file question is over, the agent runs
+/// the command without asking (the box is back, nothing was shown): the step ends with a fact.
+fn then_the_command_without_a_question(d: &mut Drive) {
+    // (a long look before may already have typed it: the actions of that look were not kept)
+    let got = d.show(IDLE, 4000);
+    if !got.is_empty() {
+        assert_eq!(only_deliver(&got), command_task(&words()));
+    }
+    d.delivered(true, "");
+    d.animate(1500);
+    d.show(IDLE, 12_000);
+}
+
 /// Drive the made-up agent to the point where the permission task has been typed and is being worked on.
 fn to_permission(d: &mut Drive) {
     d.show(IDLE, 6000);
@@ -480,6 +502,7 @@ fn an_agent_that_writes_the_file_behind_a_working_looking_screen_ends_the_step_w
     to_permission(&mut d);
     d.hello = true;
     d.show(FROZEN, 14_000);
+    then_the_command_without_a_question(&mut d);
     assert_eq!(d.status(StepId::Permission), StepStatus::Done, "{}", d.c.step(StepId::Permission).note);
     assert!(d.c.step(StepId::Permission).note.contains("did not ask"));
     let set = d.c.into_set();
@@ -493,6 +516,7 @@ fn an_agent_back_at_its_input_box_without_a_question_or_a_file_ends_the_step_wit
     let mut d = Drive::new();
     to_permission(&mut d);
     d.show(IDLE, 12_000);
+    then_the_command_without_a_question(&mut d);
     assert_eq!(d.status(StepId::Permission), StepStatus::Done);
     let set = d.c.into_set();
     assert!(!set.writes_without_asking, "no file, so it is not a fact that it writes files");
@@ -513,11 +537,11 @@ fn a_still_picture_that_is_not_the_input_box_is_shown_to_the_person_as_a_questio
     assert_eq!((needs.step, needs.kind.as_str()), (StepId::Permission, "question"));
     assert!(needs.message.contains("It is done"), "{}", needs.message);
     assert!(d.c.frame("tui_permission").unwrap().text.contains("Where should hello.txt go"));
-    // the person answers in the pane and the box is back
-    assert!(d.show(IDLE, 4000).is_empty());
+    // the person answers in the pane and the box is back; then the command question's turn
+    then_the_command_without_a_question(&mut d);
     assert_eq!(d.status(StepId::Permission), StepStatus::Done);
     assert!(d.c.frame("tui_permission").is_some(), "the picture of the question is kept");
-    assert_eq!(d.c.deliveries(), 2, "only the two tasks were ever typed");
+    assert_eq!(d.c.deliveries(), 3, "only the three tasks were ever typed");
 }
 
 #[test]
@@ -529,8 +553,10 @@ fn it_is_done_drops_the_guess_and_it_is_a_question_keeps_it() {
     let can = d.c.status_json(d.now)["can"].to_string();
     assert!(can.contains("done") && can.contains("question"), "{can}");
     d.c.act(None, CaptureAction::Done, d.now).unwrap();
-    assert_eq!(d.status(StepId::Permission), StepStatus::Done);
     assert!(d.c.frame("tui_permission").is_none(), "a screen the person called finished is not a question");
+    assert_eq!(d.status(StepId::Permission), StepStatus::Running, "the command question is still to come");
+    then_the_command_without_a_question(&mut d);
+    assert_eq!(d.status(StepId::Permission), StepStatus::Done);
     assert!(!d.c.into_set().writes_without_asking);
 
     let mut d = Drive::new();
@@ -540,7 +566,7 @@ fn it_is_done_drops_the_guess_and_it_is_a_question_keeps_it() {
     assert!(d.c.needs_you().is_none());
     assert_eq!(d.status(StepId::Permission), StepStatus::Running);
     assert!(d.c.frame("tui_permission").is_some());
-    d.show(IDLE, 4000);
+    then_the_command_without_a_question(&mut d);
     assert_eq!(d.status(StepId::Permission), StepStatus::Done);
 }
 
@@ -577,7 +603,7 @@ fn time_spent_on_a_question_does_not_count_against_the_permission_deadline() {
     to_permission(&mut d);
     d.show(PERMISSION, 300_000); // the person is away for five minutes
     assert_eq!(d.c.needs_you().unwrap().kind, "permission");
-    d.show(IDLE, 4000);
+    then_the_command_without_a_question(&mut d);
     assert_eq!(d.status(StepId::Permission), StepStatus::Done);
 }
 
@@ -586,7 +612,7 @@ fn a_retry_forgets_the_file_of_the_earlier_try() {
     let mut d = Drive::new();
     to_permission(&mut d);
     d.hello = true;
-    d.show(IDLE, 4000);
+    then_the_command_without_a_question(&mut d);
     assert!(d.c.status_json(d.now)["steps"].to_string().contains("did not ask"));
     d.c.act(Some(StepId::Permission), CaptureAction::Retry, d.now).unwrap();
     d.hello = false; // the runner deleted hello.txt
@@ -617,6 +643,7 @@ fn a_working_looking_screen_with_the_empty_input_box_back_is_a_finished_agent() 
     let mut d = Drive::new();
     to_permission(&mut d);
     d.show(FROZEN, 14_000);
+    then_the_command_without_a_question(&mut d);
     assert_eq!(d.status(StepId::Permission), StepStatus::Done);
     assert!(!d.c.into_set().writes_without_asking, "no file, so no claim about writing");
 }
@@ -735,9 +762,8 @@ fn a_one_time_permission_question_in_the_permission_step_is_answered_and_the_ste
     assert_eq!(pressed(&got), vec![AnswerKey::Text("y".into())], "{got:?}");
     assert!(d.c.frame("tui_permission").unwrap().text.contains("Allow nimbus"), "the question was kept before it was answered");
     d.hello = true;
-    d.show(IDLE, 4000);
+    then_the_command_without_a_question(&mut d);
     assert_eq!(d.status(StepId::Permission), StepStatus::Done);
-    assert!(d.c.step(StepId::Permission).note.contains("The wizard answered"), "{}", d.c.step(StepId::Permission).note);
     assert_eq!(d.c.into_set().answered[0].flavour, "permission");
 }
 

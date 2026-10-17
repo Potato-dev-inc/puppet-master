@@ -433,6 +433,9 @@ fn check_tui(def: &Definition, e: &mut Errors, regexes: &mut Regexes) {
     if let Some(t) = &tui.tool_activity {
         many("tui.tool_activity.line_regex", &t.line_regex);
     }
+    if let Some(t) = &tui.thinking {
+        many("tui.thinking.line_regex", &t.line_regex);
+    }
     many("tui.activity_regex", &tui.activity_regex);
     many("tui.error_regex", &tui.error_regex);
     if let Some(t) = &tui.menu {
