@@ -484,7 +484,21 @@ impl Engine {
         let Phase::Approval { dialog, .. } = &mut self.phase else { return };
         let options = dialog.options(self.layout).len();
         let mut confirm: Option<usize> = None;
+        use render::NimbusMenu as M;
+        let styled = self.layout == Layout::Nimbus && matches!(dialog.menu, M::Inverse | M::Boxed | M::Buttons | M::ButtonsArrows | M::Inline | M::AlwaysOnly | M::Blind);
+        let buttons = self.layout == Layout::Nimbus && matches!(dialog.menu, M::Buttons | M::ButtonsArrows);
         match key {
+            // the styled questions answer only to their own keys: rows move with Up / Down, a row of buttons with Tab (`buttons`)
+            // or Left / Right (`buttons_arrows`), the inline question with its letters; Enter confirms (not the inline one)
+            Key::Up | Key::Down if styled && (buttons || dialog.menu == M::Inline) => {}
+            Key::Tab if buttons && dialog.menu == M::Buttons => dialog.selected = (dialog.selected + 1) % options,
+            Key::Right if buttons && dialog.menu == M::ButtonsArrows => dialog.selected = (dialog.selected + 1).min(options - 1),
+            Key::Left if buttons && dialog.menu == M::ButtonsArrows => dialog.selected = dialog.selected.saturating_sub(1),
+            Key::Enter if dialog.menu == M::Inline => {}
+            Key::Esc if styled => {}
+            Key::Char('y' | 'Y') if self.layout == Layout::Nimbus && dialog.menu == M::Inline => confirm = Some(0),
+            Key::Char('n' | 'N') if self.layout == Layout::Nimbus && dialog.menu == M::Inline => confirm = Some(1),
+            Key::Char(_) if styled => {}
             Key::Up => dialog.selected = dialog.selected.saturating_sub(1),
             Key::Down => dialog.selected = (dialog.selected + 1).min(options - 1),
             Key::Enter => confirm = Some(dialog.selected),
@@ -621,6 +635,13 @@ impl Engine {
                     let menu = match (self.layout, self.script.approvals, kind) {
                         (Layout::Nimbus, crate::script::Approvals::Menus, ApprovalKind::Bash) => render::NimbusMenu::Command,
                         (Layout::Nimbus, crate::script::Approvals::Menus, _) => render::NimbusMenu::File,
+                        (Layout::Nimbus, crate::script::Approvals::Inverse, _) => render::NimbusMenu::Inverse,
+                        (Layout::Nimbus, crate::script::Approvals::Boxed, _) => render::NimbusMenu::Boxed,
+                        (Layout::Nimbus, crate::script::Approvals::Buttons, _) => render::NimbusMenu::Buttons,
+                        (Layout::Nimbus, crate::script::Approvals::ButtonsArrows, _) => render::NimbusMenu::ButtonsArrows,
+                        (Layout::Nimbus, crate::script::Approvals::Inline, _) => render::NimbusMenu::Inline,
+                        (Layout::Nimbus, crate::script::Approvals::AlwaysOnly, _) => render::NimbusMenu::AlwaysOnly,
+                        (Layout::Nimbus, crate::script::Approvals::Blind, _) => render::NimbusMenu::Blind,
                         _ => render::NimbusMenu::YesNo,
                     };
                     let dialog = Dialog {
@@ -632,6 +653,10 @@ impl Engine {
                         auto_mode_option,
                         selected: 0,
                     };
+                    let mut dialog = dialog;
+                    if self.layout == Layout::Nimbus {
+                        dialog.selected = self.script.approval_cursor.min(dialog.options(self.layout).len() - 1);
+                    }
                     self.log(now, "approval_shown", json!({ "kind": format!("{kind:?}").to_lowercase(), "command": dialog.command, "path": dialog.path }));
                     self.phase = Phase::Approval { dialog, on_allow, on_deny };
                     return;
@@ -1350,6 +1375,79 @@ mod nimbus_tests {
         e.on_key(Key::Enter, 120);
         let done = e.plain(130);
         assert!(done.contains("denied: hello.txt") && !done.contains("wrote"), "{done}");
+    }
+
+    fn styled_toml(style: &str, cursor: usize) -> String {
+        format!("approvals = \"{style}\"\napproval_cursor = {cursor}\n[[turn]]\nsteps = [{{ do = \"approve\", kind = \"bash\", command = \"echo ok\", on_allow = [{{ do = \"say\", text = \"ran\" }}], on_deny = [{{ do = \"say\", text = \"not run\" }}] }}]")
+    }
+
+    fn ask(toml: &str) -> Engine {
+        let mut e = engine(toml);
+        type_text(&mut e, "go", 0);
+        e.on_key(Key::Enter, 10);
+        e
+    }
+
+    #[test]
+    fn the_inverse_menu_draws_its_cursor_as_inverse_video_and_no_marker() {
+        let mut e = ask(&styled_toml("inverse", 2));
+        let frame = e.frame(20);
+        let plain = e.plain(20);
+        assert!(plain.contains("Allow nimbus to run `echo ok`?") && plain.contains("Allow once") && plain.contains("Deny"), "{plain}");
+        assert!(plain.lines().filter(|l| l.contains("Allow once") || l.contains("Deny")).all(|l| !l.contains('>') && !l.contains('\u{276f}')), "no marker: {plain}");
+        let deny = frame.rows.iter().find(|r| r.contains("Deny")).expect("the Deny row");
+        assert!(deny.contains("\x1b[7m"), "the cursor row is inverse: {deny:?}");
+        let once = frame.rows.iter().find(|r| r.contains("Allow once")).expect("the Allow once row");
+        assert!(!once.contains("\x1b[7m"), "{once:?}");
+        e.on_key(Key::Char('y'), 30);
+        e.on_key(Key::Char('1'), 31);
+        assert!(e.plain(40).contains("Allow nimbus to run"), "letters and digits do nothing");
+        e.on_key(Key::Up, 50);
+        e.on_key(Key::Up, 60);
+        assert!(e.frame(70).rows.iter().find(|r| r.contains("Allow once")).unwrap().contains("\x1b[7m"));
+        e.on_key(Key::Enter, 80);
+        assert!(e.plain(90).contains("allowed"), "{}", e.plain(90));
+    }
+
+    #[test]
+    fn the_boxed_menu_sits_in_a_box_with_a_marker() {
+        let e = ask(&styled_toml("boxed", 1));
+        let plain = e.plain(20);
+        assert!(plain.contains("\u{2502} \u{276f} Always allow in this project") && plain.contains("\u{256d}") && plain.contains("\u{2570}"), "{plain}");
+    }
+
+    #[test]
+    fn a_button_row_moves_with_tab_only_or_with_left_and_right_only() {
+        let mut tab = ask(&styled_toml("buttons", 2));
+        let row = tab.plain(20).lines().find(|l| l.contains("Allow once")).unwrap().to_string();
+        assert!(row.contains("Allow once") && row.contains("Always allow in this project") && row.contains("Deny"), "{row}");
+        assert!(tab.frame(20).rows.iter().find(|r| r.contains("Allow once")).unwrap().contains("\x1b[7m Deny \x1b[27m"));
+        tab.on_key(Key::Right, 30);
+        tab.on_key(Key::Left, 31);
+        assert!(tab.frame(40).rows.iter().find(|r| r.contains("Allow once")).unwrap().contains("\x1b[7m Deny \x1b[27m"), "arrows do nothing");
+        tab.on_key(Key::Tab, 50);
+        assert!(tab.frame(60).rows.iter().find(|r| r.contains("Allow once")).unwrap().contains("\x1b[7m Allow once \x1b[27m"), "Tab wraps to the first button");
+        let mut arrows = ask(&styled_toml("buttons_arrows", 0));
+        arrows.on_key(Key::Tab, 30);
+        assert!(arrows.frame(40).rows.iter().find(|r| r.contains("Allow once")).unwrap().contains("\x1b[7m Allow once \x1b[27m"), "Tab does nothing");
+        arrows.on_key(Key::Right, 50);
+        assert!(arrows.frame(60).rows.iter().find(|r| r.contains("Allow once")).unwrap().contains("\x1b[7m Always allow in this project \x1b[27m"));
+    }
+
+    #[test]
+    fn the_inline_question_takes_its_letters_and_the_always_only_menu_has_no_plain_yes() {
+        let mut inline = ask(&styled_toml("inline", 0));
+        assert!(inline.plain(20).contains("[Y]es / [N]o"), "{}", inline.plain(20));
+        inline.on_key(Key::Enter, 30);
+        assert!(inline.plain(40).contains("[Y]es / [N]o"), "Enter does nothing");
+        inline.on_key(Key::Char('y'), 50);
+        assert!(inline.plain(60).contains("allowed"), "{}", inline.plain(60));
+        let always = ask(&styled_toml("always_only", 0));
+        let plain = always.plain(20);
+        assert!(plain.contains("Always allow in this project") && plain.contains("Deny") && !plain.contains("Allow once"), "{plain}");
+        let blind = ask(&styled_toml("blind", 0));
+        let rows = blind.frame(20).rows;
+        assert!(rows.iter().all(|r| !r.contains("\x1b[7m")) && blind.plain(20).contains("Allow once"), "nothing shows where the cursor is");
     }
 
     #[test]
