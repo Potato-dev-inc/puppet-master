@@ -40,12 +40,12 @@ fn dotenv_style_secrets_are_masked_with_their_names_kept() {
 
 #[test]
 fn the_default_strength_keeps_commit_hashes_and_paths_the_strict_one_does_not() {
-    let line = "commit 0123456789abcdef0123456789abcdef01234567 in C:\\Users\\Ren-pc\\Desktop\\x";
+    let line = "commit 0123456789abcdef0123456789abcdef01234567 in C:\\Users\\you-pc\\Desktop\\x";
     let normal = text_with(line, &ctx());
     assert_eq!(normal.as_str(), line, "transcripts keep what agents read");
     let strict = strict_with(line, &ctx());
     assert!(!strict.as_str().contains("0123456789abcdef0123"), "{strict}");
-    assert!(!strict.as_str().to_lowercase().contains("ren-pc"), "{strict}");
+    assert!(!strict.as_str().to_lowercase().contains("you-pc"), "{strict}");
 }
 
 #[test]

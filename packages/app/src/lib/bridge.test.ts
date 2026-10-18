@@ -83,4 +83,15 @@ describe('makeBridgeClient session routes', () => {
       method: 'POST',
     }));
   });
+
+  it('shows the proxy\'s BRIDGE_UNREACHABLE message instead of raw JSON', async () => {
+    const message = "The Puppet Master app's bridge is not running on port 17999 (read from a port file).";
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      text: async () => JSON.stringify({ code: 'BRIDGE_UNREACHABLE', message }),
+    }));
+    const bridge = makeBridgeClient('http://127.0.0.1:1');
+    await expect(bridge.listPanes()).rejects.toThrow(`bridge GET /panes -> 502: ${message}`);
+  });
 });

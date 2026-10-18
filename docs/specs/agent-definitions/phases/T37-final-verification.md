@@ -30,7 +30,7 @@ File allow-list = the union of the files named below (`src/` = `packages/app/src
 - [ ] V-5 clean-state Kilo proof (delete agent-approvals.json only - a single file) — none — done-when: needs_approval -> approve -> headless run+followup (same sessionID) -> visible run+followup -> UNKNOWN_AGENT_TYPE lists valid -> edited argv gives AGENT_DEF_APPROVAL_STALE
 - [ ] V-6 security spot checks — none — done-when: project-local OFF by default; hostile project file not loaded; `python`/`cmd` binary rejected; task `-x; rm -rf /` arrives as one argv element; MCP session cannot approve
 - [ ] V-7 docs — `docs/REPO_MAP.md`, `packages/app/src-tauri/src/tui/README.md`, `docs/specs/agent-definitions/DEFINITION-FORMAT.md`, `docs/specs/agent-definitions/SPEC.md` (assumptions only) — done-when: examples pass `/agents/definitions/validate`; SPEC assumptions updated with verified facts
-- [ ] V-8 memory — `C:\Users\Ren-pc\.claude\projects\C--Users-Ren-pc-Desktop-work2-puppet-master\memory\` (MEMORY.md + one new note) — done-when: registry location, definitions dir, Kilo .exe gotcha, catalog_version pin policy
+- [ ] V-8 memory — `C:\Users\you\.claude\projects\C--Users-you-Desktop-work2-puppet-master\memory\` (MEMORY.md + one new note) — done-when: registry location, definitions dir, Kilo .exe gotcha, catalog_version pin policy
 - [ ] V-9 commit — the files above — done-when: fresh build_id in the message body; nothing unrelated staged
 
 ## Tests to write first
@@ -39,7 +39,7 @@ File allow-list = the union of the files named below (`src/` = `packages/app/src
 
 ## Verification commands
 
-Run from `packages/app/src-tauri` with `CARGO_TARGET_DIR=C:\Users\Ren-pc\cargo-target-shared` unless noted.
+Run from `packages/app/src-tauri` with `CARGO_TARGET_DIR=C:\Users\you\cargo-target-shared` unless noted.
 
 - `cargo test --lib`
 - `cargo test --lib tui::`
@@ -71,13 +71,13 @@ Read first: docs/REPO_MAP.md, docs/specs/agent-definitions/SPEC.md (requirements
 Work: 1) write the tests listed under "Tests to write first" and see them fail; 2) do the tasks in order, touching only the allow-listed files; 3) run every command under "Verification commands" and fix until green; 4) commit with explicit `git add <paths>` (1-4 commits). Out of scope: New features (file an issue/plan edit instead).
 Phase note: Delete only the single file agent-approvals.json, never a directory.
 Hard rules (non-negotiable):
-- Repo: C:\Users\Ren-pc\Desktop\work2\puppet-master, branch refactor/tui-profiles. `src/` means packages/app/src-tauri/src/. Read docs/REPO_MAP.md, docs/specs/agent-definitions/SPEC.md (the requirement ids your phase covers) and this phase file first.
+- Repo: C:\Users\you\Desktop\work2\puppet-master, branch refactor/tui-profiles. `src/` means packages/app/src-tauri/src/. Read docs/REPO_MAP.md, docs/specs/agent-definitions/SPEC.md (the requirement ids your phase covers) and this phase file first.
 - Tests first: write the failing tests listed, then implement, then run the verification commands. Commit finished work unasked, 1-4 commits.
 - Touch only files in this phase's allow-list. If reality diverges from SPEC (a file/function is not where the plan says, a behaviour differs), STOP and ask the caller; do not improvise a redesign.
 - No recursive deletes (no `rm -rf`, `Remove-Item -Recurse`), no `git worktree remove`, no junctions/symlink tricks. Delete only single files you created.
 - NEVER stage the user's uncommitted README.md, docs/wiki/README.md, package-lock.json, or packages/app/src-tauri/Cargo.toml wholesale. Always `git add <explicit paths>`; if you must add a dependency line to Cargo.toml, use `git add -p` for only your hunk (or ask). `git status` must show those four files still modified-and-unstaged afterwards. Never `git add -A` / `git add .`.
 - Commit message ends with the trailer line: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Do not push.
-- Use the shared target dir: `$env:CARGO_TARGET_DIR='C:\Users\Ren-pc\cargo-target-shared'` (PowerShell) or `export CARGO_TARGET_DIR=/c/Users/Ren-pc/cargo-target-shared` (bash); run cargo from packages/app/src-tauri.
+- Use the shared target dir: `$env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'` (PowerShell) or `export CARGO_TARGET_DIR=/c/Users/you/cargo-target-shared` (bash); run cargo from packages/app/src-tauri.
 - If this phase changes any MCP tool schema, rebuild the dist MCP exe (separate CARGO_TARGET_DIR + rename swap) and make sure catalog_version / the pinned test agree. Edits to src-tauri restart the live dev app (~1 minute): never edit while a live test runs.
 - Each handoff/report needs a fresh build_id. Use unique handle names in live tests.
 

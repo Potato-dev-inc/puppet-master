@@ -4,7 +4,7 @@
 //! The "working" screens are real captures (`tui/*/fixtures`); the exit is those screens followed by
 //! the host shell's prompt, which is what a pane shows once the agent's process ends.
 
-use super::super::pane_turn::{fail_if_agent_exited, HostShellWatch};
+use super::super::pane_turn::{fail_if_agent_exited, ExitCheck, HostShellWatch, ProcessExit, EXIT_SETTLE_MAX};
 use crate::operations::{self, OperationSnapshot, OperationStatus};
 
 const CODEX_WORKING: &str = include_str!("../../../tui/codex/fixtures/working_live.txt");
@@ -48,6 +48,17 @@ fn with_prompt(screen: &str) -> String {
     format!("{}\nPS D:\\pm-demo> ", screen.trim_end())
 }
 
+fn alive(check: ExitCheck) -> bool {
+    matches!(check, ExitCheck::Alive)
+}
+
+fn failed(check: ExitCheck, what: &str) -> OperationSnapshot {
+    match check {
+        ExitCheck::Failed(failed) => failed,
+        other => panic!("{what}: {other:?}"),
+    }
+}
+
 #[test]
 fn an_agent_that_exits_to_its_host_shell_mid_run_fails_the_run_with_its_last_screen() {
     for (agent, working) in [("codex", CODEX_WORKING), ("claude", CLAUDE_EDIT)] {
@@ -56,14 +67,16 @@ fn an_agent_that_exits_to_its_host_shell_mid_run_fails_the_run_with_its_last_scr
         let mut watch = HostShellWatch::default();
         // Working: nothing happens, however many ticks.
         for _ in 0..5 {
-            assert!(fail_if_agent_exited(&run, &mut watch, working, false).is_none(), "{agent}: a working agent is alive");
+            assert!(alive(fail_if_agent_exited(&run, &mut watch, working, ProcessExit::No)), "{agent}: a working agent is alive");
         }
         // The agent's process ends and PowerShell prints its prompt. One frame is not enough ...
         let gone = with_prompt(working);
-        assert!(fail_if_agent_exited(&run, &mut watch, &gone, false).is_none(), "{agent}: one frame is not proof");
+        assert!(alive(fail_if_agent_exited(&run, &mut watch, &gone, ProcessExit::No)), "{agent}: one frame is not proof");
         // ... the same frame again is.
-        let failed = fail_if_agent_exited(&run, &mut watch, &gone, false)
-            .unwrap_or_else(|| panic!("{agent}: the run must fail once the host shell stays"));
+        let failed = failed(
+            fail_if_agent_exited(&run, &mut watch, &gone, ProcessExit::No),
+            &format!("{agent}: the run must fail once the host shell stays"),
+        );
         assert_eq!(failed.status, OperationStatus::Failed);
         let error = failed.error.as_ref().expect("a typed error");
         assert_eq!(error.code, "AGENT_EXITED");
@@ -85,8 +98,8 @@ fn a_single_host_prompt_frame_between_agent_frames_does_not_fail_the_run() {
     let mut watch = HostShellWatch::default();
     let gone = with_prompt(CODEX_WORKING);
     for _ in 0..4 {
-        assert!(fail_if_agent_exited(&run, &mut watch, &gone, false).is_none());
-        assert!(fail_if_agent_exited(&run, &mut watch, CODEX_WORKING, false).is_none(), "the agent came back: the count restarts");
+        assert!(alive(fail_if_agent_exited(&run, &mut watch, &gone, ProcessExit::No)));
+        assert!(alive(fail_if_agent_exited(&run, &mut watch, CODEX_WORKING, ProcessExit::No)), "the agent came back: the count restarts");
     }
     assert_eq!(operations::get_operation(&run.project_path, &run.operation_id).unwrap().status, OperationStatus::Running);
 }
@@ -101,7 +114,7 @@ fn a_host_prompt_before_the_prompt_was_typed_is_not_an_exit() {
     ];
     let mut watch = HostShellWatch::default();
     for _ in 0..5 {
-        assert!(fail_if_agent_exited(&run, &mut watch, "PS D:\\pm-demo> ", false).is_none());
+        assert!(alive(fail_if_agent_exited(&run, &mut watch, "PS D:\\pm-demo> ", ProcessExit::No)));
     }
 }
 
@@ -111,23 +124,33 @@ fn a_plain_shell_pane_is_never_an_agent_that_exited() {
     run.agent_type = "powershell".into();
     let mut watch = HostShellWatch::default();
     for _ in 0..5 {
-        assert!(fail_if_agent_exited(&run, &mut watch, "PS D:\\pm-demo> ", false).is_none(), "a shell's prompt is its normal screen");
+        assert!(alive(fail_if_agent_exited(&run, &mut watch, "PS D:\\pm-demo> ", ProcessExit::No)), "a shell's prompt is its normal screen");
     }
 }
 
 /// Regression: `an_agent_crash_mid_run_fails_the_run_with_agent_exited` completed the run on a CI
 /// runner. The agent's process had ended, but the host shell's prompt was not drawn yet, so the
 /// screen was the agent's last frame plus its panic text, quiet: the screen watch saw nothing and
-/// the idle completion took it for a finished reply. The process tree is the proof, not the prompt.
+/// the idle completion took it for a finished reply. The process tree is the proof, not the prompt:
+/// from the moment it says the agent ended, nothing else may judge the screen.
 #[test]
-fn an_agent_whose_process_ended_fails_the_run_before_the_host_prompt_is_drawn() {
+fn an_agent_whose_process_ended_fails_the_run_even_if_no_host_prompt_is_ever_drawn() {
     for agent in ["claude", "codex"] {
         let run = running_run(agent);
         let mut watch = HostShellWatch::default();
-        let crashed = format!("{}\nthread 'main' panicked at agent.rs:42: fake crash", CLAUDE_EDIT.trim_end());
-        assert!(fail_if_agent_exited(&run, &mut watch, &crashed, false).is_none(), "{agent}: alive while the process runs");
-        let failed = fail_if_agent_exited(&run, &mut watch, &crashed, true)
-            .unwrap_or_else(|| panic!("{agent}: a process that ended must fail the run with no prompt on screen"));
+        let crashed = format!("{}
+thread 'main' panicked at agent.rs:42: fake crash", CLAUDE_EDIT.trim_end());
+        assert!(alive(fail_if_agent_exited(&run, &mut watch, &crashed, ProcessExit::No)), "{agent}: alive while the process runs");
+        assert!(
+            matches!(fail_if_agent_exited(&run, &mut watch, &crashed, ProcessExit::Agent), ExitCheck::Settling),
+            "{agent}: the process ended: the completion must not read this screen"
+        );
+        // The host shell never draws its prompt: the run still fails, with the screen it has.
+        watch.exit_seen = watch.exit_seen.map(|at| at - EXIT_SETTLE_MAX);
+        let failed = failed(
+            fail_if_agent_exited(&run, &mut watch, &crashed, ProcessExit::Agent),
+            &format!("{agent}: a process that ended must fail the run with no prompt on screen"),
+        );
         let error = failed.error.as_ref().expect("a typed error");
         assert_eq!(error.code, "AGENT_EXITED");
         assert!(error.context["last_screen"].as_str().unwrap().contains("fake crash"), "{error:?}");
@@ -136,15 +159,64 @@ fn an_agent_whose_process_ended_fails_the_run_before_the_host_prompt_is_drawn() 
     }
 }
 
+/// Regression (a local full fake-agent run under load): the crash test failed with `AGENT_EXITED`
+/// but a last screen without the panic. The process tree said the agent was gone while ConPTY was
+/// still carrying its last frame, and the run failed on the screen from before it. The host shell
+/// prints its prompt after the agent's output, so the prompt is when the last screen is complete.
+#[test]
+fn an_agent_whose_process_ended_keeps_its_last_frame_in_the_error() {
+    for agent in ["claude", "codex"] {
+        let run = running_run(agent);
+        let mut watch = HostShellWatch::default();
+        // The process is gone; the screen still shows the agent working (its last frame is in flight).
+        for _ in 0..3 {
+            assert!(
+                matches!(fail_if_agent_exited(&run, &mut watch, CLAUDE_EDIT, ProcessExit::Agent), ExitCheck::Settling),
+                "{agent}: the last frame has not arrived"
+            );
+        }
+        // The last frame and the shell's prompt arrive: one frame is enough, the process said so.
+        let crashed = with_prompt(&format!("{}
+thread 'main' panicked at agent.rs:42: fake crash", CLAUDE_EDIT.trim_end()));
+        let failed = failed(fail_if_agent_exited(&run, &mut watch, &crashed, ProcessExit::Agent), agent);
+        let context = failed.error.as_ref().unwrap().context["last_screen"].as_str().unwrap().to_string();
+        assert!(context.contains("fake crash"), "{agent}: {context}");
+        assert!(context.contains(r"PS D:\pm-demo>"), "{agent}: {context}");
+    }
+}
+
+/// A pane whose own process ended was drained by its reader before it was marked exited (`pty::registry`
+/// exit watcher): there is no host shell to wait for.
+#[test]
+fn a_pane_whose_own_process_ended_fails_the_run_at_once() {
+    let run = running_run("claude");
+    let failed = failed(
+        fail_if_agent_exited(&run, &mut HostShellWatch::default(), CLAUDE_EDIT, ProcessExit::Pane),
+        "the pane's process ended",
+    );
+    assert_eq!(failed.error.unwrap().code, "AGENT_EXITED");
+}
+
+/// A process tree that says the agent ended and then running again (a look that raced a restart)
+/// starts the wait over.
+#[test]
+fn the_settle_wait_restarts_when_the_agent_is_seen_alive_again() {
+    let run = running_run("codex");
+    let mut watch = HostShellWatch::default();
+    assert!(matches!(fail_if_agent_exited(&run, &mut watch, CODEX_WORKING, ProcessExit::Agent), ExitCheck::Settling));
+    assert!(alive(fail_if_agent_exited(&run, &mut watch, CODEX_WORKING, ProcessExit::No)));
+    assert!(watch.exit_seen.is_none());
+}
+
 #[test]
 fn an_ended_process_is_no_exit_for_a_shell_pane_or_before_the_prompt_was_typed() {
     let mut shell = running_run("codex");
     shell.agent_type = "powershell".into();
-    assert!(fail_if_agent_exited(&shell, &mut HostShellWatch::default(), r"PS D:\pm-demo> ", true).is_none());
+    assert!(alive(fail_if_agent_exited(&shell, &mut HostShellWatch::default(), r"PS D:\pm-demo> ", ProcessExit::Agent)));
     let mut starting = running_run("codex");
     starting.worker.stage_log = vec![
         operations::StageMark { stage: "dispatching".into(), at_ms: 1 },
         operations::StageMark { stage: "waiting_for_pane_readiness".into(), at_ms: 2 },
     ];
-    assert!(fail_if_agent_exited(&starting, &mut HostShellWatch::default(), "", true).is_none());
+    assert!(alive(fail_if_agent_exited(&starting, &mut HostShellWatch::default(), "", ProcessExit::Agent)));
 }

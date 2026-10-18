@@ -2,10 +2,10 @@
   v2026.10.01-e373342
   Tip: Use /debug to instrument and debug complex problems.
   Run `python todo.py add buy-milk` then `python todo.py list` and tell me the JSON list printed.
-  $ cd "C:\Users\Ren-pc\AppData\Local\Temp\cur-appr-2fehjvjl" && python todo.py add buy-milk && python todo.py list
+  $ cd "C:\Users\you-pc\AppData\Local\Temp\cur-appr-2fehjvjl" && python todo.py add buy-milk && python todo.py list
     Waiting for approval...
 ───────────────────────────────────────────────────────────────────────────────────
- $  cd "C:\Users\Ren-pc\AppData\Local\Temp\cur-appr-2fehjvjl" && python todo.py add buy-milk && python todo.py list in .
+ $  cd "C:\Users\you-pc\AppData\Local\Temp\cur-appr-2fehjvjl" && python todo.py add buy-milk && python todo.py list in .
  Run this command?
  Not in allowlist: cd, python
   → Run (once) (y)

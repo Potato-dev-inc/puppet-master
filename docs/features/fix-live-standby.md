@@ -3,7 +3,7 @@
 ## Root cause (evidence)
 Live `GET /standby` on the running dev app (no restart) showed, for the default-project keys:
 `codex ... reason=needs_attention fails=3 cold`, `cursor_agent ... reason=dialog fails=3 cold`, and the same
-agents again under other folders (`c:/users/ren-pc/desktop`, `d:/pm-demo`, `d:/pm-integration/packages/app/src-tauri`),
+agents again under other folders (`c:/users/you/desktop`, `d:/pm-demo`, `d:/pm-integration/packages/app/src-tauri`),
 `stats: spawned 27, discarded 19`.
 
 - The classification is not wrong. Codex 0.159 starts on the update MENU ("Update now / Skip / Skip until next

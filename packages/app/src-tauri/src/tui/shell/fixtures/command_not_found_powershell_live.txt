@@ -7,4 +7,4 @@ At line:1 char:3
     + CategoryInfo          : ObjectNotFound: (pm-agent-not-installed-7f3:String) [], CommandNotFoundException
     + FullyQualifiedErrorId : CommandNotFoundException
  
-PS C:\Users\Ren-pc\AppData\Local\Temp> 
+PS C:\Users\you-pc\AppData\Local\Temp> 
