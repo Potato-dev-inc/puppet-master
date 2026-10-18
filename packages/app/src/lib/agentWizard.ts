@@ -238,6 +238,32 @@ export interface AgentError {
   external: boolean;
 }
 
+/** Logo, rule, box-drawing, block and braille characters: the strokes of a banner, never words. */
+const FRAME_CHAR = /[─-▟■-◿⠀-⣿|+=_~#-]/;
+/** A lone `<Name> CLI 1.4.2` or `v1.4.2` banner row, a logo in front of it or not. */
+const BANNER_ROW = /^(?:[a-z][\w.+-]*\s+){0,4}(?:cli\s+|code\s+|agent\s+|tui\s+)?v?\d+\.\d+(?:\.\d+)?(?:[-+][\w.]+)?\s*(?:\([^)]*\))?\.?$/i;
+const ERRORISH = /\b(error|errors|failed|failure|exception|traceback|panicked|fatal|cannot|can't|could not|couldn't|unable to|not found|denied|timed out|timeout)\b/i;
+
+/**
+ * Whether `message` is text an error can be shown with: it holds words and is not a logo, a rule or a
+ * `<Name> CLI 1.4.2` banner (the first line an inline TUI prints). The program's own error is only a stop
+ * when there is such text (SPEC 4.4): without it the failure is the draft's and the next round fixes it.
+ */
+export function isRealErrorMessage(message: string | null | undefined): boolean {
+  const first = (message ?? '').split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
+  if (!first) return false;
+  const cells = [...first].filter((c) => !/\s/.test(c));
+  if (cells.filter((c) => FRAME_CHAR.test(c)).length * 2 >= cells.length) return false;
+  if ([...first].filter((c) => /\p{L}/u.test(c)).length < 3) return false;
+  const core = first.replace(/^[\s─-▟■-◿⠀-⣿|+=_~#-]+|[\s─-▟■-◿⠀-⣿|+=_~#-]+$/g, '');
+  return !(BANNER_ROW.test(core) && !ERRORISH.test(core));
+}
+
+/** The program's error, only when it carries real error text. */
+function realAgentError(error: AgentError | null | undefined): AgentError | null {
+  return error && isRealErrorMessage(error.message) ? error : null;
+}
+
 export interface Provenance {
   drafter: string;
   drafter_kind: 'local_agent' | 'openrouter' | 'other';
@@ -674,8 +700,10 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
 
     let visible: VisibleTestResult | null = null;
     let live: LiveResult | null = null;
-    const fail = (text: string, agentError: AgentError | null): { stop: AgentError } | null => {
-      // The program itself is broken (or says the same error twice): another draft cannot help.
+    const fail = (text: string, reported: AgentError | null): { stop: AgentError } | null => {
+      // The program itself is broken (or says the same error twice): another draft cannot help. Only real error
+      // text counts: a banner, a logo or an empty line is not one, and a failure of the draft goes back to the drafter.
+      const agentError = realAgentError(reported);
       if (agentError && (agentError.external || agentError.message === lastAgentError)) return { stop: agentError };
       lastAgentError = agentError?.message ?? null;
       lastText = text;
@@ -782,7 +810,7 @@ export async function retryLiveTest(opts: {
     if (!visible.ok) {
       opts.onEvent?.({ step: 'visible', status: 'failed', round: opts.rounds, detail: visible.errors[0]?.message });
       const ae = visible.agent_error;
-      if (ae?.external) return { status: 'agent_error', ...base, live, visible, error: { stage: ae.check, message: ae.message, external: true } };
+      if (ae?.external && isRealErrorMessage(ae.message)) return { status: 'agent_error', ...base, live, visible, error: { stage: ae.check, message: ae.message, external: true } };
       return { status: 'failed', ...base, live, visible, text: visible.text };
     }
     opts.onEvent?.({ step: 'visible', status: 'done', round: opts.rounds });
@@ -792,7 +820,8 @@ export async function retryLiveTest(opts: {
     live = await opts.api.livetest(opts.session, planned.fingerprint);
     if (!live.ok) {
       opts.onEvent?.({ step: 'live', status: 'failed', round: opts.rounds, detail: live.errors[0]?.message });
-      if (live.agent_error?.external) return { status: 'agent_error', ...base, live, visible, error: live.agent_error };
+      const ae = realAgentError(live.agent_error);
+      if (ae?.external) return { status: 'agent_error', ...base, live, visible, error: ae };
       return { status: 'failed', ...base, live, visible, text: live.text };
     }
     opts.onEvent?.({ step: 'live', status: 'done', round: opts.rounds });

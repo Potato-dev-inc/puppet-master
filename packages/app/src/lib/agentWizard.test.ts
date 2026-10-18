@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   agentErrorMessage,
+  isRealErrorMessage,
   askOpenRouter,
   chooseDefaultDrafter,
   commandLine,
@@ -395,6 +396,41 @@ describe('runDraftLoop with a stand-in drafter', () => {
     expect(result.status).toBe('agent_error');
     expect(result.status === 'agent_error' && result.rounds).toBe(2);
     expect(drafter.ask).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps drafting when the "error" is only the banner the program printed first', async () => {
+    // The first line of an inline TUI is its logo and version. It is not an error, even when it comes back twice.
+    const banner: AgentError = { stage: 'pong', message: '\u2584\u2580 Nimbus CLI 1.4.2.', external: false };
+    const drafter = standIn([block(WRONG_FIELD), block(WRONG_FIELD), block(GOOD)]);
+    const livetest = vi
+      .fn<(s: string, plan: string) => Promise<LiveResult>>()
+      .mockResolvedValueOnce({ ...liveBad(), agent_error: banner })
+      .mockResolvedValueOnce({ ...liveBad(), agent_error: banner })
+      .mockResolvedValueOnce(liveOk());
+    const o = options({ ask: drafter.ask });
+    o.api = { verify: o.api.verify, livetest };
+    const result = await runDraftLoop({ ...o, maxRounds: 4 });
+    expect(result.status).toBe('tested');
+    expect(drafter.ask).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps drafting when an error that claims to be the programs own has no error text', async () => {
+    const empty: AgentError = { stage: 'pong', message: '', external: true };
+    const drafter = standIn([block(WRONG_FIELD), block(GOOD)]);
+    const livetest = vi.fn<(s: string, plan: string) => Promise<LiveResult>>().mockResolvedValueOnce({ ...liveBad(), agent_error: empty }).mockResolvedValueOnce(liveOk());
+    const o = options({ ask: drafter.ask });
+    o.api = { verify: o.api.verify, livetest };
+    expect((await runDraftLoop(o)).status).toBe('tested');
+    expect(drafter.ask).toHaveBeenCalledTimes(2);
+  });
+
+  it('knows a real error text from a banner', () => {
+    for (const m of ['Error: No endpoints found that support tool use.', 'not logged in', '401 Unauthorized', '\u2502 Please sign in \u2502', 'Cannot connect to 10.0.0.1', 'error 1.4']) {
+      expect(isRealErrorMessage(m), m).toBe(true);
+    }
+    for (const m of ['', '   ', '\u2584\u2580', '\u2584\u2580 Antigravity CLI 1.4.2.', 'Nimbus CLI 1.4.2', 'v1.4.2', '+--------+', '\u28ff\u28ff\u28ff']) {
+      expect(isRealErrorMessage(m), m).toBe(false);
+    }
   });
 
   it('keeps going when the errors differ or the failure is the profile\'s own', async () => {
