@@ -751,3 +751,114 @@ describe('AgentDefinitions: Remove, Undo and Recently removed', () => {
     expect(host.textContent).not.toContain('Recently removed');
   });
 });
+
+describe('AgentDefinitions: Clear all and Dismiss (Delete for good)', () => {
+  const KILO_REMOVED: RemovedAgent = {
+    removed_id: 'kilo-20261015-101010', id: 'kilo', label: 'Kilo Code', file_name: 'kilo.toml', removed_at: '2026-10-15T10:10:10Z',
+    fixtures: false, wizard: false, was_approved: false,
+  };
+  const OLD_REMOVED: RemovedAgent = {
+    removed_id: 'old-20261014-101010', id: 'old', label: 'Old Agent', file_name: 'old.toml', removed_at: '2026-10-14T10:10:10Z',
+    fixtures: false, wizard: false, was_approved: true,
+  };
+
+  // The removed list is stateful, so a refresh after a purge shows what is left.
+  function purgeApi(removed: RemovedAgent[] = [KILO_REMOVED, OLD_REMOVED], total?: number) {
+    let current = removed;
+    return Object.assign(mockApi(fixture()), {
+      removedList: vi.fn(async () => ({ removed: current, total: total ?? current.length })),
+      restore: vi.fn(),
+      purge: vi.fn(async (removedId: string) => {
+        current = current.filter((r) => r.removed_id !== removedId);
+        return { ok: true, removed_id: removedId, deleted: 1 };
+      }),
+      purgeAll: vi.fn(async () => {
+        const deleted = current.length;
+        current = [];
+        return { ok: true, deleted, failed: 0 };
+      }),
+    });
+  }
+
+  const dialogButton = (label: string) =>
+    Array.from(host.querySelectorAll('[role="dialog"] button')).find((b) => b.textContent === label);
+  const dismissButton = (label: string) => host.querySelector(`button[aria-label="Dismiss ${label}"]`);
+  const rows = () => host.querySelectorAll('[data-testid="removed-row"]');
+
+  it('shows Clear all in the header and Dismiss on each row, right after Restore', async () => {
+    await render(purgeApi());
+    expect(button('Clear all')).toBeTruthy();
+    expect(rows()).toHaveLength(2);
+    expect(Array.from(rows()[0].querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Restore', 'Dismiss']);
+    expect(dismissButton('Kilo Code')).toBeTruthy();
+  });
+
+  it('Dismiss asks first, and Cancel changes nothing', async () => {
+    const api = purgeApi();
+    await render(api);
+    await click(dismissButton('Kilo Code'));
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain("Delete Kilo Code for good? This can't be undone.");
+    expect(api.purge).not.toHaveBeenCalled();
+    await click(dialogButton('Cancel'));
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(api.purge).not.toHaveBeenCalled();
+    expect(api.purgeAll).not.toHaveBeenCalled();
+    expect(rows()).toHaveLength(2);
+  });
+
+  it('Dismiss deletes that one entry for good, refreshes the list and leaves the others', async () => {
+    const api = purgeApi();
+    await render(api);
+    const listCalls = api.removedList.mock.calls.length;
+    await click(dismissButton('Kilo Code'));
+    await click(dialogButton('Delete for good'));
+    expect(api.purge).toHaveBeenCalledExactlyOnceWith('kilo-20261015-101010');
+    expect(api.purgeAll).not.toHaveBeenCalled();
+    expect(api.removedList.mock.calls.length).toBeGreaterThan(listCalls);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].textContent).toContain('Old Agent');
+    expect(host.querySelector('[data-testid="agent-toast"]')?.textContent).toBe('Deleted Kilo Code for good.');
+  });
+
+  it('a refused Dismiss says so plainly and keeps the row', async () => {
+    const api = purgeApi();
+    api.purge.mockRejectedValueOnce('AGENT_DEF_PURGE_FAILED: could not delete the removed agent: access denied');
+    await render(api);
+    await click(dismissButton('Kilo Code'));
+    await click(dialogButton('Delete for good'));
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('could not delete the removed agent: access denied');
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(rows()).toHaveLength(2);
+  });
+
+  it('Clear all asks first with the full count, Cancel changes nothing, then it deletes everything and hides the block', async () => {
+    const api = purgeApi([KILO_REMOVED, OLD_REMOVED], 60);
+    await render(api);
+    await click(button('Clear all'));
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain("Delete 60 removed agents for good? This can't be undone.");
+    expect(api.purgeAll).not.toHaveBeenCalled();
+    await click(dialogButton('Cancel'));
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(api.purgeAll).not.toHaveBeenCalled();
+    expect(rows()).toHaveLength(2);
+
+    await click(button('Clear all'));
+    await click(dialogButton('Delete for good'));
+    expect(api.purgeAll).toHaveBeenCalledOnce();
+    expect(api.purge).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(rows()).toHaveLength(0);
+    expect(host.textContent).not.toContain('Recently removed');
+    expect(host.querySelector('[data-testid="agent-toast"]')?.textContent).toBe('Deleted 2 removed agents for good.');
+  });
+
+  it('Clear all reports the entries it could not delete', async () => {
+    const api = purgeApi();
+    api.purgeAll.mockResolvedValueOnce({ ok: false, deleted: 1, failed: 1 } as never);
+    await render(api);
+    await click(button('Clear all'));
+    await click(dialogButton('Delete for good'));
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('1 could not be deleted. Try again.');
+  });
+});
