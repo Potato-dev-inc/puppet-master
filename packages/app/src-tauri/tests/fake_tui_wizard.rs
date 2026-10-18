@@ -946,3 +946,28 @@ fn a_model_regex_that_only_matches_the_banner_fails_the_visible_test_after_a_tal
     assert!(long["note"].as_str().unwrap().contains("zeta-pro"), "{long}");
     session.until(10, || session.pane_ids().is_empty().then_some(())).unwrap_or_else(|| panic!("panes left: {:?}", session.pane_ids()));
 }
+
+/// An inline TUI prints a logo, its name with a version and a "Signed in as" row before anything else. A draft whose
+/// `[[tui.prompt]]` regex is too broad fails the visible test; that is the draft's fault, so the wizard must hand it
+/// back for a fix round and never say "the agent itself returned an error: <the banner>".
+#[test]
+fn a_too_broad_prompt_regex_on_an_agent_with_a_banner_is_the_drafts_fault_not_the_agents_own_error() {
+    let session = World::get().session("wizard-banner-broad");
+    let tail = SCRIPT.trim_start();
+    let banner = r#"banner_rows = ["\u2584\u2580 Nimbus CLI 1.4.2.", "Signed in as dev@example.com"]"#;
+    let script = format!("{banner}\n{tail}");
+    let rig = session.wizard_rig("nimbus", &script);
+    let (id, _captures, did) = capture_as_the_person(&session, &rig, ["y", "y"]);
+    assert_eq!(did, ["trust:1", "permission:y", "permission:y"], "{did:?}");
+
+    // the command-approval table matches the echo of the task (not a question): the profile reads the working screen as one
+    let draft = DRAFT.replace("@@COMMAND@@", "nimbus").replace(r"detect_regex = 'allow nimbus to .*\[y/n\]'", "detect_regex = 'reply with exactly'");
+    assert!(draft.contains("detect_regex = 'reply with exactly'"));
+    let expect = json!({"tui_idle": "chrome_lines = [\"NIMBUS 0.4.2\"]\n"});
+    let verified = rig.call("verify", json!({"session": id, "toml": draft, "expect": expect})).unwrap_or_else(|e| panic!("verify: {}", err(&e)));
+    let plan = verified["planned_visible"]["fingerprint"].as_str().unwrap_or_else(|| panic!("the draft can still be tested: {verified}")).to_string();
+    let grid = session.pane_ids();
+    let test = visible_test_as_the_person(&session, &rig, &id, &plan, &grid);
+    assert_eq!(test["ok"], false, "{}", test["checks"]);
+    assert_eq!(test["agent_error"], json!(null), "the banner is not an error; the failure is the draft's: {}\n{}", test["agent_error"], test["text"]);
+}
