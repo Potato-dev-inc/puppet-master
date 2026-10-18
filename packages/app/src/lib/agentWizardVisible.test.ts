@@ -259,6 +259,53 @@ describe('runDraftLoop with a captured session', () => {
     expect(drafter.ask).toHaveBeenCalledTimes(1);
   });
 
+  it('asks the drafter for another round when the visible test failed on the draft and the only "error" is the banner', async () => {
+    // A prompt regex that is too broad, on a TUI whose first row is the banner: the draft is at fault, so a fix round.
+    const banner = { check: 'done_reply', message: '\u2584\u2580 Nimbus CLI 1.4.2.', external: true };
+    const drafter = standIn([reply(GOOD), reply(GOOD)]);
+    const o = options({ ask: drafter.ask });
+    const visibletest = vi
+      .fn<(s: string, plan: string) => Promise<VisibleTestResult>>()
+      .mockResolvedValueOnce(visibleBad({ agent_error: banner }))
+      .mockResolvedValueOnce(visibleOk());
+    o.api = { ...o.api, visibletest };
+    const result = await runDraftLoop(o);
+    expect(result.status).toBe('tested');
+    expect(drafter.ask).toHaveBeenCalledTimes(2);
+    expect(drafter.prompts[1]).toContain('VISIBLETEST_READY_FAILED');
+  });
+
+  it('does not stop on the same banner twice in a row', async () => {
+    const banner = { check: 'done_reply', message: '\u2584\u2580 Nimbus CLI 1.4.2.', external: false };
+    const drafter = standIn([reply(GOOD), reply(GOOD), reply(GOOD)]);
+    const o = options({ ask: drafter.ask });
+    const visibletest = vi
+      .fn<(s: string, plan: string) => Promise<VisibleTestResult>>()
+      .mockResolvedValueOnce(visibleBad({ agent_error: banner }))
+      .mockResolvedValueOnce(visibleBad({ agent_error: banner }))
+      .mockResolvedValueOnce(visibleOk());
+    o.api = { ...o.api, visibletest };
+    expect((await runDraftLoop({ ...o, maxRounds: 4 })).status).toBe('tested');
+    expect(drafter.ask).toHaveBeenCalledTimes(3);
+  });
+
+  it('still stops on a real provider error row, with that row as the message', async () => {
+    const row = { check: 'done_reply', message: 'Error: No endpoints found that support tool use.', external: true };
+    const drafter = standIn([reply(GOOD)]);
+    const o = options({ ask: drafter.ask });
+    o.api = { ...o.api, visibletest: vi.fn(async () => visibleBad({ agent_error: row })) };
+    const result = await runDraftLoop(o);
+    expect(result).toMatchObject({ status: 'agent_error', error: { stage: 'done_reply', message: row.message, external: true } });
+    expect(drafter.ask).toHaveBeenCalledTimes(1);
+  });
+
+  it('Retry reports a banner "error" as a failed test, not as the programs own error', async () => {
+    const verify = verifyOk(GOOD);
+    const visibletest = vi.fn().mockResolvedValue(visibleBad({ agent_error: { check: 'done_reply', message: '\u2584\u2580 Nimbus CLI 1.4.2.', external: true } }));
+    const out = await retryLiveTest({ api: { livetest: vi.fn(), visibletest }, session: 's', toml: GOOD, rounds: 1, verify });
+    expect(out.status).toBe('failed');
+  });
+
   it('with the one-task mode added, both tests must pass and both plans are confirmed', async () => {
     const drafter = standIn([reply(GOOD)]);
     const o = options({

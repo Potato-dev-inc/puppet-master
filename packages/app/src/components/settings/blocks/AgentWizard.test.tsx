@@ -408,6 +408,21 @@ describe('AgentWizard', () => {
     expect(host.querySelector('[data-testid="wizard-review"]')?.textContent).toContain('Tested live on fake-agent 1.4.2');
   });
 
+  it('never shows "itself returned an error" for a banner line: the fix round goes on and the new draft is tested', async () => {
+    const api = mockApi([`${F}toml\n${GOOD}${F}`, `${F}toml\n${GOOD}# fixed\n${F}`]);
+    const banner = { ...liveOk(), ok: false, state: 'verified', stages: [], errors: [], text: 'LIVE FAILED', agent_error: { stage: 'pong', message: '\u2584\u2580 Fake CLI 1.4.2.', external: true } };
+    api.livetest.mockResolvedValueOnce(banner).mockResolvedValueOnce(liveOk());
+    await render(api, mockOpenRouter());
+    await findIt();
+    await click(button('Start'));
+    await flush();
+    await click(button('Run the live test'));
+    await flush();
+    expect(host.textContent).not.toContain('itself returned an error');
+    expect(api.ask).toHaveBeenCalledTimes(2);
+    expect(host.querySelector('[data-testid="wizard-review"]')).toBeTruthy();
+  });
+
   it('keeps stopping, with the same message, when Retry meets the same agent error', async () => {
     const api = mockApi();
     const broken = { ...liveOk(), ok: false, state: 'verified', stages: [], errors: [], text: 'x', agent_error: { stage: 'pong', message: 'not logged in', external: true } };

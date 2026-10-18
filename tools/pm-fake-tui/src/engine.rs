@@ -116,6 +116,7 @@ impl Engine {
             gates: script.startup.iter().cloned().collect(),
             opts: Opts {
                 backlog_rows: script.backlog_rows,
+                banner_rows: script.banner_rows.clone(),
                 status_model: script.status_model.clone(),
                 status_model_busy_only: script.status_model_when == crate::script::StatusWhen::Busy,
                 footer_right: script.footer_right.clone(),
@@ -1158,6 +1159,17 @@ mod nimbus_tests {
         for c in text.chars() {
             e.on_key(Key::Char(c), now);
         }
+    }
+
+    #[test]
+    fn banner_rows_print_a_logo_and_a_name_and_version_row_under_the_banner() {
+        let mut e = engine("banner_rows = [\"\\u2584\\u2580 Nimbus CLI 1.4.2.\", \"Signed in as dev@example.com\"]");
+        e.tick(0);
+        let rows: Vec<String> = e.plain(0).lines().map(str::to_string).collect();
+        assert!(rows[0].starts_with("NIMBUS 0.4.2"), "{rows:?}");
+        assert_eq!(rows[1], "\u{2584}\u{2580} Nimbus CLI 1.4.2.", "{rows:?}");
+        assert_eq!(rows[2], "Signed in as dev@example.com", "{rows:?}");
+        assert!(rows[3].trim().is_empty(), "{rows:?}");
     }
 
     #[test]

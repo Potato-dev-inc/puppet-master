@@ -391,3 +391,57 @@ fn cancelling_the_session_closes_the_test_pane() {
     assert!(f.host.killed().contains(&f.host.pane_id()));
     assert!(crate::tui::registry::registry().find(&f.host.spawned()[0].profile_id).is_none());
 }
+
+// ---- the program's own error needs a real error row (SPEC 11.9) -----------------------------------
+
+/// What an inline TUI prints first: a block-character logo, its name and version, and a status row that says it is
+/// signed in (a row that holds a sign-in word without being a problem).
+const BANNER_ROWS: &str = "\u{2584}\u{2580} Nimbus CLI 1.4.2.\nSigned in as dev@example.com\nv1.4.2\n";
+
+fn with_banner(screen: &str) -> String {
+    format!("{BANNER_ROWS}{screen}")
+}
+
+#[test]
+fn a_prompt_regex_that_is_too_broad_is_the_drafts_fault_never_the_agents_own_error() {
+    let f = fixture("vl-broad", None, quick_limits);
+    let for_thread = f.host.clone();
+    f.host.on_deliver(move |h, pane, text| {
+        let word = text.rsplit(' ').next().unwrap_or("").to_string();
+        // the profile reads the working screen as a question (its regex matched text that is not one)
+        h.set_screen_of(pane, &with_banner(&screens::working(&word, 0)));
+        h.set_card(Some(json!({"kind": "command_approval", "choices": ["allow_once", "deny"]})));
+        let (host, pane) = (for_thread.clone(), pane.to_string());
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(120));
+            host.set_screen_of(&pane, &with_banner(&screens::working(&word, 1)));
+        });
+        Delivered::Submitted
+    });
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(screens::IDLE);
+    let v = f.finish(run);
+    assert_eq!(v["ok"], false);
+    assert_eq!(status_of(&v, "done_reply"), "failed", "{}", v["checks"]);
+    let text = v["text"].as_str().unwrap();
+    assert!(text.contains("detect_regex"), "{text}");
+    assert_eq!(v["agent_error"], json!(null), "the banner and a signed-in status row are not an error: {}", v["agent_error"]);
+}
+
+#[test]
+fn a_real_provider_error_row_is_the_agents_own_error_and_is_shown_as_the_message_not_the_banner() {
+    let f = fixture("vl-realerr", None, quick_limits);
+    f.host.on_deliver(|h, pane, _| {
+        h.set_screen_of(pane, &with_banner("\n> Reply\nError: No endpoints found that support tool use. Check your provider settings.\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n"));
+        Delivered::Submitted
+    });
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(screens::IDLE);
+    let v = f.finish(run);
+    assert_eq!(v["ok"], false);
+    let ae = &v["agent_error"];
+    assert_eq!(ae["external"], true, "{v}");
+    assert_eq!(ae["message"], "Error: No endpoints found that support tool use. Check your provider settings.", "{ae}");
+}

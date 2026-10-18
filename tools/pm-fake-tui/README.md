@@ -58,6 +58,7 @@ Steps (`do = ...`): `think {ms, verb}` and `wait {ms}` stay busy; `say {text}`; 
 
 | Key | What it does |
 |---|---|
+| `banner_rows = ["...", ...]` | literal rows under the `NIMBUS` banner row, like an inline TUI's logo, its `<Name> CLI 1.4.2` row and a `Signed in as ...` status row (`["▄▀ Nimbus CLI 1.4.2.", "Signed in as dev@example.com"]`) |
 | `backlog_rows = N` | N filler rows ("earlier session note 1..N") under the banner from the start, so the banner scrolls off and a long conversation overflows the pane |
 | `status_model = "name"`, `status_model_when = "always"` or `"busy"` | a model name in the footer (`model: name` before the hints) or only on the working row |
 | `status_model_clip = N` | the model name in the status line (footer, working row) is cut to N characters, like a status bar that clips its right end; with it the footer ends in `| model: <clipped>`. The banner keeps the whole name |

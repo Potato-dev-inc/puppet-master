@@ -12,6 +12,7 @@
 //! refuses MCP sessions and remote devices); probes run fixed argument lists only; every run uses a temp
 //! work folder, never the person's project; the written definition is never approved here.
 
+pub mod agent_error;
 pub mod api;
 pub mod ask;
 pub mod exec;

@@ -80,6 +80,10 @@ pub struct Script {
     /// banner scrolls off the top and a long conversation overflows the screen.
     #[serde(default)]
     pub backlog_rows: usize,
+    /// Nimbus only: literal rows printed under the banner row (before the blank row), like the logo and the
+    /// "<Name> CLI <version>" line an inline TUI prints first (`["▄▀ Nimbus CLI 1.4.2.", "Signed in as dev@example.com"]`).
+    #[serde(default)]
+    pub banner_rows: Vec<String>,
     /// Nimbus only: how permission questions look. `yn`: one line `Allow nimbus to ...? [y/n]` for everything.
     /// `menus`: a command asks with a numbered menu (`1. Allow once` / `2. Always allow ...` / `3. Deny`, digits answer),
     /// a file write asks with an arrow menu (`Yes, write it` ... , up/down and enter), two different questions.
