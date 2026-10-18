@@ -916,6 +916,62 @@ fn a_resize_repaint_does_not_make_an_idle_pane_busy() {
     }
 }
 
+/// The founder's flicker: a pane on screen kept flickering while a lead drove it. Every PTY resize makes an
+/// inline TUI reprint, and only a desktop window's fit asks for one (`resize_pane`), never anything an agent
+/// does. With no window attached here, a pane that other panes come and go beside and that a lead reads,
+/// presses keys on and hands tasks to must read ZERO resizes on a real ConPTY.
+#[test]
+fn another_pane_coming_and_going_and_a_lead_driving_a_pane_never_resize_it() {
+    let session = World::get().session("no-resize");
+    session.script("agent = \"claude\"
+boot_ms = 200
+[[turn]]
+steps = [{ do = \"think\", ms = 300 }, { do = \"say\", text = \"Done.\" }]
+");
+    let watched = session.spawn_pane("fake_claude").expect("spawn the watched pane");
+    wait_screen(&session, &watched, "Try \"edit");
+    session.until(30, || (session.pane_status(&watched).as_deref() == Some("idle")).then_some(())).expect("the watched pane never went idle");
+    let before = session.pty_resizes(&watched);
+
+    // Other panes open and close beside it (standby-like cycling and an agent's own panes).
+    for _ in 0..3 {
+        let other = session.spawn_pane("fake_claude").expect("spawn a neighbour");
+        wait_screen(&session, &other, "Try \"edit");
+        session.close_pane(&other);
+    }
+    // Warm standbys cycle too (the pool spawns hidden panes and shuts them down): none of them is ever listed,
+    // so a window's grid never sees them come or go.
+    for _ in 0..3 {
+        let standby = session.spawn_hidden_pane("fake_claude").expect("spawn a hidden standby");
+        wait_screen(&session, &standby, "Try \"edit");
+        assert_eq!(session.listed_pane_ids(), vec![watched.clone()], "a hidden standby reached a pane list");
+        session.close_pane(&standby);
+    }
+    // A lead's run opens its own pane and, with the default keep_pane = false, closes it when the run ends.
+    let lead = uuid::Uuid::new_v4().to_string();
+    session.set_mode_as(&lead, "both");
+    let started = session.run_as(&lead, "fake_claude", "Say done", json!({ "keep_pane": false })).unwrap_or_else(|e| panic!("run_agent refused: {e}"));
+    let finished = wait_for(&session, &handle_of(&started), TERMINAL, 90);
+    assert_eq!(status(&finished), "completed", "{finished}");
+
+    // The lead reads and presses keys on the watched pane (read_terminal_buffer, press_key).
+    for key in ["home", "end", "tab", "home"] {
+        let _ = session.read_terminal(&watched, false);
+        let _ = session.read_terminal(&watched, true);
+        let _ = session.history(&watched);
+        session.press_key(&watched, key).expect("press_key");
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+
+    assert_eq!(session.pty_resizes(&watched), before, "something resized a pane nobody resized");
+    let size = session.world_pane_size(&watched).expect("the pane is still listed");
+    assert_eq!(size, (120, 30));
+    // Control: the counter does see a resize when a window really asks for one.
+    assert_eq!(session.resize(&watched, 100, 40), Ok(true));
+    assert_eq!(session.pty_resizes(&watched), before + 1, "the resize counter is blind");
+    session.close_pane(&watched);
+}
+
 // ---- a run whose pane auto-closes still gets its turn summary ------------------------------------------------
 
 /// With the default `keep_pane = false` the run's pane is closed as soon as the run completes

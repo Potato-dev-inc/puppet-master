@@ -128,6 +128,11 @@ pub const STARTUP_TIMEOUT_MS: i64 = 90_000;
 /// Two `Ready` observations at least this far apart promote a standby: a screen that is still
 /// being drawn is not stable.
 pub const READY_RECHECK_MS: i64 = 400;
+/// A worker has to STAY ready this long (or be used by a run) before earlier failures of its agent are
+/// forgotten. Reaching the input box once proves nothing: a worker that gets there and then exits or
+/// stops at a dialog would otherwise reset the schedule every time and be respawned every 15 seconds
+/// for ever. Capped by the idle timeout, which ends a healthy worker's life anyway.
+pub const STABLE_READY_MS: i64 = 60_000;
 const BACKOFF_BASE_MS: i64 = 15_000;
 const BACKOFF_MAX_MS: i64 = 300_000;
 /// After this many failures in a row a key stays cold until its next run.
@@ -520,6 +525,12 @@ impl Pool {
             self.shared.wake.notify();
             return ClaimOutcome::Miss(MissReason::Unhealthy(health));
         }
+        // A run is about to use a working standby: whatever went wrong before is over.
+        {
+            let mut inner = self.shared.inner.lock();
+            inner.backoff.remove(&entry.key);
+            inner.agent_backoff.remove(&agent_id(&entry.key.agent_type));
+        }
         // The slot is empty now: have the replacement spawned.
         self.shared.wake.notify();
         ClaimOutcome::Hit(Claim {
@@ -560,6 +571,9 @@ impl Pool {
                     .is_some_and(|since| now_ms - since >= idle_ms)
                 {
                     inner.suppressed.insert(entry.key.clone());
+                    // Ready for the whole idle timeout: it was healthy, so earlier failures are over.
+                    inner.backoff.remove(&entry.key);
+                    inner.agent_backoff.remove(&agent_id(&entry.key.agent_type));
                     inner.stats.expired += 1;
                     doomed.push((entry, "idle_timeout"));
                 } else {
@@ -586,6 +600,7 @@ impl Pool {
         let mut broken: Vec<Entry> = Vec::new();
         {
             let mut inner = self.shared.inner.lock();
+            let stable_ms = STABLE_READY_MS.min(inner.config.idle_timeout_secs as i64 * 1000);
             for (id, health) in observed {
                 let Some(index) = inner.entries.iter().position(|entry| entry.id == id) else {
                     continue; // claimed while we were looking
@@ -604,10 +619,15 @@ impl Pool {
                             if entry.ready_checks >= 2 {
                                 entry.state = EntryState::Ready;
                                 entry.ready_since_ms = Some(now_ms);
-                                let key = entry.key.clone();
-                                inner.backoff.remove(&key);
-                                inner.agent_backoff.remove(&agent_id(&key.agent_type));
                             }
+                        } else if entry
+                            .ready_since_ms
+                            .is_some_and(|since| now_ms - since >= stable_ms)
+                        {
+                            // It held: whatever went wrong before is over.
+                            let key = entry.key.clone();
+                            inner.backoff.remove(&key);
+                            inner.agent_backoff.remove(&agent_id(&key.agent_type));
                         }
                     }
                     Health::Starting => {
@@ -625,7 +645,14 @@ impl Pool {
                     }
                     Health::Dialog | Health::NeedsAttention | Health::Dead => {
                         let entry = inner.entries.remove(index);
-                        fail(&mut inner, &entry.key, health.as_str(), now_ms);
+                        // A worker that had reached its input box and then exited is a different
+                        // story from one that never started: say so in Settings.
+                        let reason = if health == Health::Dead && entry.state == EntryState::Ready {
+                            "exited_after_ready"
+                        } else {
+                            health.as_str()
+                        };
+                        fail(&mut inner, &entry.key, reason, now_ms);
                         inner.stats.discarded += 1;
                         broken.push(entry);
                     }
@@ -928,6 +955,7 @@ fn reason_text(reason: &str) -> String {
         "untested_version" => "this version of it has not been tested with Puppet Master yet".into(),
         "needs_attention" => "it stops at a login or update screen (finish that once yourself)".into(),
         "dead" => "it exited right after starting".into(),
+        "exited_after_ready" => "it started fine, then exited by itself".into(),
         "startup_timeout" => "it never reached its input box".into(),
         "claim_health_check_failed" => "it was not ready when a run asked for it".into(),
         other if other.starts_with("spawn_failed") => {

@@ -16,12 +16,14 @@ interface Props {
   onDetachPane?: (paneId: string) => void;
 }
 
+const NO_PANES: Set<string> = new Set();
+
 export function TerminalGrid({
   registry,
   projectPath,
   onClosePane,
-  detachedPaneIds = new Set(),
-  runPaneIds = new Set(),
+  detachedPaneIds = NO_PANES,
+  runPaneIds = NO_PANES,
   onDetachPane,
 }: Props) {
   const { paneList, spawnPane, replacePaneAgent } = registry;
@@ -40,39 +42,52 @@ export function TerminalGrid({
   const launchEntries = launchMenuEntries(useAgentRegistry());
   const [paneOrder, setPaneOrder] = useState<string[]>([]);
   const [draggingPaneId, setDraggingPaneId] = useState<string | null>(null);
-  // Bumped whenever the set of panes in the grid changes (e.g. a pane returning
-  // from a detached/individual window). Forwarded to each pane as a reflow key
-  // so the terminals do a tiny re-fit and repaint perfectly at the grid size.
-  const [reflowGeneration, setReflowGeneration] = useState(0);
+  // Reflow is per pane, never per grid. Only a pane that came back from its own window has to be
+  // re-fitted at the grid size (it mounted while the PTY was still sized to its old home); every
+  // other pane is left alone when a neighbour opens, closes or changes status, because each refit
+  // that changes a cell's size resizes the PTY and makes an inline TUI reprint its whole screen.
+  // A cell whose size really changes (drag-to-resize, window resize) is refitted by the terminal's
+  // own ResizeObserver, not from here.
+  const [reattach, setReattach] = useState<Record<string, number>>({});
   // Second-phase reflow after the visible settle animation finishes (reattach path).
-  const [postSettleReflowGeneration, setPostSettleReflowGeneration] = useState(0);
+  const [postSettle, setPostSettle] = useState<Record<string, number>>({});
   // Live cell <div>s, keyed by pane id, so we can animate a visible
-  // shrink-and-restore when panes return to the grid.
+  // shrink-and-restore when a pane returns to the grid.
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
-  const isFirstRender = useRef(true);
+  const previousDetached = useRef(detachedPaneIds);
+  const settledGeneration = useRef<Record<string, number>>({});
 
+  // Panes that left `detachedPaneIds` since the last render: they came back from a pop-out window.
   useEffect(() => {
-    setReflowGeneration((n) => n + 1);
-  }, [workerPaneIds]);
+    const before = previousDetached.current;
+    previousDetached.current = detachedPaneIds;
+    if (before === detachedPaneIds) return;
+    const returned = [...before].filter((id) => !detachedPaneIds.has(id) && !isOrchestratorPaneId(id));
+    if (returned.length === 0) return;
+    setReattach((prev) => {
+      const next = { ...prev };
+      for (const id of returned) next[id] = (prev[id] ?? 0) + 1;
+      return next;
+    });
+  }, [detachedPaneIds]);
 
-  // Visible "settle" animation: when the grid's pane set changes (most notably a
-  // pane coming back from an individual/detached window), briefly shrink each
-  // cell and let it spring back. The transition makes the resize visible, and
-  // each animated frame trips the terminal's ResizeObserver so it re-fits as the
-  // box moves — the same reliable path as dragging the resize handle.
+  // Visible "settle" animation for a pane coming back from an individual/detached window: briefly
+  // shrink its cell and let it spring back. The transition makes the resize visible, and each
+  // animated frame trips the terminal's ResizeObserver so it re-fits as the box moves, the same
+  // reliable path as dragging the resize handle. Only the returned panes' cells are touched.
   useEffect(() => {
-    // Skip the very first mount; only animate on subsequent membership changes.
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
+    const due = Object.keys(reattach).filter((id) => reattach[id] !== settledGeneration.current[id]);
+    if (due.length === 0) return;
+    for (const id of due) settledGeneration.current[id] = reattach[id];
 
-    const cells = Array.from(cellRefs.current.values());
     const rafs: number[] = [];
     const timeouts: number[] = [];
+    const animated: string[] = [];
 
-    for (const cell of cells) {
-      if (!cell.isConnected) continue;
+    for (const id of due) {
+      const cell = cellRefs.current.get(id);
+      if (!cell || !cell.isConnected) continue;
+      animated.push(id);
       cell.classList.add('pm-pane-settle');
       // Snap to the shrunk size, then release it after it's been painted so the
       // CSS transition animates the height back to natural. A double rAF ensures
@@ -88,24 +103,26 @@ export function TerminalGrid({
       });
       rafs.push(release);
       // Drop the transition wrapper once the animation has finished.
-      const cleanup = window.setTimeout(() => {
+      timeouts.push(window.setTimeout(() => {
         cell.classList.remove('pm-pane-settle');
-      }, 420);
-      timeouts.push(cleanup);
+      }, 420));
     }
 
-    if (cells.some((cell) => cell.isConnected)) {
-      const postSettle = window.setTimeout(() => {
-        setPostSettleReflowGeneration((n) => n + 1);
-      }, 420);
-      timeouts.push(postSettle);
+    if (animated.length > 0) {
+      timeouts.push(window.setTimeout(() => {
+        setPostSettle((prev) => {
+          const next = { ...prev };
+          for (const id of animated) next[id] = (prev[id] ?? 0) + 1;
+          return next;
+        });
+      }, 420));
     }
 
     return () => {
       for (const id of rafs) cancelAnimationFrame(id);
       for (const id of timeouts) clearTimeout(id);
     };
-  }, [reflowGeneration]);
+  }, [reattach]);
 
   useEffect(() => {
     const liveIds = workerPaneIds ? workerPaneIds.split('\0') : [];
@@ -129,6 +146,9 @@ export function TerminalGrid({
     const missing = workerPanes.filter((pane) => !paneOrder.includes(pane.info.id));
     return [...ordered, ...missing];
   }, [workerPanes, paneOrder]);
+
+  // Changes only for a pane that came back from its own window (and once more when its settle ends).
+  const reflowKeyFor = (paneId: string) => `${reattach[paneId] ?? 0}:${postSettle[paneId] ?? 0}`;
 
   const addPane = async (agent: AgentType) => {
     setShowAdd(false);
@@ -194,7 +214,8 @@ export function TerminalGrid({
               onPopOut={(paneId, size) => void popOutPane(paneId, size)}
               onSwitchAgent={switchAgent}
               syncPTYResize={!detachedPaneIds.has(pane.info.id)}
-              reflowKey={`${reflowGeneration}:${postSettleReflowGeneration}`}
+              reflowKey={reflowKeyFor(pane.info.id)}
+              redrawKey={reflowKeyFor(pane.info.id)}
               dragHandleProps={{
                 draggable: true,
                 onDragStart: () => setDraggingPaneId(pane.info.id),

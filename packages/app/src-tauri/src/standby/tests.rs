@@ -740,17 +740,87 @@ fn a_run_or_changed_settings_allow_one_more_try_but_never_before_the_backoff() {
     assert_eq!(cycle(&pool, &host, t + 3_000), 0, "inside the backoff set by the failure at t+1ms");
 }
 
+/// The default test config expires an idle worker after 60 s, which is also the stability window.
+fn long_lived(mut config: StandbyConfig) -> StandbyConfig {
+    config.idle_timeout_secs = 1_200;
+    config
+}
+
 #[test]
-fn reaching_ready_clears_the_agent_failures() {
+fn a_worker_that_stays_healthy_clears_the_agent_failures() {
     let host = Arc::new(FakeHost::default());
     *host.default_health.lock() = Some(Health::Dialog);
-    let pool = pool(&host, config(&[("codex", true, false)]));
+    let pool = pool(&host, long_lived(config(&[("codex", true, false)])));
     cycle(&pool, &host, 0);
     assert_eq!(pool.status(2).agents_blocked.len(), 1);
     *host.default_health.lock() = None; // the user dealt with the prompt
     let now = warm_up(&pool, 20_000);
     assert_eq!(pool.status(now).counts.ready, 1);
-    assert!(pool.status(now).agents_blocked.is_empty(), "a healthy worker clears the record");
+    // Reaching the input box once proves nothing (see the flapping test below): it has to hold.
+    assert_eq!(pool.status(now).agents_blocked.len(), 1, "one ready observation does not clear the record");
+    let later = now + super::pool::STABLE_READY_MS + 1_000;
+    pool.reconcile(later);
+    assert_eq!(pool.status(later).counts.ready, 1);
+    assert!(pool.status(later).agents_blocked.is_empty(), "a worker that stayed ready clears the record");
+}
+
+/// The founder's loop: a warm Codex reached its input box (which used to wipe the failure record), then
+/// went away on its own, over and over, so a worker was spawned and shut down every 15 to 30 seconds
+/// for good. Reaching Ready must not count as recovery; staying ready does.
+#[test]
+fn a_worker_that_reaches_ready_and_then_dies_still_backs_off_and_stops() {
+    let host = Arc::new(FakeHost::default());
+    let pool = pool(&host, config(&[("codex", true, false)]));
+    let mut now = 0;
+    let mut spawned_at: Vec<i64> = Vec::new();
+    for _ in 0..40 {
+        let before = host.spawn_count();
+        now = warm_up(&pool, now); // spawns when allowed, then promotes it to Ready
+        if host.spawn_count() > before {
+            spawned_at.push(now);
+            let handle = host.last_handle();
+            assert_eq!(pool.status(now).counts.ready, 1, "it did reach its input box");
+            host.set_health(&handle, Health::Dead); // ...and then it exits on its own
+            pool.reconcile(now + 1);
+        }
+        now += 20_000;
+    }
+    assert_eq!(host.spawn_count(), 3, "three tries, then the agent is left cold: {spawned_at:?}");
+    assert!(spawned_at[1] - spawned_at[0] >= 15_000, "first retry waits 15s: {spawned_at:?}");
+    assert!(spawned_at[2] - spawned_at[1] >= 30_000, "second retry waits 30s: {spawned_at:?}");
+    let blocked = &pool.status(now).agents_blocked;
+    assert_eq!(blocked.len(), 1);
+    assert!(blocked[0].cold, "{blocked:?}");
+    assert!(blocked[0].message.contains("started"), "says it started fine and then exited: {}", blocked[0].message);
+}
+
+#[test]
+fn a_worker_that_was_ready_for_a_long_time_before_it_died_starts_the_schedule_over() {
+    let host = Arc::new(FakeHost::default());
+    let pool = pool(&host, long_lived(config(&[("codex", true, false)])));
+    let mut now = warm_up(&pool, 0);
+    assert_eq!(pool.status(now).counts.ready, 1);
+    // It stayed healthy for longer than the stability window, so earlier failures do not count.
+    now += super::pool::STABLE_READY_MS + 5_000;
+    pool.reconcile(now);
+    host.set_health(&host.last_handle(), Health::Dead);
+    pool.reconcile(now + 1);
+    let blocked = &pool.status(now + 2).agents_blocked;
+    assert_eq!((blocked[0].fails, blocked[0].cold), (1, false), "{blocked:?}");
+}
+
+#[test]
+fn a_standby_a_run_actually_used_clears_the_failures() {
+    let host = Arc::new(FakeHost::default());
+    *host.default_health.lock() = Some(Health::Dialog);
+    let pool = pool(&host, config(&[("codex", true, false)]));
+    cycle(&pool, &host, 0);
+    assert_eq!(pool.status(2).agents_blocked.len(), 1);
+    *host.default_health.lock() = None;
+    let now = warm_up(&pool, 20_000);
+    let claim = hit(pool.claim(&key("codex", "/w"), now));
+    claim.commit();
+    assert!(pool.status(now).agents_blocked.is_empty(), "the run got a working standby");
 }
 
 // ---- strict mode (an untested CLI version, `crate::canary`) ---------------------------------

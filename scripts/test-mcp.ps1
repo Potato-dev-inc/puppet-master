@@ -1,3 +1,5 @@
+# Repo root = parent of this scripts/ folder, so the script works from any checkout.
+$repoRoot = Split-Path -Parent $PSScriptRoot
 $pf = "$env:TEMP\pm-mcp-test.port"
 Remove-Item $pf -ErrorAction SilentlyContinue
 $errLog = "$env:TEMP\pm-mcp-bridge.err"
@@ -11,7 +13,7 @@ $bridge = Start-Process -FilePath "node" `
   -ArgumentList "--enable-source-maps", "packages\bridge\dist\server.js" `
   -PassThru -NoNewWindow `
   -RedirectStandardError $errLog `
-  -WorkingDirectory "C:\Users\Ren-pc\Desktop\work\tmux-puppet-master"
+  -WorkingDirectory $repoRoot
 
 Start-Sleep -Milliseconds 800
 $port = (Get-Content $pf).Trim().Split(':')[-1]
@@ -22,8 +24,8 @@ $mcp = Start-Process -FilePath "node" `
   -ArgumentList "--enable-source-maps", "packages\mcp-server\dist\index.js" `
   -PassThru -NoNewWindow `
   -RedirectStandardError $mcpErrLog `
-  -RedirectStandardInput "C:\Users\Ren-pc\Desktop\work\tmux-puppet-master\scripts\mcp-input.txt" `
-  -WorkingDirectory "C:\Users\Ren-pc\Desktop\work\tmux-puppet-master"
+  -RedirectStandardInput (Join-Path $PSScriptRoot "mcp-input.txt") `
+  -WorkingDirectory $repoRoot
 
 Start-Sleep -Milliseconds 800
 Write-Host "--- mcp stderr ---"

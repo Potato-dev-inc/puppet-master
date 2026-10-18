@@ -375,7 +375,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             )}
             <div className="ck-term-slot">
               <TerminalViewport pane={pane} registry={c.registry} chrome={false}
-                reflowKey={reflowKey}
+                redrawKey={reflowKey}
                 getSelectionRef={getSelectionRef}
               />
             </div>

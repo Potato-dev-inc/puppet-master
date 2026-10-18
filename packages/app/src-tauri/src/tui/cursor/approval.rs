@@ -174,7 +174,7 @@ mod tests {
         )
     }
 
-    const PROJECT: &str = r"C:\Users\Ren-pc\AppData\Local\Temp\claude\C--Users-Ren-pc-Desktop-work2-puppet-master\7f91bd8b-8ce7-4122-9d68-3ea20af2faed\scratchpad\verify5-1";
+    const PROJECT: &str = r"C:\Users\you-pc\AppData\Local\Temp\claude\C--Users-you-pc-Desktop-work2-puppet-master\7f91bd8b-8ce7-4122-9d68-3ea20af2faed\scratchpad\verify5-1";
 
     #[test]
     fn a_command_wrapped_at_the_pane_width_is_joined_without_a_separator() {

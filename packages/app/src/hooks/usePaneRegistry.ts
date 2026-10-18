@@ -38,6 +38,40 @@ const readOwnerReplay = createOwnerReplayReader({
 
 const EMPTY: Map<string, PaneData> = new Map();
 
+function sameInfo(a: PaneInfo, b: PaneInfo): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof PaneInfo>;
+  for (const key of keys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
+/**
+ * The pane map for a fresh `list_panes` answer, reusing the previous `PaneData` object of every
+ * pane that did not change (and the previous Map when nothing did). `pty://panes-changed` fires
+ * for any pane or standby event, so most refreshes are identical to the last one: rebuilding every
+ * object made the whole window (and anything keyed on a pane's identity) re-render for nothing.
+ */
+export function nextPaneMap(prev: Map<string, PaneData>, list: PaneInfo[]): Map<string, PaneData> {
+  let changed = prev.size !== list.length;
+  const next = new Map<string, PaneData>();
+  for (const info of list) {
+    const old = prev.get(info.id);
+    if (old && old.status === info.status && sameInfo(old.info, info)) {
+      next.set(info.id, old);
+    } else {
+      next.set(info.id, { info, status: info.status });
+      changed = true;
+    }
+  }
+  if (!changed) {
+    // Same panes, same order? Then the previous Map is still the truth.
+    const prevIds = [...prev.keys()];
+    if (list.every((info, index) => info.id === prevIds[index])) return prev;
+  }
+  return next;
+}
+
 export function usePaneRegistry(): PaneRegistryApi {
   const [panes, setPanes] = useState<Map<string, PaneData>>(EMPTY);
   const [initialReady, setInitialReady] = useState(false);
@@ -57,11 +91,7 @@ export function usePaneRegistry(): PaneRegistryApi {
     try {
       const list = await tauri.listPanes();
       if (seq !== refreshSeq.current) return;
-      const next = new Map<string, PaneData>();
-      for (const info of list) {
-        next.set(info.id, { info, status: info.status });
-      }
-      setPanes(next);
+      setPanes((prev) => nextPaneMap(prev, list));
     } catch (err) {
       console.error('[usePaneRegistry] refresh failed', err);
     } finally {
