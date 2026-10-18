@@ -1,10 +1,12 @@
 //! Remove / restore a definition from the user's own agents folder (Settings > Agents).
 //!
-//! Nothing is ever deleted. "Remove" moves the definition file, its fixtures folder (`<stem>/`) and
+//! Removing never deletes. "Remove" moves the definition file, its fixtures folder (`<stem>/`) and
 //! `<stem>.wizard.json` into `<agents dir>/.removed/<id>-<timestamp>/` together with a small
 //! `removal.json` (what the approval was, and a hash of the file as it was), then drops the approval.
 //! "Restore" moves everything back, refusing when a file with that name exists again, and brings the
-//! approval back only when the file is byte-identical to what was approved.
+//! approval back only when the file is byte-identical to what was approved. Only "Delete for good"
+//! (`purge_at` / `purge_all_at`) deletes, and only folders whose name has the removal shape
+//! (`is_removed_id`). Links are never followed: a link is removed as a link, nothing behind it.
 //!
 //! Pure over explicit dirs and an approvals path, like `service.rs`. The caller reloads the registry.
 //! Only direct children of the agents folder can be removed: a project or extra-directory definition
@@ -12,7 +14,7 @@
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -256,7 +258,8 @@ fn read_meta(folder: &Path) -> Option<Meta> {
         .then_some(meta)
 }
 
-/// `{removed: [...]}`, newest first: what `.removed/` holds that can be restored.
+/// `{removed: [...], total}`, newest first: what `.removed/` holds that can be restored. `total` counts
+/// every restorable entry; `removed` is capped at `MAX_LISTED`.
 pub fn list_removed_at(agents_dir: &Path) -> Value {
     let mut rows: Vec<(String, Meta, String)> = Vec::new();
     if let Ok(entries) = fs::read_dir(agents_dir.join(REMOVED_DIR)) {
@@ -272,6 +275,7 @@ pub fn list_removed_at(agents_dir: &Path) -> Value {
         }
     }
     rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.2.cmp(&a.2)));
+    let total = rows.len();
     let removed: Vec<Value> = rows
         .into_iter()
         .take(MAX_LISTED)
@@ -290,7 +294,7 @@ pub fn list_removed_at(agents_dir: &Path) -> Value {
             })
         })
         .collect();
-    json!({"removed": removed})
+    json!({"removed": removed, "total": total})
 }
 
 /// Put a removed agent back. Refuses when the file, its fixtures folder or its wizard record exists
@@ -373,4 +377,129 @@ pub fn restore_at(
         "approval_restored": approval_restored,
         "needs_approval": valid && !approval_restored,
     }))
+}
+
+/// The shape `remove_at` gives a removed folder's name: `<safe id>-<YYYYMMDD-HHMMSS | unknown>[-<n>]`.
+/// Purge deletes only names of this shape, so a stray folder in `.removed/` is never touched.
+fn is_removed_id(name: &str) -> bool {
+    static SHAPE: OnceLock<regex::Regex> = OnceLock::new();
+    SHAPE
+        .get_or_init(|| regex::Regex::new(r"^[A-Za-z0-9_-]{1,40}-(\d{8}-\d{6}|unknown)(-\d{1,3})?$").expect("valid pattern"))
+        .is_match(name)
+}
+
+/// A symbolic link or a Windows junction. These are never followed.
+fn is_link(meta: &fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Removes a link itself (a directory link needs `remove_dir`), never what it points to.
+fn remove_link_or_file(path: &Path) -> std::io::Result<()> {
+    fs::remove_file(path).or_else(|_| fs::remove_dir(path))
+}
+
+/// Deletes `dir` and everything under it. A link met on the way is removed as a link and not followed,
+/// so nothing outside `dir` can be reached through it.
+fn remove_tree(dir: &Path) -> std::io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        let meta = fs::symlink_metadata(&path)?;
+        if meta.is_dir() && !is_link(&meta) {
+            remove_tree(&path)?;
+        } else {
+            remove_link_or_file(&path)?;
+        }
+    }
+    fs::remove_dir(dir)
+}
+
+/// The `.removed` folder when it is a real folder. `None` when it does not exist yet; a link named
+/// `.removed` is refused, so nothing is deleted through it.
+fn real_removed_root(agents_dir: &Path) -> Result<Option<PathBuf>, ServiceError> {
+    let root = agents_dir.join(REMOVED_DIR);
+    match fs::symlink_metadata(&root) {
+        Err(_) => Ok(None),
+        Ok(meta) if meta.is_dir() && !is_link(&meta) => Ok(Some(root)),
+        Ok(_) => Err(err(400, "AGENT_DEF_PURGE_FAILED", "the .removed folder is a link, so nothing was deleted")),
+    }
+}
+
+/// Deletes one entry directly under `root` when its name has the removal shape. A link of that name is
+/// removed as a link. A plain file or an unknown name is left alone. `Ok(false)` when nothing was there.
+fn purge_entry(root: &Path, name: &str) -> std::io::Result<bool> {
+    if !is_plain_name(name) || !is_removed_id(name) {
+        return Ok(false);
+    }
+    let path = root.join(name);
+    let meta = match fs::symlink_metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    if is_link(&meta) {
+        remove_link_or_file(&path)?;
+        return Ok(true);
+    }
+    if !meta.is_dir() {
+        return Ok(false);
+    }
+    remove_tree(&path)?;
+    Ok(true)
+}
+
+fn purge_failed(e: std::io::Error) -> ServiceError {
+    err(500, "AGENT_DEF_PURGE_FAILED", format!("could not delete the removed agent: {e}"))
+}
+
+/// "Delete for good": permanently deletes ONE entry in `.removed/`. Nothing else changes. The agents
+/// folder, the approvals and the running panes are not touched.
+pub fn purge_at(agents_dir: &Path, removed_id: &str) -> Result<Value, ServiceError> {
+    let _lock = GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let removed_id = removed_id.trim();
+    if !is_plain_name(removed_id) || !is_removed_id(removed_id) {
+        return Err(err(400, "AGENT_DEF_PATH_REFUSED", "that removed-agent name is not allowed"));
+    }
+    let not_found = || err(404, "AGENT_DEF_NOT_FOUND", "that removed agent is not in the .removed folder any more");
+    let root = real_removed_root(agents_dir)?.ok_or_else(not_found)?;
+    if !purge_entry(&root, removed_id).map_err(purge_failed)? {
+        return Err(not_found());
+    }
+    Ok(json!({"ok": true, "removed_id": removed_id, "deleted": 1}))
+}
+
+/// "Clear all": permanently deletes every removal entry in `.removed/`. Names without the removal shape
+/// are left alone. One entry that cannot be deleted does not stop the others; `failed` counts them.
+pub fn purge_all_at(agents_dir: &Path) -> Result<Value, ServiceError> {
+    let _lock = GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(root) = real_removed_root(agents_dir)? else {
+        return Ok(json!({"ok": true, "deleted": 0, "failed": 0}));
+    };
+    let names: Vec<String> = fs::read_dir(&root)
+        .map_err(purge_failed)?
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect();
+    let (mut deleted, mut failed) = (0usize, 0usize);
+    for name in names {
+        match purge_entry(&root, &name) {
+            Ok(true) => deleted += 1,
+            Ok(false) => {}
+            Err(e) => {
+                failed += 1;
+                tracing::warn!(%e, "could not delete a removed agent");
+            }
+        }
+    }
+    Ok(json!({"ok": failed == 0, "deleted": deleted, "failed": failed}))
 }

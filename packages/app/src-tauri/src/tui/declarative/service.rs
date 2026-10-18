@@ -486,7 +486,18 @@ pub fn restore_global(removed_id: &str) -> Result<Value, ServiceError> {
     Ok(result)
 }
 
-/// `{removed: [...]}`: what `.removed/` holds.
+/// `{removed: [...], total}`: what `.removed/` holds.
 pub fn removed_global() -> Value {
     super::removal::list_removed_at(&crate::app_paths::agents_dir())
+}
+
+/// "Delete for good" for one removed agent (see `removal::purge_at`). The registry does not change:
+/// `.removed/` is never loaded, so nothing needs a reload.
+pub fn purge_global(removed_id: &str) -> Result<Value, ServiceError> {
+    super::removal::purge_at(&crate::app_paths::agents_dir(), removed_id)
+}
+
+/// "Clear all" for `.removed/` (see `removal::purge_all_at`).
+pub fn purge_all_global() -> Result<Value, ServiceError> {
+    super::removal::purge_all_at(&crate::app_paths::agents_dir())
 }

@@ -57,6 +57,9 @@ interface Reviewing {
   error: string | null;
 }
 
+/** What the "Delete for good" sheet is about: one removed agent (Dismiss), or every entry (Clear all). */
+type Purging = { kind: 'one'; item: RemovedAgent } | { kind: 'all'; total: number };
+
 export function AgentDefinitions({
   api = tauriAgentDefinitionsApi,
   wizardApi,
@@ -81,6 +84,8 @@ export function AgentDefinitions({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [removing, setRemoving] = useState<DefinitionRow | null>(null);
   const [removed, setRemoved] = useState<RemovedAgent[]>([]);
+  const [removedTotal, setRemovedTotal] = useState(0);
+  const [purging, setPurging] = useState<Purging | null>(null);
   const [undo, setUndo] = useState<{ removedId: string; label: string } | null>(null);
 
   const apply = useCallback((next: DefinitionsListing) => {
@@ -109,7 +114,9 @@ export function AgentDefinitions({
   const loadRemoved = useCallback(async () => {
     if (!api.removedList) return;
     try {
-      setRemoved((await api.removedList()).removed);
+      const next = await api.removedList();
+      setRemoved(next.removed);
+      setRemovedTotal(next.total ?? next.removed.length);
     } catch (e) {
       setError(plainError(e));
     }
@@ -310,6 +317,32 @@ export function AgentDefinitions({
       await handleDefinitionsChanged();
     });
 
+  // "Delete for good" is the only thing that deletes a removed agent's files. Nothing else changes: the
+  // agents folder, the approvals and the running panes are left alone. Undo stops working for a deleted entry.
+  const confirmPurge = () =>
+    run(async () => {
+      const target = purging;
+      if (!target) return;
+      try {
+        if (target.kind === 'all') {
+          if (!api.purgeAll) return;
+          const done = await api.purgeAll();
+          setNote(`Deleted ${done.deleted} removed ${done.deleted === 1 ? 'agent' : 'agents'} for good.`);
+          if (done.failed > 0) setError(`${done.failed} could not be deleted. Try again.`);
+        } else {
+          if (!api.purge) return;
+          await api.purge(target.item.removed_id);
+          setNote(`Deleted ${target.item.label || target.item.id} for good.`);
+        }
+        setPurging(null);
+        setUndo((current) => (target.kind === 'all' || current?.removedId === target.item.removed_id ? null : current));
+      } catch (e) {
+        setPurging(null);
+        throw new Error(plainError(e));
+      }
+      await loadRemoved();
+    });
+
   return (
     <>
       {projectScan && projectScan.files.length > 0 && !projectScan.consented && !bannerDismissed && (
@@ -412,6 +445,18 @@ export function AgentDefinitions({
           label="Recently removed"
           description="Agents you removed. Their files wait in the .removed folder next to your agents, so you can bring one back."
         >
+          {api.purgeAll && (
+            <div className="mb-3 flex justify-end">
+              <button
+                type="button"
+                className={BTN}
+                disabled={busy}
+                onClick={() => setPurging({ kind: 'all', total: Math.max(removedTotal, removed.length) })}
+              >
+                Clear all
+              </button>
+            </div>
+          )}
           <ul className="space-y-2">
             {removed.map((item) => (
               <li key={item.removed_id} data-testid="removed-row" className="flex items-center gap-3 rounded-lg border border-pm-border p-3">
@@ -430,6 +475,17 @@ export function AgentDefinitions({
                 >
                   Restore
                 </button>
+                {api.purge && (
+                  <button
+                    type="button"
+                    className={BTN}
+                    disabled={busy}
+                    aria-label={`Dismiss ${item.label || item.id}`}
+                    onClick={() => setPurging({ kind: 'one', item })}
+                  >
+                    Dismiss
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -575,6 +631,14 @@ export function AgentDefinitions({
       )}
       {removing && (
         <RemoveDialog row={removing} busy={busy} onRemove={() => void confirmRemove()} onCancel={() => setRemoving(null)} />
+      )}
+      {purging && (
+        <PurgeDialog
+          message={purgeMessage(purging)}
+          busy={busy}
+          onConfirm={() => void confirmPurge()}
+          onCancel={() => setPurging(null)}
+        />
       )}
       {reviewing && (
         <ApproveDialog
@@ -858,6 +922,49 @@ function RemoveDialog({
           </button>
           <button type="button" className={BTN} disabled={busy} onClick={onRemove}>
             Remove
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The question in the "Delete for good" sheet. */
+function purgeMessage(purging: Purging): string {
+  if (purging.kind === 'all') {
+    const count = purging.total;
+    return `Delete ${count} removed ${count === 1 ? 'agent' : 'agents'} for good? This can't be undone.`;
+  }
+  return `Delete ${purging.item.label || purging.item.id} for good? This can't be undone.`;
+}
+
+function PurgeDialog({
+  message,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  message: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={message}
+        className="max-h-full w-full max-w-md overflow-auto rounded-xl border border-pm-border bg-pm-panel p-5"
+      >
+        <h3 className="text-sm font-semibold">{message}</h3>
+        <p className="mt-3 text-xs text-pm-muted">The files are deleted from the .removed folder. Nothing is kept.</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" className={BTN} onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className={BTN} disabled={busy} onClick={onConfirm}>
+            Delete for good
           </button>
         </div>
       </div>

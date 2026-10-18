@@ -226,6 +226,8 @@ pub fn run() {
             commands::agents_definition_remove,
             commands::agents_definition_restore,
             commands::agents_definitions_removed,
+            commands::agents_definition_purge,
+            commands::agents_definitions_purge_all,
             commands::agents_definitions_consent,
             commands::agents_source_set,
             commands::agents_extra_dir,

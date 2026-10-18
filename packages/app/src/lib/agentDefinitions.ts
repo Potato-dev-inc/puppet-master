@@ -160,13 +160,38 @@ export interface RestoreResult {
   needs_approval: boolean;
 }
 
+/** "Recently removed": the newest entries (capped), and how many there are in all. */
+export interface RemovedList {
+  removed: RemovedAgent[];
+  /** Every restorable entry, including the ones past the cap. */
+  total?: number;
+}
+
+/** "Delete for good" for one removed agent. The files are gone; nothing can undo it. */
+export interface PurgeResult {
+  ok: boolean;
+  removed_id: string;
+  deleted: number;
+}
+
+/** "Clear all": how many entries were deleted, and how many could not be. */
+export interface PurgeAllResult {
+  ok: boolean;
+  deleted: number;
+  failed: number;
+}
+
 export interface AgentDefinitionsApi {
   /** Moves one of the user's own definitions (with its fixtures and wizard record) to `.removed/`. Never deletes. */
   remove?(file: string): Promise<RemoveResult>;
   /** Undo: moves a removed agent back; refuses when its file name is taken again. */
   restore?(removedId: string): Promise<RestoreResult>;
   /** What `.removed/` holds, newest first. */
-  removedList?(): Promise<{ removed: RemovedAgent[] }>;
+  removedList?(): Promise<RemovedList>;
+  /** Delete for good: permanently deletes one "Recently removed" entry. */
+  purge?(removedId: string): Promise<PurgeResult>;
+  /** Clear all: permanently deletes every "Recently removed" entry. */
+  purgeAll?(): Promise<PurgeAllResult>;
   /** Draft definitions written by the session recorder (never loaded, never approved). */
   draftsList?(): Promise<DraftsListing>;
   /** Validates a draft through the same checks as /agents/definitions/validate. */
@@ -221,7 +246,9 @@ export const tauriAgentDefinitionsApi: AgentDefinitionsApi = {
   revoke: (id) => invoke('agents_definition_revoke', { id }),
   remove: (file) => invoke<RemoveResult>('agents_definition_remove', { file }),
   restore: (removedId) => invoke<RestoreResult>('agents_definition_restore', { removedId }),
-  removedList: () => invoke<{ removed: RemovedAgent[] }>('agents_definitions_removed', undefined),
+  removedList: () => invoke<RemovedList>('agents_definitions_removed', undefined),
+  purge: (removedId) => invoke<PurgeResult>('agents_definition_purge', { removedId }),
+  purgeAll: () => invoke<PurgeAllResult>('agents_definitions_purge_all', undefined),
   consent: (kind, path, enabled) => invoke('agents_definitions_consent', { kind, path, enabled }),
   sourceSet: (name, enabled) => invoke('agents_source_set', { name, enabled }),
   extraDir: (action, path) => invoke('agents_extra_dir', { action, path }),

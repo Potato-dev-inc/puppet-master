@@ -717,6 +717,46 @@ mod definitions {
         assert_eq!(status, 400);
     }
     #[test]
+    fn purge_routes_are_local_app_only() {
+        use crate::bridge::routes::definitions::is_local_app;
+        // "Delete for good" never reaches the files from a phone, a tunnel or an MCP session. The checks
+        // below all stop before the service, so no real folder is touched.
+        let tunnel = "POST /x HTTP/1.1\r\nX-PM-Proxied: 1\r\nAuthorization: Bearer tok\r\n";
+        let phone_direct = "POST /x HTTP/1.1\r\nAuthorization: Bearer tok\r\n";
+        let body = json!({"removed_id": "zz-none-20261016-123456"});
+        let routes = [
+            &["agents", "definitions", "removed", "purge"][..],
+            &["agents", "definitions", "removed", "purge-all"][..],
+        ];
+        for headers in [tunnel, phone_direct] {
+            let remote = is_local_app(headers, true);
+            for segments in routes {
+                let (status, reply) = respond("POST", segments, &body, None, remote).unwrap().unwrap_err();
+                assert_eq!(status, 403, "{segments:?}");
+                assert_eq!(reply["code"], "AUTHORIZATION_DENIED");
+            }
+        }
+        // a non-loopback peer is refused too
+        assert!(!is_local_app("POST /x HTTP/1.1\r\nHost: 10.0.0.5\r\n", false));
+        let (status, _) = respond("POST", routes[0], &body, None, false).unwrap().unwrap_err();
+        assert_eq!(status, 403);
+        // an MCP session is refused by the route and by the session gate
+        for segments in routes {
+            let (status, _) = respond("POST", segments, &body, Some("mcp-session-1"), true).unwrap().unwrap_err();
+            assert_eq!(status, 403, "{segments:?}");
+            let path = format!("/{}", segments.join("/"));
+            let denied = mcp_sessions::authorize(Some("mcp-session-1"), "POST", &path, &body).unwrap_err();
+            assert_eq!(denied.code, "AUTHORIZATION_DENIED", "{path}");
+            assert!(mcp_sessions::authorize(None, "POST", &path, &body).is_ok(), "{path}");
+        }
+        // the local app without a removed_id is a 400 before any folder is looked at
+        let (status, _) = respond("POST", routes[0], &json!({}), None, true).unwrap().unwrap_err();
+        assert_eq!(status, 400);
+        // GET on the purge routes is not a route
+        assert!(respond("GET", routes[0], &body, None, true).is_none());
+    }
+
+    #[test]
     fn agents_types_includes_declarative_after_approval() {
         let _serial = crate::tui::registry::test_serial();
         let mut t = Tree::new();

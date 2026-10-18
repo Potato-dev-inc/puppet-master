@@ -418,8 +418,20 @@ pub fn agents_definition_restore(removed_id: String) -> Result<Value, String> {
     crate::tui::declarative::service::restore_global(&removed_id).map_err(command_error)
 }
 
-/// The "Recently removed" list: `{removed: [...]}`, newest first.
+/// The "Recently removed" list: `{removed: [...], total}`, newest first.
 #[tauri::command]
 pub fn agents_definitions_removed() -> Value {
     crate::tui::declarative::service::removed_global()
+}
+
+/// "Delete for good" for one "Recently removed" entry. Permanent; the files are not kept.
+#[tauri::command]
+pub fn agents_definition_purge(removed_id: String) -> Result<Value, String> {
+    crate::tui::declarative::service::purge_global(&removed_id).map_err(command_error)
+}
+
+/// "Clear all" in "Recently removed": permanently deletes every entry in `.removed/`.
+#[tauri::command]
+pub fn agents_definitions_purge_all() -> Result<Value, String> {
+    crate::tui::declarative::service::purge_all_global().map_err(command_error)
 }

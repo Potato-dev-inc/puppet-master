@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::tui::declarative::approvals::Approvals;
 use crate::tui::declarative::loader::{build, load_all, reload_global, DefState, LoadInputs};
-use crate::tui::declarative::removal::{list_removed_at, remove_at, restore_at, REMOVED_DIR};
+use crate::tui::declarative::removal::{list_removed_at, purge_all_at, purge_at, remove_at, restore_at, REMOVED_DIR};
 use crate::tui::declarative::service;
 use crate::tui::declarative::sources::scan_dir;
 
@@ -364,4 +364,177 @@ fn removing_one_agent_keeps_the_approval_of_another() {
     assert_eq!(records.records()[0].id, "rmo_b");
     assert_eq!(t.state_of("rmo_b").as_deref(), Some("active"));
     assert_eq!(build(&t.inputs(), &records).entries.iter().filter(|e| e.state == DefState::Active).count(), 1);
+}
+
+/// A directory link for the tests: a symlink, or on Windows a junction (needs no privilege). `false`
+/// when neither can be made here, and the test then says so and returns.
+fn make_dir_link(target: &std::path::Path, link: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        if std::os::windows::fs::symlink_dir(target, link).is_ok() {
+            return true;
+        }
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+}
+
+impl Tree {
+    fn purge(&self, removed_id: &str) -> Result<Value, service::ServiceError> {
+        purge_at(&self.agents, removed_id)
+    }
+}
+
+#[test]
+fn delete_for_good_removes_one_entry_and_keeps_the_others() {
+    let t = Tree::new();
+    let a = t.approved_agent("rnp_a");
+    let id_a = t.remove(&a.to_string_lossy()).unwrap()["removed_id"].as_str().unwrap().to_string();
+    let b = t.write("agents/rnp_b.toml", &def("rnp_b"));
+    let id_b = remove_at(&t.agents, &t.approvals(), &b.to_string_lossy(), &CODE, "2026-10-16T11:00:00Z").unwrap()
+        ["removed_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let out = t.purge(&id_a).unwrap();
+    assert_eq!(out["ok"], true);
+    assert_eq!(out["deleted"], 1);
+    assert!(!t.agents.join(REMOVED_DIR).join(&id_a).exists(), "the entry and its files are gone");
+
+    let listed = list_removed_at(&t.agents);
+    assert_eq!(listed["total"], 1);
+    assert_eq!(listed["removed"][0]["removed_id"], id_b.as_str());
+    assert!(t.agents.join(REMOVED_DIR).join(&id_b).join("rnp_b.toml").is_file(), "the other entry is untouched");
+    // the same entry again is simply not there any more
+    assert_eq!(t.purge(&id_a).unwrap_err().code, "AGENT_DEF_NOT_FOUND");
+}
+
+#[test]
+fn clear_all_deletes_every_entry_and_leaves_other_folders_alone() {
+    let t = Tree::new();
+    let a = t.approved_agent("rnq_a");
+    t.remove(&a.to_string_lossy()).unwrap();
+    let b = t.write("agents/rnq_b.toml", &def("rnq_b"));
+    remove_at(&t.agents, &t.approvals(), &b.to_string_lossy(), &CODE, "2026-10-16T11:00:00Z").unwrap();
+    // a folder and a file in .removed/ that do not have the removal name shape are not ours to delete
+    let note = t.write(&format!("agents/{REMOVED_DIR}/notes/readme.txt"), "keep");
+    let stray = t.write(&format!("agents/{REMOVED_DIR}/rnq_file-20261016-120000"), "keep");
+    assert_eq!(list_removed_at(&t.agents)["total"], 2);
+
+    let out = purge_all_at(&t.agents).unwrap();
+    assert_eq!((out["ok"].clone(), out["deleted"].clone(), out["failed"].clone()), (true.into(), 2.into(), 0.into()));
+    assert_eq!(list_removed_at(&t.agents)["total"], 0);
+    assert!(list_removed_at(&t.agents)["removed"].as_array().unwrap().is_empty());
+    assert_eq!(fs::read_to_string(&note).unwrap(), "keep");
+    assert_eq!(fs::read_to_string(&stray).unwrap(), "keep");
+    // nothing left: still a success, with zero
+    assert_eq!(purge_all_at(&t.agents).unwrap()["deleted"], 0);
+}
+
+#[test]
+fn clear_all_with_no_removed_folder_deletes_nothing() {
+    let t = Tree::new();
+    let out = purge_all_at(&t.agents).unwrap();
+    assert_eq!((out["deleted"].clone(), out["failed"].clone()), (0.into(), 0.into()));
+    assert!(!t.agents.join(REMOVED_DIR).exists(), "no folder is created just to clear it");
+}
+
+#[test]
+fn delete_for_good_refuses_anything_that_is_not_a_removal_name_and_deletes_nothing() {
+    let t = Tree::new();
+    let file = t.write("agents/rnr_x.toml", &def("rnr_x"));
+    let kept_id = t.remove(&file.to_string_lossy()).unwrap()["removed_id"].as_str().unwrap().to_string();
+    let note = t.write(&format!("agents/{REMOVED_DIR}/notes/readme.txt"), "keep");
+    let outside = t.write("outside/keep.txt", "keep");
+    let abs_outside = outside.parent().unwrap().to_string_lossy().into_owned();
+    let abs_entry = t.agents.join(REMOVED_DIR).join(&kept_id).to_string_lossy().into_owned();
+    for bad in [
+        "",
+        "   ",
+        "..",
+        ".",
+        "../outside",
+        "..\\outside",
+        "a/b",
+        "a\\b",
+        ".hidden-20261016-120000",
+        "C:\\Windows",
+        abs_outside.as_str(),
+        abs_entry.as_str(),
+        "notes",
+        "rnr_x",
+        "rnr_x.toml",
+        "rnr_x-20261016-123456/..",
+    ] {
+        let denied = t.purge(bad).unwrap_err();
+        assert_eq!(denied.code, "AGENT_DEF_PATH_REFUSED", "{bad:?}");
+    }
+    assert!(outside.is_file() && note.is_file(), "nothing outside the entry name was touched");
+    assert!(t.agents.join(REMOVED_DIR).join(&kept_id).join("rnr_x.toml").is_file(), "the real entry was not deleted");
+    // a name of the right shape that is simply not there is a plain not-found
+    assert_eq!(t.purge("rnr_x-20991231-235959").unwrap_err().code, "AGENT_DEF_NOT_FOUND");
+    // the clear-all pass keeps the stray folder too (it is not a removal name)
+    purge_all_at(&t.agents).unwrap();
+    assert!(note.is_file());
+}
+
+#[test]
+fn delete_for_good_does_not_follow_a_link_out_of_the_entry() {
+    let t = Tree::new();
+    let secret = t.write("outside/inner/secret.txt", "keep");
+    let file = t.write("agents/rns_x.toml", &def("rns_x"));
+    let id = t.remove(&file.to_string_lossy()).unwrap()["removed_id"].as_str().unwrap().to_string();
+    let entry = t.agents.join(REMOVED_DIR).join(&id);
+    let link = entry.join("link-to-outside");
+    if !make_dir_link(secret.parent().unwrap(), &link) {
+        eprintln!("directory links are not available here; skipping");
+        return;
+    }
+
+    let out = t.purge(&id).unwrap();
+    assert_eq!(out["deleted"], 1);
+    assert!(!entry.exists(), "the entry is gone");
+    assert_eq!(fs::read_to_string(&secret).unwrap(), "keep", "the folder behind the link is not deleted");
+}
+
+#[test]
+fn clear_all_unlinks_a_link_named_like_a_removal_and_keeps_its_target() {
+    let t = Tree::new();
+    let secret = t.write("outside/inner/secret.txt", "keep");
+    let root = t.agents.join(REMOVED_DIR);
+    fs::create_dir_all(&root).unwrap();
+    let link = root.join("rnt_link-20261016-120000");
+    if !make_dir_link(secret.parent().unwrap(), &link) {
+        eprintln!("directory links are not available here; skipping");
+        return;
+    }
+
+    let out = purge_all_at(&t.agents).unwrap();
+    assert_eq!((out["deleted"].clone(), out["failed"].clone()), (1.into(), 0.into()));
+    assert!(fs::symlink_metadata(&link).is_err(), "the link itself is gone");
+    assert_eq!(fs::read_to_string(&secret).unwrap(), "keep", "the target is not touched");
+}
+
+#[test]
+fn clear_all_refuses_a_removed_folder_that_is_itself_a_link() {
+    let t = Tree::new();
+    let secret = t.write("outside/inner/secret.txt", "keep");
+    let root = t.agents.join(REMOVED_DIR);
+    if !make_dir_link(secret.parent().unwrap(), &root) {
+        eprintln!("directory links are not available here; skipping");
+        return;
+    }
+    assert_eq!(purge_all_at(&t.agents).unwrap_err().code, "AGENT_DEF_PURGE_FAILED");
+    assert_eq!(t.purge("rnu_x-20261016-120000").unwrap_err().code, "AGENT_DEF_PURGE_FAILED");
+    assert_eq!(fs::read_to_string(&secret).unwrap(), "keep");
 }
