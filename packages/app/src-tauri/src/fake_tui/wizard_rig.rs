@@ -51,6 +51,7 @@ impl Session {
         let asks_the_listing_task = script.to_lowercase().contains("list the files");
         let mut env = WizardEnv::app();
         env.agents_dir = agents.clone();
+        env.approvals_path = self.aux().join("agent-approvals.json");
         env.temp_root = temp;
         env.path_dirs = None;
         env.app_build = "fake-tui-e2e".into();
@@ -170,6 +171,7 @@ impl WizardRig {
         std::fs::create_dir_all(&temp).expect("wizard temp folder");
         let mut env = WizardEnv::app();
         env.agents_dir = agents.clone();
+        env.approvals_path = out.join("agent-approvals.json");
         env.temp_root = temp;
         env.path_dirs = None;
         env.visible = RunnerCfg { window: false, ..RunnerCfg::default() };

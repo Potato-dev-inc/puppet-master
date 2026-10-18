@@ -14,4 +14,5 @@ pub mod host;
 pub mod livetest;
 pub mod registry_host;
 pub mod runner;
+pub mod verdict;
 pub mod screen;

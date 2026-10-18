@@ -33,7 +33,17 @@ pub struct Approval {
     pub headless_argv: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tui_argv: Option<Vec<String>>,
+    /// `"wizard"` when the Agent Wizard approved the definition by itself ("Finish without me", SPEC 11.19);
+    /// absent when a person approved it. The record is otherwise the same: same fingerprint, same pinned binary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_by: Option<String>,
+    /// The checks that had passed when the wizard approved it (plain labels). Empty for a person's approval.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<String>,
 }
+
+/// Who approved a definition when it was not a person at the Approve dialog.
+pub const APPROVED_BY_WIZARD: &str = "wizard";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalState {

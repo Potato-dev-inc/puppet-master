@@ -17,9 +17,16 @@ async fn run(action: &'static str, body: Value) -> Result<Value, String> {
 /// Find the program for `command`, try `--version`, open a session. `auto_answer` is the first screen's switch
 /// "Answer setup questions for me (only in the wizard's temp folder)": the wizard may answer a trust or
 /// one-time approval question in the panes it starts itself, by fixed rules (SPEC 11.16). Off when absent.
+/// `autonomous` is the first screen's switch "Finish without me" (SPEC 11.19): no confirmations, bypass-style flags
+/// refused, the drafter AI looks at screens the wizard cannot read, and the definition is approved when every check
+/// passed. It implies the setup-question switch. Off when absent.
 #[tauri::command]
-pub async fn agent_wizard_start(command: String, auto_answer: Option<bool>) -> Result<Value, String> {
-    run("start", serde_json::json!({"command": command, "auto_answer": auto_answer.unwrap_or(false)})).await
+pub async fn agent_wizard_start(command: String, auto_answer: Option<bool>, autonomous: Option<bool>) -> Result<Value, String> {
+    run(
+        "start",
+        serde_json::json!({"command": command, "auto_answer": auto_answer.unwrap_or(false), "autonomous": autonomous.unwrap_or(false)}),
+    )
+    .await
 }
 
 /// Run the fixed help and version probes.
@@ -56,10 +63,12 @@ pub async fn agent_wizard_livetest(session: String, confirm: bool, plan: String)
     run("livetest", serde_json::json!({"session": session, "confirm": confirm, "plan": plan})).await
 }
 
-/// Write the tested draft as an unapproved definition with its fixtures; reloads the registry.
+/// Write the tested draft as an unapproved definition with its fixtures; reloads the registry. For a session started
+/// with "Finish without me", `autonomous` = `{decisions: [text], approve: true}` and the reply says whether the
+/// wizard approved it (`approval`).
 #[tauri::command]
-pub async fn agent_wizard_finish(session: String, provenance: Value) -> Result<Value, String> {
-    run("finish", serde_json::json!({"session": session, "provenance": provenance})).await
+pub async fn agent_wizard_finish(session: String, provenance: Value, autonomous: Option<Value>) -> Result<Value, String> {
+    run("finish", serde_json::json!({"session": session, "provenance": provenance, "autonomous": autonomous})).await
 }
 
 /// Stop whatever runs and remove the work folder. Safe to call twice.

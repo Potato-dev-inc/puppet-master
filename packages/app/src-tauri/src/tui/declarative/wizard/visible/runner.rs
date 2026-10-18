@@ -17,6 +17,7 @@ use super::super::session::TestWords;
 use super::answer::scope_ok;
 use super::capture::{Action, Capture, CaptureAction, CaptureSet, Config, StepId};
 use super::host::{Delivered, Look, PaneHost};
+use super::verdict::{Decision, Verdict};
 
 /// Rows of the screen the status carries (the pane is 40 rows).
 const PREVIEW_ROWS: usize = 40;
@@ -253,6 +254,12 @@ impl CaptureRun {
             let _ = std::fs::remove_file(project.join("hello.txt"));
         }
         result
+    }
+
+    /// The drafter AI's one-word look at the screen now (SPEC 11.19); the engine decides what it may cause.
+    pub fn verdict(&self, verdict: Verdict) -> Decision {
+        let now = self.now();
+        self.shared.lock().engine.apply_verdict(verdict, now)
     }
 
     /// The last looks of the capture and the engine's verdict for each, newest last. `masked` frames

@@ -108,6 +108,7 @@ impl Tree {
             },
             host: FakeHost::new(),
             visible: quick_cfg(),
+            approvals_path: self.root.join("agent-approvals.json"),
         }
     }
 

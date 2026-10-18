@@ -342,7 +342,7 @@ pub struct Input<'a> {
 
 /// The question's identity: its rows with the cursor marker and digits folded, so moving the cursor is
 /// still the same question.
-fn fingerprint(screen: &str) -> String {
+pub fn fingerprint(screen: &str) -> String {
     let all = rows(screen);
     let from = all.len().saturating_sub(16);
     let marks = ">\u{276F}\u{203A}\u{25B6}\u{2192}\u{25B8}\u{27A4}\u{25CF}\u{25C9}\u{25CB}\u{25EF}";

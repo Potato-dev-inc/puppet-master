@@ -17,7 +17,8 @@ use serde_json::{json, Value};
 use super::super::session::TestWords;
 use super::answer::{AnswerCfg, AnswerKey, Answerer, AnsweredQ, Input as AnswerInput, Step as AnswerStep};
 use super::host::Look;
-use super::screen::{classify, frame_key, ready_shape, Flavour, FrameBag, ScreenKind, Stability};
+use super::screen::{asks_trust_or_permission, classify, frame_key, ready_shape, Flavour, FrameBag, ScreenKind, Stability};
+use super::verdict::{flavour_of, Decision, Verdict};
 
 /// How long a picture must hold still before the engine acts on it.
 pub const STABLE_MS: u64 = 2500;
@@ -601,6 +602,11 @@ pub struct Capture {
     /// The resize measurement after the reply (SPEC 11.17).
     probe: Probe,
     resize_result: Option<ResizeProbe>,
+    /// "Finish without me": the AI look called this picture (by fingerprint) a trust or one-time approval question the
+    /// classifier did not recognise. The safe answerer then looks at it as a dialog of that flavour (SPEC 11.19).
+    ai_question: Option<(String, Flavour)>,
+    /// The run was stopped (a sign-in or payment screen); nothing is typed or pressed until the step is retried.
+    halted: Option<String>,
 }
 
 /// How long after a resize the agent gets to redraw before the picture is judged.
@@ -726,6 +732,8 @@ impl Capture {
             runs_without_asking: false,
             probe: Probe::Off,
             resize_result: None,
+            ai_question: None,
+            halted: None,
         }
     }
 
@@ -971,9 +979,21 @@ impl Capture {
         if self.frozen {
             self.kind = ScreenKind::Unknown;
         }
+        // The AI look called this picture a trust / one-time approval question: the answerer reads it as one.
+        if let Some((fp, flavour)) = self.ai_question.clone() {
+            // the question's identity folds the cursor marker, so moving the highlight is still the same question
+            if fp != super::answer::fingerprint(&self.screen) {
+                self.ai_question = None;
+            } else if matches!(self.kind, ScreenKind::Unknown | ScreenKind::Input) {
+                self.kind = ScreenKind::Dialog(flavour);
+            }
+        }
         self.seen_kind = seen_kind;
         self.last_now = now;
         self.record_debug(now);
+        if self.halted.is_some() {
+            return Vec::new();
+        }
         // the unrecognised question belongs to one picture
         if self.unrecognised.as_deref().is_some_and(|fp| fp != self.stab.fingerprint()) {
             self.unrecognised = None;
@@ -1672,6 +1692,8 @@ impl Capture {
                 }
                 self.unrecognised = None;
                 self.speculative_permission = false;
+                self.ai_question = None;
+                self.halted = None;
                 if let Some(a) = self.answerer.as_mut() {
                     a.reset();
                 }
@@ -1770,6 +1792,57 @@ impl Capture {
         }
     }
 
+    /// The drafter AI's one-word look at the current screen (SPEC 11.19). Deterministic: the verdict can only press
+    /// "It is ready" (bound to this screen), hand a question to the safe answerer, wait, stop the run or keep what
+    /// was captured. It never types and never chooses keys.
+    pub fn apply_verdict(&mut self, verdict: Verdict, now: u64) -> Decision {
+        if self.settled() {
+            return Decision::Refused("the capture is already finished".into());
+        }
+        match verdict {
+            Verdict::ReadyForInput => match self.act(None, CaptureAction::Ready, now) {
+                Ok(()) => Decision::PressedReady,
+                Err(why) => Decision::Refused(why),
+            },
+            Verdict::Working => Decision::Wait,
+            Verdict::QuestionOther | Verdict::Unknown => Decision::WaitThenSkip,
+            Verdict::QuestionTrustOrOnce => {
+                if self.answerer.is_none() {
+                    return Decision::Refused("the wizard may not answer setup questions in this session".into());
+                }
+                if matches!(self.kind, ScreenKind::Blank | ScreenKind::Shell) {
+                    return Decision::Refused("there is no question on the screen".into());
+                }
+                if !asks_trust_or_permission(&self.screen) {
+                    return Decision::Refused("the screen does not talk about trusting a folder or about a permission".into());
+                }
+                self.ai_question = Some((super::answer::fingerprint(&self.screen), flavour_of(&self.screen)));
+                if let ScreenKind::Dialog(_) = self.kind {
+                    // already read as a dialog by the classifier: the answerer has it
+                } else {
+                    self.set_note("The AI look reads this as a trust or one-time approval question. Only the plain yes is pressed.");
+                }
+                Decision::SafeAnswerer
+            }
+            Verdict::SignInOrPayment => {
+                self.halted = Some("sign_in".into());
+                self.needs = None;
+                self.set_note("The agent needs a sign-in or a payment step. The wizard stopped and typed nothing.");
+                Decision::Stop { code: super::verdict::SIGN_IN_CODE }
+            }
+            Verdict::Error => {
+                let shown = clean(&self.screen);
+                let last: Vec<&str> = shown.lines().map(str::trim).filter(|l| !l.is_empty()).rev().take(3).collect();
+                let tail: Vec<&str> = last.into_iter().rev().collect();
+                let masked = super::super::livetest::mask_words(&tail.join(" / "), &self.words);
+                let step = self.current();
+                self.notes.push(format!("The agent showed an error during the {} step: {masked}", step.as_str()));
+                self.finish_step(StepStatus::Stuck, "The agent shows an error. What was captured so far is kept.", now);
+                Decision::MarkedStuck
+            }
+        }
+    }
+
     // ---- reading the result ---------------------------------------------------------------------
 
     /// What was learned. Steps that never ran are listed as skipped.
@@ -1829,6 +1902,8 @@ impl Capture {
             "auto_answer": self.answerer.is_some(),
             "answered": self.answered.iter().map(|a| json!({"place": a.place, "flavour": a.flavour, "label": a.label, "keys": a.keys})).collect::<Vec<_>>(),
             "frozen": self.frozen,
+            "halted": self.halted,
+            "fingerprint": self.stab.fingerprint(),
             "stable_ms": self.stab.stable_for(now),
             "alive": self.alive,
             "settled": self.settled(),

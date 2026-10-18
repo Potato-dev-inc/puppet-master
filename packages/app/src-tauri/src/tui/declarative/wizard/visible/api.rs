@@ -13,6 +13,7 @@ use super::super::locate::display_path;
 use super::super::report::WizardError;
 use super::super::session::{sha256_hex, Session, State, Wizard};
 use super::capture::{CaptureAction, StepId};
+use super::verdict::{self, Decision, Verdict};
 use super::fixtures::masked_json;
 use super::host::{CaptureProfile, PaneSpec};
 use super::screen::{GRID_COLS, GRID_ROWS};
@@ -129,7 +130,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let id = super::super::api::session_id(body)?;
     let op = body.get("op").and_then(Value::as_str).map(str::trim).filter(|o| !o.is_empty());
     let Some(op) = op else {
-        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, debug, test_status, test_act or discard"));
+        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, debug, test_status, test_act, verdict, test_verdict or discard"));
     };
     match op {
         "plan" => {
@@ -188,9 +189,18 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             if !matches!(action, "skip" | "stop") {
                 return Err(WizardError::bad_request("action must be skip or stop"));
             }
+            // The autonomous wizard says why it stopped (plain words, short); the failed check carries it to the drafter.
+            let reason = body.get("reason").and_then(Value::as_str).map(str::trim).filter(|r| !r.is_empty());
+            if let Some(reason) = reason {
+                if !session.autonomous {
+                    return Err(WizardError::bad_request("a reason is only used when 'Finish without me' is on"));
+                }
+                *session.visible.test_ctl_reason.lock() = Some(super::super::exec::cut_chars(&super::super::exec::clean(reason), 300));
+            }
             *session.visible.test_ctl.lock() = Some(action.to_string());
             Ok(json!({"ok": true}))
         }
+        "verdict" | "test_verdict" => verdict_op(wizard, &id, op, body),
         "finish" => {
             let session = wizard.read(&id, |s| s.clone())?;
             let run = run_of(&session);
@@ -215,6 +225,68 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             Ok(json!({"ok": true}))
         }
         other => Err(WizardError::bad_request(format!("unknown capture op {other}"))),
+    }
+}
+
+/// `verdict` (the capture) and `test_verdict` (the visible test): the drafter AI's one-word look at a screen the wizard
+/// could not read (SPEC 11.19). Only a session started with "Finish without me" takes it.
+fn verdict_op(wizard: &Wizard, id: &str, op: &str, body: &Value) -> Result<Value, WizardError> {
+    let session = wizard.read(id, |s| s.clone())?;
+    if !session.autonomous {
+        return Err(WizardError::new(409, "WIZARD_NOT_AUTONOMOUS", "the AI look is only used when 'Finish without me' is on"));
+    }
+    let verdict = body
+        .get("verdict")
+        .and_then(Value::as_str)
+        .and_then(Verdict::parse)
+        .ok_or_else(|| WizardError::bad_request("verdict must be one of ready_for_input, working, question_trust_or_once, question_other, sign_in_or_payment, error, unknown"))?;
+    let decision = if op == "verdict" {
+        let run = run_of(&session).ok_or_else(|| WizardError::new(409, "WIZARD_NO_CAPTURE", "no capture is running; start one first"))?;
+        run.verdict(verdict)
+    } else {
+        test_decision(&session, verdict)
+    };
+    session.visible.auto.verdicts.lock().push(json!({
+        "target": if op == "verdict" { "capture" } else { "test" },
+        "verdict": verdict.as_str(),
+        "decision": decision.id(),
+    }));
+    let mut out = json!({"decision": decision.id(), "verdict": verdict.as_str()});
+    if let Decision::Refused(why) = &decision {
+        out["why"] = json!(why);
+    }
+    if let Some(code) = decision.stop_code() {
+        out["stop"] = json!({"code": code, "message": verdict::sign_in_message(&session.command)});
+    }
+    if op == "verdict" {
+        out["status"] = status_of(&session);
+    }
+    Ok(out)
+}
+
+/// What a verdict may cause in the visible test pane. The test judges readiness by the draft's own profile, so
+/// "ready" and "working" change nothing here; only the safe answerer, a stop and the wait-then-skip are possible.
+fn test_decision(session: &Session, verdict: Verdict) -> Decision {
+    match verdict {
+        Verdict::ReadyForInput | Verdict::Working => Decision::Wait,
+        Verdict::QuestionOther | Verdict::Unknown => Decision::WaitThenSkip,
+        Verdict::QuestionTrustOrOnce => {
+            if !session.auto_answer {
+                return Decision::Refused("the wizard may not answer setup questions in this session".into());
+            }
+            *session.visible.test_verdict.lock() = Some(verdict.as_str().to_string());
+            Decision::SafeAnswerer
+        }
+        Verdict::SignInOrPayment => {
+            *session.visible.test_ctl_reason.lock() = Some("the agent needs a sign-in or a payment step".into());
+            *session.visible.test_ctl.lock() = Some("stop".into());
+            Decision::Stop { code: verdict::SIGN_IN_CODE }
+        }
+        Verdict::Error => {
+            *session.visible.test_ctl_reason.lock() = Some("the agent shows an error on its screen".into());
+            *session.visible.test_ctl.lock() = Some("stop".into());
+            Decision::StoppedTest
+        }
     }
 }
 
@@ -250,6 +322,14 @@ fn start(wizard: &Wizard, id: &str, body: &Value) -> Result<Value, WizardError> 
             "WIZARD_PLAN_MISMATCH",
             "the command that would start is not the one the person was shown; show it again and ask for a new confirmation",
         ));
+    }
+    if session.autonomous {
+        // "Finish without me": nobody read this command. Refuse a bypass-style argument, keep what runs.
+        let hits = super::super::bypass::hits_in_argv(&args);
+        if !hits.is_empty() {
+            return Err(super::super::bypass::refusal_error(&hits));
+        }
+        session.visible.auto.plans.lock().push(json!({"test": "capture", "program": display_path(&session.program), "args": args}));
     }
     if let Some(run) = run_of(&session) {
         if !run.is_finished() {

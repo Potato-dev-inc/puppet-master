@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use super::approvals::{now_rfc3339, Approval, Approvals};
 use super::loader::{build, load_all, load_text, reload_global, DefState, Entry, LoadInputs, OwnedInputs};
-use super::resolve::resolve_binary;
+use super::resolve::{resolve_binary, resolve_in};
 use super::schema::DefError;
 use super::sources::{project_candidates, settings_path, source_name, Origin, SourceSettings};
 use super::template;
@@ -47,7 +47,10 @@ pub fn error_json(error: &DefError) -> Value {
     })
 }
 
-fn entry_json(entry: &Entry) -> Value {
+fn entry_json(entry: &Entry, approvals: &Approvals) -> Value {
+    // Who approved it, when the wizard did (SPEC 11.19): Settings shows "Approved by the wizard after N checks passed".
+    let record = (entry.state == DefState::Active).then(|| approvals.get(&entry.path)).flatten();
+    let by_wizard = record.is_some_and(|r| r.approved_by.as_deref() == Some(super::approvals::APPROVED_BY_WIZARD));
     json!({
         "id": entry.id,
         "file": entry.path.to_string_lossy(),
@@ -59,14 +62,17 @@ fn entry_json(entry: &Entry) -> Value {
         "binary_changed": entry.binary_changed,
         "experimental": entry.meta.as_ref().is_some_and(|m| m.experimental),
         "label": entry.meta.as_ref().map(|m| m.label.clone()),
+        "approved_by": if by_wizard { json!(super::approvals::APPROVED_BY_WIZARD) } else { Value::Null },
+        "approval_checks": if by_wizard { json!(record.map_or(0, |r| r.checks.len())) } else { Value::Null },
     })
 }
 
 /// `{sources, definitions}` for a fresh scan of the enabled sources. Reads files and approvals;
 /// registers nothing. Source switches come from `settings`.
 pub fn listing_with(inputs: &LoadInputs<'_>, approvals_path: &Path, settings: &SourceSettings) -> Value {
-    let built = build(inputs, &Approvals::load(approvals_path));
-    listing_of(inputs, settings, &built.entries)
+    let approvals = Approvals::load(approvals_path);
+    let built = build(inputs, &approvals);
+    listing_of(inputs, settings, &built.entries, &approvals)
 }
 
 /// `listing_with` for default settings (only the user source differs from "off").
@@ -74,7 +80,7 @@ pub fn listing(inputs: &LoadInputs<'_>, approvals_path: &Path) -> Value {
     listing_with(inputs, approvals_path, &SourceSettings::default())
 }
 
-fn listing_of(inputs: &LoadInputs<'_>, settings: &SourceSettings, entries: &[Entry]) -> Value {
+fn listing_of(inputs: &LoadInputs<'_>, settings: &SourceSettings, entries: &[Entry], approvals: &Approvals) -> Value {
     let projects: Vec<Value> = settings
         .sources
         .project
@@ -99,7 +105,7 @@ fn listing_of(inputs: &LoadInputs<'_>, settings: &SourceSettings, entries: &[Ent
         ],
         "projects": projects,
         "extra_dirs": extra,
-        "definitions": entries.iter().map(entry_json).collect::<Vec<_>>(),
+        "definitions": entries.iter().map(|e| entry_json(e, approvals)).collect::<Vec<_>>(),
     })
 }
 
@@ -110,7 +116,7 @@ pub fn reload_with_diff(inputs: &LoadInputs<'_>, approvals_path: &Path, settings
     let built = reload_global(inputs, approvals_path);
     let diff = super::watch::diff_entries(&before, &built.entries);
     super::watch::announce(&diff);
-    let mut body = listing_of(inputs, settings, &built.entries);
+    let mut body = listing_of(inputs, settings, &built.entries, &Approvals::load(approvals_path));
     body["diff"] = diff.to_json();
     body
 }
@@ -204,6 +210,26 @@ pub fn approve(
     file: &str,
     fingerprint: &str,
 ) -> Result<Value, ServiceError> {
+    approve_as(inputs, approvals_path, file, fingerprint, None)
+}
+
+/// Who is approving when it is not a person: the Agent Wizard after every check passed (SPEC 11.19). The
+/// record is the same one, with `approved_by` and the labels of the checks next to the usual fields.
+pub struct WizardApproval<'a> {
+    pub checks: &'a [String],
+    /// The folders the wizard looked for the program in (its own search path); `None`: the process `PATH`.
+    pub search: Option<&'a [PathBuf]>,
+}
+
+/// `approve`, recording `by` when the approval is the wizard's own. Everything else is identical: the
+/// fingerprint must be the file's current one, the binary must resolve now and is pinned.
+pub fn approve_as(
+    inputs: &LoadInputs<'_>,
+    approvals_path: &Path,
+    file: &str,
+    fingerprint: &str,
+    by: Option<&WizardApproval<'_>>,
+) -> Result<Value, ServiceError> {
     let wanted = canonical_project(file);
     let (files, _) = load_all(inputs);
     let found = files
@@ -223,7 +249,11 @@ pub fn approve(
         ));
     }
     let here = found.path.parent().unwrap_or_else(|| Path::new("."));
-    let binary = resolve_binary(&def.binary, here).map_err(|e| ServiceError::new(400, e.code(), e.to_string()))?;
+    let resolved = match by.and_then(|b| b.search) {
+        Some(dirs) => resolve_in(&def.binary, dirs, super::resolve::Platform::current()),
+        None => resolve_binary(&def.binary, here),
+    };
+    let binary = resolved.map_err(|e| ServiceError::new(400, e.code(), e.to_string()))?;
     let (headless_argv, tui_argv) = rendered_argv(def);
     let mut approvals = Approvals::load(approvals_path);
     approvals.approve(Approval {
@@ -235,6 +265,8 @@ pub fn approve(
         approved_at: now_rfc3339(),
         headless_argv,
         tui_argv,
+        approved_by: by.map(|_| super::approvals::APPROVED_BY_WIZARD.to_string()),
+        checks: by.map(|b| b.checks.to_vec()).unwrap_or_default(),
     });
     approvals.save(approvals_path).map_err(|e| ServiceError::new(503, "AGENT_DEF_STORE_FAILED", e))?;
     let state = build(inputs, &approvals)
@@ -244,6 +276,26 @@ pub fn approve(
         .map(|e| e.state.as_str())
         .unwrap_or("invalid");
     Ok(json!({"ok": true, "id": def.agent.id, "state": state}))
+}
+
+/// The wizard's own approval (SPEC 11.19): the same record as a person's, made for the file as it is NOW (the wizard
+/// just wrote it and has checked exactly that text), with `approved_by: "wizard"` and the checks that passed.
+pub fn approve_current_as_wizard(
+    inputs: &LoadInputs<'_>,
+    approvals_path: &Path,
+    file: &str,
+    checks: &[String],
+    search: Option<&[PathBuf]>,
+) -> Result<Value, ServiceError> {
+    let wanted = canonical_project(file);
+    let (files, _) = load_all(inputs);
+    let fingerprint = files
+        .iter()
+        .filter(|f| f.origin.source != Source::Bundled)
+        .find(|f| canonical_project(&f.path.to_string_lossy()) == wanted)
+        .and_then(|f| f.fingerprint.clone())
+        .ok_or_else(|| ServiceError::new(404, "AGENT_DEF_NOT_FOUND", format!("no definition file {file}")))?;
+    approve_as(inputs, approvals_path, file, &fingerprint, Some(&WizardApproval { checks, search }))
 }
 
 /// The visible-pane command the Approve dialog shows. A generic agent has no `[tui]` table (it is

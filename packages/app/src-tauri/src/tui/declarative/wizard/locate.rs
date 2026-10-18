@@ -171,6 +171,7 @@ pub fn start(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let dirs = search_dirs(&env);
     let located = locate(&command, &dirs)?;
 
+    let autonomous = body.get("autonomous").and_then(Value::as_bool).unwrap_or(false);
     let id = Wizard::new_id();
     let work_dir = make_work_dir(&env.temp_root, &id)?;
     let version = read_version(&located.path, &work_dir, &env);
@@ -193,7 +194,10 @@ pub fn start(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
         tested: None,
         visible_tested: None,
         visible: Arc::new(super::session::VisibleData::default()),
-        auto_answer: body.get("auto_answer").and_then(Value::as_bool).unwrap_or(false),
+        // "Finish without me" answers the safe setup questions too: nobody is there to.
+        auto_answer: body.get("auto_answer").and_then(Value::as_bool).unwrap_or(false) || autonomous,
+        autonomous,
+        verified_sha256: None,
         busy: None,
         cancel: Arc::new(AtomicBool::new(false)),
     };
