@@ -47,6 +47,8 @@ pub enum Block {
 #[derive(Debug, Clone, Default)]
 pub struct Opts {
     pub backlog_rows: usize,
+    /// Literal rows under the banner row.
+    pub banner_rows: Vec<String>,
     pub status_model: Option<String>,
     pub status_model_busy_only: bool,
     pub footer_right: Option<String>,
@@ -589,7 +591,9 @@ fn nimbus_block(block: &Block, cols: usize) -> Vec<String> {
 
 fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
     let b = view.banner;
-    let mut rows = vec![format!("NIMBUS {} | {} | {}", b.version, b.model, b.cwd), String::new()];
+    let mut rows = vec![format!("NIMBUS {} | {} | {}", b.version, b.model, b.cwd)];
+    rows.extend(view.opts.banner_rows.iter().cloned());
+    rows.push(String::new());
     if matches!(view.mode, Mode::Loading) {
         rows.push("starting up...".into());
         return (rows, None);
@@ -812,7 +816,7 @@ mod tests {
     use super::*;
 
     fn view<'a>(layout: Layout, banner: &'a Banner, blocks: &'a [Block], mode: Mode) -> View<'a> {
-        static OPTS: Opts = Opts { backlog_rows: 0, status_model: None, status_model_busy_only: false, footer_right: None, status_model_clip: None };
+        static OPTS: Opts = Opts { backlog_rows: 0, banner_rows: Vec::new(), status_model: None, status_model_busy_only: false, footer_right: None, status_model_clip: None };
         View { layout, cols: 80, rows: 24, banner, blocks, mode, composer: "", suggestion: None, fresh: true, busy: None, notice: None, tick: 0, opts: &OPTS }
     }
 
