@@ -431,7 +431,7 @@ fn bundle_inputs(casts: Vec<bundle::CastFile>, log: Vec<String>) -> bundle::Inpu
             "theme": "dark",
             "anthropic_api_key": "sk-ant-api03-SettingsPlanted0123456789",
             "nested": {"access_token": "abcdef123456", "away_minutes": 5},
-            "project_path": "C:\\Users\\Ren-pc\\Desktop\\work2\\puppet-master"
+            "project_path": "C:\\Users\\you-pc\\Desktop\\work2\\puppet-master"
         }),
         log_lines: log,
         casts,
@@ -462,7 +462,7 @@ fn the_diagnostic_file_lists_its_contents_removes_secrets_and_honours_exclusions
     for (name, data) in &files {
         let text = String::from_utf8_lossy(data);
         assert!(!text.contains("BundlePlanted") && !text.contains("SettingsPlanted"), "{name}: {text}");
-        assert!(!text.to_lowercase().contains("ren-pc"), "{name} names the user: {text}");
+        assert!(!text.to_lowercase().contains("you-pc"), "{name} names the user: {text}");
     }
     let settings: Value = serde_json::from_slice(&files[3].1).unwrap();
     assert_eq!(settings["theme"], "dark");

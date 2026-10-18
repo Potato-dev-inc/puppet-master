@@ -35,6 +35,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # Public repo: no real user folder or personal email in any tracked file.
+      - name: Privacy guard (no personal paths or emails)
+        run: node scripts/check-no-personal-paths.mjs
+
       - uses: dorny/paths-filter@v3
         id: filter
         with:

@@ -4,7 +4,7 @@
   Cursor Agent can execute code and access files in this directory.
   Do you trust the contents of this directory?
 
-    C:\Users\Ren-pc\Desktop\work2\puppet-master
+    C:\Users\you-pc\Desktop\work2\puppet-master
 
   To proceed, you can either:
     • Run 'agent' interactively to decide
