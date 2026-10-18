@@ -58,6 +58,18 @@ function search(text: string) {
   });
 }
 
+describe('Ctrl+K: New agent', () => {
+  it('starts the agent in the folder itself: no separate copy, even for a Git project', () => {
+    const newAgent = vi.fn(async () => {});
+    const c = cockpit({ launchEntries: [{ type: 'codex', label: 'Codex', icon: null }], newAgent } as unknown as Partial<CockpitApi>);
+    act(() => root.render(<Palette c={c} onClose={vi.fn()} />));
+    act(() => rowFor('New Codex')!.click());
+    // No isolation argument and no folder argument: the host starts it in the open project, as it is.
+    expect(newAgent).toHaveBeenCalledTimes(1);
+    expect(newAgent.mock.calls[0]).toEqual(['codex']);
+  });
+});
+
 describe('palette commands for features that hide', () => {
   it('lists Simple mode, Live updates, Budgets, Team, Pair a phone and Save a diagnostic file', () => {
     act(() => root.render(<Palette c={cockpit()} onClose={vi.fn()} />));
@@ -136,7 +148,7 @@ describe('palette commands for features that hide', () => {
     expect(rowFor('Stop this agent')).toBeTruthy();
     expect(host.textContent).not.toContain('Interrupt');
     const pane = rows().find((r) => r.textContent?.includes('separate copy'))!;
-    expect(pane.textContent).toContain('shop · separate copy');
+    expect(pane.textContent).toContain('separate copy of shop');
     expect(pane.textContent).not.toContain('7d4cb2b3');
   });
 

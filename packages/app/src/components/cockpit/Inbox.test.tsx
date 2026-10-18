@@ -180,8 +180,8 @@ describe('one list, one card', () => {
       ],
     });
     mount(api);
-    expect(host.querySelector('[data-kind="approval"] .ib-meta')?.textContent).toBe('Claude Code · shop · separate copy');
-    expect(host.querySelector('[data-kind="error"] .ib-meta')?.textContent).toBe('shop · separate copy');
+    expect(host.querySelector('[data-kind="approval"] .ib-meta')?.textContent).toBe('Claude Code · separate copy of shop');
+    expect(host.querySelector('[data-kind="error"] .ib-meta')?.textContent).toBe('separate copy of shop');
     expect(host.textContent).not.toContain('7d4cb2b3');
   });
 

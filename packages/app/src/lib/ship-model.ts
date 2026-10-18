@@ -1,5 +1,5 @@
 // Plain-words helpers for the ship features: no React, no IPC. Tested in ship-model.test.ts.
-import type { ChecksReport, GitState, PrPrepared, SetupReport } from './ship-api';
+import type { ChecksReport, GitState, PrPrepared, RecentProject, SetupReport } from './ship-api';
 
 /** `2 GitHub checks failed: test (ubuntu), lint` and friends. */
 export function checksSentence(report: ChecksReport | undefined | null): string {
@@ -115,12 +115,44 @@ export function readCopyPreference(project: string | null): boolean {
 }
 
 /**
- * Whether the "Separate copy" switch starts on. The person's remembered choice for this project always
- * wins; with none, it starts on for a Git project that has a first commit (the safe way to let an agent
- * work) and off for anything else.
+ * Whether the "Separate copy" switch starts on. It starts OFF: the folder the person selected is the
+ * folder the agent works in. (Until 2026-10-18 it started on for a Git project; that was reversed.)
+ * A choice the person made for this project, in either direction, always wins; only a clicked switch is
+ * ever stored, so "never chose" stays `undefined` and reads as off.
  */
-export function copyDefault(remembered: boolean | undefined, state: GitState | undefined): boolean {
-  return remembered ?? state === 'repo';
+export function copyDefault(remembered: boolean | undefined): boolean {
+  return remembered ?? false;
+}
+
+/** True when `path` is the folder of a separate copy (`<project>/.puppet-master/worktrees/<id>`). */
+const isCopyPath = (path: string): boolean => path.replace(/\\/g, '/').indexOf('/.puppet-master/worktrees/') > 0;
+
+/**
+ * The recent-projects list as the person should see it: a separate copy's folder is mapped back to the
+ * project it came from, and each real folder appears once (first, i.e. most recent, wins). The backend
+ * already does this; this keeps a copy off the screen even if one ever slips through.
+ */
+export function realRecents(list: RecentProject[]): RecentProject[] {
+  const seen = new Set<string>();
+  const out: RecentProject[] = [];
+  for (const item of list) {
+    const real = isCopyPath(item.path) ? projectOfCwd(item.path) : null;
+    const path = real ? real.path : item.path;
+    const key = path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(real ? { ...item, path, name: real.name } : item);
+  }
+  return out;
+}
+
+/**
+ * The folder "+" starts in when nothing else names one: the newest real folder the person used. A folder
+ * that only ever had runs (`last_used_ms` 0) or no longer exists does not count.
+ */
+export function lastRealFolder(list: RecentProject[]): { path: string; name: string; state: GitState } | null {
+  const found = realRecents(list).find((item) => item.last_used_ms > 0 && item.state !== 'missing');
+  return found ? { path: found.path, name: found.name, state: found.state } : null;
 }
 
 export function writeCopyPreference(project: string | null, on: boolean): void {

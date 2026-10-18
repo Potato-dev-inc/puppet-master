@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { ChecksReport, PrPrepared, SetupReport } from './ship-api';
-import { cannotCreate, checksSentence, copyCommands, copyDefault, projectOfCwd, readCopyPreference, readStoredCopyPreference, setupLine, stateHint, supportsCopies, writeCopyPreference } from './ship-model';
+import { cannotCreate, checksSentence, copyCommands, copyDefault, lastRealFolder, projectOfCwd, readCopyPreference, realRecents, readStoredCopyPreference, setupLine, stateHint, supportsCopies, writeCopyPreference } from './ship-model';
 
 const report = (state: ChecksReport['state'], items: ChecksReport['items']): ChecksReport => ({ state, items, checked_at_ms: 1 });
 
@@ -104,23 +104,44 @@ describe('projects', () => {
       expect(readCopyPreference('C:\\a')).toBe(false);
     });
   });
-  describe('Separate copy starts on for a Git project with a first commit', () => {
+  describe('Separate copy starts OFF (the selected folder is the folder)', () => {
     beforeEach(() => localStorage.clear());
-    it('is on for a repo and off for anything else when nothing was chosen', () => {
-      expect(copyDefault(undefined, 'repo')).toBe(true);
-      expect(copyDefault(undefined, 'folder')).toBe(false);
-      expect(copyDefault(undefined, 'no_commits')).toBe(false);
-      expect(copyDefault(undefined, 'missing')).toBe(false);
-      expect(copyDefault(undefined, undefined)).toBe(false);
+    it('is off when nothing was chosen', () => {
+      expect(copyDefault(undefined)).toBe(false);
     });
-    it('the remembered choice wins, either way', () => {
-      expect(copyDefault(false, 'repo')).toBe(false);
-      expect(copyDefault(true, 'folder')).toBe(true);
+    it("the person's remembered choice wins, either way", () => {
+      expect(copyDefault(false)).toBe(false);
+      expect(copyDefault(true)).toBe(true);
+    });
+    it('reads a project nobody chose for as unset, not as a stored answer', () => {
+      expect(readStoredCopyPreference('C:\never')).toBeUndefined();
+      expect(copyDefault(readStoredCopyPreference('C:\never'))).toBe(false);
+    });
+    it('keeps an explicit ON for the project it was chosen for, and only that one', () => {
+      writeCopyPreference('C:\a', true);
+      expect(copyDefault(readStoredCopyPreference('C:\a'))).toBe(true);
+      expect(copyDefault(readStoredCopyPreference('C:\b'))).toBe(false);
     });
     it('tells "never chose" from "chose off"', () => {
       expect(readStoredCopyPreference('C:\\a')).toBeUndefined();
       writeCopyPreference('C:\\a', false);
       expect(readStoredCopyPreference('C:\\a')).toBe(false);
+    });
+  });
+  describe('recent projects never name a separate copy', () => {
+    const at = (path: string, last_used_ms = 1, state: 'repo' | 'missing' = 'repo') => ({ path, name: path.split(/[\\/]/).pop()!, state, last_used_ms });
+    const COPY = 'C:\\code\\shop\\.puppet-master\\worktrees\\pane-1a2b';
+    it('maps a copy back to its project and lists each folder once', () => {
+      const listed = realRecents([at(COPY, 5), at('C:\\code\\shop', 4), at('C:\\code\\site', 3)]);
+      expect(listed.map((p) => p.path)).toEqual(['C:\\code\\shop', 'C:\\code\\site']);
+      expect(listed[0].name).toBe('shop');
+      expect(JSON.stringify(listed)).not.toContain('.puppet-master');
+    });
+    it('"+" defaults to the last real folder: the newest one the person used, never a copy or a missing folder', () => {
+      expect(lastRealFolder([])).toBeNull();
+      expect(lastRealFolder([at('C:\\code\\gone', 9, 'missing'), at(COPY, 8), at('C:\\code\\site', 7)])).toEqual({ path: 'C:\\code\\shop', name: 'shop', state: 'repo' });
+      // A folder that only ever had runs (last used 0) is not "the last folder the person used".
+      expect(lastRealFolder([at('C:\\code\\runs-only', 0)])).toBeNull();
     });
   });
 });

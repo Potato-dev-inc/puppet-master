@@ -2,12 +2,12 @@
 //   1. pick an agent (an agent with user accounts gets a second step for the login);
 //   2. the folder step: a project chip at the top opens Recent projects and "Choose folder…";
 //   3. "Set up Git here" for a folder without Git, with the exact commands shown first.
-// The Separate copy switch sits at the bottom of step 1. It starts on for a Git project with a first commit
-// (the host decides; a remembered choice wins). Without Git it is off, with a one-line hint and "Set up Git here".
+// The Separate copy switch sits at the bottom of step 1. It starts OFF (the agent works in the folder the person
+// selected); a remembered choice wins. Without Git it cannot be turned on: a one-line hint and "Set up Git here".
 import { useEffect, useState } from 'react';
 import { accountsFor, needsAccountStep, tauriAccountsApi, type Account, type AccountsApi } from '../../lib/accounts';
 import { shipApi, type GitInitPlan, type GitState, type RecentProject, type ShipApi } from '../../lib/ship-api';
-import { stateHint, supportsCopies } from '../../lib/ship-model';
+import { realRecents, stateHint, supportsCopies } from '../../lib/ship-model';
 import '../../styles/cockpit-ship.css';
 
 export interface LaunchEntry {
@@ -90,7 +90,7 @@ export function NewAgentMenu({
   const loadRecent = () => {
     ship
       .recent()
-      .then(setRecent)
+      .then((list) => setRecent(realRecents(list)))
       .catch(() => setRecent([]));
   };
 
@@ -343,7 +343,9 @@ export function NewAgentMenu({
               )}
             </div>
           ) : (
-            isolated && <div className="ck-menu-note">From the current branch · your uncommitted changes aren&apos;t included.</div>
+            <div className="ck-menu-note">
+              {isolated ? "From the current branch · your uncommitted changes aren't included." : 'Works in this folder.'}
+            </div>
           )}
         </>
       )}

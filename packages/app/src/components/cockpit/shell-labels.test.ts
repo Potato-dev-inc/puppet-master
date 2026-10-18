@@ -15,7 +15,7 @@ describe('project names in the shell', () => {
     expect(projectLabel(COPY)).toBe('shop');
     expect(projectLabel('/home/me/shop/.puppet-master/worktrees/h-1a2b')).toBe('shop');
     expect(projectLabel(COPY)).not.toContain('7d4cb2b3');
-    expect(projectWithCopy(COPY)).toBe('shop · separate copy');
+    expect(projectWithCopy(COPY)).toBe('separate copy of shop');
     expect(isSeparateCopyCwd(COPY)).toBe(true);
   });
 

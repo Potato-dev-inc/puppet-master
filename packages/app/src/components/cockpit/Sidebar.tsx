@@ -3,7 +3,7 @@ import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
 import { shipApi, type GitState, type ShipApi } from '../../lib/ship-api';
 import { tauri } from '../../lib/tauri';
 import { isValidProjectPath } from '../../lib/project-path';
-import { copyDefault, projectOfCwd, readStoredCopyPreference, supportsCopies, writeCopyPreference } from '../../lib/ship-model';
+import { copyDefault, lastRealFolder, projectOfCwd, readStoredCopyPreference, supportsCopies, writeCopyPreference } from '../../lib/ship-model';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
 import { blockingItems, itemsOfKind, needsYouPaneIds } from '../../lib/attention';
@@ -63,7 +63,19 @@ export function Sidebar({
       live = false;
     };
   }, [menuOpen]);
-  const base: ProjectChoice | null = chosen ?? projectOfCwd(selectedCwd) ?? projectOfCwd(openProject);
+  // The newest real folder the person used: "+" starts there when no pane names a project.
+  const [lastFolder, setLastFolder] = useState<ProjectChoice | null>(null);
+  useEffect(() => {
+    let live = true;
+    ship
+      .recent()
+      .then((list) => live && setLastFolder(lastRealFolder(list)))
+      .catch(() => undefined); // no desktop shell: the open project is used
+    return () => {
+      live = false;
+    };
+  }, [menuOpen, ship]);
+  const base: ProjectChoice | null = chosen ?? projectOfCwd(selectedCwd) ?? lastFolder ?? projectOfCwd(openProject);
   // A folder taken from a pane has no Git state yet: ask once, so the Separate copy switch knows.
   const [looked, setLooked] = useState<{ path: string; state: GitState } | null>(null);
   useEffect(() => {
@@ -79,10 +91,10 @@ export function Sidebar({
   }, [base?.path, base?.state, ship]); // eslint-disable-line react-hooks/exhaustive-deps
   const project: ProjectChoice | null = base ? { ...base, state: base.state ?? (looked?.path === base.path ? looked.state : undefined) } : null;
   const projectKey = project?.path ?? null;
-  // The person's remembered choice for this project wins; with none, on for a Git project with a first commit.
+  // The person's remembered choice for this project wins; with none, off: the agent works in the folder itself.
   const [stored, setStored] = useState(() => readStoredCopyPreference(projectKey));
   useEffect(() => setStored(readStoredCopyPreference(projectKey)), [projectKey]);
-  const isolated = copyDefault(stored, project?.state);
+  const isolated = copyDefault(stored);
   const menuRef = useRef<HTMLDivElement>(null);
   // Missions (Preview, Labs): "+" → Start a mission… opens the start sheet for the menu's project.
   const missionsOn = useMissionsEnabled();

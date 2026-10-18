@@ -20,8 +20,13 @@ export function projectLabel(cwd: string | undefined | null): string {
   return projectOfCwd(cwd)?.name ?? projectName(cwd);
 }
 
-/** `shop` or `shop · separate copy`: the project name, plus a plain mark when the pane works in a copy. */
+/** `shop` or `separate copy of shop`: the folder the agent works in, or the copy of it. */
 export function projectWithCopy(cwd: string | undefined | null): string {
   const name = projectLabel(cwd);
-  return isSeparateCopyCwd(cwd) ? `${name} · separate copy` : name;
+  return isSeparateCopyCwd(cwd) ? `separate copy of ${name}` : name;
+}
+
+/** The real project folder behind a pane's working directory (a copy maps back), for a hover title. */
+export function realFolderPath(cwd: string | undefined | null): string | undefined {
+  return cwd ? projectOfCwd(cwd)?.path : undefined;
 }
