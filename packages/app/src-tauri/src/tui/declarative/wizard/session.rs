@@ -105,6 +105,8 @@ pub struct WizardEnv {
     pub host: Arc<dyn PaneHost>,
     /// How the guided capture ticks and which limits it uses.
     pub visible: RunnerCfg,
+    /// `<app data>/agent-approvals.json`: where the autonomous wizard records its approval (`finish`).
+    pub approvals_path: PathBuf,
 }
 
 impl WizardEnv {
@@ -118,6 +120,7 @@ impl WizardEnv {
             limits: Limits::default(),
             host: Arc::new(LiveHost),
             visible: RunnerCfg::default(),
+            approvals_path: crate::tui::declarative::approvals::default_path(),
         }
     }
 
@@ -222,6 +225,8 @@ pub struct VisibleTested {
     pub passed: usize,
     pub total: usize,
     pub version: Option<String>,
+    /// The labels of the checks that passed (for "approved after N checks" and `<id>.wizard.json`).
+    pub passed_labels: Vec<String>,
 }
 
 /// What the visible path keeps in a session. Shared (an `Arc`) because the capture runs on its own
@@ -245,6 +250,21 @@ pub struct VisibleData {
     pub test_answered: Mutex<Vec<super::visible::answer::AnsweredQ>>,
     /// The person's button during the visible test (`skip` or `stop`), taken by the test.
     pub test_ctl: Mutex<Option<String>>,
+    /// Why the autonomous wizard pressed `stop` (plain words, shown to the drafter as the reason the test ended).
+    pub test_ctl_reason: Mutex<Option<String>>,
+    /// The AI look's verdict on the test pane (`question_trust_or_once`), taken by the visible test.
+    pub test_verdict: Mutex<Option<String>>,
+    /// What the autonomous wizard did (SPEC 11.19): the exact plans that ran and the verdicts it acted on.
+    pub auto: AutoRecord,
+}
+
+/// The record of an autonomous run, written to `<id>.wizard.json`. Shared through `VisibleData`'s `Arc`.
+#[derive(Default)]
+pub struct AutoRecord {
+    /// The exact commands each test started: `{test, program, args, env}`.
+    pub plans: Mutex<Vec<serde_json::Value>>,
+    /// Verdicts of the AI look that Rust acted on: `{target, verdict, decision}`.
+    pub verdicts: Mutex<Vec<serde_json::Value>>,
 }
 
 impl std::fmt::Debug for VisibleData {
@@ -327,6 +347,11 @@ pub struct Session {
     /// The person left "answer setup questions for me" on (SPEC 11.16): the wizard may answer a trust or
     /// one-time approval question in the panes it started itself, in its own isolated folder.
     pub auto_answer: bool,
+    /// "Finish without me" (SPEC 11.19): nobody confirms the planned commands, bypass-style flags are refused,
+    /// unsure screens are looked at by the drafter AI, and the definition is approved when every check passed.
+    pub autonomous: bool,
+    /// The sha256 of the draft that `verify` passed with no problem at all.
+    pub verified_sha256: Option<String>,
     pub busy: Option<&'static str>,
     pub cancel: Arc<AtomicBool>,
 }

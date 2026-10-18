@@ -5,6 +5,8 @@ pub(crate) mod fake_host;
 pub(crate) mod support;
 
 mod agent_error_tests;
+mod auto_tests;
+mod auto_verdict_tests;
 mod ask_tests;
 mod benchmark;
 mod e2e;

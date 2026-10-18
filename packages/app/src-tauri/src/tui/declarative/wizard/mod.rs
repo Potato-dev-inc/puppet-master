@@ -15,6 +15,7 @@
 pub mod agent_error;
 pub mod api;
 pub mod ask;
+pub mod bypass;
 pub mod exec;
 pub mod features;
 pub mod finish;

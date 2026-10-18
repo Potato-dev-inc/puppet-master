@@ -34,6 +34,10 @@ export interface DefinitionRow {
   experimental?: boolean;
   /** The agent's display name from its file (absent when the file does not parse). */
   label?: string | null;
+  /** `wizard` when the Agent Wizard approved it by itself ("Finish without me"); absent for a person's approval. */
+  approved_by?: string | null;
+  /** How many checks had passed when the wizard approved it. */
+  approval_checks?: number | null;
 }
 
 export interface ProjectConsentRow {
@@ -398,4 +402,19 @@ export function restoreMessage(result: { label: string; approval_restored: boole
   if (result.approval_restored) return `Restored ${result.label}. It is active again.`;
   if (result.needs_approval) return `Restored ${result.label}. Review and approve it again before it can run.`;
   return `Restored ${result.label}.`;
+}
+
+/**
+ * What Settings says after the wizard wrote a definition, and whether it must open the approval dialog. A definition the
+ * wizard approved itself ("Finish without me", every check passed) needs no dialog: it is active, with Revoke and
+ * Remove as for any approval. Anything else is the person's to approve.
+ */
+export function wizardResult(done: { id: string; approval?: { approved: boolean; count?: number; reason?: string } }): { note: string; openReview: boolean } {
+  if (done.approval?.approved) {
+    return { note: `The wizard wrote ${done.id} and approved it after ${done.approval.count ?? 0} checks passed. You can revoke or remove it below.`, openReview: false };
+  }
+  const note = done.approval?.reason
+    ? `The wizard wrote ${done.id} but did not approve it (${done.approval.reason}). Check the command below, then approve it.`
+    : `The wizard wrote ${done.id}. Check the command below, then approve it.`;
+  return { note, openReview: true };
 }

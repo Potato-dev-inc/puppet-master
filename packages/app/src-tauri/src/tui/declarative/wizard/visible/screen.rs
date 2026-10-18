@@ -154,6 +154,14 @@ static TRUST_QUESTION: Lazy<Regex> = Lazy::new(|| {
         .expect("trust question regex")
 });
 
+/// Does the end of the screen talk about trusting a folder or ask permission to create, edit or run something? The AI
+/// look ("Finish without me") may only hand a screen to the safe answerer when it does, so a hallucinated "this is a
+/// trust question" about an update prompt or a tip never presses anything.
+pub fn asks_trust_or_permission(screen: &str) -> bool {
+    let tail = last_rows(screen, 16).join("\n");
+    TRUST.is_match(&tail) || PERMISSION.is_match(&tail)
+}
+
 /// Is `screen` a dialog, and about what? Looks at the last 16 rows: an answered dialog that scrolled up
 /// is part of the transcript, not a question.
 fn dialog(screen: &str) -> Option<Flavour> {

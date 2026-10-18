@@ -226,6 +226,8 @@ struct Test<'a> {
     capture_model: Option<String>,
     /// The last model name the profile's `footer_model` read in the test pane.
     seen_model: parking_lot::Mutex<Option<String>>,
+    /// "Finish without me": the AI look called this picture (by the question's identity) a trust or one-time approval question.
+    ai: parking_lot::Mutex<Option<(String, Flavour)>>,
 }
 
 /// A model name in a capture: `model: <name>` or `model = <name>`, on a screen of the agent at rest or at work.
@@ -337,7 +339,7 @@ impl Test<'_> {
         let cell = self.auto.as_ref()?;
         let flavour = match kind {
             ScreenKind::Dialog(f) => Some(f),
-            _ => None,
+            _ => self.ai_question(&look.screen),
         };
         let hint = self.hint_for(&look.screen);
         let step = cell.lock().step(&AnswerInput { screen: &look.screen, flavour, stable_ms, now: self.ms(), hint: hint.as_ref() });
@@ -361,8 +363,20 @@ impl Test<'_> {
     }
 
     /// The person pressed "Stop the test" (or Skip) in the wizard window.
-    fn stop_requested(&self) -> bool {
-        self.session.visible.test_ctl.lock().take().is_some()
+    /// The person's (or the autonomous wizard's) button, with the wizard's reason when it pressed it.
+    fn take_ctl(&self) -> Option<(String, Option<String>)> {
+        let action = self.session.visible.test_ctl.lock().take()?;
+        Some((action, self.session.visible.test_ctl_reason.lock().take()))
+    }
+
+    /// The AI look called the question on this screen a trust or one-time approval question (SPEC 11.19). Only the
+    /// safe answerer acts on it; the flavour only tells it which kind of question to expect.
+    fn ai_question(&self, screen: &str) -> Option<Flavour> {
+        if self.session.visible.test_verdict.lock().take().is_some() && super::screen::asks_trust_or_permission(screen) {
+            *self.ai.lock() = Some((super::answer::fingerprint(screen), super::verdict::flavour_of(screen)));
+        }
+        let slot = self.ai.lock();
+        slot.as_ref().filter(|(key, _)| *key == super::answer::fingerprint(screen)).map(|(_, f)| *f)
     }
 
     fn look(&self) -> Option<Look> {
@@ -440,15 +454,22 @@ impl Test<'_> {
             stab.observe(&look.screen, self.ms());
             let kind = classify(&look.screen);
             let verdict = assess(self.profile.as_ref(), self.observation(&look));
-            let question = kind.is_dialog() || matches!(verdict.readiness(), Readiness::Gate(_));
+            let ai_flavour = if kind.is_dialog() { None } else { self.ai_question(&look.screen) };
+            let question = kind.is_dialog() || ai_flavour.is_some() || matches!(verdict.readiness(), Readiness::Gate(_));
             if question {
                 let since = *asked_since.get_or_insert_with(Instant::now);
-                if self.stop_requested() {
-                    return Err(fail("You stopped the test while the agent was asking a question.", &look.screen));
+                if let Some((_, reason)) = self.take_ctl() {
+                    return Err(fail(
+                        match reason {
+                            Some(why) => format!("The wizard stopped the test: {why}"),
+                            None => "You stopped the test while the agent was asking a question.".to_string(),
+                        },
+                        &look.screen,
+                    ));
                 }
                 let flavour = match kind {
                     ScreenKind::Dialog(f) => f,
-                    _ => Flavour::Question,
+                    _ => ai_flavour.unwrap_or(Flavour::Question),
                 };
                 let stable = stab.stable_for(self.ms());
                 // 1. the draft must see the question as a card (checked before anything answers it)
@@ -509,7 +530,30 @@ impl Test<'_> {
                 }
             }
             asked_since = None;
-            self.publish(Some(label), None, &look.screen);
+            // "Finish without me": a picture that has held still and that neither the classifier nor the profile
+            // recognises is shown as a "needs you" moment, so the front end can ask the drafter AI to look at it.
+            let unrecognised = self.session.autonomous
+                && !self.is_ready(&look)
+                && kind != ScreenKind::Working
+                && stab.stable_for(self.ms()) >= self.question_ms;
+            if unrecognised {
+                let message = format!(
+                    "{} shows a screen the wizard does not recognise in the test pane (it is the wizard's isolated temp folder, not your project).",
+                    self.agent_name
+                );
+                self.publish(Some(label), Some(("unsure", &message)), &look.screen);
+                if let Some((_, reason)) = self.take_ctl() {
+                    return Err(fail(
+                        match reason {
+                            Some(why) => format!("The wizard stopped the test: {why}"),
+                            None => "The test was stopped while the screen was not recognised.".to_string(),
+                        },
+                        &look.screen,
+                    ));
+                }
+            } else {
+                self.publish(Some(label), None, &look.screen);
+            }
             if self.is_ready(&look) && stab.stable_for(self.ms()) >= self.stable_ms {
                 return Ok(look);
             }
@@ -754,9 +798,13 @@ impl Test<'_> {
             );
             let needs = unrecognised.then_some(("question", message.as_str()));
             self.publish(Some("permission"), needs, &look.screen);
-            if self.stop_requested() {
-                // "Skip this check": nothing more is waited for here
-                return Ok(None);
+            if let Some((action, reason)) = self.take_ctl() {
+                // "Skip this check": nothing more is waited for here. The wizard's own "stop" with a reason (an error on
+                // the screen) fails the check instead, so a draft is never approved over it.
+                return match (action.as_str(), reason) {
+                    ("stop", Some(why)) => Err(fail(format!("The wizard stopped the test: {why}"), &look.screen)),
+                    _ => Ok(None),
+                };
             }
             if let Some(card) = self.host.card(&self.pane) {
                 // The card was made from the screen as it is NOW; the look above may be a moment older.
@@ -937,6 +985,8 @@ impl Drop for Guard<'_> {
 /// Run the checks against `host`. Pure over the session snapshot and the environment.
 pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &AtomicBool) -> Outcome {
     session.visible.test_ctl.lock().take();
+    session.visible.test_ctl_reason.lock().take();
+    session.visible.test_verdict.lock().take();
     let mut outcome = Outcome { checks: Vec::new(), errors: Vec::new(), agent_error: None, screens: Vec::new(), answered: Vec::new(), answered_json: Vec::new() };
     let setup_failed = |outcome: &mut Outcome, code: &str, message: String| {
         outcome.errors.push(CheckError::new("visibletest", code, "", message));
@@ -967,7 +1017,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         return outcome;
     }
     let host = env.host.clone();
-    let spec = PaneSpec { profile: profile.clone(), cwd: project.clone(), cols: GRID_COLS, rows: GRID_ROWS, window: env.visible.window };
+    let spec = PaneSpec { profile: profile.clone(), cwd: project.clone(), cols: GRID_COLS, rows: GRID_ROWS, window: env.visible.window && !session.autonomous };
     let pane = match host.spawn(&spec) {
         Ok(pane) => pane,
         Err(e) => {
@@ -982,7 +1032,9 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     };
     *session.visible.test_pane.lock() = Some((pane.clone(), profile_id.clone()));
     let mut guard = Guard { host: &*host, pane: Some(pane.clone()), profile_id: profile_id.clone(), session };
-    if env.visible.window {
+    // "Finish without me": the person walked away, so no window pops out or takes focus. The pane is a real pane at the
+    // fixed grid either way; "Show the pane" opens it on demand.
+    if env.visible.window && !session.autonomous {
         host.show(&pane);
     }
 
@@ -1016,6 +1068,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         answered: parking_lot::Mutex::new(Vec::new()),
         capture_model,
         seen_model: parking_lot::Mutex::new(None),
+        ai: parking_lot::Mutex::new(None),
     };
     let words = &session.words;
     let task = message_task_for(&words.two);
@@ -1192,7 +1245,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
                 test.pane = second.clone();
                 guard.pane = Some(second.clone());
                 *session.visible.test_pane.lock() = Some((second.clone(), test.agent_type.clone()));
-                if env.visible.window {
+                if env.visible.window && !session.autonomous {
                     host.show(&second);
                 }
                 test.startup.lock().take();
@@ -1268,7 +1321,24 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     };
     let current = parse_definition(&draft.text).map_err(|e| e.to_string()).and_then(|def| plan(&snap, &def));
     match current {
-        Ok(p) if p.fingerprint == given => {}
+        Ok(p) if p.fingerprint == given => {
+            // "Finish without me": nobody read this command, so a bypass-style flag is refused here (the same list
+            // that `verify` applies), and the exact command is kept for `<id>.wizard.json`.
+            if snap.autonomous {
+                let mut hits = super::super::bypass::hits_in_argv(&p.args);
+                hits.extend(super::super::bypass::hits_in_env(&p.env));
+                if !hits.is_empty() {
+                    wizard.release(&id);
+                    return Err(super::super::bypass::refusal_error(&hits));
+                }
+                snap.visible.auto.plans.lock().push(json!({
+                    "test": "visible",
+                    "program": super::super::locate::display_path(&p.program),
+                    "args": p.args,
+                    "env": p.env.iter().map(|(k, v)| json!({"name": k, "value": v})).collect::<Vec<_>>(),
+                }));
+            }
+        }
         Ok(_) => {
             wizard.release(&id);
             return Err(WizardError::new(
@@ -1292,10 +1362,11 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let sha = draft.sha256.clone();
     let version = snap.version.number.clone();
     let screens = outcome.screens.clone();
+    let labels: Vec<String> = outcome.checks.iter().filter(|c| c.status == "passed").map(|c| c.label.to_string()).collect();
     let state = wizard.end(&id, |s| {
         *s.visible.test_samples.lock() = screens;
         if ok {
-            s.visible_tested = Some(VisibleTested { draft_sha256: sha, passed, total, version: version.clone() });
+            s.visible_tested = Some(VisibleTested { draft_sha256: sha, passed, total, version: version.clone(), passed_labels: labels.clone() });
             super::super::session::settle(s);
         }
         s.state

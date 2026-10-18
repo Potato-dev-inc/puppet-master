@@ -653,7 +653,29 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     }
     let current = parsed.and_then(|def| plan(&snap, &def));
     match current {
-        Ok(p) if p.fingerprint == given => {}
+        Ok(p) if p.fingerprint == given => {
+            // "Finish without me": nobody read these commands, so a bypass-style flag is refused here (the same list
+            // that `verify` applies) and the exact commands are kept for `<id>.wizard.json`.
+            if snap.autonomous {
+                let mut hits = Vec::new();
+                for stage in &p.stages {
+                    hits.extend(super::bypass::hits_in_argv(&stage.args));
+                }
+                hits.extend(super::bypass::hits_in_env(&p.env));
+                hits.dedup_by(|a, b| a.token == b.token);
+                if !hits.is_empty() {
+                    wizard.release(&id);
+                    return Err(super::bypass::refusal_error(&hits));
+                }
+                snap.visible.auto.plans.lock().push(json!({
+                    "test": "one_task",
+                    "program": super::locate::display_path(&p.program),
+                    "stages": p.stages.iter().map(|st| json!({"name": st.name, "args": st.args})).collect::<Vec<_>>(),
+                    "stdin": p.stdin,
+                    "env": p.env.iter().map(|(k, v)| json!({"name": k, "value": v})).collect::<Vec<_>>(),
+                }));
+            }
+        }
         Ok(_) => {
             wizard.release(&id);
             return Err(WizardError::new(

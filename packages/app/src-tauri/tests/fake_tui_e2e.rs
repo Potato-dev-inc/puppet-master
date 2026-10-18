@@ -1075,6 +1075,11 @@ mod missions;
 #[path = "fake_tui_wizard.rs"]
 mod wizard;
 
+// ---- the Agent Wizard finishes on its own: "Finish without me" (zero tokens, zero person input) -----------------
+
+#[path = "fake_tui_wizard_auto.rs"]
+mod wizard_auto;
+
 // ---- screen-read agents: card ids, clean replies, the model (zero tokens) -------------------------------------
 
 #[path = "fake_tui_screen_agents.rs"]

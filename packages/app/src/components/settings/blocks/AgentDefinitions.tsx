@@ -18,6 +18,7 @@ import {
   sourceLabel,
   stateLabel,
   tauriAgentDefinitionsApi,
+  wizardResult,
   type AgentDefinitionsApi,
   type DefinitionPreview,
   type DefinitionRow,
@@ -235,7 +236,9 @@ export function AgentDefinitions({
       const next = listed?.definitions ? listed : await api.list();
       apply(next);
       await handleDefinitionsChanged();
-      setNote(`The wizard wrote ${done.id}. Check the command below, then approve it.`);
+      const outcome = wizardResult(done);
+      setNote(outcome.note);
+      if (!outcome.openReview) return;
       const row = next.definitions.find((r) => r.id === done.id && r.source === 'user');
       if (row) await openReview(row);
     });
@@ -813,6 +816,11 @@ function DefinitionItem({
         </span>
       </div>
       <p className="mt-1 break-all text-xs text-pm-muted">{row.file}</p>
+      {row.state === 'active' && row.approved_by === 'wizard' && (
+        <p data-testid="approved-by-wizard" className="mt-1 text-xs text-pm-muted">
+          Approved by the wizard after {row.approval_checks ?? 0} checks passed
+        </p>
+      )}
       {row.state === 'active' && row.id && <RunModeControl agentId={row.id} />}
       {onRemove && removability(row) === 'elsewhere' && (
         <p data-testid="comes-from" className="mt-1 text-xs text-pm-muted">

@@ -225,6 +225,14 @@ pub fn check_draft_with(session: &Session, env: &WizardEnv, text: &str, expects:
     let validation = validate(&def, &ctx);
     out.errors.extend(validation.iter().map(|e| def_error("validate", e)));
     wizard_rules(&def, session, env, &mut out.errors);
+    if session.autonomous {
+        // "Finish without me": nobody reads the planned commands, so a draft that turns the agent's own safety
+        // questions off goes straight back to the drafter and is never tested (SPEC 11.19).
+        let hits = super::bypass::hits_in_definition(&def);
+        if !hits.is_empty() {
+            out.errors.push(CheckError::new("wizard", "WIZARD_AUTO_BYPASS_FLAG", "", super::bypass::refusal_text(&hits)));
+        }
+    }
     if leaks_test_words(text, &session.words) {
         out.errors.push(CheckError::new(
             "wizard",
@@ -429,6 +437,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             s.draft = Some(Draft { text: text.clone(), sha256: sha256_hex(text.as_bytes()), expects: expects.clone() });
             s.tested = None;
             s.visible_tested = None;
+            s.verified_sha256 = ok.then(|| sha256_hex(text.as_bytes()));
             // a draft that failed some checks is not a verified one
             s.state = if ok { State::Verified } else { State::Probed };
         }

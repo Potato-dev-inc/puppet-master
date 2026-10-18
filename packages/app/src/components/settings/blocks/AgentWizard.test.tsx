@@ -221,12 +221,15 @@ async function findIt(command = 'fake-agent', options: { skipCapture?: boolean }
 }
 
 beforeEach(() => {
+  // These tests are about the flow as it is with "Finish without me" turned off (the switch is on by default).
+  globalThis.localStorage.setItem('pm.agentWizard.finishWithoutMe', 'off');
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
 });
 
 afterEach(async () => {
+  globalThis.localStorage.removeItem('pm.agentWizard.finishWithoutMe');
   await act(async () => root.unmount());
   host.remove();
 });
