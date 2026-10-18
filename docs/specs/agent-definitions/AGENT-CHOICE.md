@@ -6,7 +6,7 @@ Decision: **Kilo Code** (`@kilocode/cli`). Checked 2026-10-06 on the development
 
 | Candidate | Check | Result |
 |---|---|---|
-| Kilo Code | `which kilo kilocode kilo-code` | found: `C:\Users\Ren-pc\AppData\Roaming\npm\kilo` and `kilocode` (npm shims: `kilo`, `kilo.cmd`, `kilo.ps1`, same for `kilocode`) |
+| Kilo Code | `which kilo kilocode kilo-code` | found: `C:\Users\you\AppData\Roaming\npm\kilo` and `kilocode` (npm shims: `kilo`, `kilo.cmd`, `kilo.ps1`, same for `kilocode`) |
 | Kilo Code | `npm ls -g --depth=0` | `@kilocode/cli@7.0.50` |
 | Command Code | `which command-code commandcode cmdcode` | NOT on PATH |
 | Command Code | `npm ls -g --depth=0` | not listed |
@@ -59,7 +59,7 @@ TUI mode: `kilo [project]` with `-m`, `-s`, `-c`, `--agent`, `--prompt <text>`.
 Primary agents listed by `kilo agent list`: `ask`, `code`, `compaction`, `debug`, `orchestrator`, `plan`,
 `summary`, `title` (subagents: `explore`, `general`).
 
-## Verified behaviour (commands actually run, from `C:\Users\Ren-pc\AppData\Local\Temp\kilotest`)
+## Verified behaviour (commands actually run, from `C:\Users\you\AppData\Local\Temp\kilotest`)
 
 1. Success: `kilo run --format json -m kilo/kilo-auto/free "reply with exactly: pong"` printed three JSON lines:
    `step_start`, `text` (`part.text` = `"\n\npong"`), `step_finish` (`part.reason` = `"stop"`, `part.tokens`,
@@ -80,11 +80,11 @@ Primary agents listed by `kilo agent list`: `ask`, `code`, `compaction`, `debug`
    ran the text as the task and answered `dash`. `--` is safe as `task_separator`.
 5. The model is NOT echoed in the JSON stream (no model field in `step_finish`), so `[model] source = "none"`.
 6. Windows binary: `where kilo` finds only `kilo`, `kilo.cmd`, `kilo.ps1`. The native executable exists at
-   `C:\Users\Ren-pc\AppData\Roaming\npm\node_modules\@kilocode\cli\node_modules\@kilocode\cli-windows-x64\bin\kilo.exe`
+   `C:\Users\you\AppData\Roaming\npm\node_modules\@kilocode\cli\node_modules\@kilocode\cli-windows-x64\bin\kilo.exe`
    (also a `-baseline` variant). `tui::executable("kilo")` would fail on this machine because it only looks for
    `kilo.exe` on PATH; the definition's `shim_native_globs` solves that (SPEC 7.3).
 
-## Verified in T05 (PLAN P0-5, run 2026-10-07, kilo 7.0.50, from `C:\Users\Ren-pc\AppData\Local\Temp\kilotest`)
+## Verified in T05 (PLAN P0-5, run 2026-10-07, kilo 7.0.50, from `C:\Users\you\AppData\Local\Temp\kilotest`)
 
 All headless runs used `kilo run --format json -m kilo/kilo-auto/free -- "<task>"` plus the flags named. The raw
 outputs are in the scratch dir (`*.jsonl` / `*.err`, one pair per check); they are not fixtures (T21 saves those).

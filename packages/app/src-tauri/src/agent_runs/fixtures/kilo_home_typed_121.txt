@@ -21,8 +21,8 @@
                                                                                                                          
                          ● Move your opencode configuration                                                              
                            Kilo no longer falls back to opencode configuration. Found opencode                           
-                           config at C:\Users\Ren-pc\.config\opencode. Move it into a .kilo                              
-                           directory (project) or C:\Users\Ren-pc\.config\kilo (global).                                 
+                           config at C:\Users\you-pc\.config\opencode. Move it into a .kilo                              
+                           directory (project) or C:\Users\you-pc\.config\kilo (global).                                 
                                                                                                                          
                          ● Tip Start a message with ! to run shell commands directly (e.g., !ls -la)                     
                                                                                                                          

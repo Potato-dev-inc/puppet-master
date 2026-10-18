@@ -30,8 +30,8 @@ mod redact_table {
     #[test]
     fn home_path_and_user_names() {
         let ctx = test_ctx();
-        let out = redact(r"cwd C:\Users\Ren-pc\Desktop\x and c:/users/ren-pc/y and C:\Users\Someone\z", &ctx);
-        assert!(!out.to_lowercase().contains("ren-pc"), "{out}");
+        let out = redact(r"cwd C:\Users\you-pc\Desktop\x and c:/users/you-pc/y and C:\Users\Someone\z", &ctx);
+        assert!(!out.to_lowercase().contains("you-pc"), "{out}");
         assert!(!out.contains("Someone"), "{out}");
         assert!(out.contains("USER") || out.contains('~'));
     }
@@ -116,9 +116,9 @@ fn snapshot_on_transitions() {
 #[test]
 fn snapshots_are_redacted_before_storage() {
     let mut s = Session::new("p", "kilo", 0);
-    observe_into(&mut s, PaneStatus::Idle, r"hello sk-ant-api03-AbCdEf123456 in C:\Users\Ren-pc\x", 0, &test_ctx());
+    observe_into(&mut s, PaneStatus::Idle, r"hello sk-ant-api03-AbCdEf123456 in C:\Users\you-pc\x", 0, &test_ctx());
     let text = &s.snapshots[0].text;
-    assert!(!text.contains("sk-ant") && !text.contains("Ren-pc"), "{text}");
+    assert!(!text.contains("sk-ant") && !text.contains("you-pc"), "{text}");
 }
 
 #[test]
