@@ -249,3 +249,13 @@ fn run_request_isolation_defaults_to_none_and_parses_worktree() {
     let request = parse_run_request(json!({"task":"x","isolation":"worktree"}));
     assert_eq!(request.isolation.as_deref(), Some("worktree"));
 }
+
+#[test]
+fn the_mcp_run_agent_tool_advertises_isolation_none_as_its_default_and_worktree_as_the_explicit_choice() {
+    // "Separate copy" is something a lead asks for; a plain run_agent works in project_path itself.
+    let tools = crate::tool_registry::tools_for_mode(crate::tool_registry::McpMode::All);
+    let run_agent = tools.iter().find(|tool| tool.name == "run_agent").expect("run_agent is in the catalog");
+    let isolation = &run_agent.input_schema["properties"]["isolation"];
+    assert_eq!(isolation["default"], "none");
+    assert_eq!(isolation["enum"], json!(["none", "worktree"]));
+}

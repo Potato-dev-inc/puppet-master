@@ -44,6 +44,26 @@ setup_timeout_secs = 600         # per step, optional
   `info/exclude` unless an ignore rule covers them. Neither an agent's `git add -A` nor Puppet Master's own commit
   can put them in a branch. A path that leaves the project, `.git` and `.puppet-master` are refused.
 
+### Where a new agent starts (Separate copy is OFF)
+
+Since 2026-10-18 the "+" menu's **Separate copy** switch starts **off**, for every project. The agent works in
+the folder the person selected, exactly (canonical path, no `.puppet-master` in it). Until then a Git project
+started in a copy unless the person turned it off; that default was reversed on purpose.
+
+- The switch stays. A person turns it on per agent, and the choice is remembered per project
+  (`pm.separate-copy` in browser storage). Only a clicked switch is ever stored, in either direction, so there
+  is nothing to migrate: a project nobody chose for reads as unset, i.e. off.
+- The folder comes from the person: the picker, Recent projects, or the project of the selected pane. With none
+  of those, "+" starts in the **last real folder** (the newest entry in the recents that the person used and that
+  still exists), then in the open project. A separate copy's folder is always mapped back to its project
+  (`projectOfCwd` in the UI, `worktrees::folder::real_folder` and `project_path::resolve_selected_folder` in Rust), so
+  Recent projects, the project folder setting and the folder a new agent starts in never name a copy.
+- The pane header says `separate copy of <folder>` when the pane works in a copy, and the folder's name (full
+  path on hover) when it does not.
+- Asking for a copy is still explicit everywhere else: `run_agent(isolation: "worktree")` (the default is
+  `"none"`). These always work in a copy, by design: Missions, a Team update merge, Simple mode and the
+  first-run welcome's first task (a task that must not be able to change the person's files).
+
 ### Create PR
 
 `gh` only. `pr::status` (gh installed? signed in? a GitHub remote? a PR already?), then `pr::create`:

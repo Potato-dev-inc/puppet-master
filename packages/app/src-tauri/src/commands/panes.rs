@@ -163,6 +163,8 @@ pub async fn reclaim_pane_size(state: State<'_, AppState>, pane_id: String) -> R
 #[tauri::command]
 pub async fn set_project_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
     let normalized = crate::project_path::normalize_project_path(std::path::Path::new(&path))?;
+    // A separate copy's folder is never the project folder: the project it came from is.
+    let normalized = crate::worktrees::origin_of_cwd(&normalized.to_string_lossy()).map(std::path::PathBuf::from).unwrap_or(normalized);
     registry_set_project_path(&state.registry, normalized.to_string_lossy().into_owned());
     crate::event_log::set_active_project_path(Some(normalized));
     Ok(())

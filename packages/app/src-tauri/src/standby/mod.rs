@@ -176,7 +176,8 @@ pub fn health_summary() -> Option<HealthSummary> {
 /// `settings.project_path` from the app's `settings.json` (`{"settings": {...}}`).
 pub fn project_from_settings(file: &serde_json::Value) -> Option<String> {
     let path = file.get("settings")?.get("project_path")?.as_str()?.trim();
-    (!path.is_empty()).then(|| path.to_string())
+    // A separate copy's folder is never the project folder: it reads as the project it came from.
+    (!path.is_empty()).then(|| crate::worktrees::folder::real_folder(path))
 }
 
 /// The folder Preload warms in and the tray opens panes in: the "project folder" setting when it
@@ -211,6 +212,12 @@ mod project_tests {
         assert_eq!(project_from_settings(&serde_json::json!({"settings": {"project_path": ""}})), None);
         assert_eq!(project_from_settings(&serde_json::json!({"settings": {}})), None);
         assert_eq!(project_from_settings(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn a_saved_separate_copy_folder_reads_as_its_project() {
+        let file = serde_json::json!({"settings": {"project_path": "C:/work/app/.puppet-master/worktrees/pane-1a2b"}});
+        assert_eq!(project_from_settings(&file).as_deref(), Some("C:/work/app"));
     }
 }
 
