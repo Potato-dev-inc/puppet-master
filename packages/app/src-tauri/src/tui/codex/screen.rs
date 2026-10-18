@@ -237,6 +237,52 @@ pub(super) fn is_chrome_line(lower: &str) -> bool {
         || NOTICE.is_match(lower)
 }
 
+/// The banner row on its own, `>_ OpenAI Codex (v0.159.3)`, lowercased and trimmed.
+fn is_banner_row(lower: &str) -> bool {
+    static BANNER_ROW: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"^>_ openai codex \(v[0-9][0-9a-z.\-]*\)$").expect("codex banner row regex"));
+    BANNER_ROW.is_match(lower)
+}
+
+/// The row under the banner: the working folder as a bare path (`D:\pm-demo`, `~\project`,
+/// `~/project`, `/home/project`, a UNC path), or `loading` while 0.162 starts. The row is not
+/// recognised by its own shape alone: a reply can be exactly a path, so only the row directly
+/// under a banner row counts (`strip_banner_block`).
+fn is_folder_row(row: &str) -> bool {
+    let bytes = row.as_bytes();
+    let drive = bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'\\' | b'/');
+    drive
+        || row.starts_with(['~', '/', '\\'])
+        || row.eq_ignore_ascii_case("loading")
+}
+
+/// The screen text without the banner block: the `>_ OpenAI Codex (v0.159.3)` row and, directly
+/// under it, the working folder on a row of its own (live captures `fixtures/standby_ready_live.txt`,
+/// `composer_unsent_live.txt`, `result_update_notice_baseline_live.txt`: `     D:\pm-demo`; 0.162.1
+/// draws `     loading` there while it starts, `fixtures/loading_0_162_1_live.txt`). `is_chrome_line`
+/// only sees the folder when the emulator glues it onto the banner row; on its own row it is a bare
+/// path, and a path-only row anywhere else may be the reply (a reply `D:\pm-demo` to "which folder
+/// are you in?"), so the folder goes with the banner it sits under and nothing else does.
+pub(super) fn strip_banner_block(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut under_banner = false;
+    for row in text.split_inclusive('\n') {
+        let trimmed = row.trim();
+        if under_banner {
+            under_banner = false;
+            if is_folder_row(trimmed) {
+                continue;
+            }
+        }
+        if is_banner_row(&trimmed.to_ascii_lowercase()) {
+            under_banner = true;
+            continue;
+        }
+        out.push_str(row);
+    }
+    out
+}
+
 /// Whether the screen shows Codex working: the status row `Working (12s \u{2022} esc to interrupt)`.
 pub(super) fn shows_work_in_progress(screen: &str) -> bool {
     screen.to_ascii_lowercase().contains("esc to interrupt")
@@ -534,6 +580,69 @@ mod tests {
             assert!(!reports_tool_failure(reply), "{reply}");
         }
     }
+
+    // ---- the folder row under the banner ----
+
+    const LIVE_LOADING: &str = include_str!("fixtures/loading_0_162_1_live.txt");
+    const LIVE_NOTICE_BASELINE: &str = include_str!("fixtures/result_update_notice_baseline_live.txt");
+    const LIVE_NOTICE_SCREEN: &str = include_str!("fixtures/result_update_notice_screen_live.txt");
+
+    #[test]
+    fn the_folder_row_under_the_banner_of_every_live_capture_goes_with_the_banner() {
+        for (screen, folder) in [
+            (LIVE_UNSENT, "D:\\pm-demo"),
+            (LIVE_READY_BANNER, "~\\Desktop\\work2\\loomria-ui"),
+            (LIVE_NOTICE_BASELINE, "D:\\pm-demo"),
+            (LIVE_LOADING, "loading"),
+        ] {
+            assert!(screen.lines().any(|row| row.trim() == folder), "the capture has the folder row {folder}");
+            let stripped = strip_banner_block(screen);
+            assert!(!stripped.contains("OpenAI Codex (v"), "{stripped:.200}");
+            assert!(!stripped.lines().any(|row| row.trim() == folder), "{folder} in {stripped:.200}");
+        }
+        // Nothing else of the screen moves: the greeting, the message and the footer stay.
+        let stripped = strip_banner_block(LIVE_UNSENT);
+        assert!(stripped.contains("Nice to see you in these parts.") && stripped.contains("Reply with the single word TWO"));
+        assert!(stripped.contains("GPT-6-Luna medium"));
+    }
+
+    #[test]
+    fn a_path_only_row_that_is_not_under_a_banner_is_kept() {
+        // A reply that is exactly a path ("which folder are you in?"), with and without a bullet.
+        for screen in ["\u{2022} D:\\pm-demo\n", "  D:\\pm-demo\n", "~/project\n", "  loading\n"] {
+            assert_eq!(strip_banner_block(screen), screen);
+        }
+        // Only the row DIRECTLY under the banner goes: a blank row between them ends the block.
+        let spaced = "  >_ OpenAI Codex (v0.159.3)\n\n  D:\\pm-demo\n";
+        assert_eq!(strip_banner_block(spaced), "\n  D:\\pm-demo\n");
+        // A reply under the banner that is not a path is not touched either.
+        let reply = "  >_ OpenAI Codex (v0.159.3)\n  Nice to see you in these parts.\n";
+        assert_eq!(strip_banner_block(reply), "  Nice to see you in these parts.\n");
+        // Only one folder row per banner.
+        let twice = "  >_ OpenAI Codex (v0.159.3)\n     D:\\pm-demo\n     D:\\pm-demo\n";
+        assert_eq!(strip_banner_block(twice), "     D:\\pm-demo\n");
+    }
+
+    #[test]
+    fn the_folder_row_forms_codex_draws_are_recognised() {
+        for row in ["D:\\pm-demo", "c:/work/pm demo", "~\\Desktop\\work2\\loomria-ui", "~/project", "~", "/home/user/project", "\\\\host\\share\\project", "loading", "Loading"] {
+            assert!(is_folder_row(row), "{row}");
+        }
+        for row in ["", "OK", "Nice to see you in these parts.", "\u{2022} D:\\pm-demo", "D: is the drive", "What are we poking with a metaphorical stick?"] {
+            assert!(!is_folder_row(row), "{row}");
+        }
+    }
+
+    #[test]
+    fn the_banner_glued_to_its_folder_by_the_emulator_is_still_chrome_and_left_for_the_row_rule() {
+        // The glued layout of `result_update_notice_screen_live.txt`: the banner and folder share one
+        // row, which `is_chrome_line` drops whole; the block rule leaves that row alone.
+        let glued = LIVE_NOTICE_SCREEN.lines().find(|row| row.contains(">_ OpenAI Codex (v0.159.3)")).expect("the glued row");
+        assert!(glued.contains("D:\\pm-demo"));
+        assert!(is_chrome_line(&glued.trim().to_ascii_lowercase()));
+        assert!(strip_banner_block(LIVE_NOTICE_SCREEN).contains(glued.trim()));
+    }
+
     // ---- the dimmed placeholder in the composer (VERIFY-R11: make sure it counts as empty) ----
 
     /// A fresh Codex 0.162.1 pane, 120x30, as the emulator is fed it (`/panes/{id}/screen`): the

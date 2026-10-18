@@ -71,3 +71,33 @@ fn another_agents_result_keeps_rows_that_only_codex_declares_as_chrome() {
     let cleaned = clean_extracted_result(CODEX_NOTICE_SCREEN, "x", "powershell").unwrap_or_default();
     assert!(cleaned.contains("See full release notes"), "{cleaned}");
 }
+
+// ---- the folder row under the Codex banner (the e2e result that began with the worktree path) ----
+
+/// The task of the live captures above. A screen laid out as they are, after the first message: the
+/// banner, the folder on its OWN row (`fixtures/composer_unsent_live.txt`, `standby_ready_live.txt`),
+/// the message and the reply, with a baseline taken before the banner was on the screen.
+const CODEX_OWN_ROW_TASK: &str = "Reply with the single word OK. Do not use any tools.";
+const CODEX_OWN_ROW_BASELINE: &str = "\r\n\u{203a} Ask Codex to do anything\r\n\r\n  GPT-6-Luna medium \u{b7} D:\\pm-demo\r\n  ? for shortcuts\r\n";
+const CODEX_OWN_ROW_SCREEN: &str = "\r\n  >_ OpenAI Codex (v0.159.3)\r\n     D:\\pm-demo\r\n\r\n\r\n\u{203a} Reply with the single word OK. Do not use any tools.\r\n\r\n\r\n\u{2022} OK\r\n\r\n  Worked for 2s \u{2022} 9:43 AM\r\n\r\n\u{203a} Ask Codex to do anything\r\n\r\n  GPT-6-Luna medium \u{b7} D:\\pm-demo\r\n  ? for shortcuts\r\n";
+
+#[test]
+fn a_codex_result_does_not_start_with_the_folder_row_under_the_banner() {
+    let evidence = super::completion::tui_turn_evidence(CODEX_OWN_ROW_SCREEN, CODEX_OWN_ROW_BASELINE, "codex").expect("new text on the screen");
+    let cleaned = clean_extracted_result(&evidence, CODEX_OWN_ROW_TASK, "codex").expect("a reply");
+    assert!(!cleaned.contains("pm-demo"), "the folder row leaked into {cleaned:?}");
+    assert_eq!(cleaned, "\u{2022} OK");
+}
+
+#[test]
+fn a_codex_reply_that_is_only_a_path_survives_when_no_banner_sits_above_it() {
+    let baseline = "\r\n\u{203a} Ask Codex to do anything\r\n\r\n  ? for shortcuts\r\n";
+    let screen = "\u{203a} Which folder are you in? Answer with the path only.\r\n\r\n\u{2022} D:\\pm-demo\r\n\r\n  Worked for 3s \u{2022} 9:44 AM\r\n\r\n\u{203a} Ask Codex to do anything\r\n\r\n  ? for shortcuts\r\n";
+    let task = "Which folder are you in? Answer with the path only.";
+    let evidence = super::completion::tui_turn_evidence(screen, baseline, "codex").expect("new text on the screen");
+    let cleaned = clean_extracted_result(&evidence, task, "codex").expect("a reply");
+    assert!(cleaned.contains("D:\\pm-demo"), "{cleaned:?}");
+    // And a bare path row with nothing above it at all, as a TUI that drew no bullet would show it.
+    let bare = super::completion::tui_turn_evidence("  D:\\pm-demo\r\n", "", "codex").expect("new text on the screen");
+    assert_eq!(bare, "D:\\pm-demo");
+}
