@@ -24,7 +24,8 @@ use crate::tui::types::StandbyScreen;
 use crate::tui::TuiProfile;
 
 use super::super::exec;
-use super::super::livetest::{first_line, mask_words, EXTERNAL};
+use super::super::agent_error;
+use super::super::livetest::mask_words;
 use super::super::report::{render, CheckError, Source as ReportSource, WizardError};
 use super::super::session::{sha256_hex, Draft, Session, State, VisibleTested, Wizard, WizardEnv};
 use super::answer::{scope_ok, AnswerCfg, AnswerKey, Answerer, AnsweredQ, Hint, Input as AnswerInput, Step as AnswerStep};
@@ -255,6 +256,12 @@ impl Test<'_> {
 
     fn ms(&self) -> u64 {
         self.began.elapsed().as_millis() as u64
+    }
+
+    /// The random words of the test's own messages: a row that quotes one is the echo of what the test typed.
+    fn own_words(&self) -> Vec<String> {
+        let w = &self.session.words;
+        vec![w.one.clone(), w.two.clone(), w.sky.clone()]
     }
 
     fn masked(&self, text: &str) -> String {
@@ -1035,9 +1042,12 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
                 outcome.errors.push(
                     CheckError::new("visibletest", format!("VISIBLETEST_{}_FAILED", name.to_ascii_uppercase()), name, note.clone()).with_screen(&screen),
                 );
-                if EXTERNAL.is_match(&f.screen) || EXTERNAL.is_match(&f.note) {
-                    let line = first_line(&screen);
-                    outcome.agent_error = Some(json!({"check": name, "message": line, "external": EXTERNAL.is_match(&f.screen)}));
+                // The program's own error needs a row that says so (SPEC 11.9): sign-in, quota, provider, network. Not the
+                // first row of the screen (the banner), not chrome, not the echo of the test's own messages. A failure the
+                // profile caused (a prompt regex that is too broad, a ready or busy pattern) never becomes one.
+                let skip = test.own_words();
+                if let Some(found) = agent_error::find(&f.screen, Some(&*test.profile as &dyn TuiProfile), &skip, false) {
+                    outcome.agent_error = Some(json!({"check": name, "message": test.masked(&found.message), "external": found.external}));
                 }
                 outcome.screens.push((name.to_string(), screen));
                 ("failed", note)

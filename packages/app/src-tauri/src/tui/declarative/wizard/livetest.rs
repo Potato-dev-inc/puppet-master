@@ -19,6 +19,7 @@ use crate::tui::declarative::DeclarativeProfile;
 use crate::tui::types::HeadlessLaunch;
 use crate::tui::TuiProfile;
 
+use super::agent_error;
 use super::exec::{self, RunSpec};
 use super::report::{render, CheckError, Source as ReportSource, WizardError};
 use super::session::{Draft, Sample, Session, Stage, StageSummary, State, TestWords, Tested, Wizard, WizardEnv};
@@ -458,14 +459,15 @@ impl Runner<'_> {
             report.note = Some("cancelled".into());
             return (report, Some(sample), None);
         }
-        // A program that exits with an error says why on its first line: that is its own problem when the
-        // text points at sign-in, quota, provider or network, and worth remembering either way.
+        // A program that exits with an error says why on a row of its own: that is its own problem when the text
+        // points at sign-in, quota, provider or network, and worth remembering when it only reads like an error.
+        // Not "the first line it printed": on an inline TUI that is the banner. No row that says it, no agent error.
         if !out.timed_out && stage != Stage::BadModel && exit.is_some_and(|c| c != 0) {
-            let said = if stderr.trim().is_empty() { &stdout } else { &stderr };
-            let line = first_line(said);
-            if !line.is_empty() {
-                report.agent_side = EXTERNAL.is_match(&format!("{stderr}\n{stdout}"));
-                report.error_message = Some(mask(&line));
+            let skip = [want.clone()];
+            let found = agent_error::find(&stderr, Some(self.profile), &skip, true).or_else(|| agent_error::find(&stdout, Some(self.profile), &skip, true));
+            if let Some(found) = found {
+                report.agent_side = found.external;
+                report.error_message = Some(mask(&found.message));
             }
         }
         if out.timed_out {
@@ -490,8 +492,7 @@ impl Runner<'_> {
                 .classified
                 .as_ref()
                 .filter(|(c, _)| c == "AGENT_REPORTED_ERROR")
-                .map(|(_, m)| first_line(m))
-                .filter(|m| !m.is_empty());
+                .and_then(|(_, m)| agent_error::first_text_row(m));
             if judged.result.is_none() && reported.is_some() {
                 report.error_message = reported.map(|m| mask(&m));
                 report.agent_side = true;

@@ -142,6 +142,17 @@ fn run(args: &[String], raw: bool) {
         eprintln!("Error: not logged in. Run the login command first.\nmore detail on a second line");
         std::process::exit(1);
     }
+    if exe.contains("bannererr") {
+        // an inline TUI's banner first (a block-character logo, the name and the version), then the real error
+        println!("\u{2584}\u{2580} Fake Agent CLI 1.4.2.\n");
+        eprintln!("Error: No endpoints found for this model. Check your provider settings.");
+        std::process::exit(1);
+    }
+    if exe.contains("banner") {
+        // exits with an error code and has printed nothing but its banner: no error text to show
+        println!("\u{2584}\u{2580} Fake Agent CLI 1.4.2.\nv1.4.2");
+        std::process::exit(1);
+    }
     if exe.contains("crash") {
         eprintln!("thread 'main' panicked at src/main.rs:12:5");
         std::process::exit(101);

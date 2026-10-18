@@ -639,6 +639,30 @@ fn an_unexplained_crash_has_a_message_but_is_not_called_the_agents_setup() {
 }
 
 #[test]
+fn a_program_that_exits_with_an_error_code_and_printed_only_its_banner_has_no_agent_error() {
+    // The first line it printed is the logo and the version: that is not an error text, and a repeat of it must
+    // never stop the loop (the draft may still be wrong).
+    let tree = Tree::new("l-banner-only");
+    let wizard = tree.wizard();
+    let id = verified_with_binary(&wizard, "banner-agent");
+    let t = live(&wizard, &id);
+    assert_eq!(t["ok"], false);
+    assert_eq!(t["agent_error"], json!(null), "{t}");
+    assert_eq!(stage(&t, "pong")["agent_side"], false);
+}
+
+#[test]
+fn the_error_row_is_reported_not_the_banner_that_came_before_it() {
+    let tree = Tree::new("l-banner-then-error");
+    let wizard = tree.wizard();
+    let id = verified_with_binary(&wizard, "bannererr-agent");
+    let t = live(&wizard, &id);
+    let ae = &t["agent_error"];
+    assert_eq!(ae["external"], true, "{t}");
+    assert_eq!(ae["message"], "Error: No endpoints found for this model. Check your provider settings.", "{ae}");
+}
+
+#[test]
 fn a_wrong_selector_or_a_good_draft_is_not_an_agent_error() {
     let tree = Tree::new("l-no-agent-error");
     let wizard = tree.wizard();
