@@ -96,6 +96,10 @@ pub struct AgentRunView {
     /// Present when the run wanted a visible pane and ran headless (same as `receipt.fallback`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<crate::operations::RunFallback>,
+    /// Present when the agent's "How agent runs work" setting decided the mode (same as
+    /// `receipt.run_mode`): `{mode: "one_task" | "visible", source: "agent_setting"}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_mode: Option<crate::operations::RunModeNote>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,6 +294,7 @@ impl From<OperationSnapshot> for AgentRunView {
             receipt: Some(receipt),
             standby_used: snapshot.worker.standby_used,
             fallback: snapshot.worker.fallback.clone(),
+            run_mode: snapshot.worker.run_mode.clone(),
         }
     }
 }

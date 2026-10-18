@@ -202,3 +202,19 @@ describe('receiptSummary (the short Receipt)', () => {
     expect(JSON.stringify(s.facts)).not.toMatch(/pm\/|worktrees|[A-Za-z]:[\/]/);
   });
 });
+
+describe('run mode in the receipt', () => {
+  it('says in words which mode the agent setting chose and why a one-task choice fell back', () => {
+    const lines = readableReceipt({
+      backend: 'fake_custom',
+      outcome: 'completed_unchecked',
+      fallback: { from: 'one_task', to: 'visible', reason: 'not_verified' },
+      run_mode: { mode: 'visible', source: 'agent_setting' },
+    });
+    const text = JSON.stringify(lines);
+    expect(text).toContain('One-task mode is not verified for this agent');
+    expect(text).toContain('Visible pane');
+    expect(text).toContain('The agent setting');
+    expect(text).not.toMatch(/not_verified|agent_setting|one_task/);
+  });
+});

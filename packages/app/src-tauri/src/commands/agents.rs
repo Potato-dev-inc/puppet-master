@@ -5,7 +5,7 @@ use super::*;
 /// `{agents, dispatchable_ids}` for every registered agent, in registry order (SPEC 7.5).
 #[tauri::command]
 pub fn agents_list() -> Value {
-    crate::tui::agent_types_listing()
+    crate::agent_run_mode::decorate_listing(crate::tui::agent_types_listing())
 }
 
 fn command_error(error: crate::tui::declarative::service::ServiceError) -> String {

@@ -165,4 +165,10 @@ pub struct AgentRunRequest {
     /// creating one. Every agent of a mission works in the mission's one copy.
     #[serde(skip)]
     pub(crate) join_worktree: Option<crate::worktrees::WorktreeRef>,
+    /// Crate-internal (never in the MCP schema): the caller did not pass `headless`, so the
+    /// agent's "How agent runs work" setting may decide it (`crate::agent_run_mode`). Set by the
+    /// `/agents/run` route only; every other path (follow-ups, quick_ask, missions, the app's own
+    /// runs) keeps the mode it names.
+    #[serde(skip)]
+    pub(crate) headless_unset: bool,
 }
