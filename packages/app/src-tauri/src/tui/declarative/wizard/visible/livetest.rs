@@ -1017,7 +1017,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         return outcome;
     }
     let host = env.host.clone();
-    let spec = PaneSpec { profile: profile.clone(), cwd: project.clone(), cols: GRID_COLS, rows: GRID_ROWS, window: env.visible.window };
+    let spec = PaneSpec { profile: profile.clone(), cwd: project.clone(), cols: GRID_COLS, rows: GRID_ROWS, window: env.visible.window && !session.autonomous };
     let pane = match host.spawn(&spec) {
         Ok(pane) => pane,
         Err(e) => {
@@ -1032,7 +1032,9 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     };
     *session.visible.test_pane.lock() = Some((pane.clone(), profile_id.clone()));
     let mut guard = Guard { host: &*host, pane: Some(pane.clone()), profile_id: profile_id.clone(), session };
-    if env.visible.window {
+    // "Finish without me": the person walked away, so no window pops out or takes focus. The pane is a real pane at the
+    // fixed grid either way; "Show the pane" opens it on demand.
+    if env.visible.window && !session.autonomous {
         host.show(&pane);
     }
 
@@ -1243,7 +1245,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
                 test.pane = second.clone();
                 guard.pane = Some(second.clone());
                 *session.visible.test_pane.lock() = Some((second.clone(), test.agent_type.clone()));
-                if env.visible.window {
+                if env.visible.window && !session.autonomous {
                     host.show(&second);
                 }
                 test.startup.lock().take();

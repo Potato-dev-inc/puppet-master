@@ -27,6 +27,8 @@ pub struct FakePane {
     pub card: Option<Value>,
     pub profile_id: String,
     pub cwd: PathBuf,
+    /// The spawn asked for a pop-out window.
+    pub window: bool,
     /// A status the test forces (otherwise: `running` for a moment after the screen changed, like a pane).
     pub forced_status: Option<String>,
     /// Rows that scrolled off the top (the viewer's history above the screen).
@@ -219,6 +221,7 @@ impl PaneHost for FakeHost {
                 card: None,
                 profile_id: spec.profile.id().to_string(),
                 cwd: spec.cwd.clone(),
+                window: spec.window,
                 forced_status: None,
                 scrollback: Vec::new(),
                 changed_at: std::time::Instant::now(),

@@ -342,7 +342,7 @@ fn start(wizard: &Wizard, id: &str, body: &Value) -> Result<Value, WizardError> 
     make_project(&project)?;
     let profile_id = format!("wzc_{}", session.id.trim_start_matches("wz_"));
     let profile = Arc::new(CaptureProfile::new(&profile_id, session.program.clone(), args));
-    let spec = PaneSpec { profile, cwd: project.clone(), cols: GRID_COLS, rows: GRID_ROWS, window: env.visible.window };
+    let spec = PaneSpec { profile, cwd: project.clone(), cols: GRID_COLS, rows: GRID_ROWS, window: env.visible.window && !session.autonomous };
     crate::tui::registry::registry().add_transient(spec.profile.clone()).map_err(|e| WizardError::new(500, "WIZARD_PANE_FAILED", e))?;
     let pane = match env.host.spawn(&spec) {
         Ok(pane) => pane,

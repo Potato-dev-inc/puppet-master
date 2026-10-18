@@ -369,6 +369,7 @@ struct Test {
 fn running_test(name: &str, autonomous: bool, first: &str) -> Test {
     let tree = Tree::new(name);
     let (wizard, host) = tree.visible_wizard_with(|env| {
+        env.visible.window = true; // the product opens pop-out windows; "Finish without me" must not
         env.visible.capture.question_ms = 300;
         env.visible.test.ready = std::time::Duration::from_secs(6);
     });
@@ -482,4 +483,48 @@ fn an_error_look_in_the_test_pane_fails_the_round_and_the_reason_goes_to_the_dra
     let done = t.finish();
     assert_eq!(done["ok"], false);
     assert!(done["text"].as_str().unwrap().contains("The wizard stopped the test: the agent shows an error on its screen"), "{}", done["text"]);
+}
+
+// ---- no windows in autonomous mode ---------------------------------------------------------------------
+
+#[test]
+fn the_test_pane_of_an_autonomous_session_asks_for_no_window_and_off_still_does() {
+    let mut on = running_test("auto-window-on", true, screens::IDLE);
+    let pane = &on.host.spawned()[0];
+    assert!(!pane.window, "no pop-out window is requested");
+    assert_eq!((pane.cols, pane.rows), (120, 40), "the pane is still a real pane at the recorded grid");
+    assert!(on.host.shown().is_empty(), "nothing was shown or focused");
+    // "Show the pane" opens it on demand
+    ok(&on.wizard, "capture", json!({"session": on.id, "op": "show"}));
+    assert_eq!(on.host.shown().len(), 1, "show opens the test pane");
+    on.finish();
+    assert!(on.host.killed().len() >= 1, "the hidden pane is closed at the end");
+
+    let mut off = running_test("auto-window-off", false, screens::IDLE);
+    assert!(off.host.spawned()[0].window, "today: the pane opens as a window");
+    assert!(!off.host.shown().is_empty(), "today: and is shown");
+    off.finish();
+}
+
+#[test]
+fn the_capture_pane_of_an_autonomous_session_asks_for_no_window_and_show_opens_it() {
+    for (autonomous, expect_window) in [(true, false), (false, true)] {
+        let tree = Tree::new(if autonomous { "auto-cap-window-on" } else { "auto-cap-window-off" });
+        let (wizard, host) = tree.visible_wizard_with(|env| env.visible.window = true);
+        let started = ok(&wizard, "start", json!({"command": "fake-agent", "autonomous": autonomous}));
+        let id = started["session"].as_str().unwrap().to_string();
+        ok(&wizard, "probe", json!({"session": id}));
+        start_capture(&wizard, &id);
+        let pane = host.spawned()[0].clone();
+        assert_eq!(pane.window, expect_window, "autonomous={autonomous}");
+        assert_eq!((pane.cols, pane.rows), (120, 40));
+        if !autonomous {
+            continue;
+        }
+        assert!(host.shown().is_empty());
+        ok(&wizard, "capture", json!({"session": id, "op": "show"}));
+        assert_eq!(host.shown().len(), 1, "Show the pane opens it");
+        ok(&wizard, "cancel", json!({"session": id}));
+        assert!(host.killed().iter().any(|p| *p == host.pane_id()), "cancel closes the hidden pane");
+    }
 }

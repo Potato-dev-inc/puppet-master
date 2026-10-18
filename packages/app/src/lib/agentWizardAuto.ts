@@ -531,6 +531,8 @@ export async function runAutonomous(o: AutonomousOptions): Promise<AutonomousOut
     return { status: 'sign_in', message: cap.message };
   }
   if (cap.status === 'stopped') {
+    // the hidden pane is closed (a sign-in stop keeps it, so the person can open it and sign in)
+    await Promise.resolve(api.captureDiscard(session)).catch(() => undefined);
     o.onEvent({ step: 'capture', status: 'failed', round: 0, detail: cap.title });
     return { status: 'stopped', title: cap.title, text: cap.text };
   }

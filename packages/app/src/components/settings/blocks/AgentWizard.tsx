@@ -922,7 +922,6 @@ function AutoPanel({
   onCancel: () => void;
 }) {
   const steps = capture?.steps ?? [];
-  const showPane = capture?.state === 'running';
   return (
     <div className="mt-3 text-xs" data-testid="wizard-auto">
       <p className="font-semibold">Finishing on its own</p>
@@ -949,10 +948,10 @@ function AutoPanel({
           </ul>
         )}
       </div>
-      {running && showPane && (
+      {running && (
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" className={BTN} onClick={() => void Promise.resolve(api.captureShow(session)).catch(() => undefined)}>
-            Show the pane of {agentName(command)}
+            Show the pane
           </button>
         </div>
       )}

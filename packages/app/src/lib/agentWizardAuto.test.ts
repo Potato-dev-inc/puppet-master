@@ -660,6 +660,24 @@ describe('runAutonomous', () => {
     expect(r.decisions.at(-1)).toBe('Left the profile unapproved: the checker still reports a problem with this draft');
   });
 
+  it('closes the hidden pane when the capture stops for a reason a pane cannot fix', async () => {
+    const w = world();
+    const base = w.api.captureStart;
+    w.api.captureStart = vi.fn(async () => ({
+      ...(await base('wz_1', [], 'cap-A')),
+      needs_you: { step: 'start' as const, kind: 'trust', message: 'The wizard did not answer it for you.' },
+    }));
+    const out = await run(w, []).done;
+    expect(out.status).toBe('stopped');
+    expect(w.api.captureDiscard).toHaveBeenCalledWith('wz_1');
+  });
+
+  it('keeps the pane open for a sign-in stop so the person can open it', async () => {
+    const w = world({}, (v) => (v === 'sign_in_or_payment' ? { decision: 'stop', stop: { code: 'WIZARD_SIGN_IN_NEEDED', message: 'Sign in to nimbus (or finish its setup), then press Retry.' } } : {}));
+    await run(w, ['sign_in_or_payment']).done;
+    expect(w.api.captureDiscard).not.toHaveBeenCalled();
+  });
+
   it('sends a bypass flag back to the writer and finishes with the corrected draft', async () => {
     const w = world();
     let draftsAsked = 0;

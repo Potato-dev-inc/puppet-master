@@ -255,6 +255,20 @@ describe('a run with the switch on', () => {
     expect(host.querySelector('[data-testid="live-confirm"]')).toBeNull();
   });
 
+  it('has a Show the pane button in the list while it runs (the panes are hidden), and Cancel closes everything', async () => {
+    const api = mockApi();
+    api.captureStatus = vi.fn(async () => status({ step: 'message' }));
+    api.captureStart = vi.fn(async () => status({ step: 'message' }));
+    await render(api);
+    await typeCommand('nimbus');
+    await click(button('Find it'));
+    await until(() => !!button('Show the pane'), 'the button');
+    await click(button('Show the pane'));
+    expect(api.captureShow).toHaveBeenCalledWith('wz_1');
+    await click(button('Cancel'));
+    expect(api.cancel).toHaveBeenCalledWith('wz_1');
+  });
+
   it('a sign-in screen stops the run with the plain message; Retry starts it again', async () => {
     const api = mockApi({ signInStop: true });
     await render(api);
