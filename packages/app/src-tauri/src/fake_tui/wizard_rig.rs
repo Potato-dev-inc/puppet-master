@@ -21,6 +21,7 @@ use super::world::Session;
 pub struct WizardRig {
     wizard: Wizard,
     agents: PathBuf,
+    approvals: PathBuf,
     saved_path: Option<std::ffi::OsString>,
     saved_script: Option<std::ffi::OsString>,
     /// The environment was not changed (the real-program rig): nothing to restore on drop.
@@ -31,6 +32,11 @@ impl Session {
     /// A wizard for the program `name` (a copy of `pm-fake-tui` named `<name>.exe`, put first on `PATH`).
     /// `script` is what the fake plays (see `tools/pm-fake-tui/README.md`).
     pub fn wizard_rig(&self, name: &str, script: &str) -> WizardRig {
+        self.wizard_rig_with(name, script, |_| ())
+    }
+
+    /// `wizard_rig` with the wizard's environment changed before it is used (shorter waits, say).
+    pub fn wizard_rig_with(&self, name: &str, script: &str, tune: impl FnOnce(&mut WizardEnv)) -> WizardRig {
         self.script(script);
         let bin = self.aux().join("bin");
         std::fs::create_dir_all(&bin).expect("bin folder");
@@ -63,7 +69,9 @@ impl Session {
             window: false,
             ..RunnerCfg::default()
         };
-        WizardRig { wizard: Wizard::new(move || env.clone()), agents, saved_path, saved_script, keep_env: false }
+        tune(&mut env);
+        let approvals = env.approvals_path.clone();
+        WizardRig { wizard: Wizard::new(move || env.clone()), agents, approvals, saved_path, saved_script, keep_env: false }
     }
 }
 
@@ -75,6 +83,27 @@ impl WizardRig {
 
     pub fn agents_dir(&self) -> &Path {
         &self.agents
+    }
+
+    /// The approvals file this wizard writes to (not the app's own).
+    pub fn approvals_file(&self) -> &Path {
+        &self.approvals
+    }
+
+    /// The approval records on file, as Settings reads them.
+    pub fn approval_records(&self) -> Vec<Value> {
+        match std::fs::read_to_string(&self.approvals) {
+            Ok(text) => serde_json::from_str::<Value>(&text).ok().and_then(|v| v["approvals"].as_array().cloned()).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// The definitions listing over this wizard's agents folder and approvals file (what Settings shows).
+    pub fn listing(&self) -> Value {
+        let code_ids: Vec<String> = crate::tui::registry::registry().code_ids().into_iter().map(String::from).collect();
+        let refs: Vec<&str> = code_ids.iter().map(String::as_str).collect();
+        let inputs = crate::tui::declarative::loader::LoadInputs { bundled: &[], user_dir: Some(self.agents.as_path()), code_ids: &refs, projects: &[], extra: &[] };
+        crate::tui::declarative::service::listing(&inputs, &self.approvals)
     }
 
     /// The session's random test words `(one, two, sky)`: a test may look, an AI may not.
@@ -175,7 +204,8 @@ impl WizardRig {
         env.temp_root = temp;
         env.path_dirs = None;
         env.visible = RunnerCfg { window: false, ..RunnerCfg::default() };
-        WizardRig { wizard: Wizard::new(move || env.clone()), agents, saved_path: None, saved_script: None, keep_env: true }
+        let approvals = env.approvals_path.clone();
+        WizardRig { wizard: Wizard::new(move || env.clone()), agents, approvals, saved_path: None, saved_script: None, keep_env: true }
     }
 
     fn type_keys(&self, session: &Session, pane: &str, keys: &str) {
