@@ -172,7 +172,9 @@ pub(super) fn list_agents(
         }
     }
     live_workers.extend(other);
-    Ok(json!({"workers": live_workers}))
+    // `agent_types`: what each agent type supports and which run mode is chosen (headless_verified,
+    // run_mode), so a lead sees the choice even when no worker is live.
+    Ok(json!({"workers": live_workers, "agent_types": crate::agent_run_mode::types_summary()}))
 }
 
 pub(super) fn should_hide_from_agent_list(snapshot: &crate::operations::OperationSnapshot) -> bool {

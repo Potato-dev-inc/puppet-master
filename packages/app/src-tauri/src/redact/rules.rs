@@ -309,5 +309,5 @@ fn incomplete_tail(bytes: &[u8]) -> usize {
 
 #[cfg(test)]
 pub(crate) fn test_ctx() -> RedactContext {
-    RedactContext { env_values: vec!["hunter2-secret".into()], home: Some(r"C:\Users\Ren-pc".into()) }
+    RedactContext { env_values: vec!["hunter2-secret".into()], home: Some(r"C:\Users\you-pc".into()) }
 }

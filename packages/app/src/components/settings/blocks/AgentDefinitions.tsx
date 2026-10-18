@@ -37,6 +37,7 @@ import {
 import type { FinishResult, WizardApi } from '../../../lib/agentWizard';
 import { SettingBlock } from '../settings-ui';
 import { AgentWizard } from './AgentWizard';
+import { RunModeControl } from './AgentRunMode';
 
 const STATE_TONE: Record<string, string> = {
   active: 'border-pm-border bg-pm-border/40 text-pm-text',
@@ -748,6 +749,7 @@ function DefinitionItem({
         </span>
       </div>
       <p className="mt-1 break-all text-xs text-pm-muted">{row.file}</p>
+      {row.state === 'active' && row.id && <RunModeControl agentId={row.id} />}
       {onRemove && removability(row) === 'elsewhere' && (
         <p data-testid="comes-from" className="mt-1 text-xs text-pm-muted">
           This agent comes from {folderOf(row.file)}. Remove it there, or turn it off with Revoke.

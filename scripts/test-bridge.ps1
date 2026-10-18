@@ -1,3 +1,5 @@
+# Repo root = parent of this scripts/ folder, so the script works from any checkout.
+$repoRoot = Split-Path -Parent $PSScriptRoot
 $pf = "$env:TEMP\pm-bridge-test.port"
 Remove-Item $pf -ErrorAction SilentlyContinue
 $env:PUPPET_MASTER_BRIDGE_PORT_FILE = $pf
@@ -8,7 +10,7 @@ $bridge = Start-Process -FilePath "node" `
   -ArgumentList "--enable-source-maps", "packages\bridge\dist\server.js" `
   -PassThru -NoNewWindow `
   -RedirectStandardError $errLog `
-  -WorkingDirectory "C:\Users\Ren-pc\Desktop\work\tmux-puppet-master"
+  -WorkingDirectory $repoRoot
 
 Start-Sleep -Milliseconds 800
 
@@ -50,7 +52,7 @@ Write-Host "--- GET /panes after kill ---"
 
 Write-Host ""
 Write-Host "--- POST /project-path ---"
-(Invoke-WebRequest -Uri "http://127.0.0.1:$port/project-path" -Method POST -ContentType "application/json" -Body '{"path":"C:\\Users\\Ren-pc\\Desktop\\work\\tmux-puppet-master"}' -UseBasicParsing -TimeoutSec 3).Content
+(Invoke-WebRequest -Uri "http://127.0.0.1:$port/project-path" -Method POST -ContentType "application/json" -Body (@{ path = $repoRoot } | ConvertTo-Json -Compress) -UseBasicParsing -TimeoutSec 3).Content
 
 Stop-Process -Id $bridge.Id -Force -ErrorAction SilentlyContinue
 Remove-Item $pf -ErrorAction SilentlyContinue

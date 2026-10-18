@@ -96,6 +96,15 @@ pub(super) fn parse<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, Oper
     serde_json::from_value(value).map_err(|error| OperationError::invalid_body(&error))
 }
 
+/// True when a `run_agent` body does not name `headless` (absent or null): the agent's run-mode
+/// setting may decide. An explicit `true` or `false` always wins, so presence is what counts.
+pub(crate) fn headless_left_out(body: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|value| value.get("headless").map(Value::is_null))
+        .unwrap_or(true)
+}
+
 pub(super) fn project_path(
     requested: Option<&str>,
     query: &str,

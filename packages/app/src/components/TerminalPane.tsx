@@ -21,8 +21,10 @@ interface Props {
   onSwitchAgent: (paneId: string, agentType: AgentType) => Promise<void>;
   dragHandleProps?: HTMLAttributes<HTMLButtonElement>;
   syncPTYResize?: boolean;
-  /** Bump to force a tiny re-fit (e.g. when the pane re-enters the grid). */
+  /** Bump to force a re-fit at the cell's current size (sends no resize when the grid is unchanged). */
   reflowKey?: number | string;
+  /** Bump to also redraw an alternate-screen TUI (two PTY resizes), e.g. when the pane re-enters the grid. */
+  redrawKey?: number | string;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -49,6 +51,7 @@ export function TerminalPane({
   dragHandleProps,
   syncPTYResize = true,
   reflowKey,
+  redrawKey,
 }: Props) {
   const [switching, setSwitching] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -60,6 +63,7 @@ export function TerminalPane({
     subscribePaneData,
     syncPTYResize,
     reflowKey,
+    redrawKey,
     reprintsOnResize: pane.info.reprints_on_resize,
   });
 

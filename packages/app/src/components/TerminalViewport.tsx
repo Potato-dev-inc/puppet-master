@@ -46,6 +46,7 @@ export function TerminalViewport({
   disableMobileInput = false,
   onReattach,
   reflowKey,
+  redrawKey,
   workerHost = false,
   workerTrayOpen = false,
   onToggleWorkerTray,
@@ -56,7 +57,10 @@ export function TerminalViewport({
   chrome?: boolean;
   disableMobileInput?: boolean;
   onReattach?: () => void;
+  /** Bump to re-fit at the current size (sends no PTY resize when the grid is unchanged). */
   reflowKey?: number | string;
+  /** Bump to also force an alternate-screen TUI to redraw (two PTY resizes): an explicit Reflow only. */
+  redrawKey?: number | string;
   workerHost?: boolean;
   workerTrayOpen?: boolean;
   onToggleWorkerTray?: () => void;
@@ -77,6 +81,7 @@ export function TerminalViewport({
     syncPTYResize: true,
     disableMobileInput,
     reflowKey,
+    redrawKey,
     reprintsOnResize: pane.info.reprints_on_resize,
     heldPtySize: pane.info.viewer_held ? { cols: pane.info.cols, rows: pane.info.rows } : null,
   });

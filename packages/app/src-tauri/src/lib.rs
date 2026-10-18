@@ -3,6 +3,7 @@
 mod accounts;
 mod actors;
 mod agent_authority;
+mod agent_run_mode;
 mod audit;
 mod ambient;
 mod agent_definitions_recorder;
@@ -395,6 +396,8 @@ pub fn run() {
             commands::question_dismiss,
             commands::agent_authority_get,
             commands::agent_authority_set,
+            commands::agent_run_mode_get,
+            commands::agent_run_mode_set,
             commands::audit_recent,
             commands::audit_verify,
         ])

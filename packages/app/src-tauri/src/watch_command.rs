@@ -264,19 +264,19 @@ mod tests {
 
     #[test]
     fn backslash_and_spaced_windows_paths_become_shell_safe_in_every_form() {
-        let project = r"C:\Users\Ren Pc\My Project";
+        let project = r"C:\Users\You Pc\My Project";
         let default = format_with_entry(None, "op-1", Some(project), ShellHint::Default);
         assert!(
-            default.ends_with("--project-path 'C:/Users/Ren Pc/My Project'"),
+            default.ends_with("--project-path 'C:/Users/You Pc/My Project'"),
             "{default}"
         );
         assert!(!default.contains('\\'), "{default}");
         let bash = format_with_entry(None, "op-1", Some(project), ShellHint::Bash);
-        assert!(bash.ends_with("--project-path 'C:/Users/Ren Pc/My Project'"), "{bash}");
+        assert!(bash.ends_with("--project-path 'C:/Users/You Pc/My Project'"), "{bash}");
         let pwsh = format_with_entry(None, "op-1", Some(project), ShellHint::PowerShell);
-        assert!(pwsh.ends_with("--project-path 'C:/Users/Ren Pc/My Project'"), "{pwsh}");
+        assert!(pwsh.ends_with("--project-path 'C:/Users/You Pc/My Project'"), "{pwsh}");
         let cmd = format_with_entry(None, "op-1", Some(project), ShellHint::Cmd);
-        assert!(cmd.ends_with("--project-path \"C:/Users/Ren Pc/My Project\""), "{cmd}");
+        assert!(cmd.ends_with("--project-path \"C:/Users/You Pc/My Project\""), "{cmd}");
         let unc = format_with_entry(None, "op-1", Some(r"\\srv\share\a b"), ShellHint::Default);
         assert!(unc.ends_with("--project-path '//srv/share/a b'"), "{unc}");
     }
@@ -320,10 +320,10 @@ mod tests {
         let bundle = "C:/Users/me/AppData/Roaming/app/cli/puppet-master-cli.bundle.mjs";
         let original = format!("node {bundle} watch op-3 --project-path /p");
         assert_eq!(existing_entry(&original), Some(PathBuf::from(bundle)));
-        let spaced = "node 'C:/Users/Ren Pc/cli/x.mjs' watch op-3";
+        let spaced = "node 'C:/Users/You Pc/cli/x.mjs' watch op-3";
         assert_eq!(
             existing_entry(spaced),
-            Some(PathBuf::from("C:/Users/Ren Pc/cli/x.mjs"))
+            Some(PathBuf::from("C:/Users/You Pc/cli/x.mjs"))
         );
         assert_eq!(existing_entry("npx puppet-master watch op-3"), None);
         let out = reformat_for_shell(&original, "op-3", None, ShellHint::Bash);

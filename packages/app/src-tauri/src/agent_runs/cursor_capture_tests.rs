@@ -347,7 +347,7 @@ fn wrapped_footer_screen(prompt: &str, reply: &str, cwd: &str, width: usize) -> 
 
 #[test]
 fn a_footer_cwd_wrapped_over_several_rows_is_not_part_of_the_answer() {
-    let cwd = r"~\AppData\Local\Temp\claude\C--Users-Ren-pc-Desktop-work2-puppet-master\7f91bd8b\scratchpad\live-2";
+    let cwd = r"~\AppData\Local\Temp\claude\C--Users-you-pc-Desktop-work2-puppet-master\7f91bd8b\scratchpad\live-2";
     for width in [20, 33, 48, 60, 80] {
         let baseline = screen_after(&[], "Composer 2.5");
         let mut watch = TuiTurnWatch::from_baseline(baseline).with_task(FIRST.0);
