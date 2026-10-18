@@ -21,6 +21,7 @@ import {
   runDraftLoop,
   splitError,
   tauriWizardApi,
+  type CaptureStatus,
   type Drafter,
   type FinishResult,
   type LocalDrafter,
@@ -37,6 +38,15 @@ import {
   type VisibleTestStatus,
   type WizardApi,
 } from '../../../lib/agentWizard';
+import {
+  loadFinishWithoutMe,
+  NO_AUTO_DRAFTER_MESSAGE,
+  pickAutoDrafter,
+  runAutonomous,
+  saveFinishWithoutMe,
+  type AutonomousOutcome,
+  type AutoTimings,
+} from '../../../lib/agentWizardAuto';
 import { buildPrompt, REMOTE_PROMPT_BUDGET, type CaptureFacts } from '../../../lib/agentWizardPrompt';
 import { AgentWizardCapture, AnsweredList, agentName, BTN, INPUT } from './AgentWizardCapture';
 
@@ -59,7 +69,7 @@ function saveAutoAnswer(on: boolean) {
   }
 }
 
-type Phase = 'command' | 'finding' | 'capture' | 'drafter' | 'running' | 'review' | 'stopped';
+type Phase = 'command' | 'finding' | 'capture' | 'drafter' | 'running' | 'auto' | 'review' | 'stopped';
 
 type Tested = Extract<LoopResult, { status: 'tested' }>;
 
@@ -100,9 +110,12 @@ export function AgentWizard({
   openRouter = openRouterSupport,
   onClose,
   onApprove,
+  autoTimings,
 }: {
   api?: WizardApi;
   openRouter?: OpenRouterSupport;
+  /** Shorter waits for "Finish without me" (tests). */
+  autoTimings?: Partial<AutoTimings>;
   onClose: () => void;
   /** The definition was written (unapproved). The parent opens the approval dialog for it. */
   onApprove: (done: FinishResult) => void;
@@ -112,6 +125,11 @@ export function AgentWizard({
   // "Answer setup questions for me": the wizard may answer a trust or one-time approval question in the panes it
   // starts itself, in its own isolated folder. On by default; the choice is kept.
   const [autoAnswer, setAutoAnswer] = useState<boolean>(() => loadAutoAnswer());
+  // "Finish without me" (SPEC 11.19): the wizard does everything itself, approval included. On by default; the choice is kept.
+  const [finishWithoutMe, setFinishWithoutMe] = useState<boolean>(() => loadFinishWithoutMe());
+  // Each automatic decision, in plain short English, and the capture pane as the run goes (for the preview).
+  const [decisions, setDecisions] = useState<string[]>([]);
+  const [autoCapture, setAutoCapture] = useState<CaptureStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [found, setFound] = useState<Found | null>(null);
   const [captures, setCaptures] = useState<CaptureFacts | null>(null);
@@ -124,7 +142,7 @@ export function AgentWizard({
   const [confirming, setConfirming] = useState<PlannedRun | null>(null);
   const [confirmingVisible, setConfirmingVisible] = useState<PlannedVisible | null>(null);
   const [result, setResult] = useState<Tested | null>(null);
-  const [stopped, setStopped] = useState<{ title: string; text: string; agentError?: boolean; keepable?: boolean } | null>(null);
+  const [stopped, setStopped] = useState<{ title: string; text: string; agentError?: boolean; keepable?: boolean; auto?: boolean } | null>(null);
   // The draft that passed the checks, kept when the program's own error stops the test: Retry runs only the tests.
   const [held, setHeld] = useState<{ toml: string; expects: Record<string, string>; verify: VerifyResult; rounds: number } | null>(null);
   // The finished visible profile while the optional one-task step runs (so a failure there loses nothing).
@@ -135,6 +153,7 @@ export function AgentWizard({
   const sessionRef = useRef<string | null>(null);
   const finishedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  const autoRunRef = useRef<{ found: Found; drafter: Drafter } | null>(null);
   const confirmRef = useRef<((go: boolean) => void) | null>(null);
   const confirmVisibleRef = useRef<((go: boolean) => void) | null>(null);
   // The pane the person confirmed for the visible test: the optional one-task step does not ask about it again.
@@ -175,6 +194,66 @@ export function AgentWizard({
     if (id) await Promise.resolve(api.cancel(id)).catch(() => undefined);
   }, [api]);
 
+/** "Finish without me": capture, draft, check, fix, test, finish and approve with no click. */
+  const startAutonomous = useCallback(
+    async (target: Found, picked: Drafter) => {
+      const abort = new AbortController();
+      abortRef.current = abort;
+      autoRunRef.current = { found: target, drafter: picked };
+      setError(null);
+      setStopped(null);
+      setDecisions([]);
+      setAutoCapture(null);
+      setResult(null);
+      setEvents([{ step: 'help', status: 'done', round: 0 }]);
+      setPhase('auto');
+      const session = target.start.session;
+      let outcome: AutonomousOutcome;
+      try {
+        outcome = await runAutonomous({
+          api,
+          start: target.start,
+          probe: target.probe,
+          drafter: picked,
+          ask: (prompt) => (picked.kind === 'local_agent' ? api.ask(session, picked.id, prompt) : Promise.reject(new Error('Only a local writer is used here.'))),
+          onEvent: (e) => setEvents((list) => [...list, e]),
+          onDecision: (text) => setDecisions((list) => [...list, text]),
+          onCaptureStatus: setAutoCapture,
+          signal: abort.signal,
+          timings: autoTimings,
+        });
+      } catch (e) {
+        if (abort.signal.aborted) return;
+        setStopped({ title: 'The wizard could not go on.', text: splitError(e).message, auto: true });
+        setPhase('stopped');
+        return;
+      }
+      if (abort.signal.aborted || outcome.status === 'cancelled') return;
+      if (outcome.status === 'finished') {
+        finishedRef.current = true;
+        sessionRef.current = null;
+        onApprove(outcome.finish);
+        return;
+      }
+      if (outcome.status === 'sign_in') {
+        setStopped({ title: outcome.message, text: 'The wizard stopped and typed nothing more. Sign in to the agent in its pane (use Show the pane) or finish its setup, then press Retry.', auto: true });
+      } else {
+        setStopped({ title: outcome.title, text: outcome.text, agentError: outcome.agentError, auto: true });
+      }
+      setPhase('stopped');
+    },
+    [api, autoTimings, onApprove],
+  );
+
+  // Retry of a "Finish without me" run: the capture pane is closed and the whole run starts again on the same session.
+  const retryAuto = useCallback(async () => {
+    const again = autoRunRef.current;
+    if (!again) return;
+    const id = again.found.start.session;
+    await Promise.resolve(api.captureDiscard(id)).catch(() => undefined);
+    void startAutonomous(again.found, again.drafter);
+  }, [api, startAutonomous]);
+
   const findIt = useCallback(async () => {
     const name = command.trim();
     if (!name) return;
@@ -182,10 +261,27 @@ export function AgentWizard({
     setPhase('finding');
     try {
       await discardSession();
-      const start = await api.start(name, autoAnswer);
+      // With the switch off the call is exactly today's (two arguments).
+      const start = finishWithoutMe ? await api.start(name, autoAnswer, true) : await api.start(name, autoAnswer);
       sessionRef.current = start.session;
       const probe = await api.probe(start.session);
       const list = orderDrafters(await api.drafters().catch(() => []));
+      if (finishWithoutMe) {
+        // The writer is picked for the person: Claude Code, else Codex, else the run stops with a plain message.
+        const pick = pickAutoDrafter(list);
+        if (!pick) {
+          await discardSession();
+          setError(NO_AUTO_DRAFTER_MESSAGE);
+          setPhase('command');
+          return;
+        }
+        setLocals(list);
+        setChoice({ kind: 'local_agent', id: pick.id });
+        setCaptures(null);
+        setFound({ start, probe });
+        void startAutonomous({ start, probe }, { kind: 'local_agent', id: pick.id, label: pick.label });
+        return;
+      }
       const orModels = await openRouter.models().catch(() => []);
       const key = await openRouter.hasKey().catch(() => false);
       setLocals(list);
@@ -203,7 +299,7 @@ export function AgentWizard({
       setError(splitError(e).message);
       setPhase('command');
     }
-  }, [api, autoAnswer, command, discardSession, openRouter]);
+  }, [api, autoAnswer, command, discardSession, finishWithoutMe, openRouter, startAutonomous]);
 
   /** Draft, check, fix and test. With \`oneTask\`, the visible file in \`result\` is kept and only the one-task mode is added. */
   const startDrafting = useCallback(
@@ -393,27 +489,52 @@ export function AgentWizard({
                 {phase === 'finding' ? 'Looking...' : 'Find it'}
               </button>
             </div>
-            <label className="mt-3 flex items-start gap-2 text-xs" htmlFor="wizard-auto-answer">
+            <label className="mt-3 flex items-start gap-2 text-xs" htmlFor="wizard-finish-without-me">
               <input
-                id="wizard-auto-answer"
+                id="wizard-finish-without-me"
                 type="checkbox"
                 className="mt-0.5"
-                checked={autoAnswer}
+                checked={finishWithoutMe}
                 disabled={phase === 'finding'}
                 onChange={(e) => {
-                  setAutoAnswer(e.target.checked);
-                  saveAutoAnswer(e.target.checked);
+                  setFinishWithoutMe(e.target.checked);
+                  saveFinishWithoutMe(e.target.checked);
                 }}
               />
               <span>
-                Answer setup questions for me (only in the wizard's temp folder)
+                Finish without me
                 <span className="block text-pm-muted">
-                  The agent may ask "do you trust this folder?" or "allow this once?" in the panes the wizard opens. With this on, the
-                  wizard presses the plain yes. It never picks "always", "don't ask again" or "all", and never answers a sign-in, payment
-                  or model question. Your own projects are never touched.
+                  The wizard does everything itself: it watches the agent, writes the profile, tests it and approves it, and asks you
+                  nothing on the way. It answers only the plain "trust this folder" or "allow once" questions, never "always" or "don't ask
+                  again". It never signs in for you and never runs the agent with a permission bypass: if the agent needs a sign-in, it stops
+                  and tells you. Everything runs in the wizard's own temporary folder, never in your project. You can still revoke or remove
+                  the agent in Settings afterwards.
                 </span>
               </span>
             </label>
+            {!finishWithoutMe && (
+              <label className="mt-3 flex items-start gap-2 text-xs" htmlFor="wizard-auto-answer">
+                <input
+                  id="wizard-auto-answer"
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={autoAnswer}
+                  disabled={phase === 'finding'}
+                  onChange={(e) => {
+                    setAutoAnswer(e.target.checked);
+                    saveAutoAnswer(e.target.checked);
+                  }}
+                />
+                <span>
+                  Answer setup questions for me (only in the wizard's temp folder)
+                  <span className="block text-pm-muted">
+                    The agent may ask "do you trust this folder?" or "allow this once?" in the panes the wizard opens. With this on, the
+                    wizard presses the plain yes. It never picks "always", "don't ask again" or "all", and never answers a sign-in, payment
+                    or model question. Your own projects are never touched.
+                  </span>
+                </span>
+              </label>
+            )}
             {phase === 'finding' && (
               <p role="status" className="mt-2 text-xs text-pm-muted">
                 Finding the program and reading its help...
@@ -543,7 +664,20 @@ export function AgentWizard({
           </div>
         )}
 
-        {(phase === 'running' || phase === 'stopped') && <ProgressList events={events} phase={phase} withCapture={captures !== null} />}
+        {(phase === 'running' || phase === 'stopped' || phase === 'auto') && (
+          <ProgressList events={events} phase={phase} withCapture={captures !== null || decisions.length > 0 || phase === 'auto'} />
+        )}
+        {(phase === 'auto' || (phase === 'stopped' && stopped?.auto)) && found && (
+          <AutoPanel
+            api={api}
+            session={found.start.session}
+            command={found.start.command}
+            decisions={decisions}
+            capture={autoCapture}
+            running={phase === 'auto'}
+            onCancel={() => void cancelAll()}
+          />
+        )}
 
         {phase === 'running' && found && confirmingVisible === null && latest(events, 'visible')?.status === 'running' && (
           <VisibleTestLive api={api} session={found.start.session} command={found.start.command} />
@@ -619,7 +753,11 @@ export function AgentWizard({
                   Keep it without a one-task mode
                 </button>
               )}
-              {stopped.agentError && held ? (
+              {stopped.auto ? (
+                <button type="button" className={BTN} onClick={() => void retryAuto()}>
+                  Retry
+                </button>
+              ) : stopped.agentError && held ? (
                 <button type="button" className={BTN} onClick={() => void retryLive()}>
                   Retry
                 </button>
@@ -757,6 +895,80 @@ function FoundSummary({ found }: { found: Found }) {
         <p className="mt-1 text-pm-muted">
           This is an npm launcher script. The wizard will look for the real program next to it.
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Finish without me": what the wizard decides on its own, one plain short line each, the capture steps as they go
+ * and the pane's masked screen. The wizard presses nothing the person is not told about here.
+ */
+function AutoPanel({
+  api,
+  session,
+  command,
+  decisions,
+  capture,
+  running,
+  onCancel,
+}: {
+  api: WizardApi;
+  session: string;
+  command: string;
+  decisions: string[];
+  capture: CaptureStatus | null;
+  running: boolean;
+  onCancel: () => void;
+}) {
+  const steps = capture?.steps ?? [];
+  const showPane = capture?.state === 'running';
+  return (
+    <div className="mt-3 text-xs" data-testid="wizard-auto">
+      <p className="font-semibold">Finishing on its own</p>
+      {steps.length > 0 && (
+        <ul aria-label="Capture steps" data-testid="auto-capture-steps" className="mt-2 space-y-0.5 text-pm-muted">
+          {steps.map((s) => (
+            <li key={s.id} data-step={s.id} data-status={s.status}>
+              <span className="font-medium text-pm-text">{s.label}</span> {s.status === 'running' ? 'Working...' : s.status === 'needs_you' ? 'Looking at it' : s.status}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-3" data-testid="auto-decisions">
+        <p className="font-medium">What the wizard decided</p>
+        {decisions.length === 0 ? (
+          <p className="mt-1 text-pm-muted">Nothing yet.</p>
+        ) : (
+          <ul className="mt-1 space-y-0.5" aria-label="Decisions">
+            {decisions.map((d, i) => (
+              <li key={`${i}-${d}`} className={d.startsWith('Will run') ? 'break-all font-mono text-[11px] text-pm-muted' : undefined}>
+                {d}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {running && showPane && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className={BTN} onClick={() => void Promise.resolve(api.captureShow(session)).catch(() => undefined)}>
+            Show the pane of {agentName(command)}
+          </button>
+        </div>
+      )}
+      {!running && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className={BTN} onClick={() => void Promise.resolve(api.captureShow(session)).catch(() => undefined)}>
+            Show the pane
+          </button>
+        </div>
+      )}
+      {running && (
+        <div className="mt-4 flex justify-end">
+          <button type="button" className={BTN} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
       )}
     </div>
   );

@@ -119,6 +119,31 @@ export interface CaptureStep {
   frames: number;
 }
 
+/** The drafter AI's one-word look at a screen the wizard could not read ("Finish without me", SPEC 11.19). */
+export type Verdict =
+  | 'ready_for_input'
+  | 'working'
+  | 'question_trust_or_once'
+  | 'question_other'
+  | 'sign_in_or_payment'
+  | 'error'
+  | 'unknown';
+
+/** What Rust did about a verdict. `stop` is set when the run must stop (sign-in or payment). */
+export interface VerdictReply {
+  decision: 'pressed_ready' | 'safe_answerer' | 'wait' | 'wait_then_skip' | 'stop' | 'marked_stuck' | 'stopped_test' | 'refused';
+  verdict: Verdict;
+  why?: string;
+  stop?: { code: string; message: string };
+  status?: CaptureStatus;
+}
+
+/** What an autonomous run tells `finish`: the decisions it took (for the record) and that it wants the approval. */
+export interface AutoFinish {
+  decisions: string[];
+  approve: boolean;
+}
+
 export interface CaptureStatus {
   state: 'none' | 'running' | 'finished';
   /** True once a finished capture is stored in the session. */
@@ -133,6 +158,10 @@ export interface CaptureStatus {
   frozen?: boolean;
   stable_ms?: number;
   settled?: boolean;
+  /** A short name of the picture on the screen (the AI look is asked once per picture). */
+  fingerprint?: string;
+  /** Set when the run was stopped (a sign-in or payment screen); nothing is typed until a retry. */
+  halted?: string | null;
   needs_you?: { step: CaptureStepId; kind: string; message: string } | null;
   /** Setup questions the wizard answered for the person so far (labels only). */
   answered?: Array<{ place: string; flavour: string; label: string; keys: string }>;
@@ -272,10 +301,22 @@ export interface Provenance {
   rounds: number;
 }
 
+/** The wizard's own approval after a "Finish without me" run (SPEC 11.19). */
+export interface ApprovalInfo {
+  approved: boolean;
+  approved_by?: string;
+  /** How many checks had passed. */
+  count?: number;
+  checks?: string[];
+  reason?: string;
+}
+
 export interface FinishResult {
   ok: boolean;
   id: string;
   file: string;
+  /** Present for a session started with "Finish without me". */
+  approval?: ApprovalInfo;
   fixtures_dir: string;
   provenance_file: string;
   state: string;
@@ -291,8 +332,8 @@ export interface LocalDrafter {
 
 /** What the wizard UI and the loop talk to; tests pass a mock. */
 export interface WizardApi {
-  /** `autoAnswer`: the person left "Answer setup questions for me" on (SPEC 11.16). */
-  start(command: string, autoAnswer?: boolean): Promise<StartInfo>;
+  /** `autoAnswer`: the person left "Answer setup questions for me" on (SPEC 11.16). `autonomous`: "Finish without me" (11.19). */
+  start(command: string, autoAnswer?: boolean, autonomous?: boolean): Promise<StartInfo>;
   probe(session: string): Promise<ProbeInfo>;
   /** `expect` holds the drafter's expectation blocks for the screen captures, by capture name. */
   verify(session: string, toml: string, expect?: Record<string, string>): Promise<VerifyResult>;
@@ -303,7 +344,11 @@ export interface WizardApi {
   /** What the visible test is doing now (poll while `visibletest` runs). */
   testStatus(session: string): Promise<VisibleTestStatus>;
   /** Stop the visible test while a question is up (`stop`), or skip the permission check (`skip`). */
-  testAct?(session: string, action: 'skip' | 'stop'): Promise<void>;
+  testAct?(session: string, action: 'skip' | 'stop', reason?: string): Promise<void>;
+  /** "Finish without me": the AI look at the capture pane. Rust decides what the verdict may cause. */
+  verdict?(session: string, verdict: Verdict): Promise<VerdictReply>;
+  /** The same for the visible test's pane. */
+  testVerdict?(session: string, verdict: Verdict): Promise<VerdictReply>;
   /** Open the visible test's pane (the question on it is the person's). */
   testShow?(session: string): Promise<void>;
   capturePlan(session: string, args: string[]): Promise<CapturePlan>;
@@ -318,7 +363,7 @@ export interface WizardApi {
   /** Stops the capture and returns the screens as the drafter will see them (test words masked). */
   captureFinish(session: string): Promise<CaptureFacts | null>;
   captureDiscard(session: string): Promise<void>;
-  finish(session: string, provenance: Provenance): Promise<FinishResult>;
+  finish(session: string, provenance: Provenance, auto?: AutoFinish): Promise<FinishResult>;
   cancel(session: string): Promise<unknown>;
   /** One read-only question to an installed local agent, in the session's work folder. */
   ask(session: string, agent: string, prompt: string): Promise<string>;
@@ -327,15 +372,18 @@ export interface WizardApi {
 }
 
 export const tauriWizardApi: WizardApi = {
-  start: (command, autoAnswer) => invoke<StartInfo>('agent_wizard_start', { command, autoAnswer: autoAnswer ?? false }),
+  start: (command, autoAnswer, autonomous) =>
+    invoke<StartInfo>('agent_wizard_start', { command, autoAnswer: autoAnswer ?? false, autonomous: autonomous ?? false }),
   probe: (session) => invoke<ProbeInfo>('agent_wizard_probe', { session }),
   verify: (session, toml, expect) => invoke<VerifyResult>('agent_wizard_verify', { session, toml, expect: expect ?? null }),
   livetest: (session, plan) => invoke<LiveResult>('agent_wizard_livetest', { session, confirm: true, plan }),
   visibletest: (session, plan) => invoke<VisibleTestResult>('agent_wizard_visibletest', { session, confirm: true, plan }),
   testStatus: (session) => invoke<VisibleTestStatus>('agent_wizard_capture', { body: { session, op: 'test_status' } }),
-  testAct: async (session, action) => {
-    await invoke('agent_wizard_capture', { body: { session, op: 'test_act', action } });
+  testAct: async (session, action, reason) => {
+    await invoke('agent_wizard_capture', { body: { session, op: 'test_act', action, ...(reason ? { reason } : {}) } });
   },
+  verdict: (session, verdict) => invoke<VerdictReply>('agent_wizard_capture', { body: { session, op: 'verdict', verdict } }),
+  testVerdict: (session, verdict) => invoke<VerdictReply>('agent_wizard_capture', { body: { session, op: 'test_verdict', verdict } }),
   testShow: async (session) => {
     await invoke('agent_wizard_capture', { body: { session, op: 'show' } });
   },
@@ -353,7 +401,7 @@ export const tauriWizardApi: WizardApi = {
   captureDiscard: async (session) => {
     await invoke('agent_wizard_capture', { body: { session, op: 'discard' } });
   },
-  finish: (session, provenance) => invoke<FinishResult>('agent_wizard_finish', { session, provenance }),
+  finish: (session, provenance, auto) => invoke<FinishResult>('agent_wizard_finish', { session, provenance, autonomous: auto ?? null }),
   cancel: (session) => invoke('agent_wizard_cancel', { session }),
   ask: async (session, agent, prompt) => (await invoke<{ answer: string }>('agent_wizard_ask', { session, agent, prompt })).answer,
   drafters: async () => (await invoke<Array<LocalDrafter & { ready?: boolean }>>('askbar_agents')).map(({ id, label }) => ({ id, label })),
@@ -601,7 +649,25 @@ export type LoopResult =
       error: AgentError;
     }
   | { status: 'gave_up'; rounds: number; lastToml: string; lastText: string }
+  /** "Finish without me": a screen asked for a sign-in or a payment step. Nothing more is typed. */
+  | { status: 'sign_in'; rounds: number; message: string }
   | { status: 'cancelled'; rounds: number };
+
+/** Runs next to the visible test (which blocks until it is done) and handles its "needs you" moments. */
+export interface TestWatcher {
+  /** The test call returned: stop looking. */
+  stop(): void;
+  /** The plain message when a screen asked for a sign-in or a payment step, else null. */
+  signIn(): string | null;
+}
+
+/** "Finish without me" for the draft loop (SPEC 11.19). */
+export interface AutonomousLoop {
+  /** One plain, short sentence per automatic decision ("Will run: nimbus --x"). */
+  onDecision(text: string): void;
+  /** Starts the watcher for a visible test that is about to run. */
+  watchTest?(session: string): TestWatcher;
+}
 
 export interface LoopOptions {
   /** `visibletest` is only needed for a session that captured screens. */
@@ -618,9 +684,15 @@ export interface LoopOptions {
    * Called before a live test whose planned commands differ from the ones already confirmed (so: the
    * first time, and again when a fix changes the arguments). `false` stops the loop with `declined`.
    */
-  confirmLive: (planned: PlannedRun) => Promise<boolean>;
+  confirmLive?: (planned: PlannedRun) => Promise<boolean>;
   /** The same for the visible test (the pane it would start). Without it the visible test is not run. */
   confirmVisible?: (planned: PlannedVisible) => Promise<boolean>;
+  /**
+   * "Finish without me": nobody confirms the planned commands (they are logged through `onDecision` and kept in
+   * `<id>.wizard.json`; Rust still checks the fingerprint and refuses bypass-style flags), a draft only counts as
+   * tested when the checker had no problem with it at all, and the visible test is watched for "needs you" moments.
+   */
+  autonomous?: AutonomousLoop;
   /** The pane plan the person already confirmed in an earlier loop (so the same pane is not asked about again). */
   confirmedVisible?: string | null;
   onEvent?: (event: ProgressEvent) => void;
@@ -679,6 +751,9 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
     // the program's real output together with those problems.
     const planned = verify.planned;
     const plannedVisible = verifyVisiblePlan(verify, visibleMode);
+    if (opts.autonomous && verify.errors.some((e) => e.code === 'WIZARD_AUTO_BYPASS_FLAG')) {
+      opts.autonomous.onDecision('Refused a permission-bypass flag in the draft and asked the writer to remove it');
+    }
     if (!verify.ok && !planned && !plannedVisible) {
       emit({ step: 'check', status: 'failed', round, detail: plural(verify.errors.length, 'problem') });
       lastText = verify.text;
@@ -713,15 +788,38 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
 
     if (plannedVisible) {
       if (confirmedVisible !== plannedVisible.fingerprint) {
-        const go = (await opts.confirmVisible?.(plannedVisible)) ?? false;
-        if (!go) return { status: 'declined', toml: extracted.toml, expects: extracted.expects, rounds: round, verify };
+        if (opts.autonomous) {
+          // Nobody confirms: the exact command is logged here and kept in <id>.wizard.json by Rust.
+          opts.autonomous.onDecision(`Will run (visible test): ${commandLine(opts.facts.command, plannedVisible.args)}`);
+        } else {
+          const go = (await opts.confirmVisible?.(plannedVisible)) ?? false;
+          if (!go) return { status: 'declined', toml: extracted.toml, expects: extracted.expects, rounds: round, verify };
+        }
         confirmedVisible = plannedVisible.fingerprint;
       }
       if (stopped()) return { status: 'cancelled', rounds: round };
       emit({ step: 'visible', status: 'running', round });
       if (!opts.api.visibletest) throw new Error('WIZARD_NOT_AVAILABLE: this wizard cannot run the visible test.');
-      visible = await opts.api.visibletest(opts.session, plannedVisible.fingerprint);
+      const watcher = opts.autonomous?.watchTest?.(opts.session);
+      try {
+        visible = await opts.api.visibletest(opts.session, plannedVisible.fingerprint);
+      } catch (e) {
+        const err = splitError(e);
+        if (opts.autonomous && err.code === 'WIZARD_AUTO_BYPASS_REFUSED') {
+          // Rust refused to start the pane: the draft goes back with the reason.
+          emit({ step: 'visible', status: 'failed', round, detail: err.message });
+          opts.autonomous.onDecision('Refused a permission-bypass flag in the visible test and asked the writer to remove it');
+          lastText = err.message;
+          feedback = { previousToml: extracted.toml, previousExpects: extracted.expects, text: err.message };
+          continue;
+        }
+        throw e;
+      } finally {
+        watcher?.stop();
+      }
       if (stopped()) return { status: 'cancelled', rounds: round };
+      const signIn = watcher?.signIn();
+      if (signIn) return { status: 'sign_in', rounds: round, message: signIn };
       if (!visible.ok) {
         emit({ step: 'visible', status: 'failed', round, detail: visible.errors[0]?.message });
         const ae = visible.agent_error ? { stage: visible.agent_error.check, message: visible.agent_error.message, external: visible.agent_error.external } : null;
@@ -734,12 +832,30 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
 
     if (planned) {
       if (confirmedPlan !== planned.fingerprint) {
-        if (!(await opts.confirmLive(planned))) return { status: 'declined', toml: extracted.toml, expects: extracted.expects, rounds: round, verify };
+        if (opts.autonomous) {
+          for (const stage of planned.stages) {
+            opts.autonomous.onDecision(`Will run (one-task test, ${stage.label.toLowerCase()}): ${commandLine(opts.facts.command, stage.args)}`);
+          }
+        } else if (!(await opts.confirmLive?.(planned))) {
+          return { status: 'declined', toml: extracted.toml, expects: extracted.expects, rounds: round, verify };
+        }
         confirmedPlan = planned.fingerprint;
       }
       if (stopped()) return { status: 'cancelled', rounds: round };
       emit({ step: 'live', status: 'running', round });
-      live = await opts.api.livetest(opts.session, planned.fingerprint);
+      try {
+        live = await opts.api.livetest(opts.session, planned.fingerprint);
+      } catch (e) {
+        const err = splitError(e);
+        if (opts.autonomous && err.code === 'WIZARD_AUTO_BYPASS_REFUSED') {
+          emit({ step: 'live', status: 'failed', round, detail: err.message });
+          opts.autonomous.onDecision('Refused a permission-bypass flag in the one-task test and asked the writer to remove it');
+          lastText = err.message;
+          feedback = { previousToml: extracted.toml, previousExpects: extracted.expects, text: err.message };
+          continue;
+        }
+        throw e;
+      }
       if (stopped()) return { status: 'cancelled', rounds: round };
       if (!live.ok) {
         emit({ step: 'live', status: 'failed', round, detail: live.errors[0]?.message });
@@ -749,6 +865,14 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
         continue;
       }
       emit({ step: 'live', status: 'done', round });
+    }
+    if (opts.autonomous && !verify.ok) {
+      // Only a draft the checker passed with no problem at all is finished without a person: the tests passed, but the
+      // checker's notes still go back to the writer.
+      emit({ step: 'check', status: 'failed', round, detail: `${plural(verify.errors.length, 'problem')} left after the tests` });
+      lastText = verify.text;
+      feedback = { previousToml: extracted.toml, previousExpects: extracted.expects, text: verify.text };
+      continue;
     }
     return { status: 'tested', toml: extracted.toml, expects: extracted.expects, rounds: round, verify, live, visible };
   }

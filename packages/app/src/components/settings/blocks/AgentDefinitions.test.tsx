@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentDefinitionsApi, DefinitionsListing, RemovedAgent } from '../../../lib/agentDefinitions';
+import { wizardResult, type AgentDefinitionsApi, type DefinitionsListing, type RemovedAgent } from '../../../lib/agentDefinitions';
 import { AgentDefinitions } from './AgentDefinitions';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -100,12 +100,15 @@ const button = (label: string) =>
   Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
 
 beforeEach(() => {
+  // These tests are about the flow as it is with "Finish without me" turned off (the switch is on by default).
+  globalThis.localStorage.setItem('pm.agentWizard.finishWithoutMe', 'off');
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
 });
 
 afterEach(async () => {
+  globalThis.localStorage.removeItem('pm.agentWizard.finishWithoutMe');
   await act(async () => root.unmount());
   host.remove();
 });
@@ -860,5 +863,41 @@ describe('AgentDefinitions: Clear all and Dismiss (Delete for good)', () => {
     await click(button('Clear all'));
     await click(dialogButton('Delete for good'));
     expect(host.querySelector('[role="alert"]')?.textContent).toBe('1 could not be deleted. Try again.');
+  });
+});
+
+describe('AgentDefinitions: approved by the wizard', () => {
+  const rows = (): DefinitionsListing => ({
+    ...fixture(),
+    definitions: [
+      { id: 'nimbus', file: 'C:/data/agents/nimbus.toml', source: 'user', state: 'active', errors: [], fingerprint: 'sha256:n', shadowed_by: null, approved_by: 'wizard', approval_checks: 9 },
+      { id: 'kilo', file: KILO, source: 'user', state: 'active', errors: [], fingerprint: 'sha256:k', shadowed_by: null, approved_by: null, approval_checks: null },
+    ],
+  });
+
+  it('says on the agent the wizard approved that it did, after how many checks, and keeps Revoke', async () => {
+    await render(mockApi(rows()));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const items = Array.from(host.querySelectorAll('[data-testid="definition-row"]'));
+    const nimbus = items.find((i) => i.textContent?.includes('nimbus'));
+    const kilo = items.find((i) => i.textContent?.includes('kilo'));
+    expect(nimbus?.querySelector('[data-testid="approved-by-wizard"]')?.textContent).toBe('Approved by the wizard after 9 checks passed');
+    expect(Array.from(nimbus?.querySelectorAll('button') ?? []).map((b) => b.textContent)).toEqual(expect.arrayContaining(['Revoke']));
+    expect(kilo?.querySelector('[data-testid="approved-by-wizard"]')).toBeNull();
+  });
+
+  it('opens no approval dialog for what the wizard approved, and says what it left for the person otherwise', () => {
+    const done = { id: 'nimbus' };
+    expect(wizardResult({ ...done, approval: { approved: true, count: 9 } })).toEqual({
+      note: 'The wizard wrote nimbus and approved it after 9 checks passed. You can revoke or remove it below.',
+      openReview: false,
+    });
+    expect(wizardResult({ ...done, approval: { approved: false, reason: 'the checker still reports a problem with this draft' } })).toEqual({
+      note: 'The wizard wrote nimbus but did not approve it (the checker still reports a problem with this draft). Check the command below, then approve it.',
+      openReview: true,
+    });
+    expect(wizardResult(done)).toEqual({ note: 'The wizard wrote nimbus. Check the command below, then approve it.', openReview: true });
   });
 });
