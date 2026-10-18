@@ -1080,6 +1080,11 @@ mod wizard;
 #[path = "fake_tui_wizard_auto.rs"]
 mod wizard_auto;
 
+// ---- the safe answerer on drawn (not marked) menus, and the AI look at a menu nobody can read (zero tokens) ------
+
+#[path = "fake_tui_wizard_menus.rs"]
+mod wizard_menus;
+
 // ---- screen-read agents: card ids, clean replies, the model (zero tokens) -------------------------------------
 
 #[path = "fake_tui_screen_agents.rs"]

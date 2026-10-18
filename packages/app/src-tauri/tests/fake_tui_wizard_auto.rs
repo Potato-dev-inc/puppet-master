@@ -154,8 +154,28 @@ fn autonomous_rig(session: &Session, script: &str) -> WizardRig {
 
 #[test]
 fn finish_without_me_writes_and_approves_an_unknown_agent_with_zero_person_input() {
-    let session = World::get().session("wizard-auto");
-    let rig = autonomous_rig(&session, SCRIPT);
+    finish_without_me_run("wizard-auto", SCRIPT, DRAFT);
+}
+
+/// The founder's run: the agent's permission questions mark the highlighted option only by inverse video (no `>`, no
+/// `❯`), and the cursor starts on Deny. The wizard still finishes, APPROVED, with zero person input.
+#[test]
+fn finish_without_me_approves_an_agent_whose_permission_questions_use_an_inverse_highlight() {
+    let script = SCRIPT.replace("inline = true
+", "inline = true
+approvals = \"inverse\"
+approval_cursor = 2
+");
+    assert!(script.contains("approvals = \"inverse\""));
+    // the questions have no `[y/n]` any more: the draft's own prompt table matches the question line
+    let draft = DRAFT.replace(r"allow nimbus to .*\[y/n\]", "allow nimbus to (?:create|run)");
+    assert_ne!(draft, DRAFT);
+    finish_without_me_run("wizard-auto-inverse", &script, &draft);
+}
+
+fn finish_without_me_run(name: &str, script: &str, recorded_draft: &str) {
+    let session = World::get().session(name);
+    let rig = autonomous_rig(&session, script);
 
     // 1. The person typed the command; that is all they do.
     let started = rig.call("start", json!({"command": "nimbus", "autonomous": true})).unwrap_or_else(|e| panic!("start: {}", err(&e)));
@@ -182,7 +202,7 @@ fn finish_without_me_writes_and_approves_an_unknown_agent_with_zero_person_input
     }
 
     // 3. The stand-in drafter writes the recorded draft; verify; the visible test runs without anyone confirming it.
-    let draft = DRAFT.replace("@@COMMAND@@", "nimbus");
+    let draft = recorded_draft.replace("@@COMMAND@@", "nimbus");
     let expect = json!({"tui_idle": "chrome_lines = [\"NIMBUS 0.4.2\"]\n"});
     let verified = rig.call("verify", json!({"session": id, "toml": draft, "expect": expect})).unwrap_or_else(|e| panic!("verify: {}", err(&e)));
     assert_eq!(verified["ok"], true, "verify said:\n{}", verified["text"].as_str().unwrap_or_default());
