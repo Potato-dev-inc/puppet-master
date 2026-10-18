@@ -259,8 +259,8 @@ export function AgentWizardCapture({
         <p className="text-xs font-semibold">Watch it work once</p>
         <p className="mt-1 text-xs text-pm-muted">
           Puppet Master starts {start.command} in a pane, in an isolated temporary folder (never your project). You answer
-          its questions in the pane yourself: the wizard presses nothing for you. It types two small test messages and
-          writes down what the screen looks like. This uses a little of your {start.command} plan.
+          its questions in the pane yourself: the wizard presses nothing for you. It types a few small test messages (one asks it
+          to list the folder, so the wizard sees how it thinks and uses a tool) and writes down what the screen looks like. This uses a little of your {start.command} plan.
         </p>
         <div className="mt-3 text-xs font-medium text-pm-muted">It will start exactly this</div>
         <pre data-testid="capture-command" className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-pm-bg p-2 font-mono text-[11px]">

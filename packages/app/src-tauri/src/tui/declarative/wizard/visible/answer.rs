@@ -159,24 +159,29 @@ pub fn parse_menu(screen: &str) -> Option<Menu> {
             return Some(Menu { kind: MenuKind::Numbered, options });
         }
     }
-    // arrow: a marker row and the rows around it that start at the same column. The LAST such group is the menu: an
-    // earlier row that merely starts with a marker (the echo of the task, a quoted line) is not.
-    let anchors = (0..tail.len()).rev().filter(|i| parsed[*i].as_ref().is_some_and(|p| p.mark.is_some_and(is_selected_marker) && short(p) && p.num.is_none()));
+    // arrow: a marker row and the rows around it that start at the same column, ROW AFTER ROW (a blank row between two
+    // rows ends the group: the options of a menu are not spaced out, the echo of an earlier task, the bulleted summary
+    // row an agent prints after a turn and a quoted line are). The LAST such group is the menu.
+    let raw_all: Vec<&str> = screen.lines().map(str::trim_end).collect();
+    let end = raw_all.iter().rposition(|r| !r.trim().is_empty()).map_or(0, |i| i + 1);
+    let raw = &raw_all[end.saturating_sub(24)..end];
+    let raw_parsed: Vec<Option<Parsed>> = raw.iter().map(|r| parse_row(r)).collect();
+    let anchors = (0..raw.len()).rev().filter(|i| raw_parsed[*i].as_ref().is_some_and(|p| p.mark.is_some_and(is_selected_marker) && short(p) && p.num.is_none()));
     for anchor in anchors {
-        let col = parsed[anchor].as_ref().expect("parsed").text_col;
-        let same = |i: usize| parsed[i].as_ref().is_some_and(|p| p.text_col == col && short(p) && p.num.is_none());
+        let col = raw_parsed[anchor].as_ref().expect("parsed").text_col;
+        let same = |i: usize| raw_parsed[i].as_ref().is_some_and(|p| p.text_col == col && short(p) && p.num.is_none());
         let mut lo = anchor;
         while lo > 0 && same(lo - 1) {
             lo -= 1;
         }
         let mut hi = anchor;
-        while hi + 1 < tail.len() && same(hi + 1) {
+        while hi + 1 < raw.len() && same(hi + 1) {
             hi += 1;
         }
         if hi > lo {
             let options: Vec<MenuOption> = (lo..=hi)
                 .map(|i| {
-                    let p = parsed[i].as_ref().expect("parsed");
+                    let p = raw_parsed[i].as_ref().expect("parsed");
                     MenuOption { text: p.text.clone(), number: None, highlighted: p.mark.is_some_and(is_selected_marker) }
                 })
                 .collect();
@@ -231,11 +236,16 @@ pub fn classify_option(text: &str) -> OptionClass {
     }
 }
 
+/// A count of tokens (`298 tokens`, `1.2k tokens`) is a number in a summary row an agent printed after a turn, not a
+/// question about an API token.
+static TOKEN_COUNT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\b\d[\d.,]*\s*[km]?\s*(?:input |output |total |cached )?tokens?\b").expect("token count regex"));
+
 /// Sign-in, payment, model and telemetry questions are never the wizard's to answer.
 pub fn off_limits(screen: &str) -> Option<String> {
     let all = rows(screen);
     let from = all.len().saturating_sub(16);
     let tail = all[from..].join("\n");
+    let tail = TOKEN_COUNT.replace_all(&tail, " ");
     OFF_LIMITS.find(&tail).map(|m| m.as_str().to_string())
 }
 

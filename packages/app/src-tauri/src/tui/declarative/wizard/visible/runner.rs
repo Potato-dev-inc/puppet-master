@@ -63,7 +63,8 @@ pub struct RunnerCfg {
 
 impl Default for RunnerCfg {
     fn default() -> Self {
-        Self { capture: Config::default(), test: TestLimits::default(), tick: Duration::from_millis(250), window: true }
+        // The product asks the work task too (SPEC 11.18); `Config::default()` leaves it off for the engine tests.
+        Self { capture: Config { work_step: true, ..Config::default() }, test: TestLimits::default(), tick: Duration::from_millis(250), window: true }
     }
 }
 

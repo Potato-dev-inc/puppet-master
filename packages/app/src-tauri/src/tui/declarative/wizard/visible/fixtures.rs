@@ -23,8 +23,17 @@ use super::capture::{reply_rows, CapFrame, CaptureSet};
 use super::screen::rows;
 
 /// The captures the wizard can make, in the order they are written.
-pub const NAMES: [&str; 7] =
-    ["tui_trust", "tui_firstrun", "tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"];
+pub const NAMES: [&str; 9] = [
+    "tui_trust",
+    "tui_firstrun",
+    "tui_idle",
+    "tui_working",
+    "tui_reply",
+    "tui_work_working",
+    "tui_work_reply",
+    "tui_permission",
+    "tui_permission_command",
+];
 
 /// What a capture is, for the expectation rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +41,9 @@ enum Role {
     Idle,
     Working,
     Reply,
+    /// The reply to the task that made the agent think and use a tool: the answer sentence is the only row left once
+    /// the profile has dropped its chrome, thinking, summary and tool rows.
+    WorkReply,
     /// A dialog the profile must read as a prompt (trust, permission).
     Prompt,
     /// A startup screen that is only "not ready" (an update notice, a sign-in page).
@@ -41,8 +53,9 @@ enum Role {
 fn role(name: &str) -> Option<Role> {
     Some(match name {
         "tui_idle" => Role::Idle,
-        "tui_working" => Role::Working,
+        "tui_working" | "tui_work_working" => Role::Working,
         "tui_reply" => Role::Reply,
+        "tui_work_reply" => Role::WorkReply,
         "tui_permission" | "tui_permission_command" | "tui_trust" => Role::Prompt,
         "tui_firstrun" => Role::Startup,
         _ => return None,
@@ -82,6 +95,9 @@ struct Extras {
     model: Option<String>,
     menu: Option<bool>,
     prompt_kind: Option<String>,
+    thinking_lines: Vec<String>,
+    summary_lines: Vec<String>,
+    tool_lines: Vec<String>,
 }
 
 fn parse_extras(name: &str, frame: &CapFrame, text: &str, words: &TestWords) -> Result<Extras, Vec<Problem>> {
@@ -114,6 +130,23 @@ fn parse_extras(name: &str, frame: &CapFrame, text: &str, words: &TestWords) -> 
                     }
                 }
             }
+            "thinking_lines" | "summary_lines" | "tool_lines" => {
+                let Some(array) = value.as_array() else {
+                    problems.push(problem(name, format!("`{key}` must be a list of strings")));
+                    continue;
+                };
+                for item in array {
+                    match item.as_str() {
+                        Some(s) if on_screen(s) => match key.as_str() {
+                            "thinking_lines" => extras.thinking_lines.push(s.to_string()),
+                            "summary_lines" => extras.summary_lines.push(s.to_string()),
+                            _ => extras.tool_lines.push(s.to_string()),
+                        },
+                        Some(s) => problems.push(problem(name, format!("`{key}` entry {s:?} is not text that appears on the {name} capture"))),
+                        None => problems.push(problem(name, format!("`{key}` entries must be strings"))),
+                    }
+                }
+            }
             "model" => match value.as_str() {
                 Some(s) if on_screen(s) => extras.model = Some(s.to_string()),
                 Some(s) => problems.push(problem(name, format!("`model` {s:?} does not appear on the {name} capture"))),
@@ -131,7 +164,7 @@ fn parse_extras(name: &str, frame: &CapFrame, text: &str, words: &TestWords) -> 
             },
             other => problems.push(problem(
                 name,
-                format!("`{other}` is not an expectation key you may add; the allowed keys are chrome_lines, not_chrome_lines, model, menu, prompt_kind"),
+                format!("`{other}` is not an expectation key you may add; the allowed keys are chrome_lines, not_chrome_lines, thinking_lines, summary_lines, tool_lines, model, menu, prompt_kind"),
             )),
         }
     }
@@ -155,7 +188,7 @@ fn expect_for(
     let mut out: Vec<String> = Vec::new();
     let screen = frame.text.as_str();
     match role {
-        Role::Idle | Role::Reply => {
+        Role::Idle | Role::Reply | Role::WorkReply => {
             match profile.busy_marker(screen) {
                 Some(true) => problems.push(problem(
                     name,
@@ -215,13 +248,25 @@ fn expect_for(
     if !chrome.is_empty() {
         out.push(format!("chrome_lines = {}", list(&chrome)));
     }
+    for (key, lines) in [("thinking_lines", &extras.thinking_lines), ("summary_lines", &extras.summary_lines), ("tool_lines", &extras.tool_lines)] {
+        if !lines.is_empty() {
+            out.push(format!("{key} = {}", list(lines)));
+        }
+    }
     let mut not_chrome = extras.not_chrome_lines.clone();
-    if role == Role::Reply {
+    if matches!(role, Role::Reply | Role::WorkReply) {
+        let word = if role == Role::Reply { &words.one } else { &words.sky };
         if let Some(row) = frame.text.lines().map(str::trim).find(|r| {
             let l = r.to_lowercase();
-            l.contains(&words.one.to_lowercase()) && !l.contains("reply with") && !l.contains("exactly the word")
+            l.contains(&word.to_lowercase()) && !l.contains("reply with") && !l.contains("exactly the word")
         }) {
             not_chrome.push(row.to_string());
+            if role == Role::WorkReply {
+                // What the capture proves: once the profile drops its chrome, thinking, summary and tool rows, the
+                // rows after the task's echo are exactly the answer.
+                out.push("reply_after = \"reply with exactly\"".into());
+                out.push(format!("reply_rows = {}", list(&[row.to_string()])));
+            }
         }
     }
     not_chrome.dedup();

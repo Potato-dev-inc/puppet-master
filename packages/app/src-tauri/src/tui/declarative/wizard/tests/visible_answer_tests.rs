@@ -205,6 +205,36 @@ fn sign_in_payment_model_and_telemetry_questions_are_never_answered() {
 }
 
 #[test]
+fn a_bulleted_summary_row_and_the_echo_of_a_task_above_the_question_are_not_an_arrow_menu() {
+    // "▸ Thought for 3s" and "> List the files" start at the same column and both begin with a marker, one blank row apart
+    let screen = "> Reply with exactly the word: x\nreply: x\n\u{25b8} Thought for 2s, 298 tokens\n\n> List the files in this folder, then reply with exactly: y\n\nreply: y\n\u{25b8} Thought for 3s, 298 tokens\n\nAllow nimbus to create hello.txt? [y/n]\n";
+    let menu = parse_menu(screen).expect("the yes/no question");
+    assert_eq!(menu.kind, MenuKind::YesNo, "{menu:?}");
+    assert_eq!(safe_pick(&menu), Ok(0));
+    // rows that are really adjacent still make a menu, whatever stands above them
+    let real = format!("{screen}\nDo you trust the files in this folder?\n\n> Yes, I trust this folder\n  No, exit\n");
+    let menu = parse_menu(&real).expect("the arrow menu");
+    assert_eq!(menu.kind, MenuKind::Arrow);
+    assert_eq!(menu.options.len(), 2, "{menu:?}");
+}
+
+#[test]
+fn a_count_of_tokens_in_a_summary_row_above_the_question_is_not_a_question_about_a_token() {
+    // the row an agent prints after a turn stays in the rows above the next question
+    let after_a_turn = format!("reply: the sky is blue.\n\u{25b8} Thought for 3s, 298 tokens\n\n{YES_NO}");
+    assert_eq!(off_limits(&after_a_turn), None, "{after_a_turn}");
+    for row in ["1.2k tokens used", "12,345 input tokens", "used 3 output tokens so far", "5 tokens"] {
+        assert_eq!(off_limits(&format!("{row}\n{YES_NO}")), None, "{row}");
+    }
+    let step = look(&mut answerer(), &after_a_turn, Some(Flavour::Permission), 3000, 3000);
+    assert!(matches!(step, Step::Press { .. }), "{step:?}");
+    // a question about a token is still the person's
+    for text in ["Paste your token to continue?\n\n> Yes\n  No\n", "Use the saved API token? [y/n]\n", "Your tokens expired. Sign in again?\n> Yes\n  No\n"] {
+        assert!(off_limits(text).is_some(), "{text}");
+    }
+}
+
+#[test]
 fn the_drafts_own_allow_once_keys_are_used_when_the_menu_agrees_and_never_for_an_always_menu() {
     let hint = Hint { keys: vec![AnswerKey::Enter], label: "Allow once".into() };
     let mut a = answerer();

@@ -554,8 +554,8 @@ export function AgentWizard({
             <p className="text-xs font-semibold">Ready for the visible test</p>
             <p className="mt-1 text-xs text-pm-muted">
               The wizard starts {found.start.command} in a new pane, in a new isolated folder, and checks that the profile reads it:
-              the empty input box, the work, the reply and a permission question. It types two small test messages, about two
-              small messages per try, up to {MAX_ROUNDS} tries, and it uses your own {found.start.command} plan. If a question comes
+              the empty input box, the work, the reply (also for a task that makes it think and use a tool, and for a reply taller than
+              the pane) and a permission question. It types a few small test messages, about five small messages per try, up to {MAX_ROUNDS} tries, and it uses your own {found.start.command} plan. If a question comes
               up in the pane, you answer it; the wizard answers nothing. If a fix changes the command, you are asked again.
             </p>
             <PlannedPane planned={confirmingVisible} />

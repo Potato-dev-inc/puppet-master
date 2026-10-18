@@ -29,7 +29,7 @@ use super::super::report::{render, CheckError, Source as ReportSource, WizardErr
 use super::super::session::{sha256_hex, Draft, Session, State, VisibleTested, Wizard, WizardEnv};
 use super::answer::{scope_ok, AnswerCfg, AnswerKey, Answerer, AnsweredQ, Hint, Input as AnswerInput, Step as AnswerStep};
 use super::api::make_project;
-use super::capture::{command_task, message_task_for, permission_task, reply_rows, HistoryCounts};
+use super::capture::{command_task, message_task_for, permission_task, reply_rows, work_task, HistoryCounts};
 use super::host::{Look, PaneHost, PaneSpec};
 use super::runner::TestLimits;
 use super::screen::{classify, Flavour, ScreenKind, Stability, GRID_COLS, GRID_ROWS};
@@ -127,7 +127,31 @@ impl Outcome {
     }
 }
 
-const CHECKS: [(&str, &str); 11] = [
+/// Rows of the long reply the test asks for: taller than the pane (`GRID_ROWS`), so its start is in the scrollback.
+const LONG_ROWS: usize = GRID_ROWS as usize + 30;
+
+/// The task of the long-reply check: numbers one per row, then the word, so a reply that lost its start (or its middle)
+/// shows at once.
+fn long_task(count: usize, word: &str) -> String {
+    format!("Write the whole numbers from 1 to {count}, one number per line and nothing else. Then on a last line write exactly: {word}")
+}
+
+/// How far `text` counts from 1 in order: the integers in it are walked once and each one that is the next number wanted
+/// moves the count on. `count` at most.
+fn numbers_in_order(text: &str, count: usize) -> usize {
+    let mut next = 1usize;
+    for token in text.split(|c: char| !c.is_ascii_digit()).filter(|t| !t.is_empty()) {
+        if next > count {
+            break;
+        }
+        if token.parse::<usize>().ok() == Some(next) {
+            next += 1;
+        }
+    }
+    next - 1
+}
+
+const CHECKS: [(&str, &str); 13] = [
     ("starts", "The agent starts in a pane"),
     ("startup", "A startup question becomes a card"),
     ("ready", "It reaches its empty input box"),
@@ -136,6 +160,8 @@ const CHECKS: [(&str, &str); 11] = [
     ("done_reply", "It finishes and the reply is read"),
     ("model", "The model name is read"),
     ("resize", "It survives a resize"),
+    ("work", "Thinking and tool rows stay out of the reply"),
+    ("long_reply", "A reply taller than the pane is read whole"),
     ("permission", "A permission question becomes a card"),
     ("permission_command", "A command question becomes a card"),
     ("exit", "The pane closes"),
@@ -209,7 +235,7 @@ static MODEL_NAMED: once_cell::sync::Lazy<regex::Regex> =
 /// dialog that says `model:` is not the agent naming its model).
 fn model_in_captures(session: &Session, draft: &Draft) -> Option<String> {
     let from_screens = session.visible.captures.lock().as_ref().and_then(|set| {
-        ["tui_idle", "tui_working", "tui_reply"]
+        ["tui_idle", "tui_working", "tui_reply", "tui_work_reply"]
             .iter()
             .filter_map(|name| set.get(name))
             .find_map(|f| MODEL_NAMED.captures(&f.text).map(|c| c["name"].to_string()))
@@ -547,7 +573,9 @@ impl Test<'_> {
         }
     }
 
-    fn check_done_reply(&self, task: &str, baseline: &str, word: &str) -> Result<String, Fail> {
+    /// Poll the turn with the supervisor's own decision function until it completes: the result it read from the visible
+    /// rows, and the look it read it from.
+    fn wait_turn(&self, label: &'static str, task: &str, baseline: &str) -> Result<(String, Look), Fail> {
         let mut watch = TuiTurnWatch::from_baseline(baseline).with_task(task);
         watch.set_delivery_verified(self.profile.verifies_prompt_delivery());
         let until = Instant::now() + self.limits.done;
@@ -560,42 +588,10 @@ impl Test<'_> {
             if !look.alive {
                 return Err(self.gone("waiting for the reply", Some(look)));
             }
-            self.publish(Some("done_reply"), None, &look.screen);
+            self.publish(Some(label), None, &look.screen);
             let has_prompt = self.host.card(&self.pane).is_some() || look.status == "waiting_input";
             match observe_tui_turn(&mut watch, &look.status, &look.watch, has_prompt, &self.agent_type) {
-                TuiTurnDecision::Complete { result, .. } => {
-                    let shown = self.masked(&result);
-                    if !result.to_lowercase().contains(&word.to_lowercase()) {
-                        return Err(fail(format!("The reply that was read does not contain the answer the agent gave. It read: {shown:?}. Check `[tui.chrome]`, `[tui.tool_activity]` and `[tui.dialogs]`."), &look.watch));
-                    }
-                    if result.chars().count() > 400 {
-                        return Err(fail(format!("The reply that was read is {} characters long: it carries screen chrome. Add the banner and footer rows to `[tui.chrome] line_regex`. It read: {shown:?}", result.chars().count()), &look.watch));
-                    }
-                    // The reply must be CLEAN: the answer and nothing else. Any other row is something the tables
-                    // should have dropped; naming the rows tells the drafter which table to put each in.
-                    let rows: Vec<String> = result.lines().map(str::trim).filter(|r| !r.is_empty()).map(|r| self.masked(r)).collect();
-                    if rows.len() > 1 {
-                        let word_l = word.to_lowercase();
-                        let extra: Vec<String> = result
-                            .lines()
-                            .map(str::trim)
-                            .filter(|r| !r.is_empty())
-                            .enumerate()
-                            .filter(|(_, r)| !r.to_lowercase().contains(&word_l))
-                            .map(|(_, r)| format!("{:?}", self.masked(r)))
-                            .collect();
-                        let which = if extra.is_empty() {
-                            format!("The answer itself appears on {} rows: {}", rows.len(), rows.iter().map(|r| format!("{r:?}")).collect::<Vec<_>>().join(", "))
-                        } else {
-                            format!("Besides the answer it holds {} extra row(s): {}", extra.len(), extra.join(", "))
-                        };
-                        return Err(fail(
-                            format!("The reply that was read is not clean. {which}. The reply must be exactly the one answer row. Put banner, box, footer and \"done in\" rows in `[tui.chrome]`, rows the agent prints while it thinks or works (`Thinking...`, a spinner status, `Thought for 4s`) in `[tui.thinking]`, and tool-call rows in `[tui.tool_activity]` (lowercase line regexes; the rows above are shown as the screen has them)."),
-                            &look.watch,
-                        ));
-                    }
-                    return Ok(format!("The reply was read: {shown:?}."));
-                }
+                TuiTurnDecision::Complete { result, .. } => return Ok((result, look)),
                 TuiTurnDecision::WaitingInput if look.status != "waiting_input" && !has_prompt => {}
                 TuiTurnDecision::WaitingInput => {
                     return Err(fail("The agent asked a question while it was answering a plain message. Check `[[tui.prompt]] detect_regex`: it may match text that is not a question.", &look.watch));
@@ -614,6 +610,104 @@ impl Test<'_> {
             }
             std::thread::sleep(Duration::from_millis(500).min(self.limits.tick.max(Duration::from_millis(10)) * 2));
         }
+    }
+
+    fn check_done_reply(&self, task: &str, baseline: &str, word: &str) -> Result<String, Fail> {
+        self.check_clean_reply("done_reply", task, baseline, word)
+    }
+
+    /// The reply read for `task` must hold `word` and be exactly the one answer row: any other row is something a table
+    /// should have dropped, and naming it tells the drafter which table it belongs in.
+    fn check_clean_reply(&self, label: &'static str, task: &str, baseline: &str, word: &str) -> Result<String, Fail> {
+        let (result, look) = self.wait_turn(label, task, baseline)?;
+        let shown = self.masked(&result);
+        if !result.to_lowercase().contains(&word.to_lowercase()) {
+            return Err(fail(format!("The reply that was read does not contain the answer the agent gave. It read: {shown:?}. Check `[tui.chrome]`, `[tui.tool_activity]` and `[tui.dialogs]`."), &look.watch));
+        }
+        if result.chars().count() > 400 {
+            return Err(fail(format!("The reply that was read is {} characters long: it carries screen chrome. Add the banner and footer rows to `[tui.chrome] line_regex`. It read: {shown:?}", result.chars().count()), &look.watch));
+        }
+        let rows: Vec<String> = result.lines().map(str::trim).filter(|r| !r.is_empty()).map(|r| self.masked(r)).collect();
+        if rows.len() > 1 {
+            let word_l = word.to_lowercase();
+            let extra: Vec<String> = result
+                .lines()
+                .map(str::trim)
+                .filter(|r| !r.is_empty())
+                .filter(|r| !r.to_lowercase().contains(&word_l))
+                .map(|r| format!("{:?}", self.masked(r)))
+                .collect();
+            let which = if extra.is_empty() {
+                format!("The answer itself appears on {} rows: {}", rows.len(), rows.iter().map(|r| format!("{r:?}")).collect::<Vec<_>>().join(", "))
+            } else {
+                format!("Besides the answer it holds {} extra row(s): {}", extra.len(), extra.join(", "))
+            };
+            return Err(fail(
+                format!("The reply that was read is not clean. {which}. The reply must be exactly the one answer row. Put banner, box, footer and \"done in\" rows in `[tui.chrome]`, rows the agent prints while it thinks or works (`Thinking...`, a spinner status, a tool's name) in `[tui.thinking]` or `[tui.tool_activity]`, a row it prints once after the turn (`Thought for 3s, 298 tokens`, `Worked for 9s`) in `[tui.summary]` (lowercase line regexes; the rows above are shown as the screen has them)."),
+                &look.watch,
+            ));
+        }
+        Ok(format!("The reply was read: {shown:?}."))
+    }
+
+    /// A task that makes the agent think and use one harmless tool in the temp folder. The reply must still come out as
+    /// exactly the one answer sentence: the rows printed while it works and after the turn belong to the tables.
+    fn check_work(&self, task: &str, word: &str) -> Result<String, Fail> {
+        let ready = self.await_ready("work", self.limits.ready)?;
+        self.check_delivery(task)?;
+        let note = self.check_clean_reply("work", task, &ready.watch, word)?;
+        Ok(format!("The agent listed the folder and answered. {note}"))
+    }
+
+    /// A reply taller than the pane. It is read from the scrollback, from this turn's task on, whole; and the model is
+    /// still read once the banner has scrolled away.
+    fn check_long_reply(&self, word: &str) -> Result<String, Fail> {
+        let ready = self.await_ready("long_reply", self.limits.ready)?;
+        let before = self.host.history(&self.pane).unwrap_or_default();
+        let count = LONG_ROWS;
+        let task = long_task(count, word);
+        self.check_delivery(&task)?;
+        let (result, look) = self.wait_turn("long_reply", &task, &ready.watch)?;
+        // the profile's reader, exactly as the supervisor runs it: the visible rows, widened from the scrollback
+        let full = self.host.history(&self.pane).unwrap_or_default();
+        let anchored = crate::pty::pane_facts::rows_after_text(&before, &full);
+        let widened = crate::agent_runs::completion::widen_reply_anchored(&look.watch, &full, &task, "", &result, &self.agent_type, anchored.as_deref());
+        let found = numbers_in_order(&widened.text, count);
+        let mut notes = Vec::new();
+        if found == count {
+            notes.push(format!("A reply of {count} rows (the pane shows {GRID_ROWS}) was read whole, from the first row to the last."));
+        } else {
+            // Rows the agent did print but the profile's tables dropped are the draft's fault; rows nobody printed
+            // (the agent did not count, or its scrollback is gone) are not something a draft can fix.
+            let raw = numbers_in_order(&full, count);
+            if raw >= count {
+                return Err(fail(
+                    format!(
+                        "The agent printed a reply of {count} numbered rows, but the reply that was read holds only {found} of them. A table (`[tui.chrome]`, `[tui.thinking]`, `[tui.summary]`, `[tui.tool_activity]`) drops rows of a long answer: make its patterns match only the rows that are really chrome. The reply read starts {:?}",
+                        self.masked(&widened.text.lines().take(3).collect::<Vec<_>>().join(" | "))
+                    ),
+                    &look.watch,
+                ));
+            }
+            notes.push(format!("The reply could not be checked for completeness: the pane's text holds {raw} of the {count} numbers the agent was asked to print."));
+        }
+        // the model, from the screen as it is NOW (after the banner has scrolled off)
+        match &self.capture_model {
+            None => notes.push("The capture showed no model name, so the model was not checked.".into()),
+            Some(expected) => match self.profile.detect_footer_model(&look.screen) {
+                Some(model) => notes.push(format!("The model was still read once the reply had pushed the banner away: {model:?}.")),
+                None if look.screen.to_lowercase().contains(&expected.to_lowercase()) => {
+                    return Err(fail(
+                        format!(
+                            "The model name ({expected}) is on the screen after a long reply, but `[tui.footer_model]` reads none from it. The banner scrolls away in a longer session, so a regex that only matches the banner is not enough: make it match the row that stays (a status line or footer), and allow for a name the window clips at its right end."
+                        ),
+                        &look.screen,
+                    ))
+                }
+                None => notes.push(format!("The agent shows its model ({expected}) only on the banner; a run uses the name the pane showed when it started.")),
+            },
+        }
+        Ok(notes.join(" "))
     }
 
     /// Returns `Ok(None)` when no question appeared (the check is skipped).
@@ -887,6 +981,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
 
     // Read before the struct below is built: its fields hold the captures lock until the statement ends.
     let capture_model = model_in_captures(session, draft);
+    let work_captured = session.visible.captures.lock().as_ref().is_some_and(|set| set.has("tui_work_reply"));
     let mut test = Test {
         host: &*host,
         pane,
@@ -928,6 +1023,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
                 match name {
                     "model" => "The capture did not show a model name, so there was nothing to check.",
                     "resize" => "The pane could not be resized here, so there was nothing to check.",
+                    "work" | "long_reply" => "The capture has no screens of the thinking-and-tool task (that step was skipped), so there was nothing to check.",
                     "permission_command" => "The capture has no command question, or none appeared, so there was nothing to check.",
                     _ => "No permission question appeared, so there was nothing to check.",
                 }
@@ -1016,19 +1112,40 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
                 let t = Instant::now();
                 let r = test.check_resize(&words.two);
                 record(&mut test, &mut outcome, "resize", t, r);
+                // the work task and the tall reply: only when the capture made the work screens (the person did not skip them)
+                if work_captured {
+                    let t = Instant::now();
+                    let r = test.check_work(&work_task(words), &words.sky).map(Some);
+                    let work_ok = record(&mut test, &mut outcome, "work", t, r) == "passed";
+                    if work_ok {
+                        let t = Instant::now();
+                        let r = test.check_long_reply(&words.two).map(Some);
+                        record(&mut test, &mut outcome, "long_reply", t, r);
+                    } else {
+                        skipped(&mut outcome, &mut test, "long_reply", "not run: the work task did not pass");
+                    }
+                } else {
+                    for name in ["work", "long_reply"] {
+                        skipped(&mut outcome, &mut test, name, "The capture has no screens of the thinking-and-tool task (that step was skipped), so there was nothing to check.");
+                    }
+                }
             } else {
                 skipped(&mut outcome, &mut test, "model", "not run: the reply check did not pass");
                 skipped(&mut outcome, &mut test, "resize", "not run: the reply check did not pass");
+                skipped(&mut outcome, &mut test, "work", "not run: the reply check did not pass");
+                skipped(&mut outcome, &mut test, "long_reply", "not run: the reply check did not pass");
             }
         } else {
             skipped(&mut outcome, &mut test, "busy", "not run: the task was not delivered");
             skipped(&mut outcome, &mut test, "done_reply", "not run: the task was not delivered");
             skipped(&mut outcome, &mut test, "model", "not run: the task was not delivered");
             skipped(&mut outcome, &mut test, "resize", "not run: the task was not delivered");
+            skipped(&mut outcome, &mut test, "work", "not run: the task was not delivered");
+            skipped(&mut outcome, &mut test, "long_reply", "not run: the task was not delivered");
             skipped(&mut outcome, &mut test, "permission_command", "not run: the task was not delivered");
         }
     } else {
-        for name in ["delivery", "busy", "done_reply", "model", "resize", "permission_command"] {
+        for name in ["delivery", "busy", "done_reply", "model", "resize", "work", "long_reply", "permission_command"] {
             skipped(&mut outcome, &mut test, name, &format!("not run: {}", dead_end.unwrap_or("an earlier check failed")));
         }
     }

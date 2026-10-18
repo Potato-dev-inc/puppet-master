@@ -173,6 +173,8 @@ pub fn screen_methods_survive_huge_input(profile: &dyn TuiProfile) -> Result<(),
     let _ = profile.is_chrome_line(&huge);
     let _ = profile.is_tool_activity_line(&huge);
     let _ = profile.is_thinking_line(&huge);
+    let _ = profile.is_summary_line(&huge);
+    let _ = profile.footer_model_readings(&huge);
     let _ = profile.startup_gate(&huge);
     let _ = profile.composer_state(&huge);
     Ok(())

@@ -353,6 +353,9 @@ pub struct TuiTable {
     /// Rows the agent prints while it thinks or works (`Thinking...`, a spinner status row, `Thought for 4s`): never
     /// reply text, whether they are on screen while the turn runs or stay in the transcript afterwards.
     pub thinking: Option<LineRegexTable>,
+    /// Rows the agent prints once, after a turn has ended (`Thought for 3s, 298 tokens`, `Worked for 9s`, a cost or
+    /// elapsed-time line): never reply text. A leading bullet or arrow glyph on the row does not matter.
+    pub summary: Option<LineRegexTable>,
     /// Activity line patterns: matched against visible lines, newest first. The phrase is the
     /// named group `text`, else group 1, else the whole match.
     #[serde(default)]

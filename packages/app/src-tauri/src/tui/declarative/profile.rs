@@ -655,6 +655,14 @@ impl TuiProfile for DeclarativeProfile {
         self.engine.as_ref()?.detect_footer_model(buffer)
     }
 
+    fn footer_model_readings(&self, buffer: &str) -> Vec<crate::tui::ModelReading> {
+        self.engine.as_ref().map(|engine| engine.footer_model_readings(buffer)).unwrap_or_default()
+    }
+
+    fn is_summary_line(&self, lower: &str) -> bool {
+        self.engine.as_ref().is_some_and(|engine| engine.is_summary_line(lower))
+    }
+
     fn capability_notes(&self, _has_pane: bool) -> Vec<String> {
         let note = self.def.features.read_only_note.trim();
         if note.is_empty() { Vec::new() } else { vec![note.to_string()] }

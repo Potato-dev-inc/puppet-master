@@ -4,10 +4,12 @@
 //! Live supervision is a thin loop over the same function. Reply-text cleaning is in `clean`.
 
 mod clean;
+mod links;
 
 use crate::operations::ResultCapture;
 use clean::normalize_echo;
 pub use clean::{clean_extracted_result, clean_extracted_result_after, tui_turn_evidence};
+pub use links::restore_link_paths;
 
 pub const STABLE_IDLE_TICKS: u8 = 2;
 pub const RECONCILE_IDLE_TICKS: u8 = 4;
@@ -333,6 +335,22 @@ pub fn widen_reply(
     result: &str,
     agent_type: &str,
 ) -> WidenedReply {
+    widen_reply_anchored(visible, full, task, previous_task, result, agent_type, None)
+}
+
+/// [`widen_reply`], with a second way to find where the turn begins when its task's echo is nowhere in `full`
+/// (an agent that does not echo the task, or echoes it in a form nobody can match): `since_turn` is the text of the
+/// pane that is new since the moment before the task was typed (`pty::pane_facts::rows_since_turn_mark`). The reply
+/// is that text, cleaned, when it holds more than what the visible rows gave.
+pub fn widen_reply_anchored(
+    visible: &str,
+    full: &str,
+    task: &str,
+    previous_task: &str,
+    result: &str,
+    agent_type: &str,
+    since_turn: Option<&str>,
+) -> WidenedReply {
     let unchanged = |truncated| WidenedReply {
         text: result.to_string(),
         truncated,
@@ -343,11 +361,16 @@ pub fn widen_reply(
     if head.len() < 8 || normalize_echo(visible).contains(head) {
         return unchanged(false);
     }
-    match scrollback_reply(full, task, previous_task, agent_type) {
-        Some(text) => WidenedReply {
-            text,
-            truncated: false,
-        },
+    if let Some(text) = scrollback_reply(full, task, previous_task, agent_type) {
+        return WidenedReply { text, truncated: false };
+    }
+    // The task's echo is nowhere: the pane's own text since just before the task was typed is the turn.
+    let anchored = since_turn
+        .and_then(|rows| tui_turn_evidence(rows, "", agent_type))
+        .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task, agent_type))
+        .filter(|text| text.lines().count() > result.lines().count());
+    match anchored {
+        Some(text) => WidenedReply { text, truncated: false },
         None => unchanged(true),
     }
 }
@@ -400,5 +423,45 @@ impl TuiTurnWatch {
             "task_head": self.task.chars().take(80).collect::<String>(),
             "baseline_tail": tail(&self.baseline),
         })
+    }
+}
+
+#[cfg(test)]
+mod anchored_tests {
+    use super::*;
+
+    const AGENT: &str = "no-such-agent-for-the-anchor-tests";
+
+    fn rows(n: usize) -> String {
+        (1..=n).map(|i| format!("row {i} is here")).collect::<Vec<_>>().join("\n")
+    }
+
+    /// An agent that does not echo the task: nothing on the screen or in the scrollback says where the turn began, and
+    /// the visible rows are only the tail of a reply taller than the pane.
+    #[test]
+    fn without_an_echo_the_text_since_the_turn_began_is_the_reply() {
+        let visible = rows(50)[rows(50).find("row 31 ").unwrap()..].to_string();
+        let full = format!("earlier note\n{}", rows(50));
+        let tail = clean_extracted_result("row 31 is here\nrow 32 is here", "", AGENT).unwrap();
+        let widened = widen_reply_anchored(&visible, &full, "Write the long answer please", "", &tail, AGENT, Some(&rows(50)));
+        assert!(!widened.truncated);
+        assert_eq!(widened.text.lines().count(), 50);
+        assert!(widened.text.starts_with("row 1 is here") && widened.text.ends_with("row 50 is here"), "{}", widened.text);
+        // no anchor: the old behaviour, the tail, flagged as truncated
+        let plain = widen_reply_anchored(&visible, &full, "Write the long answer please", "", &tail, AGENT, None);
+        assert!(plain.truncated);
+        assert_eq!(plain.text, tail);
+        // an anchor that holds no more than what the visible rows gave changes nothing
+        let same = widen_reply_anchored(&visible, &full, "Write the long answer please", "", &tail, AGENT, Some("row 31 is here\nrow 32 is here"));
+        assert!(same.truncated && same.text == tail);
+    }
+
+    #[test]
+    fn the_echo_still_wins_when_it_is_in_the_scrollback() {
+        let full = format!("old\n> Write the long answer please\n{}", rows(60));
+        let tail = "row 41 is here".to_string();
+        let widened = widen_reply_anchored("row 41 is here", &full, "Write the long answer please", "", &tail, AGENT, Some("a different anchor"));
+        assert!(!widened.truncated);
+        assert_eq!(widened.text.lines().count(), 60, "{}", widened.text);
     }
 }

@@ -5,6 +5,7 @@ pub mod agents;
 pub mod ansi;
 pub mod hidden;
 pub mod keys;
+pub mod pane_facts;
 pub mod proc_tree;
 pub mod registry;
 pub mod resize_clock;

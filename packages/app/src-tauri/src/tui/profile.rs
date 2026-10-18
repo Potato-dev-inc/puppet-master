@@ -429,6 +429,18 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// Every model name the profile reads in `buffer`, oldest first, each with whether it ends its row.
+    /// The default is the one name `detect_footer_model` finds.
+    fn footer_model_readings(&self, buffer: &str) -> Vec<ModelReading> {
+        self.detect_footer_model(buffer).map(|name| ModelReading { name, cut: false }).into_iter().collect()
+    }
+
+    /// True for a row the agent prints once a turn has ended (`Thought for 3s, 298 tokens`, `Worked for 9s`):
+    /// never reply text. `lower` is trimmed and lowercased.
+    fn is_summary_line(&self, _lower: &str) -> bool {
+        false
+    }
+
     // ---- capabilities -------------------------------------------------------------------
 
     /// Caveats appended to this backend's capability contract.

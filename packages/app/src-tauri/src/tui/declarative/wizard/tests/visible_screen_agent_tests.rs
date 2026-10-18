@@ -300,7 +300,8 @@ fn note_of(v: &Value, name: &str) -> String {
 
 #[test]
 fn a_reply_with_a_thinking_row_in_it_fails_and_the_row_is_named() {
-    let f = fixture("sa-dirty", visible_draft("fake-agent"), screens::IDLE, None);
+    // a draft written from the plain screens knows no thinking row
+    let f = fixture("sa-dirty", super::support::visible_draft_without_work_tables("fake-agent"), screens::IDLE, None);
     f.agent(screens::IDLE, "~ Thinking... (2s)\n");
     let v = f.start(screens::IDLE).join().unwrap().unwrap();
     assert_eq!(v["ok"], false, "{}", v["checks"]);
@@ -313,7 +314,7 @@ fn a_reply_with_a_thinking_row_in_it_fails_and_the_row_is_named() {
 
 #[test]
 fn the_same_reply_passes_once_the_draft_names_the_thinking_rows() {
-    let draft = format!("{}\n[tui.thinking]\nline_regex = ['^~ thinking']\n", visible_draft("fake-agent"));
+    let draft = format!("{}\n[tui.thinking]\nline_regex = ['^~ thinking']\n", super::support::visible_draft_without_work_tables("fake-agent"));
     let f = fixture("sa-clean", draft, screens::IDLE, None);
     f.agent(screens::IDLE, "~ Thinking... (2s)\n");
     let v = f.start(screens::IDLE).join().unwrap().unwrap();

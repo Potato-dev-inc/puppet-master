@@ -88,7 +88,7 @@ export interface CapturePlan {
   fingerprint: string;
 }
 
-export type CaptureStepId = 'start' | 'ready' | 'message' | 'permission' | 'exit';
+export type CaptureStepId = 'start' | 'ready' | 'message' | 'work' | 'permission' | 'exit';
 export type CaptureStepStatus = 'pending' | 'running' | 'needs_you' | 'done' | 'skipped' | 'stuck' | 'failed';
 export type CaptureAction = 'skip' | 'retry' | 'stuck' | 'ready' | 'try_exit' | 'closed' | 'done' | 'question';
 

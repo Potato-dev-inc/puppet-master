@@ -295,6 +295,8 @@ pub fn spawn_pane(
                             // String here, as from_utf8_lossy corrupts multi-byte
                             // UTF-8 at chunk boundaries.
                             scrollback.lock().push_chunk(&buf[..n]);
+                            // Hyperlinks (OSC 8) the emulator does not keep: what a shortened path pointed at.
+                            crate::pty::pane_facts::feed(&pane_id, &buf[..n]);
                             // Emit raw bytes for the xterm.js renderer, while
                             // also feeding the headless emulator used by MCP
                             // buffer reads and reattach snapshots.
@@ -319,6 +321,9 @@ pub fn spawn_pane(
                                 continue;
                             }
                             idle_clock.screen_changed(Instant::now());
+                            // The model any look of this pane showed (a banner, a status row while it works) stays
+                            // known after the screen moves on.
+                            crate::pty::pane_facts::observe_model(&pane_id, &agent_type, &snapshot);
                             let busy = crate::pty::status::busy_marker(&agent_type, &snapshot);
                             busy_state.store(
                                 match busy {

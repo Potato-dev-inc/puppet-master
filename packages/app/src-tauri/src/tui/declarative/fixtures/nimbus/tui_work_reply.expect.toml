@@ -1,0 +1,10 @@
+busy = false
+prompt_kind = ""
+menu = false
+ready = true
+thinking_lines = ["~ Thinking... (3s)"]
+summary_lines = ["▸ Thought for 3s, 298 tokens"]
+tool_lines = ["tool: ls"]
+not_chrome_lines = ["reply: folder listed, code <word-3>."]
+reply_after = "reply with exactly"
+reply_rows = ["reply: folder listed, code <word-3>."]

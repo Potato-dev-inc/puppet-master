@@ -27,6 +27,7 @@ pub fn is_tui_chrome_line(line: &str, agent_type: &str) -> bool {
         || lower.starts_with("facts:")
         || crate::tui::is_chrome_line(&lower, agent_type)
         || crate::tui::is_thinking_line(&lower, agent_type)
+        || crate::tui::is_summary_line(&lower, agent_type)
         || is_rule_line(&lower)
 }
 

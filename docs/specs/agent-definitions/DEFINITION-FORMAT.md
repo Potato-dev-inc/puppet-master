@@ -205,15 +205,16 @@ All patterns are Rust regular expressions (see 7). Tables you can add under `[tu
 | `[tui.chrome]` `line_regex` | banners, footers, hints that are not reply text | one trimmed, LOWERCASED line |
 | `[tui.tool_activity]` `line_regex` | rows like "ran command" printed above the reply | one trimmed, LOWERCASED line |
 | `[tui.thinking]` `line_regex` | rows the agent prints while it thinks or works (`Thinking...`, a status spinner row, `Thought for 4s`), on screen during the turn or left in the transcript after it | one trimmed, LOWERCASED line |
+| `[tui.summary]` `line_regex` | a row the agent prints ONCE, after a turn has ended (`Thought for 3s, 298 tokens`, `Worked for 9s`, a cost or elapsed-time line). A bullet or arrow glyph at the start of the row does not matter | one trimmed, LOWERCASED line (also tried without a leading glyph) |
 | `[tui.menu]` `regex` | an open selector, so "wait for settled" does not call it idle | whole screen |
 | `[tui.dialogs]` `strip_blocks` | removes boxed dialogs (trust/approval) from reply text | screen text |
-| `[tui.footer_model]` `regex` | live model name, with a group named `model`. It may sit in a footer, a status line or the banner: Puppet Master tries the screen it sees, every earlier look of the run, and the scrollback | whole screen (and the scrollback) |
+| `[tui.footer_model]` `regex` | live model name, with a group named `model`. It may sit in a footer, a status line or the banner: Puppet Master tries the screen it sees, every look of the pane's whole life (a banner that scrolled away before this run began is remembered), and the scrollback. Prefer a row that STAYS on screen (a status line or footer) over the banner. A name cut at the window's edge (the match is the last thing on its row) never replaces a longer name that starts with it | whole screen (and the scrollback) |
 | `[tui.classify]` `waiting_regex` | force a "waiting for input" status | last visible lines |
 | `[[tui.prompt]]` | approval or trust prompts and how to answer them | whole screen |
 
-Because chrome, thinking and tool-activity lines are lowercased before matching, write those regexes in lowercase.
+Because chrome, thinking, summary and tool-activity lines are lowercased before matching, write those regexes in lowercase.
 
-**The reply of a turn** is what follows the echo of THIS turn's task on the screen, with every chrome, thinking and tool-activity row removed (rows up to the last tool-activity row are the tool's, not the answer). The banner above the echo, the previous turn and stale status rows can never be part of it. A reply that still holds anything but the answer is a table that is missing a row: the Agent Wizard's visible test fails it ("the reply is not clean") and names the extra rows.
+**The reply of a turn** is what follows the echo of THIS turn's task on the screen, with every chrome, thinking, summary and tool-activity row removed (rows up to the last tool-activity row are the tool's, not the answer). The banner above the echo, the previous turn and stale status rows can never be part of it. A reply taller than the pane is read from the scrollback, from the task's echo on (when the agent does not echo the task, from the first row that is new since just before it was typed). A shortened path in the reply (`.../x.py`) that the agent drew as an OSC 8 hyperlink comes back as the path of the link's `file://` target, only when the shown text is an ellipsised form of that very path. A reply that still holds anything but the answer is a table that is missing a row: the Agent Wizard's visible test fails it ("the reply is not clean") and names the extra rows.
 Timing: `idle_after_ms` (default 2500, allowed 1500-5000) is how long the screen must hold still to count
 as idle; `quiet_idle_after_ms` (500 up to `idle_after_ms`) applies when `busy` says nothing is working.
 
@@ -367,6 +368,10 @@ deliver the task through `[headless.stdin]`; this is refused for project and ext
    not_chrome_lines = ["the answer"]
    thinking_lines = ["Thinking... (3s)"]     # must be thinking rows (checked lowercased, like chrome)
    not_thinking_lines = ["the answer"]
+   summary_lines = ["▸ Thought for 3s, 298 tokens"]   # must be post-turn summary rows (not_summary_lines: must not)
+   tool_lines = ["tool: ls"]                           # must be tool-activity rows (not_tool_lines: must not)
+   reply_after = "reply with exactly"                  # the rows under the last row holding this text (the task's echo) ...
+   reply_rows = ["reply: the answer"]                  # ... less chrome, thinking, summary and tool rows, are exactly these
    ```
 4. **Run the check**: Settings > Agents > Check with fixtures (set the folder, or leave it empty to use a
    folder named after the file next to it), or put the files under
@@ -391,7 +396,8 @@ deliver the task through `[headless.stdin]`; this is refused for project and ext
 | `AGENT_REPORTED_ERROR` with a model/provider message | the CLI printed an error event (bad model, no credit) | fix the CLI configuration; try `model` explicitly |
 | Result is empty or has banner text (visible) | chrome/tool-activity patterns missing | add lowercase `line_regex` entries from a real capture |
 | Result has `Thinking...` / spinner / `Thought for 4s` rows (visible) | no `[tui.thinking]` | add lowercase `line_regex` entries for those rows |
-| `resolved_model` is null although the screen names the model (visible) | no `[tui.footer_model]`, or its regex misses the row | add it with a `(?P<model>...)` group; it may match the banner or a status line |
+| Result ends with a `Thought for 3s, 298 tokens` / `Worked for 9s` row printed after the turn (visible) | no `[tui.summary]` | add a lowercase `line_regex` for it (a leading bullet does not matter) |
+| `resolved_model` is null although the screen names the model (visible) | no `[tui.footer_model]`, or its regex misses the row | add it with a `(?P<model>...)` group; match a status line or footer that stays on screen as well as the banner |
 | Trust or approval answered with the id just read is refused as stale (visible) | the id was made from a screen that redraws | fixed in Puppet Master: ids are the question's; a `detect_regex` that matches the question line (not a spinner row) keeps it stable |
 | Each command / file approval needs the pane taken over (visible) | the definition only describes one permission screen | add a `[[tui.prompt]]` per kind (`command_approval`, `file_edit`) |
 | The conversation shows twice after a window resize (visible) | `reprints_on_resize` is false although the agent reprints | let the wizard measure it, or set `[features] reprints_on_resize = true` |

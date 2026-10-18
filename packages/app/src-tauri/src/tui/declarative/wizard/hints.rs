@@ -64,7 +64,7 @@ pub fn fix_for(code: &str, path: &str) -> String {
             "Add a [[tui.prompt]] whose `detect_regex` matches the permission capture, with choices allow_once and deny (each a `key` or `text` that answers it), and a `not_when_regex` for what stays on screen after it was answered."
         }
         "FIXTURE_EXPECT_INVALID" => {
-            "Fix or remove that expectation block: it may only use chrome_lines, not_chrome_lines, model, menu and prompt_kind, and every row must appear on the capture it belongs to. For a dialog, make a [[tui.prompt]] match it."
+            "Fix or remove that expectation block: it may only use chrome_lines, not_chrome_lines, thinking_lines, summary_lines, tool_lines, model, menu and prompt_kind, and every row must appear on the capture it belongs to. For a dialog, make a [[tui.prompt]] match it."
         }
         "WIZARD_ID_TAKEN" => "Choose a different `agent.id`; this one already has a file. Add a suffix such as `_2`.",
         "WIZARD_BINARY_MISMATCH" => {
@@ -79,7 +79,7 @@ pub fn fix_for(code: &str, path: &str) -> String {
         "WIZARD_KIND" => "Remove `kind = \"generic\"` (or set `kind = \"cli\"`). A generic agent has no headless table.",
         "FIXTURE_FAILED" => {
             if path.starts_with("tui_") {
-                "The screen was not read the way the capture proves it should be. Compare the regex named in the Problem with the screen shown: `ready` is [tui.ready], `busy` is [tui.busy], `prompt_kind` is [[tui.prompt]], chrome rows are [tui.chrome] (lowercase regexes)."
+                "The screen was not read the way the capture proves it should be. Compare the regex named in the Problem with the screen shown: `ready` is [tui.ready], `busy` is [tui.busy], `prompt_kind` is [[tui.prompt]], chrome rows are [tui.chrome], rows printed while it thinks or works are [tui.thinking], a row printed once after a turn is [tui.summary], tool-call rows are [tui.tool_activity] (lowercase regexes)."
             } else {
                 "The real or generated output was not read the way the fixture expects. Compare your `where`, `path` and `pick` with the real output lines shown, and fix the selector that is wrong."
             }
@@ -95,6 +95,12 @@ pub fn fix_for(code: &str, path: &str) -> String {
         "VISIBLETEST_BUSY_FAILED" => "The profile did not see the agent working. Make [tui.busy] `working_regex` match the working capture.",
         "VISIBLETEST_DONE_REPLY_FAILED" => {
             "The reply was not read from the finished screen. Make [tui.chrome], [tui.thinking] and [tui.tool_activity] (lowercase line regexes) cover the banner, footer, thinking / status and tool rows but not the reply row, and check [tui.busy] does not match the finished screen. The reply must come out as exactly the one answer row."
+        }
+        "VISIBLETEST_WORK_FAILED" => {
+            "A task that makes the agent think and use a tool did not come out as exactly the one answer row. Rows it prints while it thinks or works (`Thinking...`, a spinner status, `Thought for 4s`) belong in [tui.thinking], a row printed once after the turn (`Thought for 3s, 298 tokens`, `Worked for 9s`) in [tui.summary], tool-call rows in [tui.tool_activity] (lowercase line regexes; none may match the answer row)."
+        }
+        "VISIBLETEST_LONG_REPLY_FAILED" => {
+            "A reply taller than the pane was not read whole, or the model was not read once the banner had scrolled away. Make [tui.footer_model] match a row that stays on screen (a status line or footer, not only the startup banner), and allow for a name the window clips at its right end."
         }
         "VISIBLETEST_MODEL_FAILED" => {
             "The capture names the model but the profile read none. Add `[tui.footer_model] regex` with a named group `model`; it is matched against the whole screen (and the scrollback), so it may match a footer, a status line or the banner."

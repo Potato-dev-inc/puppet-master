@@ -476,7 +476,7 @@ describe('the visible flow', () => {
     });
     await click(button('Approve'));
     await flush();
-    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', prompt_version: '7', rounds: 1 });
+    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', prompt_version: '8', rounds: 1 });
   });
 
   it('the Review says when the agent writes files without asking', async () => {
