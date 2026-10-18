@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- The "+" menu starts an agent in the folder you selected. **Separate copy** now starts off (it used to start
+  on for a Git project); turn it on per agent, and your own choice for a project is still remembered.
+  "+" starts in the last folder you used, Recent projects never list a separate copy, and the pane header
+  says "separate copy of <folder>" when it is one.
+
 ## 0.1.5 - security patch
 
 - Fixes a bridge authorization bypass: requests that came through a tunnel, a reverse proxy or a

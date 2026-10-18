@@ -97,6 +97,32 @@ afterEach(() => {
 const tabs = () => [...host.querySelectorAll('[role="tab"]')].map((t) => t.textContent);
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
+describe('the pane header says where the agent works', () => {
+  const headerLine = () => host.querySelector('.ck-pane-head .ck-sub-inline')!;
+  const withCwd = (cwd: string): CockpitApi => {
+    const c = cockpit();
+    const list = [{ ...pane('iso', 'idle'), info: { ...pane('iso', 'idle').info, cwd } }];
+    return { ...c, registry: { paneList: list, panes: new Map(list.map((p) => [p.info.id, p])), initialReady: true } } as unknown as CockpitApi;
+  };
+
+  it('names the folder when the agent works in it, with the full path on hover', async () => {
+    await act(async () => root.render(<PaneView c={withCwd('C:\\work\\shop')} paneId="iso" />));
+    await flush();
+    expect(headerLine().textContent).toContain('shop');
+    expect(headerLine().textContent).not.toContain('separate copy');
+    expect(headerLine().getAttribute('title')).toBe('C:\\work\\shop');
+  });
+
+  it('says "separate copy of <folder>" when it works in a copy, and never shows the copy’s own folder', async () => {
+    const copy = 'C:\\work\\shop\\.puppet-master\\worktrees\\pane-1a2b3c4d';
+    await act(async () => root.render(<PaneView c={withCwd(copy)} paneId="iso" />));
+    await flush();
+    expect(headerLine().textContent).toContain('separate copy of shop');
+    expect(headerLine().textContent).not.toContain('pane-1a2b3c4d');
+    expect(headerLine().getAttribute('title')).toBe('C:\\work\\shop');
+  });
+});
+
 describe('Changes tab for isolated panes', () => {
   it('shows a Changes tab with the file count, and Discard, for a pane in a worktree', async () => {
     worktreeFor = { iso: ITEM };

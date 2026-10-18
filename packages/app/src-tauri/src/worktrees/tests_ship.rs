@@ -689,7 +689,7 @@ fn recent_projects_are_most_recent_first_without_duplicates() {
     folder::remember(&store, &project_str(&a));
     let gone = store.join("deleted-project");
     folder::remember(&store, &gone.to_string_lossy());
-    let others = vec![project_str(&b), "".to_string(), project_str(&store.join("x/.puppet-master/worktrees/h"))];
+    let others = vec![project_str(&b), "".to_string(), format!("{}/.puppet-master/worktrees/h", project_str(&b))];
     let listed = folder::recent(&store, &others, 8);
     let paths: Vec<&str> = listed.iter().map(|p| p.path.as_str()).collect();
     assert_eq!(paths, vec![gone.to_string_lossy().as_ref(), a.to_string_lossy().as_ref(), b.to_string_lossy().as_ref()]);
@@ -697,6 +697,62 @@ fn recent_projects_are_most_recent_first_without_duplicates() {
     assert_eq!(listed[1].state, "repo");
     folder::forget(&store, &gone.to_string_lossy());
     assert_eq!(folder::recent(&store, &[], 8).len(), 2);
+}
+
+#[test]
+fn a_separate_copy_is_mapped_back_to_its_project_in_the_recents() {
+    let store = temp_dir("store-copy");
+    let _store_guard = Dir(store.clone());
+    let (_g, project) = repo();
+    let copy = project.join(".puppet-master").join("worktrees").join("pane-1a2b3c4d");
+    std::fs::create_dir_all(&copy).unwrap();
+    // The copy's own folder reaches `remember` (an old caller, a pane's cwd)…
+    folder::remember(&store, &copy.to_string_lossy());
+    // …and the run index (`others`) knows the copy too.
+    let others = vec![copy.to_string_lossy().into_owned()];
+    let listed = folder::recent(&store, &others, 8);
+    assert_eq!(listed.len(), 1, "the project once, not the project and its copy: {listed:?}");
+    assert_eq!(listed[0].path, project.to_string_lossy());
+    assert_eq!(listed[0].name, project.file_name().unwrap().to_string_lossy());
+    assert_eq!(listed[0].state, "repo");
+    let saved = std::fs::read_to_string(store.join("recent-projects.json")).unwrap();
+    assert!(!saved.contains("worktrees"), "the list on disk never holds a copy: {saved}");
+    // Forgetting by the copy's path forgets the project.
+    folder::forget(&store, &copy.to_string_lossy());
+    assert!(folder::recent(&store, &[], 8).is_empty());
+}
+
+#[test]
+fn a_copy_of_a_project_that_is_already_listed_does_not_move_or_duplicate_it() {
+    let store = temp_dir("store-dup");
+    let _store_guard = Dir(store.clone());
+    let (_g1, a) = repo();
+    let (_g2, b) = repo();
+    folder::remember(&store, &project_str(&a));
+    folder::remember(&store, &project_str(&b));
+    let copy_of_a = format!("{}/.puppet-master/worktrees/h-1", project_str(&a));
+    let listed = folder::recent(&store, &[copy_of_a], 8);
+    let paths: Vec<&str> = listed.iter().map(|p| p.path.as_str()).collect();
+    assert_eq!(paths, vec![b.to_string_lossy().as_ref(), a.to_string_lossy().as_ref()]);
+}
+
+#[test]
+fn other_puppet_master_folders_are_still_not_projects() {
+    let store = temp_dir("store-pm");
+    let _store_guard = Dir(store.clone());
+    let (_g, project) = repo();
+    let operations = project.join(".puppet-master").join("operations");
+    std::fs::create_dir_all(&operations).unwrap();
+    folder::remember(&store, &operations.to_string_lossy());
+    assert!(folder::recent(&store, &[operations.to_string_lossy().into_owned()], 8).is_empty());
+}
+
+#[test]
+fn real_folder_maps_a_copy_and_leaves_a_project_alone() {
+    assert_eq!(folder::real_folder(r"C:\code\shop\.puppet-master\worktrees\pane-1a2b\src"), r"C:\code\shop");
+    assert_eq!(folder::real_folder("/home/me/shop/.puppet-master/worktrees/h-1"), "/home/me/shop");
+    assert_eq!(folder::real_folder("  /home/me/shop  "), "/home/me/shop");
+    assert_eq!(folder::real_folder(r"C:\code\shop"), r"C:\code\shop");
 }
 
 #[test]

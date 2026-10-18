@@ -66,6 +66,14 @@ fn key(path: &str) -> String {
     crate::project_path::comparable_project_path(Path::new(path))
 }
 
+/// The folder a person would call the project: a path inside a separate copy
+/// (`<project>/.puppet-master/worktrees/<id>`) maps back to the project it came from; anything
+/// else is returned as it is (trimmed). A copy is never a project, so no list of projects holds one.
+pub fn real_folder(text: &str) -> String {
+    let text = text.trim();
+    crate::worktrees::origin_of_cwd(text).unwrap_or_else(|| text.to_string())
+}
+
 fn load(store: &Path) -> Vec<Stored> {
     std::fs::read_to_string(store.join(FILE))
         .ok()
@@ -84,7 +92,8 @@ fn save(store: &Path, items: &[Stored]) {
 
 /// Put `project` at the top of the recents.
 pub fn remember(store: &Path, project: &str) {
-    let project = project.trim();
+    let project = real_folder(project);
+    let project = project.as_str();
     if project.is_empty() {
         return;
     }
@@ -97,6 +106,8 @@ pub fn remember(store: &Path, project: &str) {
 
 /// Take `project` off the list (the folder itself is never touched).
 pub fn forget(store: &Path, project: &str) {
+    let project = real_folder(project);
+    let project = project.as_str();
     let mut items = load(store);
     items.retain(|item| key(&item.path) != key(project));
     save(store, &items);
@@ -134,10 +145,13 @@ pub fn git_state(path: &Path) -> &'static str {
 pub fn recent(store: &Path, others: &[String], limit: usize) -> Vec<RecentProject> {
     let mut out: Vec<RecentProject> = Vec::new();
     let mut add = |path: &str, last_used_ms: u64| {
-        if path.trim().is_empty() || out.iter().any(|seen| key(&seen.path) == key(path)) {
+        // A copy's folder is listed as the project it came from.
+        let path = real_folder(path);
+        let path = path.as_str();
+        if path.is_empty() || out.iter().any(|seen| key(&seen.path) == key(path)) {
             return;
         }
-        // `.puppet-master/worktrees/...` paths are copies, never projects.
+        // Anything else inside `.puppet-master/` (operations, storage) is not a project either.
         if path.replace('\\', "/").contains("/.puppet-master/") {
             return;
         }

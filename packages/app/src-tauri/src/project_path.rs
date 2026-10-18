@@ -160,6 +160,49 @@ pub fn comparable_project_path(path: &Path) -> String {
     }
 }
 
+/// `\?\C:\x` -> `C:\x` (and `\?\UNC\host\share` -> `\host\share`), the spelling a program's working
+/// directory and the person's own folder list use. `canonicalize` returns the extended-length form on
+/// Windows. A share that was reached through a mapped drive letter keeps the letter: `cmd.exe` cannot
+/// start in a UNC folder.
+fn plain_spelling(canonical: PathBuf, as_given: &Path) -> PathBuf {
+    let text = canonical.to_string_lossy().into_owned();
+    if let Some(share) = text.strip_prefix(r"\?\UNC\") {
+        let given = as_given.to_string_lossy();
+        let given_is_drive = given.len() >= 2 && given.as_bytes()[1] == b':';
+        return if given_is_drive { as_given.to_path_buf() } else { PathBuf::from(format!(r"\{share}")) };
+    }
+    match text.strip_prefix(r"\?\") {
+        Some(rest) if rest.len() >= 2 && rest.as_bytes()[1] == b':' => PathBuf::from(rest),
+        _ => canonical,
+    }
+}
+
+/// The folder a person selected (picker, Recent projects, drag-drop, "open folder") as the working
+/// directory of the agent that starts there: `~` expanded, `..` and trailing separators gone, links
+/// resolved, no `\?\` prefix. A folder that cannot be resolved keeps the spelling it was given.
+pub fn selected_folder(path: &Path) -> PathBuf {
+    let expanded = expand_user_path(path);
+    match std::fs::canonicalize(&expanded) {
+        Ok(canonical) => plain_spelling(canonical, &expanded),
+        Err(_) => expanded,
+    }
+}
+
+/// The working directory for a new agent from the folder the person named (`None` or blank: the
+/// caller's default project). The result is that folder itself, canonical. A path inside a separate
+/// copy (`<project>/.puppet-master/worktrees/<id>`) is mapped back to the project it came from: a
+/// copy is never a project. `Err("FOLDER_MISSING: ...")` when the folder is gone.
+pub fn resolve_selected_folder(raw: Option<&str>) -> Result<Option<String>, String> {
+    let Some(raw) = raw.map(str::trim).filter(|p| !p.is_empty()) else { return Ok(None) };
+    let named = expand_user_path(Path::new(raw));
+    let named_text = named.to_string_lossy().into_owned();
+    let project = crate::worktrees::origin_of_cwd(&named_text).map(PathBuf::from).unwrap_or(named);
+    if !project.is_dir() {
+        return Err("FOLDER_MISSING: that project folder does not exist any more".into());
+    }
+    Ok(Some(selected_folder(&project).to_string_lossy().into_owned()))
+}
+
 /// True when `supplied` is the worker directory or an ancestor of it.
 pub fn workspace_covers(supplied: &Path, worker: &Path) -> bool {
     let supplied = comparable_project_path(supplied);
@@ -193,6 +236,8 @@ pub fn set_active_and_persist(
     persist: impl FnOnce(&serde_json::Value) -> Result<serde_json::Value, String>,
 ) -> Result<PathBuf, (u16, String)> {
     let normalized = normalize_project_path(Path::new(raw)).map_err(|e| (400, e))?;
+    // A separate copy's folder is never the project folder: the project it came from is.
+    let normalized = crate::worktrees::origin_of_cwd(&normalized.to_string_lossy()).map(PathBuf::from).unwrap_or(normalized);
     // A relative or drive-relative path (`reports`, `C:Users`) would be resolved against whatever
     // the app's working directory is: runs would create folders there (inside the source tree in
     // a dev build) and the bad value would be saved and loaded again at every start.
@@ -401,6 +446,25 @@ mod persist_tests {
     }
 
     #[test]
+    fn making_a_separate_copys_folder_the_project_folder_makes_its_project_the_project_folder() {
+        let registry = parking_lot::Mutex::new(crate::pty::PaneRegistry::new());
+        let origin = std::env::temp_dir().join(format!("pm-sel-active-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]));
+        let copy = origin.join(".puppet-master").join("worktrees").join("pane-1a2b3c4d");
+        std::fs::create_dir_all(&copy).unwrap();
+        let mut saved = String::new();
+        let out = set_active_and_persist(&registry, &copy.to_string_lossy(), |patch| {
+            saved = patch["project_path"].as_str().unwrap_or_default().to_string();
+            Ok(serde_json::json!({}))
+        })
+        .expect("accepted");
+        assert_eq!(out, origin, "the project, not the copy");
+        assert_eq!(saved, origin.to_string_lossy());
+        assert!(!saved.contains("worktrees"));
+        assert_eq!(registry.lock().project_path, origin.to_string_lossy());
+        let _ = std::fs::remove_dir_all(origin);
+    }
+
+    #[test]
     fn a_bad_path_is_a_400_and_a_failed_save_is_reported() {
         let registry = parking_lot::Mutex::new(crate::pty::PaneRegistry::new());
         let before = registry.lock().project_path.clone();
@@ -410,5 +474,59 @@ mod persist_tests {
         let err = set_active_and_persist(&registry, std::env::temp_dir().to_str().unwrap(), |_| Err("disk full".into())).unwrap_err();
         assert_eq!(err.0, 500);
         assert!(err.1.contains("could not be saved") && err.1.contains("disk full"), "{}", err.1);
+    }
+    // ---- the folder a person selected is the folder the agent works in
+
+    fn temp_folder(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pm-sel-{tag}-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn text(path: &Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_selected_folder_is_used_exactly_as_picked() {
+        let dir = temp_folder("exact");
+        let picked = resolve_selected_folder(Some(&text(&dir))).unwrap().expect("a folder");
+        assert!(!picked.contains(".puppet-master"), "{picked}");
+        assert!(!picked.starts_with(r"\?\"), "no extended-length prefix reaches a program's cwd: {picked}");
+        assert_eq!(comparable_project_path(Path::new(&picked)), comparable_project_path(&dir));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_selected_folder_is_canonical_dots_and_trailing_separators_are_gone() {
+        let dir = temp_folder("canon");
+        std::fs::create_dir_all(dir.join("inner")).unwrap();
+        let sep = std::path::MAIN_SEPARATOR;
+        let messy = format!("{}{sep}inner{sep}..{sep}", text(&dir));
+        let picked = resolve_selected_folder(Some(&messy)).unwrap().unwrap();
+        assert!(!picked.contains(".."), "{picked}");
+        assert!(!picked.ends_with(sep), "{picked}");
+        assert_eq!(comparable_project_path(Path::new(&picked)), comparable_project_path(&dir));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_separate_copys_folder_is_never_where_a_selected_project_starts() {
+        let origin = temp_folder("origin");
+        let copy = origin.join(".puppet-master").join("worktrees").join("pane-1a2b3c4d");
+        std::fs::create_dir_all(&copy).unwrap();
+        let picked = resolve_selected_folder(Some(&text(&copy))).unwrap().unwrap();
+        assert!(!picked.contains("worktrees"), "{picked}");
+        assert_eq!(comparable_project_path(Path::new(&picked)), comparable_project_path(&origin));
+        let _ = std::fs::remove_dir_all(origin);
+    }
+
+    #[test]
+    fn nothing_selected_means_the_default_folder_and_a_missing_folder_is_refused() {
+        assert_eq!(resolve_selected_folder(None).unwrap(), None);
+        assert_eq!(resolve_selected_folder(Some("  ")).unwrap(), None);
+        let gone = std::env::temp_dir().join("pm-sel-does-not-exist-xyz");
+        let err = resolve_selected_folder(Some(&text(&gone))).unwrap_err();
+        assert!(err.starts_with("FOLDER_MISSING"), "{err}");
     }
 }

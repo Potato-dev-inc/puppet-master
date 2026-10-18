@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaneInfo } from '@puppet-master/shared';
 import type { CockpitApi } from '../../hooks/useCockpit';
-import type { GitState, ShipApi } from '../../lib/ship-api';
+import type { GitState, RecentProject, ShipApi } from '../../lib/ship-api';
 import { tauri } from '../../lib/tauri';
 import { Sidebar } from './Sidebar';
 
@@ -104,7 +104,7 @@ describe('sidebar: nothing raw', () => {
   it('names a pane in a separate copy by its project, never by the id of the copy folder', async () => {
     await render(fakeApi({}, COPY_CWD));
     const row = host.querySelector('.ck-row:not(.ck-row--flat)')!;
-    expect(row.querySelector('.ck-row-sub')!.textContent).toBe('shop · separate copy');
+    expect(row.querySelector('.ck-row-sub')!.textContent).toBe('separate copy of shop');
     expect(row.textContent).not.toContain('7d4cb2b3');
     expect(row.querySelector('.ck-row-main')!.getAttribute('title')).not.toContain('7d4cb2b3');
   });
@@ -131,21 +131,47 @@ describe('sidebar: nothing raw', () => {
 
 describe('"+" menu: Separate copy default', () => {
   const sw = (menu: HTMLElement) => menu.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  const startCodex = async (menu: HTMLElement) => {
+    const codex = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.includes('Codex'))!;
+    await act(async () => codex.click());
+  };
 
-  it('starts ON for a Git project with a first commit', async () => {
+  // The old decision (a Git project started in a separate copy) was reversed on 2026-10-18:
+  // the folder the person selected is the folder the agent works in.
+  it('starts OFF for a Git project with a first commit, and can still be turned on', async () => {
     await render(fakeApi(), ship('repo'));
     const menu = await openMenu();
-    expect(sw(menu).getAttribute('aria-checked')).toBe('true');
+    expect(sw(menu).getAttribute('aria-checked')).toBe('false');
     expect(sw(menu).disabled).toBe(false);
-    expect(menu.textContent).toContain('uncommitted changes');
+    expect(menu.textContent).not.toContain('uncommitted changes');
+    expect(menu.textContent).toContain('Works in this folder');
   });
 
-  it('starts a new agent in a separate copy when it is on', async () => {
+  it('starts a new agent in the selected folder itself (no copy) by default', async () => {
+    const c = fakeApi();
+    await render(c, ship('repo'));
+    await startCodex(await openMenu());
+    expect(c.newAgent).toHaveBeenCalledWith('codex', undefined, false, 'C:\\work\\shop');
+  });
+
+  it('starts a separate copy only after the person turns the switch on', async () => {
     const c = fakeApi();
     await render(c, ship('repo'));
     const menu = await openMenu();
-    const codex = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.includes('Codex'))!;
-    await act(async () => codex.click());
+    await act(async () => sw(menu).click());
+    expect(sw(menu).getAttribute('aria-checked')).toBe('true');
+    expect(menu.textContent).toContain('uncommitted changes');
+    await startCodex(menu);
+    expect(c.newAgent).toHaveBeenCalledWith('codex', undefined, true, 'C:\\work\\shop');
+  });
+
+  it('keeps honouring a choice the person made: ON stays on for that project', async () => {
+    localStorage.setItem('pm.separate-copy', JSON.stringify({ 'C:\\work\\shop': true }));
+    const c = fakeApi();
+    await render(c, ship('repo'));
+    const menu = await openMenu();
+    expect(sw(menu).getAttribute('aria-checked')).toBe('true');
+    await startCodex(menu);
     expect(c.newAgent).toHaveBeenCalledWith('codex', undefined, true, 'C:\\work\\shop');
   });
 
@@ -156,12 +182,13 @@ describe('"+" menu: Separate copy default', () => {
     expect(sw(menu).getAttribute('aria-checked')).toBe('false');
   });
 
-  it('remembers a change for the next time', async () => {
+  it('remembers a change for the next time, and writes nothing until the person changes it', async () => {
     await render(fakeApi(), ship('repo'));
     const menu = await openMenu();
+    expect(localStorage.getItem('pm.separate-copy')).toBeNull();
     await act(async () => sw(menu).click());
-    expect(sw(menu).getAttribute('aria-checked')).toBe('false');
-    expect(JSON.parse(localStorage.getItem('pm.separate-copy')!)).toEqual({ 'C:\\work\\shop': false });
+    expect(sw(menu).getAttribute('aria-checked')).toBe('true');
+    expect(JSON.parse(localStorage.getItem('pm.separate-copy')!)).toEqual({ 'C:\\work\\shop': true });
   });
 
   it('is OFF without Git, with a one-line hint and "Set up Git here"', async () => {
@@ -191,19 +218,82 @@ describe('"+" menu: Separate copy default', () => {
     expect(sw(menu).disabled).toBe(false);
   });
 
-  it('with no pane selected, it names the open project and starts on for a Git project', async () => {
+  it('with no pane selected, it names the open project and starts OFF for a Git project', async () => {
     vi.spyOn(tauri, 'getProjectPath').mockResolvedValue('C:\\work\\shop');
     const s = ship('repo');
     await render(fakeApi({ selectedId: null }), s);
     const menu = await openMenu();
     expect(menu.querySelector('.ck-chip-name')!.textContent).toBe('shop');
-    expect(sw(menu).getAttribute('aria-checked')).toBe('true');
+    expect(sw(menu).getAttribute('aria-checked')).toBe('false');
     expect(s.gitState).toHaveBeenCalledWith('C:\\work\\shop');
   });
 
-  it('a pane in a separate copy works out its project from the copy folder', async () => {
+  it('a pane in a separate copy works out its project from the copy folder, and the next agent starts in that real folder', async () => {
     const s = ship('repo');
-    await render(fakeApi({}, COPY_CWD), s);
+    const c = fakeApi({}, COPY_CWD);
+    await render(c, s);
     expect(s.gitState).toHaveBeenCalledWith('C:\\work\\shop');
+    await startCodex(await openMenu());
+    expect(c.newAgent).toHaveBeenCalledWith('codex', undefined, false, 'C:\\work\\shop');
+  });
+});
+
+describe('"+" menu: the folder the person selected is the folder', () => {
+  const recent = (over: Partial<RecentProject>[]): RecentProject[] =>
+    over.map((o) => ({ path: 'C:\\work\\other', name: 'other', state: 'repo' as GitState, last_used_ms: 5, ...o }));
+  const startCodex = async (menu: HTMLElement) => {
+    const codex = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.includes('Codex'))!;
+    await act(async () => codex.click());
+  };
+
+  it('picking a folder from Recent projects starts the agent in exactly that folder, with no copy', async () => {
+    const s = ship('repo');
+    (s.recent as ReturnType<typeof vi.fn>).mockResolvedValue(recent([{ path: 'C:\\work\\site', name: 'site' }]));
+    const c = fakeApi();
+    await render(c, s);
+    const menu = await openMenu();
+    await act(async () => menu.querySelector<HTMLButtonElement>('.ck-chip')!.click());
+    const row = [...host.querySelectorAll<HTMLButtonElement>('.ck-menu-item--project')].find((b) => b.textContent?.includes('site'))!;
+    await act(async () => row.click());
+    await startCodex(host.querySelector<HTMLElement>('[role="menu"]')!);
+    expect(c.newAgent).toHaveBeenCalledWith('codex', undefined, false, 'C:\\work\\site');
+  });
+
+  it('a copy that reaches the Recent list is shown as, and picked as, its real folder', async () => {
+    const s = ship('repo');
+    (s.recent as ReturnType<typeof vi.fn>).mockResolvedValue(recent([{ path: COPY_CWD, name: '7d4cb2b3-2-209c' }]));
+    const c = fakeApi({ selectedId: null });
+    vi.spyOn(tauri, 'getProjectPath').mockResolvedValue('C:\\work\\elsewhere');
+    await render(c, s);
+    const menu = await openMenu();
+    await act(async () => menu.querySelector<HTMLButtonElement>('.ck-chip')!.click());
+    const text = host.querySelector('[role="menu"]')!.textContent!;
+    expect(text).not.toContain('worktrees');
+    expect(text).not.toContain('7d4cb2b3');
+    const row = host.querySelector<HTMLButtonElement>('.ck-menu-item--project')!;
+    expect(row.textContent).toContain('C:\\work\\shop');
+    await act(async () => row.click());
+    await startCodex(host.querySelector<HTMLElement>('[role="menu"]')!);
+    expect(c.newAgent).toHaveBeenCalledWith('codex', undefined, false, 'C:\\work\\shop');
+  });
+
+  it('"+" defaults to the last real folder when no pane is selected', async () => {
+    vi.spyOn(tauri, 'getProjectPath').mockResolvedValue('C:\\work\\app-default');
+    const s = ship('repo');
+    (s.recent as ReturnType<typeof vi.fn>).mockResolvedValue(recent([{ path: 'C:\\work\\last', name: 'last' }]));
+    const c = fakeApi({ selectedId: null });
+    await render(c, s);
+    const menu = await openMenu();
+    expect(menu.querySelector('.ck-chip-name')!.textContent).toBe('last');
+    await startCodex(menu);
+    expect(c.newAgent).toHaveBeenCalledWith('codex', undefined, false, 'C:\\work\\last');
+  });
+
+  it("the selected pane's project still wins over the last folder", async () => {
+    const s = ship('repo');
+    (s.recent as ReturnType<typeof vi.fn>).mockResolvedValue(recent([{ path: 'C:\\work\\last', name: 'last' }]));
+    await render(fakeApi(), s);
+    const menu = await openMenu();
+    expect(menu.querySelector('.ck-chip-name')!.textContent).toBe('shop');
   });
 });

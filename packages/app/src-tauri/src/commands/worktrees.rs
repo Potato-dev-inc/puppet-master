@@ -153,7 +153,8 @@ pub async fn project_pick_folder(app: AppHandle) -> Result<Option<Value>, String
     .map_err(|error| format!("INTERNAL: {error}"))?;
     let Some(picked) = picked else { return Ok(None) };
     let path = picked.into_path().map_err(|error| format!("INVALID_ARGUMENT: {error}"))?;
-    let text = path.to_string_lossy().into_owned();
+    // The folder as the person picked it, canonical and without a `\\?\` prefix.
+    let text = crate::project_path::selected_folder(&path).to_string_lossy().into_owned();
     folder::remember(&app_data(), &text);
     let entry = folder::recent(&app_data(), &[], 1)
         .into_iter()

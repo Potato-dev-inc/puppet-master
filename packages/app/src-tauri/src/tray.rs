@@ -340,15 +340,9 @@ mod runtime {
         use tauri::Emitter;
         let started = std::time::Instant::now();
         let state = app.state::<AppState>();
-        let chosen = chosen_project
-            .map(str::trim)
-            .filter(|p| !p.is_empty())
-            .map(|p| crate::project_path::expand_user_path(std::path::Path::new(p)))
-            .filter(|p| p.is_dir())
-            .map(|p| p.to_string_lossy().into_owned());
-        if chosen_project.is_some_and(|p| !p.trim().is_empty()) && chosen.is_none() {
-            return Err("FOLDER_MISSING: that project folder does not exist any more".into());
-        }
+        // The folder the person selected, exactly (canonical; a separate copy's folder maps back to its
+        // project). Without a copy the agent starts here, and nowhere under `.puppet-master`.
+        let chosen = crate::project_path::resolve_selected_folder(chosen_project)?;
         let default_project = crate::standby::default_project(&state.registry);
         // The cockpit always names the project its chip shows; naming the default project is not
         // a different project (a warm worker can still be claimed).

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { confirmCloseEnabled, needsCloseConfirm } from '../../lib/close-policy';
 import { cockpitApi, type PaneRunInfo, type PaneTranscript } from '../../lib/cockpit-api';
-import { projectLabel, projectWithCopy } from './shell-labels';
+import { projectLabel, projectWithCopy, realFolderPath } from './shell-labels';
 import { useLoopGuard } from '../../lib/loop-guard';
 import { activityText } from '../../lib/pane-activity';
 import '../../styles/pane-activity.css';
@@ -207,7 +207,9 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             onEditingChange={setRenaming}
             onSave={(title) => void c.rename(paneId, title)}
           />
-          <span className="ck-sub-inline">{projectLine}</span>
+          <span className="ck-sub-inline" title={realFolderPath(info.cwd)}>
+            {projectLine}
+          </span>
           {info.account_label && <span className="ck-sub-inline" data-testid="pane-account">{info.account_label}</span>}
         </div>
         <UntestedChip agent={info.agent_type} />
