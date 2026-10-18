@@ -15,9 +15,9 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | Rust lib | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib` | 927 passed, 0 failed, 2 ignored (PF3) |
 | Rust: TUI only | `cargo test --lib tui::` (same dir/env) | about 252+ passed, 1 ignored |
 | Rust: tool registry | `cargo test --lib tool_registry` | about 22 passed (includes the pinned `catalog_version`) |
-| Rust: standby / preload | `cargo test --lib standby` (+ `app_windows`, `tray`) | about 50 passed (PreloadConfig, migration, default-project warming, count 2, replacement, project change) |
+| Rust: standby / preload | `cargo test --lib standby` (+ `app_windows`, `tray`) | 50 passed (PreloadConfig, migration, default-project warming, count 2, replacement, project change, back-off incl. a worker that reaches ready and then dies) |
 | MCP shim bin | `cargo test --bin puppet-master-mcp` (same dir/env) | 30 passed |
-| App unit tests | `cd packages/app; npx vitest run` | 239 passed (36 files) |
+| App unit tests | `cd packages/app; npx vitest run` | 2054 passed, 1 skipped (211 files). Grid flicker guards: `TerminalGrid.reflow.test.tsx`, `TerminalGrid.resize.test.tsx` (whole stack, spy on the bridge resize), `TerminalViewport.stable.test.tsx`, `terminal/terminal-session.reflow.test.ts`, `styles/pane-chrome.css.test.ts` |
 | Typecheck | `npm run typecheck` (workspaces) | clean for shared, app, mcp-server |
 | CLI tests | `npm test --workspace=@puppet-master/cli` | pass |
 | MCP vs mock bridge | `npm run test:mcp-operations` / `npm run test:mcp-package` | pass (not run at T37) |
