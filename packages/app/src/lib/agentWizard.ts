@@ -138,6 +138,18 @@ export interface VerdictReply {
   status?: CaptureStatus;
 }
 
+/**
+ * What Rust made of the AI look's choice for a menu the safe answerer could not read (SPEC 11.20). `accepted` is true when
+ * Rust checked the option and the keys against the screen and the safety rules and the answerer will press them, false with
+ * `why` when it refused; for the visible test it is null (the test answers with its next look: `VisibleTestStatus.menu_choice`).
+ */
+export interface MenuChoiceReply {
+  accepted: boolean | null;
+  label?: string;
+  why?: string;
+  status?: CaptureStatus;
+}
+
 /** What an autonomous run tells `finish`: the decisions it took (for the record) and that it wants the approval. */
 export interface AutoFinish {
   decisions: string[];
@@ -162,9 +174,14 @@ export interface CaptureStatus {
   fingerprint?: string;
   /** Set when the run was stopped (a sign-in or payment screen); nothing is typed until a retry. */
   halted?: string | null;
-  needs_you?: { step: CaptureStepId; kind: string; message: string } | null;
-  /** Setup questions the wizard answered for the person so far (labels only). */
-  answered?: Array<{ place: string; flavour: string; label: string; keys: string }>;
+  /** `unreadable`: the safe answerer could not find the menu or its highlighted row (an AI look may name the option). */
+  needs_you?: { step: CaptureStepId; kind: string; message: string; unreadable?: boolean } | null;
+  /** The identity of the question the safe answerer is looking at (the AI look's answer is bound to it). */
+  question_fp?: string | null;
+  /** Rows drawn highlighted (inverse video, a band, bold), masked: a hint for the AI look when the text shows no cursor. */
+  menu_look?: { emphasis: string[] };
+  /** Setup questions the wizard answered for the person so far (labels only). `via` is `ai_look` when an AI look named it. */
+  answered?: Array<{ place: string; flavour: string; label: string; keys: string; via?: string }>;
   auto_answer?: boolean;
   /** The pane's screen, masked, for the preview in the wizard window. */
   screen?: string;
@@ -199,10 +216,12 @@ export interface VisibleTestStatus {
   running: boolean;
   check?: string | null;
   /** `kind` is the question's flavour (trust, login, question...) or `stuck` after a long wait. */
-  needs_you?: { message: string; kind?: string } | null;
+  needs_you?: { message: string; kind?: string; unreadable?: boolean; emphasis?: string[] } | null;
   checks?: VisibleCheck[];
   screen?: string;
   answered?: AnsweredQuestion[];
+  /** What the test made of the AI look's choice (`accepted: false` with `why`), once it looked at it. */
+  menu_choice?: { accepted: boolean; label?: string; why?: string } | null;
 }
 
 export interface VerifyResult {
@@ -349,6 +368,10 @@ export interface WizardApi {
   verdict?(session: string, verdict: Verdict): Promise<VerdictReply>;
   /** The same for the visible test's pane. */
   testVerdict?(session: string, verdict: Verdict): Promise<VerdictReply>;
+  /** "Finish without me": the AI look named an option and keys for a menu Rust could not read; Rust checks them. */
+  menuChoice?(session: string, option: string, keys: string[], fingerprint?: string): Promise<MenuChoiceReply>;
+  /** The same for the visible test's pane. */
+  testMenuChoice?(session: string, option: string, keys: string[]): Promise<MenuChoiceReply>;
   /** Open the visible test's pane (the question on it is the person's). */
   testShow?(session: string): Promise<void>;
   capturePlan(session: string, args: string[]): Promise<CapturePlan>;
@@ -384,6 +407,9 @@ export const tauriWizardApi: WizardApi = {
   },
   verdict: (session, verdict) => invoke<VerdictReply>('agent_wizard_capture', { body: { session, op: 'verdict', verdict } }),
   testVerdict: (session, verdict) => invoke<VerdictReply>('agent_wizard_capture', { body: { session, op: 'test_verdict', verdict } }),
+  menuChoice: (session, option, keys, fingerprint) =>
+    invoke<MenuChoiceReply>('agent_wizard_capture', { body: { session, op: 'menu_choice', option, keys, ...(fingerprint ? { fingerprint } : {}) } }),
+  testMenuChoice: (session, option, keys) => invoke<MenuChoiceReply>('agent_wizard_capture', { body: { session, op: 'test_menu_choice', option, keys } }),
   testShow: async (session) => {
     await invoke('agent_wizard_capture', { body: { session, op: 'show' } });
   },
