@@ -63,7 +63,12 @@ impl PaneHost for RegistryHost {
         let alive = crate::agent_runs::delivery::pane_process_state(&self.registry, pane)
             != crate::pty::agent_proc::AgentProcess::Exited;
         let grid = self.registry.lock().list().into_iter().find(|p| p.id == pane).map(|p| (p.cols, p.rows));
-        Some(Look { screen, watch, status, alive, output_pos, hello_written: false, grid, history: String::new() })
+        // the same grid with its attributes: a menu may mark its highlighted row only by how it is drawn
+        let styled = {
+            let emulator = self.registry.lock().panes.get(pane).map(|p| p.screen.clone());
+            emulator.map(|screen| super::styled::StyledScreen::from_screen(screen.lock().screen()))
+        };
+        Some(Look { screen, watch, status, alive, output_pos, hello_written: false, grid, history: String::new(), styled })
     }
 
     fn deliver(&self, pane: &str, text: &str, trace: &mut Vec<String>) -> Delivered {
@@ -135,6 +140,9 @@ impl PaneHost for RegistryHost {
             let (text, enter) = match key {
                 AnswerKey::Up => ("[A", false),
                 AnswerKey::Down => ("[B", false),
+                AnswerKey::Right => ("[C", false),
+                AnswerKey::Left => ("[D", false),
+                AnswerKey::Tab => ("	", false),
                 AnswerKey::Enter => ("", true),
                 AnswerKey::Text(t) => (t.as_str(), false),
             };

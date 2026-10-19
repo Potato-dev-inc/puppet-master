@@ -24,7 +24,7 @@ fn answerer() -> Answerer {
 }
 
 fn look(a: &mut Answerer, screen: &str, flavour: Option<Flavour>, stable_ms: u64, now: u64) -> Step {
-    a.step(&Input { screen, flavour, stable_ms, now, hint: None })
+    a.step(&Input { screen, styled: None, flavour, stable_ms, now, hint: None })
 }
 
 fn press(step: Step) -> Vec<AnswerKey> {
@@ -238,15 +238,15 @@ fn a_count_of_tokens_in_a_summary_row_above_the_question_is_not_a_question_about
 fn the_drafts_own_allow_once_keys_are_used_when_the_menu_agrees_and_never_for_an_always_menu() {
     let hint = Hint { keys: vec![AnswerKey::Enter], label: "Allow once".into() };
     let mut a = answerer();
-    let step = a.step(&Input { screen: AGY, flavour: Some(Flavour::Trust), stable_ms: 1500, now: 1500, hint: Some(&hint) });
+    let step = a.step(&Input { screen: AGY, styled: None, flavour: Some(Flavour::Trust), stable_ms: 1500, now: 1500, hint: Some(&hint) });
     assert_eq!(press(step), vec![AnswerKey::Enter]);
     let mut b = answerer();
-    let step = b.step(&Input { screen: ALWAYS_ONLY, flavour: Some(Flavour::Permission), stable_ms: 1500, now: 1500, hint: Some(&hint) });
+    let step = b.step(&Input { screen: ALWAYS_ONLY, styled: None, flavour: Some(Flavour::Permission), stable_ms: 1500, now: 1500, hint: Some(&hint) });
     assert!(matches!(step, Step::Declined(_)), "{step:?}");
     // a one-line question with no menu: the hint alone decides
     let mut c = answerer();
     let hint_y = Hint { keys: vec![AnswerKey::Text("y".into())], label: "Allow once".into() };
-    let step = c.step(&Input { screen: YES_NO, flavour: Some(Flavour::Permission), stable_ms: 1500, now: 1500, hint: Some(&hint_y) });
+    let step = c.step(&Input { screen: YES_NO, styled: None, flavour: Some(Flavour::Permission), stable_ms: 1500, now: 1500, hint: Some(&hint_y) });
     assert_eq!(press(step), vec![AnswerKey::Text("y".into())]);
     assert_eq!(AnswerKey::from_name("enter"), Some(AnswerKey::Enter));
     assert_eq!(AnswerKey::from_name("y"), Some(AnswerKey::Text("y".into())));

@@ -85,6 +85,7 @@ fn last_rows(screen: &str, n: usize) -> Vec<&str> {
 static CHOICES: Lazy<Regex> = Lazy::new(|| {
     Regex::new(concat!(
         r"(?im)",
+        r"\[y\]es|\(y\)es|\[n\]o|\(n\)o|",
         r"\[y/n\]|\(y/n\)|\by/n\b|\[yes/no\]|\(yes/no\)|\[y/N\]|\[Y/n\]",
         r"|^\W{0,4}\d[.)]\s*(?:yes|no|allow|deny|continue|trust|accept|decline|quit|exit|proceed|reject|cancel)\b",
         r"|^\W{0,4}(?:yes|no)[,.]\s+\w+",
@@ -94,6 +95,7 @@ static CHOICES: Lazy<Regex> = Lazy::new(|| {
         r"|^\s*[\u{276F}\u{203A}>\u{25B6}\u{25CF}\u{25CB}\u{25C9}]\s*\d[.)]\s+\S",
         r"|\byes,?\s+(?:i\s+)?(?:trust|proceed|allow)\b|\bno,?\s+(?:exit|quit|cancel)\b",
         r"|\[a\]llow|\[d\]eny|\(a\)llow|\(d\)eny",
+        r"|\[y\]es|\(y\)es|\[n\]o|\(n\)o",
     ))
     .expect("choices regex")
 });

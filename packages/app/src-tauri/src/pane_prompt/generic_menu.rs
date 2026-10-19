@@ -87,6 +87,7 @@ pub(crate) fn unknown_question(agent_type: &str, screen: &str, status: Option<&s
         MenuKind::Arrow => "an arrow-key menu",
         MenuKind::Numbered => "a numbered menu",
         MenuKind::YesNo => "a yes / no question",
+        MenuKind::Row => "a row of buttons",
     };
     let choices: Vec<String> = options.iter().map(|o| o.id.clone()).collect();
     let labels: serde_json::Map<String, Value> = options.iter().map(|o| (o.id.clone(), Value::String(o.label.clone()))).collect();
@@ -107,7 +108,7 @@ pub(crate) fn unknown_question(agent_type: &str, screen: &str, status: Option<&s
         "choices": choices,
         "labels": labels,
         "options": shown,
-        "menu": match menu.kind { MenuKind::Arrow => "arrow", MenuKind::Numbered => "numbered", MenuKind::YesNo => "yes_no" },
+        "menu": match menu.kind { MenuKind::Arrow => "arrow", MenuKind::Numbered => "numbered", MenuKind::YesNo => "yes_no", MenuKind::Row => "row" },
         "recognised_by": "shape",
         "identity": identity,
         "summary": format!(

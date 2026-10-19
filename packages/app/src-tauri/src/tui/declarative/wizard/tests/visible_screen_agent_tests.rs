@@ -45,7 +45,7 @@ struct Drive {
 
 impl Drive {
     fn look(&self, screen: &str, history: &str) -> Look {
-        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: true, output_pos: None, hello_written: false, grid: Some(self.grid), history: history.into() }
+        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: true, output_pos: None, hello_written: false, grid: Some(self.grid), history: history.into(), styled: None }
     }
 
     fn show(&mut self, screen: &str, history: &str, ms: u64) -> Vec<Action> {

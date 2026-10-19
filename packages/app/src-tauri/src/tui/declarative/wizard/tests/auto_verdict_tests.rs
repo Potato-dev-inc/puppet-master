@@ -41,7 +41,7 @@ impl Drive {
         let end = self.now + ms;
         while self.now < end {
             self.now += 250;
-            let look = Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: true, output_pos: None, hello_written: false, grid: Some((120, 40)), history: String::new() };
+            let look = Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: true, output_pos: None, hello_written: false, grid: Some((120, 40)), history: String::new(), styled: None };
             got.extend(self.c.tick(&look, self.now));
         }
         got

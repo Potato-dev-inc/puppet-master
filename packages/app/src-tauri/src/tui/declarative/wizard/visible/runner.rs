@@ -262,6 +262,11 @@ impl CaptureRun {
         self.shared.lock().engine.apply_verdict(verdict, now)
     }
 
+    /// The AI look's option and keys for a question the safe answerer could not read (SPEC 11.20); the engine checks them.
+    pub fn menu_choice(&self, fp: &str, option: &str, keys: &[String]) -> Result<String, String> {
+        self.shared.lock().engine.menu_choice(fp, option, keys)
+    }
+
     /// The last looks of the capture and the engine's verdict for each, newest last. `masked` frames
     /// are what an AI or the wizard window may see; `raw` frames keep the real words and are for the
     /// benchmark's own files only.
@@ -315,6 +320,11 @@ impl CaptureRun {
         status["pane"] = json!(g.pane);
         status["grid"] = json!({"cols": grid.0, "rows": grid.1});
         status["screen"] = json!(self.preview(&g.look));
+        if status["needs_you"]["unreadable"] == true {
+            // what the AI look needs to name the option: the rows drawn highlighted (masked like the screen)
+            let emphasis: Vec<String> = g.engine.emphasised_rows().iter().map(|r| mask_words(&exec::clean(r), &self.words)).collect();
+            status["menu_look"] = json!({"emphasis": emphasis});
+        }
         status["deliveries"] = json!(g.engine.deliveries());
         status
     }

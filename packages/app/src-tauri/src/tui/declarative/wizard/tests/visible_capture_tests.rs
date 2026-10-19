@@ -43,7 +43,7 @@ impl Drive {
     }
 
     fn look(&self, screen: &str) -> Look {
-        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: self.alive, output_pos: None, hello_written: self.hello, grid: self.grid, history: String::new() }
+        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: self.alive, output_pos: None, hello_written: self.hello, grid: self.grid, history: String::new(), styled: None }
     }
 
     /// Show `screen` for `ms` milliseconds, one look every 250 ms. Deliveries are not answered here.
