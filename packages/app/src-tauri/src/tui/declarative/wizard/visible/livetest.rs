@@ -228,6 +228,9 @@ struct Test<'a> {
     seen_model: parking_lot::Mutex<Option<String>>,
     /// "Finish without me": the AI look called this picture (by the question's identity) a trust or one-time approval question.
     ai: parking_lot::Mutex<Option<(String, Flavour)>>,
+    /// The question up now could not be READ (no menu, no highlighted row): an AI look may name the option (SPEC 11.20),
+    /// and the rows drawn highlighted that it is shown.
+    unreadable: parking_lot::Mutex<Option<Vec<String>>>,
 }
 
 /// A model name in a capture: `model: <name>` or `model = <name>`, on a screen of the agent at rest or at work.
@@ -278,8 +281,18 @@ impl Test<'_> {
         *self.status.lock() = json!({
             "running": true,
             "check": current,
-            "needs_you": needs.map(|(kind, message)| json!({"kind": kind, "message": message})),
+            "needs_you": needs.map(|(kind, message)| {
+                let emphasis = self.unreadable.lock().clone();
+                match emphasis {
+                    Some(rows) if matches!(kind, "trust" | "permission" | "question") => {
+                        let rows: Vec<String> = rows.iter().map(|r| self.masked(r)).collect();
+                        json!({"kind": kind, "message": message, "unreadable": true, "emphasis": rows})
+                    }
+                    _ => json!({"kind": kind, "message": message}),
+                }
+            }),
             "checks": self.checks,
+            "menu_choice": self.session.visible.test_menu_result.lock().clone(),
             "screen": shown,
             "answered": self.answered_json(),
         });
@@ -342,7 +355,18 @@ impl Test<'_> {
             _ => self.ai_question(&look.screen),
         };
         let hint = self.hint_for(&look.screen);
-        let step = cell.lock().step(&AnswerInput { screen: &look.screen, flavour, stable_ms, now: self.ms(), hint: hint.as_ref() });
+        // the AI look's choice for a question the answerer could not read: checked against THIS screen
+        if let Some((fp, option, keys)) = self.session.visible.test_menu.lock().take() {
+            let result = cell.lock().offer_ai(&look.screen, &fp, &option, &keys);
+            *self.session.visible.test_menu_result.lock() = Some(match &result {
+                Ok(label) => json!({"accepted": true, "label": label}),
+                Err(why) => json!({"accepted": false, "why": why}),
+            });
+            if result.is_ok() {
+                *self.unreadable.lock() = None;
+            }
+        }
+        let step = cell.lock().step(&AnswerInput { screen: &look.screen, styled: look.styled.as_ref(), flavour, stable_ms, now: self.ms(), hint: hint.as_ref() });
         match step {
             AnswerStep::Nothing => None,
             AnswerStep::Waiting(_) => Some(Ok(())),
@@ -358,8 +382,27 @@ impl Test<'_> {
                 self.answered.lock().push(done);
                 Some(Ok(()))
             }
-            AnswerStep::Declined(reason) => Some(Err(reason)),
+            AnswerStep::Declined(reason) => {
+                *self.unreadable.lock() = super::answer::is_unreadable(&reason).then(|| self.emphasised(look));
+                Some(Err(reason))
+            }
         }
+    }
+
+    /// Rows of this look drawn highlighted (a filled band, inverse video, bold): a hint for the AI look.
+    fn emphasised(&self, look: &Look) -> Vec<String> {
+        let Some(styled) = &look.styled else { return Vec::new() };
+        let from = styled.rows.len().saturating_sub(24);
+        styled.rows[from..]
+            .iter()
+            .filter(|r| !r.text.trim().is_empty())
+            .filter(|r| {
+                let style = r.style_of(0, r.text.chars().count());
+                style.is_band() || style.bold
+            })
+            .map(|r| r.text.trim().to_string())
+            .take(8)
+            .collect()
     }
 
     /// The person pressed "Stop the test" (or Skip) in the wizard window.
@@ -525,7 +568,8 @@ impl Test<'_> {
             }
             // and if the wizard pressed keys for it, it was answered
             if let Some(cell) = &self.auto {
-                if let AnswerStep::Answered(done) = cell.lock().step(&AnswerInput { screen: &look.screen, flavour: None, stable_ms: 0, now: self.ms(), hint: None }) {
+                *self.unreadable.lock() = None;
+                if let AnswerStep::Answered(done) = cell.lock().step(&AnswerInput { screen: &look.screen, styled: None, flavour: None, stable_ms: 0, now: self.ms(), hint: None }) {
                     self.answered.lock().push(done);
                 }
             }
@@ -987,6 +1031,8 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     session.visible.test_ctl.lock().take();
     session.visible.test_ctl_reason.lock().take();
     session.visible.test_verdict.lock().take();
+    session.visible.test_menu.lock().take();
+    session.visible.test_menu_result.lock().take();
     let mut outcome = Outcome { checks: Vec::new(), errors: Vec::new(), agent_error: None, screens: Vec::new(), answered: Vec::new(), answered_json: Vec::new() };
     let setup_failed = |outcome: &mut Outcome, code: &str, message: String| {
         outcome.errors.push(CheckError::new("visibletest", code, "", message));
@@ -1069,6 +1115,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         capture_model,
         seen_model: parking_lot::Mutex::new(None),
         ai: parking_lot::Mutex::new(None),
+        unreadable: parking_lot::Mutex::new(None),
     };
     let words = &session.words;
     let task = message_task_for(&words.two);

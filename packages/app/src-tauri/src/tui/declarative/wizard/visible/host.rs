@@ -40,6 +40,8 @@ pub struct Look {
     /// Scrollback plus screen, as a viewer that mounts now would show it. Only filled when the engine asked
     /// for it (`Capture::wants_history`): it is the expensive read.
     pub history: String,
+    /// The screen with its cell attributes (inverse, colours, bold), when the host has them (SPEC 11.20).
+    pub styled: Option<super::styled::StyledScreen>,
 }
 
 impl Look {

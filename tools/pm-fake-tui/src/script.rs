@@ -87,8 +87,16 @@ pub struct Script {
     /// Nimbus only: how permission questions look. `yn`: one line `Allow nimbus to ...? [y/n]` for everything.
     /// `menus`: a command asks with a numbered menu (`1. Allow once` / `2. Always allow ...` / `3. Deny`, digits answer),
     /// a file write asks with an arrow menu (`Yes, write it` ... , up/down and enter), two different questions.
+    /// The styled shapes (the same question for a command and a file, SPEC 11.20): `inverse` (an arrow menu whose
+    /// highlighted row is drawn in inverse video and has NO marker), `boxed` (the arrow menu inside a box, `| > Allow once |`),
+    /// `buttons` (one row `Allow once  Always allow  Deny`, the selected button in inverse video, moved with Tab only),
+    /// `buttons_arrows` (the same row moved with Left / Right only), `inline` (`... [Y]es / [N]o`, the letters answer) and
+    /// `always_only` (an inverse menu whose only yes is `Always allow in this project`).
     #[serde(default)]
     pub approvals: Approvals,
+    /// Nimbus only: which option (0-based) the cursor of a permission question starts on (default 0, the first).
+    #[serde(default)]
+    pub approval_cursor: usize,
     /// Nimbus only: a model name shown in a status line (`model: <name>`), separate from the banner's.
     #[serde(default)]
     pub status_model: Option<String>,
@@ -130,6 +138,15 @@ pub enum Approvals {
     #[default]
     Yn,
     Menus,
+    Inverse,
+    Boxed,
+    Buttons,
+    ButtonsArrows,
+    Inline,
+    AlwaysOnly,
+    /// An arrow menu whose cursor cannot be seen at all (no marker, no colour): only the person's eyes on the real
+    /// program would know where it is. The parser cannot read it; an AI look names the option.
+    Blind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]

@@ -254,6 +254,11 @@ pub struct VisibleData {
     pub test_ctl_reason: Mutex<Option<String>>,
     /// The AI look's verdict on the test pane (`question_trust_or_once`), taken by the visible test.
     pub test_verdict: Mutex<Option<String>>,
+    /// The AI look's choice for a question in the test pane the safe answerer could not read (SPEC 11.20):
+    /// `(question identity or empty, option text, key names)`, taken by the visible test, which checks it.
+    pub test_menu: Mutex<Option<(String, String, Vec<String>)>>,
+    /// What the visible test made of it: `{accepted, label}` or `{accepted: false, why}`.
+    pub test_menu_result: Mutex<Option<serde_json::Value>>,
     /// What the autonomous wizard did (SPEC 11.19): the exact plans that ran and the verdicts it acted on.
     pub auto: AutoRecord,
 }

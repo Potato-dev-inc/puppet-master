@@ -246,6 +246,7 @@ impl PaneHost for FakeHost {
             hello_written: false,
             grid: Some((p.cols, p.rows)),
             history: String::new(),
+            styled: None,
         })
     }
 

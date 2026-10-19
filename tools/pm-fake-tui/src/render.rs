@@ -17,6 +17,8 @@ const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
 const NO_DIM: &str = "\x1b[22m";
 const GRAY: &str = "\x1b[38;2;153;153;153m";
+const INVERSE: &str = "\x1b[7m";
+const NO_INVERSE: &str = "\x1b[27m";
 const RULE_GRAY: &str = "\x1b[38;2;136;136;136m";
 const ORANGE: &str = "\x1b[38;2;215;119;87m";
 const YELLOW: &str = "\x1b[38;2;255;193;7m";
@@ -73,6 +75,20 @@ pub enum NimbusMenu {
     Command,
     /// A file write: arrow rows, no numbers.
     File,
+    /// Arrow rows, the highlighted one in inverse video, no marker.
+    Inverse,
+    /// The arrow menu inside a box.
+    Boxed,
+    /// One row of buttons, the selected one in inverse video; Tab moves.
+    Buttons,
+    /// One row of buttons; Left and Right move.
+    ButtonsArrows,
+    /// `[Y]es / [N]o` on the question's line.
+    Inline,
+    /// The inverse menu whose only yes is an "always" option.
+    AlwaysOnly,
+    /// Arrow rows with no visible cursor at all.
+    Blind,
 }
 
 /// The permission dialog being shown.
@@ -121,6 +137,11 @@ impl Dialog {
                 NimbusMenu::YesNo => vec!["Yes".into(), "No".into()],
                 NimbusMenu::Command => vec!["Allow once".into(), "Always allow in this project".into(), "Deny".into()],
                 NimbusMenu::File => vec!["Yes, write it".into(), "Yes, and allow all edits this session".into(), "No, keep it as it is".into()],
+                NimbusMenu::Inverse | NimbusMenu::Boxed | NimbusMenu::Buttons | NimbusMenu::ButtonsArrows | NimbusMenu::Blind => {
+                    vec!["Allow once".into(), "Always allow in this project".into(), "Deny".into()]
+                }
+                NimbusMenu::Inline => vec!["Yes".into(), "No".into()],
+                NimbusMenu::AlwaysOnly => vec!["Always allow in this project".into(), "Deny".into()],
             },
         }
     }
@@ -634,6 +655,48 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
                     rows.push(format!("{} {}. {label}", if i == dialog.selected { ">" } else { " " }, i + 1));
                 }
             }
+            NimbusMenu::Inverse | NimbusMenu::AlwaysOnly => {
+                rows.push(format!("Allow nimbus to {what}?"));
+                rows.push(String::new());
+                for (i, label) in dialog.options(Layout::Nimbus).iter().enumerate() {
+                    // the cursor is how the row is drawn: a band of inverse video, and no marker
+                    rows.push(if i == dialog.selected { format!("  {INVERSE} {label:<34} {NO_INVERSE}") } else { format!("   {label}") });
+                }
+                rows.push(String::new());
+                rows.push("  up/down to move, enter to confirm".into());
+            }
+            NimbusMenu::Blind => {
+                rows.push(format!("Allow nimbus to {what}?"));
+                rows.push(String::new());
+                for label in dialog.options(Layout::Nimbus) {
+                    rows.push(format!("   {label}"));
+                }
+                rows.push(String::new());
+                rows.push("  up/down to move, enter to confirm".into());
+            }
+            NimbusMenu::Boxed => {
+                let width = 44usize;
+                let line = |text: String| format!("\u{2502} {text:<w$} \u{2502}", w = width - 4);
+                rows.push(format!("\u{256d}{}\u{256e}", "\u{2500}".repeat(width - 2)));
+                rows.push(line(format!("Allow nimbus to {what}?")));
+                rows.push(line(String::new()));
+                for (i, label) in dialog.options(Layout::Nimbus).iter().enumerate() {
+                    rows.push(line(format!("{} {label}", if i == dialog.selected { "\u{276f}" } else { " " })));
+                }
+                rows.push(format!("\u{2570}{}\u{256f}", "\u{2500}".repeat(width - 2)));
+            }
+            NimbusMenu::Buttons | NimbusMenu::ButtonsArrows => {
+                rows.push(format!("Allow nimbus to {what}?"));
+                rows.push(String::new());
+                let buttons: Vec<String> = dialog
+                    .options(Layout::Nimbus)
+                    .iter()
+                    .enumerate()
+                    .map(|(i, label)| if i == dialog.selected { format!("{INVERSE} {label} {NO_INVERSE}") } else { format!(" {label} ") })
+                    .collect();
+                rows.push(format!("  {}", buttons.join("  ")));
+            }
+            NimbusMenu::Inline => rows.push(format!("Allow nimbus to {what}? [Y]es / [N]o")),
             NimbusMenu::File => {
                 rows.push(format!("Write {}?", dialog.path));
                 rows.push(String::new());

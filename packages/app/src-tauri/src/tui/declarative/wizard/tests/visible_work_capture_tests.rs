@@ -46,7 +46,7 @@ impl Drive {
     }
 
     fn look(&self, screen: &str) -> Look {
-        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: true, output_pos: None, hello_written: false, grid: Some((120, 40)), history: String::new() }
+        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: true, output_pos: None, hello_written: false, grid: Some((120, 40)), history: String::new(), styled: None }
     }
 
     fn show(&mut self, screen: &str, ms: u64) -> Vec<Action> {

@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 
 use super::super::session::TestWords;
 use super::answer::{AnswerCfg, AnswerKey, Answerer, AnsweredQ, Input as AnswerInput, Step as AnswerStep};
+use super::styled::StyledScreen;
 use super::host::Look;
 use super::screen::{asks_trust_or_permission, classify, frame_key, ready_shape, Flavour, FrameBag, ScreenKind, Stability};
 use super::verdict::{flavour_of, Decision, Verdict};
@@ -482,6 +483,7 @@ impl CaptureSet {
                             label: q["label"].as_str().unwrap_or("").to_string(),
                             keys: q["keys"].as_str().unwrap_or("").to_string(),
                             screen: q["screen"].as_str().unwrap_or("").to_string(),
+                            via: q["via"].as_str().unwrap_or("rules").to_string(),
                         })
                         .collect()
                 })
@@ -607,6 +609,10 @@ pub struct Capture {
     ai_question: Option<(String, Flavour)>,
     /// The run was stopped (a sign-in or payment screen); nothing is typed or pressed until the step is retried.
     halted: Option<String>,
+    /// The latest screen with its cell attributes, when the host has them (SPEC 11.20).
+    styled: Option<StyledScreen>,
+    /// The answerer could not READ the question that is up (no menu, no highlighted row): an AI look may name the option.
+    menu_unreadable: bool,
 }
 
 /// How long after a resize the agent gets to redraw before the picture is judged.
@@ -734,6 +740,8 @@ impl Capture {
             resize_result: None,
             ai_question: None,
             halted: None,
+            styled: None,
+            menu_unreadable: false,
         }
     }
 
@@ -968,6 +976,7 @@ impl Capture {
             }
         }
         self.screen = look.screen.clone();
+        self.styled = look.styled.clone();
         self.stab.observe(&look.screen, now);
         let seen_kind = classify(&look.screen);
         self.kind = seen_kind;
@@ -1058,6 +1067,7 @@ impl Capture {
                 self.clear_ask(&["trust", "login", "permission", "question"]);
             }
             self.auto_gone();
+            self.menu_unreadable = false;
             return false;
         };
         let stable = self.stab.stable_for(now);
@@ -1114,7 +1124,7 @@ impl Capture {
     /// One look of the answerer at the question on screen.
     fn auto_step(&mut self, flavour: Flavour, stable_ms: u64, now: u64) -> Auto {
         let Some(answerer) = self.answerer.as_mut() else { return Auto::NotMine };
-        let input = AnswerInput { screen: &self.screen, flavour: Some(flavour), stable_ms, now, hint: None };
+        let input = AnswerInput { screen: &self.screen, styled: self.styled.as_ref(), flavour: Some(flavour), stable_ms, now, hint: None };
         match answerer.step(&input) {
             AnswerStep::Nothing => Auto::NotMine,
             AnswerStep::Waiting(note) => {
@@ -1130,14 +1140,17 @@ impl Capture {
                 self.answered.push(done);
                 Auto::Handled
             }
-            AnswerStep::Declined(reason) => Auto::Declined(reason),
+            AnswerStep::Declined(reason) => {
+                self.menu_unreadable = super::answer::is_unreadable(&reason);
+                Auto::Declined(reason)
+            }
         }
     }
 
     /// The question is gone: if the wizard pressed keys for it, it was answered.
     fn auto_gone(&mut self) {
         let Some(answerer) = self.answerer.as_mut() else { return };
-        let input = AnswerInput { screen: &self.screen, flavour: None, stable_ms: 0, now: 0, hint: None };
+        let input = AnswerInput { screen: &self.screen, styled: None, flavour: None, stable_ms: 0, now: 0, hint: None };
         if let AnswerStep::Answered(done) = answerer.step(&input) {
             self.answered.push(done);
         }
@@ -1843,6 +1856,46 @@ impl Capture {
         }
     }
 
+    /// The AI look named the option (and the keys) of a question the safe answerer could not read (SPEC 11.20). Only the
+    /// answerer acts on it, after `ai_menu::validate` checked the option and the keys against the screen: it presses them
+    /// one at a time, reads the screen after each and stops unless the question is gone within its deadline.
+    pub fn menu_choice(&mut self, fp: &str, option: &str, keys: &[String]) -> Result<String, String> {
+        if self.settled() || self.halted.is_some() {
+            return Err("the capture is not waiting for an answer".into());
+        }
+        let Some(needs) = self.needs.clone() else {
+            return Err("no question is waiting".into());
+        };
+        if !matches!(needs.kind.as_str(), "trust" | "permission") || !self.menu_unreadable {
+            return Err("the wizard did not ask for a look at this question".into());
+        }
+        let Some(answerer) = self.answerer.as_mut() else {
+            return Err("the wizard may not answer setup questions in this session".into());
+        };
+        let label = answerer.offer_ai(&self.screen, fp, option, keys)?;
+        self.menu_unreadable = false;
+        self.clear_ask(&["trust", "permission"]);
+        self.set_note(format!("Answering the question with the AI look's choice: {label}"));
+        Ok(label)
+    }
+
+    /// Rows of the screen drawn highlighted (a filled band, inverse video, bold): a hint for the AI look when the text
+    /// alone shows no cursor.
+    pub fn emphasised_rows(&self) -> Vec<String> {
+        let Some(styled) = &self.styled else { return Vec::new() };
+        let from = styled.rows.len().saturating_sub(24);
+        styled.rows[from..]
+            .iter()
+            .filter(|r| !r.text.trim().is_empty())
+            .filter(|r| {
+                let style = r.style_of(0, r.text.chars().count());
+                style.is_band() || style.bold
+            })
+            .map(|r| r.text.trim().to_string())
+            .take(8)
+            .collect()
+    }
+
     // ---- reading the result ---------------------------------------------------------------------
 
     /// What was learned. Steps that never ran are listed as skipped.
@@ -1900,14 +1953,15 @@ impl Capture {
             "steps": steps,
             "screen_kind": self.kind.as_str(),
             "auto_answer": self.answerer.is_some(),
-            "answered": self.answered.iter().map(|a| json!({"place": a.place, "flavour": a.flavour, "label": a.label, "keys": a.keys})).collect::<Vec<_>>(),
+            "answered": self.answered.iter().map(|a| json!({"place": a.place, "flavour": a.flavour, "label": a.label, "keys": a.keys, "via": a.via})).collect::<Vec<_>>(),
             "frozen": self.frozen,
             "halted": self.halted,
             "fingerprint": self.stab.fingerprint(),
             "stable_ms": self.stab.stable_for(now),
             "alive": self.alive,
             "settled": self.settled(),
-            "needs_you": self.needs.as_ref().map(|n| json!({"step": n.step.as_str(), "kind": n.kind, "message": n.message})),
+            "needs_you": self.needs.as_ref().map(|n| json!({"step": n.step.as_str(), "kind": n.kind, "message": n.message, "unreadable": self.menu_unreadable && matches!(n.kind.as_str(), "trust" | "permission")})),
+            "question_fp": self.answerer.as_ref().and_then(|a| a.question_fp()).map(str::to_string),
             "can": can,
         })
     }

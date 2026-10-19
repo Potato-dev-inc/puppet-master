@@ -130,7 +130,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let id = super::super::api::session_id(body)?;
     let op = body.get("op").and_then(Value::as_str).map(str::trim).filter(|o| !o.is_empty());
     let Some(op) = op else {
-        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, debug, test_status, test_act, verdict, test_verdict or discard"));
+        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, debug, test_status, test_act, verdict, test_verdict, menu_choice, test_menu_choice or discard"));
     };
     match op {
         "plan" => {
@@ -201,6 +201,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             Ok(json!({"ok": true}))
         }
         "verdict" | "test_verdict" => verdict_op(wizard, &id, op, body),
+        "menu_choice" | "test_menu_choice" => menu_choice_op(wizard, &id, op, body),
         "finish" => {
             let session = wizard.read(&id, |s| s.clone())?;
             let run = run_of(&session);
@@ -262,6 +263,59 @@ fn verdict_op(wizard: &Wizard, id: &str, op: &str, body: &Value) -> Result<Value
         out["status"] = status_of(&session);
     }
     Ok(out)
+}
+
+/// `menu_choice` (the capture) and `test_menu_choice` (the visible test): the drafter AI's answer to "which visible option
+/// means allow this once, and which keys select it" for a question the safe answerer could not read (SPEC 11.20). Only a
+/// session started with "Finish without me" takes it. Rust checks the option and the keys against the screen and the
+/// safety rules (`ai_menu::validate`, in the answerer); the capture answers at once, the test's answer comes with its next
+/// look (`test_status.menu_choice`). Nothing is pressed here.
+fn menu_choice_op(wizard: &Wizard, id: &str, op: &str, body: &Value) -> Result<Value, WizardError> {
+    let session = wizard.read(id, |s| s.clone())?;
+    if !session.autonomous {
+        return Err(WizardError::new(409, "WIZARD_NOT_AUTONOMOUS", "the AI look is only used when 'Finish without me' is on"));
+    }
+    if !session.auto_answer {
+        return Err(WizardError::new(409, "WIZARD_NOT_AUTONOMOUS", "the wizard may not answer setup questions in this session"));
+    }
+    let option = body.get("option").and_then(Value::as_str).map(str::trim).filter(|o| !o.is_empty()).ok_or_else(|| WizardError::bad_request("option is required: the visible text of the option"))?;
+    let keys: Vec<String> = body
+        .get("keys")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .filter(|k: &Vec<String>| !k.is_empty())
+        .ok_or_else(|| WizardError::bad_request("keys is required: a list of key names"))?;
+    let fp = body.get("fingerprint").and_then(Value::as_str).unwrap_or("");
+    let record = |decision: &str, why: Option<&str>| {
+        session.visible.auto.verdicts.lock().push(json!({
+            "target": if op == "menu_choice" { "capture" } else { "test" },
+            "verdict": "menu_choice",
+            "decision": decision,
+            "option": option,
+            "keys": keys,
+            "why": why,
+        }));
+    };
+    if op == "menu_choice" {
+        let run = run_of(&session).ok_or_else(|| WizardError::new(409, "WIZARD_NO_CAPTURE", "no capture is running; start one first"))?;
+        let out = match run.menu_choice(fp, option, &keys) {
+            Ok(label) => {
+                record("accepted", None);
+                json!({"accepted": true, "label": label})
+            }
+            Err(why) => {
+                record("refused", Some(&why));
+                json!({"accepted": false, "why": why})
+            }
+        };
+        let mut out = out;
+        out["status"] = status_of(&session);
+        return Ok(out);
+    }
+    *session.visible.test_menu_result.lock() = None;
+    *session.visible.test_menu.lock() = Some((fp.to_string(), option.to_string(), keys.clone()));
+    record("sent", None);
+    Ok(json!({"accepted": null}))
 }
 
 /// What a verdict may cause in the visible test pane. The test judges readiness by the draft's own profile, so
