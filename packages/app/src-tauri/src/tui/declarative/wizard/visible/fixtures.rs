@@ -186,7 +186,9 @@ fn expect_for(
     };
     let mut problems = Vec::new();
     let mut out: Vec<String> = Vec::new();
-    let screen = frame.text.as_str();
+    // the profile reads a screen as a real one: the saved `<email>` is read back as an example address (`check_dir` does too)
+    let screen_text = crate::redact::unmask_emails(&frame.text);
+    let screen = screen_text.as_str();
     match role {
         Role::Idle | Role::Reply | Role::WorkReply => {
             match profile.busy_marker(screen) {
@@ -323,7 +325,7 @@ pub fn files(
 /// The captures as the drafter and the preview see them: masked, with the rows that varied between
 /// frames, plus the facts.
 pub fn masked_json(set: &CaptureSet, words: &TestWords) -> Value {
-    let mask = |t: &str| mask_words(t, words);
+    let mask = |t: &str| super::super::exec::mask_private(&mask_words(t, words));
     let files: Vec<Value> = NAMES
         .iter()
         .filter_map(|name| set.get(name))
@@ -339,9 +341,9 @@ pub fn masked_json(set: &CaptureSet, words: &TestWords) -> Value {
             "hello_written": set.hello_written,
             "writes_without_asking": set.writes_without_asking,
             "runs_without_asking": set.runs_without_asking,
-            "startup_dialogs": set.startup_dialogs,
+            "startup_dialogs": set.startup_dialogs.iter().map(|d| mask(d)).collect::<Vec<_>>(),
             "exit_screen": set.exit_screen.as_deref().map(|s| mask(s)),
-            "notes": set.notes,
+            "notes": set.notes.iter().map(|n| mask(n)).collect::<Vec<_>>(),
             "answered": set.answered.iter().map(|a| a.to_json(&mask)).collect::<Vec<_>>(),
             // Measured, not guessed: the pane was made narrower after the reply and the rows holding the test word
             // were counted in the viewer's scrollback plus screen. `null`: not measured. The wizard writes

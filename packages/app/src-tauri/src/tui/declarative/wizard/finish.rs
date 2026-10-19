@@ -200,7 +200,7 @@ fn provenance_json(session: &Session, id: &str, p: &Provenance, sha: &str, passe
         body["results"]["visible"] = json!({"passed": v.passed, "total": v.total});
     }
     // The questions the wizard answered for the person in its own panes (SPEC 11.16), masked like every screen.
-    let mask = |t: &str| super::livetest::mask_words(t, &session.words);
+    let mask = |t: &str| super::exec::mask_private(&super::livetest::mask_words(t, &session.words));
     let mut answered: Vec<Value> = capture.as_ref().map(|set| set.answered.iter().map(|a| a.to_json(&mask)).collect()).unwrap_or_default();
     answered.extend(session.visible.test_answered.lock().iter().map(|a| a.to_json(&mask)));
     body["auto_answer"] = json!({"enabled": session.auto_answer, "answered": answered});
@@ -290,7 +290,7 @@ pub fn write_session_with(session: &Session, agents_dir: &Path, provenance: &Pro
     let failed: Vec<String> = results
         .iter()
         .filter(|r| !r.passed)
-        .map(|r| format!("{}: {}", r.fixture, r.failures.join("; ")))
+        .map(|r| super::exec::mask_private(&format!("{}: {}", r.fixture, r.failures.join("; "))))
         .collect();
     if !failed.is_empty() {
         return Err(WizardError::new(
@@ -332,7 +332,8 @@ pub fn write_session_with(session: &Session, agents_dir: &Path, provenance: &Pro
     fixtures::write_all(&fixtures_dir, &files).map_err(|e| WizardError::new(500, "WIZARD_IO", e))?;
 
     let prov = provenance_json(session, &id, provenance, &draft.sha256, passed, total, build, auto);
-    let prov_text = serde_json::to_string_pretty(&prov).unwrap_or_default();
+    // the record may carry screens, decisions and AI looks: no email address is kept in it (SPEC 11.21)
+    let prov_text = super::exec::mask_private(&serde_json::to_string_pretty(&prov).unwrap_or_default());
     create_new(&provenance_path, prov_text.as_bytes()).map_err(|e| match e.kind() {
         std::io::ErrorKind::AlreadyExists => {
             WizardError::new(409, "WIZARD_PROVENANCE_EXISTS", format!("{} already exists", provenance_path.display()))

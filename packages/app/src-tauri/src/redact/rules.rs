@@ -213,6 +213,38 @@ pub fn apply(text: &str, spans: &[Span]) -> String {
     out
 }
 
+/// What an email address becomes where one may not be kept (the Agent Wizard's screens, fixtures and records).
+pub const EMAIL_MASK: &str = "<email>";
+
+/// Anything that looks like an email address: `local@domain.tld`, a domain with at least one dot and a letters-only
+/// last label. So `user@host`, `@scope/pkg` and `git@host:path` with a dotless host are NOT touched, but
+/// `git@github.com` is (it errs toward over-redaction). A TUI clips a long row with an ellipsis, so an address cut
+/// off at the right edge (`someone@exam...`, `someone@exam` + the ellipsis character) counts too.
+static EMAIL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"[\p{L}\p{N}][\p{L}\p{N}._%+\-]*@(?:(?:[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?\.)+\p{L}{2,}|[\p{L}\p{N}.\-]*(?:\x{2026}|\.\.\.))",
+    )
+    .expect("email regex")
+});
+
+/// The made-up address a saved `<email>` is read back as when a profile is checked against a fixture: it is no one's
+/// (`.test` is reserved), and a regex for an address matches it like it matches the real one.
+pub const EMAIL_EXAMPLE: &str = "user@example.test";
+
+/// `text` with each `<email>` replaced by [`EMAIL_EXAMPLE`]: what a profile reads of a saved screen.
+pub fn unmask_emails(text: &str) -> String {
+    text.replace(EMAIL_MASK, EMAIL_EXAMPLE)
+}
+
+/// `text` with every email address replaced by `<email>`. Not part of [`Mode`]: transcripts and pushes keep
+/// emails (a diff or a git log is read by agents); a sink that must not keep one (the wizard's) calls this.
+pub fn mask_emails(text: &str) -> String {
+    if !text.contains('@') {
+        return text.to_string();
+    }
+    EMAIL.replace_all(text, EMAIL_MASK).into_owned()
+}
+
 /// Mask secrets and personal paths in `text`.
 pub fn redact(text: &str, ctx: &RedactContext) -> String {
     redact_in(text, ctx, Mode::Strict)

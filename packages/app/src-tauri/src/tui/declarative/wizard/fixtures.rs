@@ -105,7 +105,9 @@ pub fn write_all(dir: &Path, files: &[FixtureFile]) -> Result<(), String> {
             .create_new(true)
             .open(&path)
             .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-        std::io::Write::write_all(&mut handle, file.text.as_bytes()).map_err(|e| e.to_string())?;
+        // the last net (SPEC 11.21): no email address reaches a fixture file, expectation files included, so the pair
+        // stays consistent (`check_dir` reads `<email>` back as an example address)
+        std::io::Write::write_all(&mut handle, super::exec::mask_private(&file.text).as_bytes()).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

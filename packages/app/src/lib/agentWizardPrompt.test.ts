@@ -5,6 +5,7 @@ import {
   kiloHeadlessExample,
   kiloVisibleExample,
   LOCAL_PROMPT_BUDGET,
+  maskEmails,
   MIN_PROBE_CHARS,
   PROMPT_VERSION,
   relevance,
@@ -31,7 +32,7 @@ const facts = (over: Partial<PromptFacts> = {}): PromptFacts => ({
 
 describe('prompt sources', () => {
   it('has a version string', () => {
-    expect(PROMPT_VERSION).toBe('8');
+    expect(PROMPT_VERSION).toBe('9');
   });
 
   it('finds every section of the format guide it needs (guards a renamed heading)', () => {
@@ -445,5 +446,24 @@ describe('the visible prompt', () => {
     expect(text).toContain('runFinished');
     expect(text).not.toContain('<<<CAPTURE');
     expect(text).toContain('Do not add a [tui] table.');
+  });
+});
+
+describe('email addresses never go to the drafter (SPEC 11.21)', () => {
+  it('replaces every address with <email> and leaves host-only text alone', () => {
+    expect(maskEmails('someone@example.com (Nimbus Starter Quota)')).toBe('<email> (Nimbus Starter Quota)');
+    expect(maskEmails('Signed in as first.last+tag@mail.example.co.uk.')).toBe('Signed in as <email>.');
+    expect(maskEmails('clone git@github.com:org/repo.git')).toBe('clone <email>:org/repo.git');
+    expect(maskEmails('account someone@exam...')).toBe('account <email>');
+    expect(maskEmails('ssh deploy@buildhost and npm i @scope/pkg')).toBe('ssh deploy@buildhost and npm i @scope/pkg');
+    expect(maskEmails('no address here')).toBe('no address here');
+    expect(maskEmails(maskEmails('a@b.example'))).toBe('<email>');
+  });
+
+  it('tells the drafter what <email> means and not to write it into a regex', () => {
+    const text = buildPrompt(visibleFacts()).text;
+    expect(text).toContain('An email address on a screen is shown as <email>');
+    expect(text).toContain('never put <email> inside a regex');
+    expect(text).toContain('status row, not an error');
   });
 });

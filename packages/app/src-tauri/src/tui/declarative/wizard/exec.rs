@@ -235,11 +235,18 @@ pub fn plain(text: &str) -> String {
 static USER_DIR: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?i)([A-Za-z]:[\\/]+users[\\/]+|/home/|/users/)[^\\/\s"']+"#).expect("user dir"));
 
-/// `plain`, then secrets masked (`redact::text`) and the user's folder name replaced by `user`: what
-/// may be stored, shown, sent on or kept as a fixture.
+/// `plain`, then secrets masked (`redact::text`), the user's folder name replaced by `user` and every email
+/// address replaced by `<email>` (`redact::mask_emails`; the account row a TUI shows since startup is the
+/// person's): what may be stored, shown, sent on or kept as a fixture.
 pub fn clean(text: &str) -> String {
     let redacted = crate::redact::text(&plain(text)).into_inner();
-    USER_DIR.replace_all(&redacted, "${1}user").into_owned()
+    mask_private(&USER_DIR.replace_all(&redacted, "${1}user"))
+}
+
+/// The wizard's last net for text it saves or sends that did not go through `clean` (a record, a fixture file,
+/// a message): email addresses become `<email>`. Idempotent.
+pub fn mask_private(text: &str) -> String {
+    crate::redact::mask_emails(text)
 }
 
 /// At most `max` characters, cut on a character boundary.

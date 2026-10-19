@@ -35,7 +35,8 @@ mod sink_tests;
 mod tests;
 
 pub use rules::{
-    apply, find_spans, mask_pieces, redact, redact_in, secret_env_values, Mode, RedactContext, Span, Utf8Carry, MASK,
+    apply, find_spans, mask_emails, mask_pieces, redact, redact_in, secret_env_values, Mode, RedactContext, Span, Utf8Carry,
+    unmask_emails, EMAIL_EXAMPLE, EMAIL_MASK, MASK,
 };
 
 use serde::Serialize;

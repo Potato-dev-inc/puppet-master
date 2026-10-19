@@ -512,6 +512,10 @@ describe("the program's own error", () => {
     expect(agentErrorMessage('kilo', 'quota exceeded...  ').title).toBe('kilo itself returned an error: quota exceeded.');
   });
 
+  it('never shows an email address in the message', () => {
+    expect(agentErrorMessage('kilo', 'Login failed for someone@example.com (Starter plan)').title).toBe('kilo itself returned an error: Login failed for <email> (Starter plan).');
+  });
+
   it('Retry runs only the live test of the kept draft with the confirmed fingerprint', async () => {
     const livetest = vi.fn<(s: string, plan: string) => Promise<LiveResult>>().mockResolvedValueOnce(liveOk());
     const events: ProgressEvent[] = [];
