@@ -115,6 +115,10 @@ pub struct Script {
     /// asked). The default is to echo it.
     #[serde(default = "yes")]
     pub echo_task: bool,
+    /// Nimbus only: the account/status row some TUIs draw under the footer from startup on, all the time (a person's
+    /// address with the plan in parentheses, `someone@example.com (Nimbus Starter Quota)`). It is not an error.
+    #[serde(default)]
+    pub account_row: Option<String>,
     /// Nimbus only: text drawn flush against the right edge of the footer row (a clipped column shows at once).
     #[serde(default)]
     pub footer_right: Option<String>,

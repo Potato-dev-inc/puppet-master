@@ -971,3 +971,89 @@ fn a_too_broad_prompt_regex_on_an_agent_with_a_banner_is_the_drafts_fault_not_th
     assert_eq!(test["ok"], false, "{}", test["checks"]);
     assert_eq!(test["agent_error"], json!(null), "the banner is not an error; the failure is the draft's: {}\n{}", test["agent_error"], test["text"]);
 }
+
+// ---- an account row shown since startup is status, not an error; a new error row still is (founder run 2026-10-19) -----
+
+const ADDRESS: &str = "someone@example.com";
+
+/// The same agent, with the account row some TUIs draw under their footer from startup on (the person's address and the
+/// plan in parentheses: "quota" in it matched the external-error words).
+fn with_account_row(script: &str) -> String {
+    format!("account_row = \"{ADDRESS} (Nimbus Starter Quota)\"\n{}", script.trim_start())
+}
+
+/// The recorded draft, plus a chrome row for the account row (what the drafter writes once it was shown the failure).
+fn draft_with_account_chrome() -> String {
+    let draft = DRAFT.replace("@@COMMAND@@", "nimbus");
+    let at = "  '^done in \\d+s$',";
+    assert!(draft.contains(at));
+    draft.replace(at, &format!("{at}\n  '^\\S+@\\S+\\s+\\(.*quota\\)$',"))
+}
+
+fn run_visible(session: &Session, rig: &puppet_master_app_lib::fake_tui::WizardRig, id: &str, draft: &str, known: &[String]) -> Value {
+    let expect = json!({"tui_idle": "chrome_lines = [\"NIMBUS 0.4.2\"]\n"});
+    let verified = rig.call("verify", json!({"session": id, "toml": draft, "expect": expect})).unwrap_or_else(|e| panic!("verify: {}", err(&e)));
+    let plan = verified["planned_visible"]["fingerprint"].as_str().unwrap_or_else(|| panic!("the draft can still be tested: {verified}")).to_string();
+    visible_test_as_the_person(session, rig, id, &plan, known)
+}
+
+#[test]
+fn an_account_row_shown_since_startup_is_status_the_loop_goes_on_with_a_fix_round_and_no_address_leaves_the_wizard() {
+    let session = World::get().session("wizard-account-row");
+    let rig = session.wizard_rig("nimbus", &with_account_row(SCRIPT));
+    let (id, captures, did) = capture_as_the_person(&session, &rig, ["y", "y"]);
+    assert_eq!(did, ["trust:1", "permission:y", "permission:y"], "{did:?}");
+    // what the drafter and the UI are shown of the captures: the row, with the address masked
+    let shown = captures.to_string();
+    assert!(!shown.contains(ADDRESS), "no address in the captures the drafter sees: {shown}");
+    assert!(shown.contains("<email> (Nimbus Starter Quota)"), "{shown}");
+
+    // round 1: the draft does not know the account row, so the reply is not clean. That is the draft's fault.
+    let grid = session.pane_ids();
+    let first = run_visible(&session, &rig, &id, &DRAFT.replace("@@COMMAND@@", "nimbus"), &grid);
+    assert_eq!(first["ok"], false, "{}", first["checks"]);
+    assert_eq!(first["agent_error"], json!(null), "the account row is status, not the agent's error: {}\n{}", first["agent_error"], first["text"]);
+    let text = first["text"].as_str().unwrap_or_default();
+    assert!(text.contains("<email> (Nimbus Starter Quota)"), "the drafter is told which row is in the way, masked: {text}");
+    assert!(!first.to_string().contains(ADDRESS), "no address in the reply of the visible test: {first}");
+
+    // round 2: the fix round (a chrome row for it) passes, and what is written holds no address
+    let grid = session.pane_ids();
+    let second = run_visible(&session, &rig, &id, &draft_with_account_chrome(), &grid);
+    assert_eq!(second["ok"], true, "{}\n{}", second["text"].as_str().unwrap_or_default(), second["checks"]);
+    session.until(10, || session.pane_ids().is_empty().then_some(())).unwrap_or_else(|| panic!("panes left: {:?}", session.pane_ids()));
+    let provenance = json!({"drafter": "Test drafter", "drafter_kind": "other", "model": null, "prompt_version": "1", "rounds": 2});
+    let done = rig.call("finish", json!({"session": id, "provenance": provenance})).unwrap_or_else(|e| panic!("finish: {}", err(&e)));
+    let folder = std::path::PathBuf::from(done["fixtures_dir"].as_str().expect("a fixtures folder"));
+    let mut saved = 0;
+    for entry in std::fs::read_dir(&folder).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        assert!(!text.contains(ADDRESS), "{:?} holds the address:\n{text}", entry.file_name());
+        saved += 1;
+    }
+    assert!(saved >= 6, "fixtures were written: {saved}");
+    let record = std::fs::read_to_string(done["provenance_file"].as_str().unwrap()).unwrap();
+    assert!(!record.contains(ADDRESS), "{record}");
+    assert!(std::fs::read_to_string(folder.join("tui_idle.txt")).unwrap().contains("<email> (Nimbus Starter Quota)"));
+}
+
+#[test]
+fn a_new_error_row_after_the_task_still_stops_the_visible_test_with_that_row_beside_an_account_row() {
+    let session = World::get().session("wizard-account-new-error");
+    let rig = session.wizard_rig("nimbus", &with_account_row(SCRIPT));
+    let (id, _captures, _did) = capture_as_the_person(&session, &rig, ["y", "y"]);
+    // the agent now answers every plain message with a new error row (the capture is done: the script is read at start)
+    let failing = SCRIPT.replace("{ do = \"say\", text = \"{last_word}\" },\n]\n\"#", "").replace(
+        "on_prompt = \"exactly the word\"\nsteps = [\n  { do = \"think\", ms = 2200 },\n  { do = \"say\", text = \"{last_word}\" },\n]",
+        "on_prompt = \"exactly the word\"\nsteps = [\n  { do = \"think\", ms = 1500 },\n  { do = \"say\", text = \"Error: quota exceeded\" },\n]",
+    );
+    assert!(failing.contains("Error: quota exceeded"), "the script was changed");
+    session.script(&with_account_row(&failing));
+    let grid = session.pane_ids();
+    let test = run_visible(&session, &rig, &id, &draft_with_account_chrome(), &grid);
+    assert_eq!(test["ok"], false, "{}", test["checks"]);
+    let ae = &test["agent_error"];
+    assert!(ae["message"].as_str().unwrap_or_default().ends_with("Error: quota exceeded"), "the new error row is the message, not the account row: {test}");
+    assert_eq!(ae["external"], true, "{ae}");
+    assert!(!test.to_string().contains(ADDRESS), "{test}");
+}

@@ -231,6 +231,11 @@ struct Test<'a> {
     /// The question up now could not be READ (no menu, no highlighted row): an AI look may name the option (SPEC 11.20),
     /// and the rows drawn highlighted that it is shown.
     unreadable: parking_lot::Mutex<Option<Vec<String>>>,
+    /// Every row the pane showed from its start up to the moment the first task of this pane was typed (the startup
+    /// and idle frames: an account row, a banner, a tip). A row in it is never the agent's error (`agent_error`).
+    baseline: parking_lot::Mutex<agent_error::Baseline>,
+    /// Still before the first task of the pane under test: `look` adds what it sees to `baseline`.
+    collecting: AtomicBool,
 }
 
 /// A model name in a capture: `model: <name>` or `model = <name>`, on a screen of the agent at rest or at work.
@@ -425,7 +430,31 @@ impl Test<'_> {
     fn look(&self) -> Option<Look> {
         let mut look = self.host.look(&self.pane)?;
         look.hello_written = self.project.join("hello.txt").is_file();
+        if self.collecting.load(Ordering::SeqCst) {
+            self.baseline.lock().add_screen(&look.screen);
+        }
         Some(look)
+    }
+
+    /// The task is about to be typed: what the pane showed so far is the baseline. (A look right before the
+    /// delivery is added too, so the idle frame is in even when no look followed the last redraw.)
+    fn close_baseline(&self) {
+        if self.collecting.swap(false, Ordering::SeqCst) {
+            if let Some(look) = self.host.look(&self.pane) {
+                self.baseline.lock().add_screen(&look.screen);
+            }
+            *self.session.visible.test_baseline.lock() = Some(self.baseline.lock().clone());
+        }
+    }
+
+    /// The baseline an error row is judged against: empty while the first task has not been sent (a failure of
+    /// startup or of the ready check has no "before").
+    fn error_baseline(&self) -> agent_error::Baseline {
+        if self.collecting.load(Ordering::SeqCst) {
+            agent_error::Baseline::new()
+        } else {
+            self.baseline.lock().clone()
+        }
     }
 
     /// Poll the pane until `f` says yes, the time is up, the agent is gone or the session is cancelled.
@@ -628,6 +657,7 @@ impl Test<'_> {
     }
 
     fn check_delivery(&self, task: &str) -> Result<String, Fail> {
+        self.close_baseline();
         let mut trace = Vec::new();
         match self.host.deliver(&self.pane, task, &mut trace) {
             super::host::Delivered::Submitted => Ok("The task was typed with the profile's delivery rules and sent.".into()),
@@ -1033,6 +1063,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     session.visible.test_verdict.lock().take();
     session.visible.test_menu.lock().take();
     session.visible.test_menu_result.lock().take();
+    session.visible.test_baseline.lock().take();
     let mut outcome = Outcome { checks: Vec::new(), errors: Vec::new(), agent_error: None, screens: Vec::new(), answered: Vec::new(), answered_json: Vec::new() };
     let setup_failed = |outcome: &mut Outcome, code: &str, message: String| {
         outcome.errors.push(CheckError::new("visibletest", code, "", message));
@@ -1116,6 +1147,8 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         seen_model: parking_lot::Mutex::new(None),
         ai: parking_lot::Mutex::new(None),
         unreadable: parking_lot::Mutex::new(None),
+        baseline: parking_lot::Mutex::new(agent_error::Baseline::new()),
+        collecting: AtomicBool::new(true),
     };
     let words = &session.words;
     let task = message_task_for(&words.two);
@@ -1146,7 +1179,9 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
                 // first row of the screen (the banner), not chrome, not the echo of the test's own messages. A failure the
                 // profile caused (a prompt regex that is too broad, a ready or busy pattern) never becomes one.
                 let skip = test.own_words();
-                if let Some(found) = agent_error::find(&f.screen, Some(&*test.profile as &dyn TuiProfile), &skip, false) {
+                // A row that was on the screen before the task went in (the account row since startup) never is.
+                let baseline = test.error_baseline();
+                if let Some(found) = agent_error::find_after(&f.screen, Some(&*test.profile as &dyn TuiProfile), &skip, false, &baseline) {
                     outcome.agent_error = Some(json!({"check": name, "message": test.masked(&found.message), "external": found.external}));
                 }
                 outcome.screens.push((name.to_string(), screen));
@@ -1296,6 +1331,9 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
                     host.show(&second);
                 }
                 test.startup.lock().take();
+                // the second pane starts again: what it shows before its task is baseline as well
+                test.collecting.store(true, Ordering::SeqCst);
+                session.visible.test_baseline.lock().take();
                 let limit = test.limits.ready;
                 let t = Instant::now();
                 match test.await_ready("permission_command", limit) {

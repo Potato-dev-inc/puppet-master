@@ -120,6 +120,7 @@ impl Engine {
                 status_model: script.status_model.clone(),
                 status_model_busy_only: script.status_model_when == crate::script::StatusWhen::Busy,
                 footer_right: script.footer_right.clone(),
+                account_row: script.account_row.clone(),
                 status_model_clip: script.status_model_clip,
             },
             script,
@@ -1520,6 +1521,20 @@ steps = [{ do = \"say\", text = \"the answer\" }]");
         let screen = e.plain(500);
         assert!(screen.contains("reply: the answer"), "{screen}");
         assert!(!screen.contains("a very particular question"), "{screen}");
+    }
+
+    #[test]
+    fn an_account_row_is_drawn_under_the_footer_from_startup_on() {
+        let mut e = engine("account_row = \"someone@example.com (Nimbus Starter Quota)\"
+[[turn]]
+steps = [{ do = \"say\", text = \"ok\" }]");
+        e.tick(500);
+        let plain = e.plain(40);
+        assert!(plain.contains("someone@example.com (Nimbus Starter Quota)"), "{plain}");
+        type_text(&mut e, "go", 600);
+        e.on_key(Key::Enter, 700);
+        e.tick(1500);
+        assert!(e.plain(40).contains("someone@example.com (Nimbus Starter Quota)"), "still there after a turn");
     }
 
     #[test]
