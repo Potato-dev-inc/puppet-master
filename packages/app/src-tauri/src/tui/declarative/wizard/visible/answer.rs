@@ -84,7 +84,7 @@ impl AnsweredQ {
 // ---- reading the question (menu.rs) ---------------------------------------------------------------
 
 pub use super::menu::{
-    classify_option, describe_menu, off_limits, option_word, parse_menu, parse_menu_ex, safe_pick, style_highlight, Menu, MenuKind, MenuOption, OptionClass, NO_PLAIN_YES,
+    classify_option, describe_menu, off_limits, parse_menu, parse_menu_ex, safe_pick, style_highlight, Menu, MenuKind, MenuOption, OptionClass, NO_PLAIN_YES,
 };
 use super::menu::marker_chars;
 use super::styled::StyledScreen;
