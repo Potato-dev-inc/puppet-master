@@ -97,6 +97,20 @@ pub(crate) fn visible_launch(cli: &CursorCli, extra_args: &[String]) -> (String,
     }
 }
 
+/// Program and arguments for `cursor-agent --version` style probes: the one-shot form of
+/// [`visible_launch`]. A `.ps1` runs with `-File` and no `-NoExit`, so the probe ends by itself (the
+/// pane form keeps its shell open and would sit until the probe's timeout kills it).
+pub(crate) fn probe_launch(cli: &CursorCli, args: &[String]) -> (String, Vec<String>) {
+    match cli {
+        CursorCli::Ps1(path) => {
+            let mut full = vec!["-NoProfile".to_string(), "-File".to_string(), path.to_string_lossy().into_owned()];
+            full.extend(args.iter().cloned());
+            ("powershell.exe".into(), full)
+        }
+        other => visible_launch(other, args),
+    }
+}
+
 /// Test seam: lets a test give itself a Cursor CLI (or none) without touching the process-wide
 /// `PATH`, so it passes whether or not Cursor is installed on the machine and cannot race the
 /// parallel tests. The override is per thread; every test below runs its launch on its own thread.
@@ -220,6 +234,18 @@ mod tests {
         assert_eq!(args[..3], ["-NoLogo", "-NoExit", "-Command"]);
         assert_eq!(args[3], r"& 'C:\c\cursor-agent.ps1' '--model' 'it''s'");
         assert_eq!(visible_launch(&CursorCli::Named("agent"), &extra).0, "agent");
+    }
+
+    #[test]
+    fn a_version_probe_never_keeps_a_shell_open() {
+        let ps1 = CursorCli::Ps1(PathBuf::from(r"C:\c\cursor-agent.ps1"));
+        let (program, args) = probe_launch(&ps1, &["--version".to_string()]);
+        assert_eq!(program, "powershell.exe");
+        assert_eq!(args, ["-NoProfile", "-File", r"C:\c\cursor-agent.ps1", "--version"]);
+        assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-NoExit")));
+        let cmd = CursorCli::CmdShim(PathBuf::from(r"C:\c\agent.cmd"));
+        assert_eq!(probe_launch(&cmd, &["--version".to_string()]).0, "cmd.exe");
+        assert_eq!(probe_launch(&CursorCli::Named("agent"), &[]).0, "agent");
     }
 
     #[test]

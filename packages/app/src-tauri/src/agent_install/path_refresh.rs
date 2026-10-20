@@ -97,11 +97,9 @@ pub struct Refresh {
 /// `Path` from one registry key, expanded. Windows only; elsewhere there is nothing to read.
 #[cfg(windows)]
 fn read_registry_path(key: &str) -> Option<String> {
-    use std::os::windows::process::CommandExt;
-    let out = std::process::Command::new("reg")
+    let out = crate::proc_util::hidden_command("reg")
         .args(["query", key, "/v", "Path"])
         .stdin(std::process::Stdio::null())
-        .creation_flags(0x0800_0000)
         .output()
         .ok()?;
     if !out.status.success() {

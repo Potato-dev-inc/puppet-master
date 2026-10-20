@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 pub mod counts;
@@ -170,14 +170,8 @@ pub fn run_command_capture(project: &Path, command: &[String], expect_exit: i32,
     let Some(program) = command.first() else {
         return failed("the check has no command".into(), true);
     };
-    let mut builder = Command::new(program);
+    let mut builder = crate::proc_util::hidden_command(program);
     builder.args(&command[1..]).current_dir(project).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // No console window flashes up for a check run from the GUI app.
-        builder.creation_flags(0x0800_0000);
-    }
     let mut child = match builder.spawn() {
         Ok(child) => child,
         Err(error) => return failed(format!("`{label}` could not start: {error}"), true),

@@ -93,7 +93,7 @@ fn resolve_node_executable() -> String {
 #[cfg(unix)]
 fn which_node_executable() -> Option<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let output = std::process::Command::new(&shell)
+    let output = crate::proc_util::hidden_command(&shell)
         .args(["-l", "-c", "command -v node"])
         .env("PATH", crate::shell_env::path_for_spawn())
         .output()
@@ -111,12 +111,9 @@ fn which_node_executable() -> Option<String> {
 
 #[cfg(windows)]
 fn which_node_executable() -> Option<String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    let output = std::process::Command::new("cmd.exe")
+    let output = crate::proc_util::hidden_command("cmd.exe")
         .args(["/C", "where node"])
         .env("Path", crate::shell_env::path_for_spawn())
-        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     if !output.status.success() {

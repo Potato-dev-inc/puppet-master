@@ -9,7 +9,6 @@ use crate::pty::status::PaneStatus;
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::Read;
-use std::process::Command as StdCommand;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -71,7 +70,7 @@ pub fn spawn_native_pane(
     let port = pick_free_port(PORT_MIN, PORT_MAX)?;
     let base_url = format!("http://127.0.0.1:{port}");
 
-    let mut serve = StdCommand::new(&opencode_exe);
+    let mut serve = crate::proc_util::hidden_command(&opencode_exe);
     serve
         .args([
             "serve",

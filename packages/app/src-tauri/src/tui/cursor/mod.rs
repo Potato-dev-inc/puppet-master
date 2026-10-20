@@ -135,7 +135,7 @@ impl TuiProfile for CursorAgent {
 
     fn version_command(&self) -> Option<VersionCommand> {
         let cli = binary::installed()?;
-        let (program, args) = binary::visible_launch(&cli, &["--version".to_string()]);
+        let (program, args) = binary::probe_launch(&cli, &["--version".to_string()]);
         Some(VersionCommand { program, args })
     }
 

@@ -104,8 +104,8 @@ pub fn count(patch: &str) -> (usize, u32, u32) {
 /// `None` when git is missing or exits non-zero (not a repo, no commits yet).
 pub fn run_git_capped(dir: &std::path::Path, args: &[&str], max: usize) -> Option<RawDiff> {
     use std::io::Read;
-    use std::process::{Command, Stdio};
-    let mut cmd = Command::new("git");
+    use std::process::Stdio;
+    let mut cmd = crate::proc_util::hidden_command("git");
     cmd.arg("-c").arg("core.quotepath=false").args(args);
     cmd.current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -113,11 +113,6 @@ pub fn run_git_capped(dir: &std::path::Path, args: &[&str], max: usize) -> Optio
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
     let mut child = cmd.spawn().ok()?;
     let mut buf = Vec::new();
     if let Some(stdout) = child.stdout.take() {

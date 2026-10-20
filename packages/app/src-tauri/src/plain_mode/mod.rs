@@ -204,21 +204,19 @@ pub fn projects_root() -> PathBuf {
 pub fn open_in_default_app(file: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("cmd")
+        crate::proc_util::hidden_command("cmd")
             .args(["/C", "start", ""])
             .arg(file)
-            .creation_flags(0x0800_0000)
             .spawn()
             .map(|_| ())
             .map_err(|e| format!("OPEN_FAILED: {e}"))
     }
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open").arg(file).spawn().map(|_| ()).map_err(|e| format!("OPEN_FAILED: {e}"))
+        crate::proc_util::hidden_command("open").arg(file).spawn().map(|_| ()).map_err(|e| format!("OPEN_FAILED: {e}"))
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        std::process::Command::new("xdg-open").arg(file).spawn().map(|_| ()).map_err(|e| format!("OPEN_FAILED: {e}"))
+        crate::proc_util::hidden_command("xdg-open").arg(file).spawn().map(|_| ()).map_err(|e| format!("OPEN_FAILED: {e}"))
     }
 }

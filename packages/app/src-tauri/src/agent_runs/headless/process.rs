@@ -382,7 +382,8 @@ pub(in crate::agent_runs) fn publish(
 /// The child process for a headless run: the spec's program, args and cwd, piped output, and the
 /// environment (the spec's `[env]` first, then the account's, which wins).
 pub(crate) fn headless_command(spec: &crate::tui::LaunchSpec, account_env: &crate::tui::LaunchEnv) -> Command {
-    let mut command = Command::new(&spec.program);
+    // Never opens a console window: a PowerShell launcher (the Cursor agent's) would flash one per run.
+    let mut command = crate::proc_util::hidden_command(&spec.program);
     command
         .args(&spec.args)
         .current_dir(&spec.cwd)

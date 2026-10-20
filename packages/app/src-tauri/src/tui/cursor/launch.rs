@@ -119,7 +119,7 @@ pub(super) fn default_model() -> Option<String> {
             #[cfg(windows)]
             {
                 let shim = windows_script()?;
-                command = std::process::Command::new("powershell.exe");
+                command = crate::proc_util::hidden_command("powershell.exe");
                 command.args(["-NoProfile", "-File"]).arg(shim).arg("about");
             }
             #[cfg(not(windows))]
@@ -128,7 +128,7 @@ pub(super) fn default_model() -> Option<String> {
                     super::binary::CursorCli::Named(name) => name,
                     _ => "cursor-agent",
                 };
-                command = std::process::Command::new(program);
+                command = crate::proc_util::hidden_command(program);
                 command.arg("about");
             }
             command

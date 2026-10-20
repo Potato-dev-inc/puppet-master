@@ -175,7 +175,7 @@ fn first_cli_diagnostic(stderr: &str) -> Option<&str> {
 }
 
 fn cli_version(program: &str) -> Option<String> {
-    let output = std::process::Command::new(program)
+    let output = crate::proc_util::hidden_command(program)
         .arg("--version")
         .output()
         .ok()?;

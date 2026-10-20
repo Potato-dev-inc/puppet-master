@@ -1,6 +1,6 @@
 //! Terminate a whole process tree for pids this app spawned (never by name).
 
-use std::process::Command;
+use crate::proc_util::hidden_command;
 
 /// Kill `pid` and every descendant. Best effort; a pid that is already gone is a no-op.
 pub fn kill_process_tree(pid: u32) {
@@ -9,7 +9,7 @@ pub fn kill_process_tree(pid: u32) {
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
+        let _ = hidden_command("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output();
     }
@@ -19,15 +19,15 @@ pub fn kill_process_tree(pid: u32) {
         collect_descendants(pid, &mut order);
         // Leaves first so parents cannot respawn/reparent while we walk.
         for child in order.iter().rev() {
-            let _ = Command::new("kill").args(["-KILL", &child.to_string()]).output();
+            let _ = hidden_command("kill").args(["-KILL", &child.to_string()]).output();
         }
-        let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).output();
+        let _ = hidden_command("kill").args(["-KILL", &pid.to_string()]).output();
     }
 }
 
 #[cfg(unix)]
 fn collect_descendants(pid: u32, out: &mut Vec<u32>) {
-    let Ok(output) = Command::new("pgrep").args(["-P", &pid.to_string()]).output() else {
+    let Ok(output) = hidden_command("pgrep").args(["-P", &pid.to_string()]).output() else {
         return;
     };
     for child in String::from_utf8_lossy(&output.stdout)
@@ -42,13 +42,14 @@ fn collect_descendants(pid: u32, out: &mut Vec<u32>) {
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::io::{BufRead, BufReader};
-    use std::process::{Child, Command, Stdio};
+    use crate::proc_util::hidden_command;
+    use std::process::{Child, Stdio};
 
     /// Spawn a harmless child that itself spawns a grandchild sleeper. Returns (child, grandchild pid).
     pub fn spawn_child_with_grandchild() -> (Child, u32) {
         #[cfg(windows)]
         let mut command = {
-            let mut c = Command::new("powershell");
+            let mut c = hidden_command("powershell");
             c.args([
                 "-NoProfile",
                 "-Command",
@@ -58,7 +59,7 @@ pub(crate) mod test_support {
         };
         #[cfg(unix)]
         let mut command = {
-            let mut c = Command::new("sh");
+            let mut c = hidden_command("sh");
             c.args(["-c", "sleep 30 & echo $!; wait"]);
             c
         };
@@ -79,21 +80,11 @@ pub(crate) mod test_support {
     pub fn pid_alive(pid: u32) -> bool {
         #[cfg(windows)]
         {
-            let out = Command::new("tasklist")
-                .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-                .output()
-                .expect("tasklist");
-            String::from_utf8_lossy(&out.stdout)
-                .split_whitespace()
-                .any(|token| token == pid.to_string())
+            crate::proc_util::pid_alive(pid)
         }
         #[cfg(unix)]
         {
-            Command::new("kill")
-                .args(["-0", &pid.to_string()])
-                .status()
-                .map(|status| status.success())
-                .unwrap_or(false)
+            crate::proc_util::pid_alive(pid)
         }
     }
 

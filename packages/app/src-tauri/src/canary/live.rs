@@ -197,7 +197,7 @@ pub fn open_captures() -> Result<String, String> {
     } else {
         "xdg-open"
     };
-    std::process::Command::new(opener)
+    crate::proc_util::hidden_command(opener)
         .arg(&root)
         .spawn()
         .map_err(|e| format!("could not open {}: {e}", root.display()))?;
