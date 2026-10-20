@@ -54,6 +54,9 @@ impl Menu {
     }
 }
 
+/// The longest numbered option row that is still read as an option.
+const MAX_NUMBERED_CHARS: usize = 200;
+
 const MARKERS: &str = "\u{276F}\u{203A}\u{25B6}\u{2192}\u{25B8}\u{27A4}\u{25CF}\u{25C9}\u{25CB}\u{25EF}\u{00BB}\u{25A0}\u{25A1}\u{25C6}\u{25C7}\u{25AA}";
 
 static ROW: Lazy<Regex> = Lazy::new(|| {
@@ -116,6 +119,14 @@ pub fn normalise_row(row: &str) -> String {
     }
     out
 }
+
+/// A marker that is a cursor (`>`, a chevron, an arrow), not a bullet (`●`, `○`, `■`...).
+fn is_cursor_marker(c: char) -> bool {
+    matches!(c, '>' | '\u{276F}' | '\u{203A}' | '\u{25B6}' | '\u{2192}' | '\u{25B8}' | '\u{27A4}' | '\u{00BB}')
+}
+
+/// Rows (not hints) that may follow a menu drawn with bullets only.
+const MAX_ROWS_AFTER_BULLETS: usize = 3;
 
 fn is_selected_marker(c: char) -> bool {
     !matches!(c, '\u{25CB}' | '\u{25EF}' | '\u{25A1}' | '\u{25C7}')
@@ -270,18 +281,33 @@ pub fn parse_menu_ex(screen: &str, styled: Option<&StyledScreen>) -> Option<Menu
     let parsed: Vec<Option<Parsed>> = tail.iter().map(|r| parse_row(r)).collect();
     let short = |p: &Parsed| p.text.chars().count() <= 80 && !HINT_ROW.is_match(&p.text);
 
-    // numbered: consecutive rows numbered 1, 2, 3...
-    let numbered: Vec<usize> = (0..tail.len()).filter(|i| parsed[*i].as_ref().is_some_and(|p| p.num.is_some() && short(p))).collect();
-    if numbered.len() >= 2 && numbered.windows(2).all(|w| w[1] == w[0] + 1) {
-        let mut options: Vec<MenuOption> = numbered
+    // numbered: consecutive rows numbered 1, 2, 3... The LAST such run is the menu (an earlier numbered list in the
+    // agent's reply is history). An option may be long ("Yes, and always allow ... for commands that start with ..."), so a
+    // numbered row may be longer than a row of an arrow menu.
+    let long_ok = |p: &Parsed| p.text.chars().count() <= MAX_NUMBERED_CHARS && !HINT_ROW.is_match(&p.text);
+    let numbered: Vec<usize> = (0..tail.len()).filter(|i| parsed[*i].as_ref().is_some_and(|p| p.num.is_some() && long_ok(p))).collect();
+    let mut runs: Vec<Vec<usize>> = Vec::new();
+    for i in numbered {
+        let number = parsed[i].as_ref().and_then(|p| p.num);
+        let continues = runs.last().and_then(|r| r.last()).is_some_and(|last| {
+            *last + 1 == i && parsed[*last].as_ref().and_then(|p| p.num).zip(number).is_some_and(|(a, b)| b == a + 1)
+        });
+        match runs.last_mut() {
+            Some(run) if continues => run.push(i),
+            _ => runs.push(vec![i]),
+        }
+    }
+    if let Some(run) = runs.iter().rev().find(|r| r.len() >= 2 && parsed[r[0]].as_ref().and_then(|p| p.num) == Some(1)) {
+        let mut options: Vec<MenuOption> = run
             .iter()
             .map(|i| {
                 let p = parsed[*i].as_ref().expect("parsed");
                 MenuOption { text: p.text.clone(), number: p.num, highlighted: p.mark.is_some_and(is_selected_marker), hotkey: None }
             })
             .collect();
-        if options.iter().enumerate().all(|(k, o)| o.number == Some(k as u32 + 1)) {
-            let rows_text: Vec<String> = numbered.iter().map(|i| tail[*i].clone()).collect();
+        // more than one cursor is not a single-selection menu
+        if options.iter().filter(|o| o.highlighted).count() <= 1 {
+            let rows_text: Vec<String> = run.iter().map(|i| tail[*i].clone()).collect();
             highlight_from_styles(&mut options, &rows_text, styled);
             return Some(Menu { kind: MenuKind::Numbered, options });
         }
@@ -305,7 +331,7 @@ pub fn parse_menu_ex(screen: &str, styled: Option<&StyledScreen>) -> Option<Menu
         }
         (hi > lo).then_some((lo, hi))
     };
-    let arrow = |lo: usize, hi: usize| -> Menu {
+    let arrow = |lo: usize, hi: usize| -> Option<Menu> {
         // a title row ("Run this command?") glued to the first option is not an option
         let mut lo = lo;
         while lo < hi && raw_parsed[lo].as_ref().is_some_and(|p| p.mark.is_none() && (p.text.ends_with('?') || p.text.ends_with(':'))) {
@@ -317,15 +343,33 @@ pub fn parse_menu_ex(screen: &str, styled: Option<&StyledScreen>) -> Option<Menu
                 MenuOption { text: p.text.clone(), number: None, highlighted: p.mark.is_some_and(is_selected_marker), hotkey: None }
             })
             .collect();
+        // a block where two or more rows carry the marker is a list of status bullets (the tool calls an agent printed
+        // for an earlier turn), not a menu with one cursor
+        if options.iter().filter(|o| o.highlighted).count() > 1 {
+            return None;
+        }
         let rows_text: Vec<String> = (lo..=hi).map(|i| raw[i].clone()).collect();
         highlight_from_styles(&mut options, &rows_text, styled);
-        Menu { kind: MenuKind::Arrow, options }
+        Some(Menu { kind: MenuKind::Arrow, options })
     };
+    // The LAST block with a cursor marker (`>`, a chevron, an arrow) is the menu. A block drawn only with bullets counts
+    // when it sits at the bottom: only hints and a footer may follow it (bullets higher up are the transcript).
     let anchors = (0..raw.len()).rev().filter(|i| raw_parsed[*i].as_ref().is_some_and(|p| p.mark.is_some_and(is_selected_marker) && short(p) && p.num.is_none()));
+    let mut bullets: Option<Menu> = None;
     for anchor in anchors {
-        if let Some((lo, hi)) = group_at(anchor) {
-            return Some(arrow(lo, hi));
+        let Some((lo, hi)) = group_at(anchor) else { continue };
+        let Some(menu) = arrow(lo, hi) else { continue };
+        let has_cursor = (lo..=hi).any(|i| raw_parsed[i].as_ref().and_then(|p| p.mark).is_some_and(is_cursor_marker));
+        if has_cursor {
+            return Some(menu);
         }
+        let after = raw[hi + 1..].iter().filter(|r| !r.trim().is_empty() && !HINT_ROW.is_match(r)).count();
+        if bullets.is_none() && after <= MAX_ROWS_AFTER_BULLETS {
+            bullets = Some(menu);
+        }
+    }
+    if let Some(menu) = bullets {
+        return Some(menu);
     }
     // no marker anywhere: the highlighted row is drawn as a band (inverse video, a background) or in a stronger style
     if let Some(styled) = styled {
@@ -340,9 +384,10 @@ pub fn parse_menu_ex(screen: &str, styled: Option<&StyledScreen>) -> Option<Menu
             let Some((lo, hi)) = group_at(at) else { continue };
             // the band row itself, or any group that tells its highlighted row apart by attributes
             if style.is_band() || style.bold || emphasis(&style) >= 1 {
-                let menu = arrow(lo, hi);
-                if menu.highlighted().is_some() && menu.options.iter().any(|o| looks_like_option(&o.text)) {
-                    return Some(menu);
+                if let Some(menu) = arrow(lo, hi) {
+                    if menu.highlighted().is_some() && menu.options.iter().any(|o| looks_like_option(&o.text)) {
+                        return Some(menu);
+                    }
                 }
             }
         }
