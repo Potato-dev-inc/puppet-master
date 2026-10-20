@@ -72,12 +72,21 @@ impl TuiProfile for FakeAgent {
         self.exe.is_file()
     }
 
+    /// `pm-fake-tui --version --script <script>` once a session has written a script, so the canary's
+    /// end-to-end test reads the version line the script plays (`version_output`) the way it reads a
+    /// real CLI's. Without a script there is nothing to ask.
     fn version_command(&self) -> Option<VersionCommand> {
-        None
+        let script = self.script.lock().clone()?;
+        Some(VersionCommand {
+            program: self.exe.to_string_lossy().into_owned(),
+            args: vec!["--version".into(), "--script".into(), script.to_string_lossy().into_owned()],
+        })
     }
 
+    /// The fake's "tested" range: version 1.x. A script that prints version 2 is an update the profile
+    /// was not tested with.
     fn tested_versions(&self) -> Option<TestedRange> {
-        None
+        TestedRange::parse(">=1.0, <2.0").ok()
     }
 
     fn risk_rules(&self) -> Vec<crate::prompt_risk::RiskRule> {

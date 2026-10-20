@@ -397,7 +397,7 @@ fn a_parked_run_resumes_when_the_box_shows_and_ends_when_the_agent_goes() {
 
 #[test]
 fn the_error_of_a_screen_that_never_became_ready_explains_itself() {
-    let error = not_ready_error("the agent's input box already holds text that Puppet Master did not type", CLAUDE_DRAFT, "pane-1");
+    let error = not_ready_error("claude", "the agent's input box already holds text that Puppet Master did not type", CLAUDE_DRAFT, "pane-1");
     assert_eq!(error.code, SCREEN_NOT_READY);
     assert!(error.message.contains("did not switch to a background run"), "{}", error.message);
     assert!(error.context["screen"].as_str().unwrap().contains("half a thought"));

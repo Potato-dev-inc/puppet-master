@@ -1103,3 +1103,8 @@ mod run_mode;
 
 #[path = "fake_tui_no_windows.rs"]
 mod no_windows;
+
+// ---- CLI-update safety: version change, verified versions, changed screens (zero tokens) ---------------------------
+
+#[path = "fake_tui_canary.rs"]
+mod canary;

@@ -564,7 +564,7 @@ fn parked_on_unknown(pane: &'static str, park_for: Duration) -> (Arc<Mutex<PaneR
                 operation.stage = Some("dispatching".into());
                 *operation = crate::operations::save_operation_snapshot(operation)?;
                 let screen = crate::pty::registry_read_snapshot_full(registry.as_ref(), pane).unwrap();
-                let not_ready = crate::agent_runs::readiness::not_ready_error("the screen does not show the agent's input box", &screen, pane);
+                let not_ready = crate::agent_runs::readiness::not_ready_error("codex", "the screen does not show the agent's input box", &screen, pane);
                 super::dispatch::park_on_unknown_screen(operation, &registry, pane, "codex", &not_ready, park_for)
             })
         })

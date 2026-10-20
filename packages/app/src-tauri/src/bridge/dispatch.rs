@@ -890,7 +890,7 @@ fn deliver_task(
             Err(crate::agent_runs::readiness::host_shell_error(&shell, profile.as_ref(), pane_id))
         }
         Delivery::NotReady { why, screen } => {
-            Err(crate::agent_runs::readiness::not_ready_error(&why, &screen, pane_id))
+            Err(crate::agent_runs::readiness::not_ready_error(profile.id(), &why, &screen, pane_id))
         }
         Delivery::WriteFailed(err) => Err(crate::operations::OperationError::new("DISPATCH_FAILED", err, true)),
     }
@@ -1089,7 +1089,7 @@ pub(super) fn park_on_unknown_screen(
             false,
         )),
         ParkEnd::TimedOut { why, screen } => {
-            Err(crate::agent_runs::readiness::not_ready_error(&why, &screen, pane_id))
+            Err(crate::agent_runs::readiness::not_ready_error(profile.id(), &why, &screen, pane_id))
         }
     }
 }

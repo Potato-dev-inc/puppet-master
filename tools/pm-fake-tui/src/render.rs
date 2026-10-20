@@ -58,6 +58,9 @@ pub struct Opts {
     pub account_row: Option<String>,
     /// The model name in the status line is cut to this many characters (a narrow status bar clips it).
     pub status_model_clip: Option<usize>,
+    /// Codex layout: the glyph that starts the composer row, instead of the real `\u{203a}`. A CLI update
+    /// that redraws its input box differently (the canary's "changed screens" case).
+    pub composer_glyph: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -514,6 +517,7 @@ fn codex_block(block: &Block, cols: usize) -> Vec<String> {
 }
 
 fn codex_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
+    let glyph = view.opts.composer_glyph.as_deref().unwrap_or("\u{203a}");
     let loading = matches!(view.mode, Mode::Loading);
     let mut top = codex_banner(view, loading);
     for block in view.blocks {
@@ -556,14 +560,14 @@ fn codex_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
                 Some(text) => text.to_string(),
                 None => "Ask Codex to do anything".to_string(),
             };
-            bottom.push(format!("{BOLD}\u{203a}{RESET} {DIM}{ghost}{NO_DIM}"));
+            bottom.push(format!("{BOLD}{glyph}{RESET} {DIM}{ghost}{NO_DIM}"));
             cursor = Some((composer_row, 2));
         } else {
             let wrapped = wrap(view.composer, view.cols.saturating_sub(2));
             let last = wrapped.len() - 1;
             let width = wrapped[last].chars().count();
             for (i, row) in wrapped.into_iter().enumerate() {
-                bottom.push(if i == 0 { format!("{BOLD}\u{203a}{RESET} {row}") } else { format!("  {row}") });
+                bottom.push(if i == 0 { format!("{BOLD}{glyph}{RESET} {row}") } else { format!("  {row}") });
             }
             cursor = Some((composer_row + last, 2 + width));
         }
@@ -899,7 +903,7 @@ mod tests {
     use super::*;
 
     fn view<'a>(layout: Layout, banner: &'a Banner, blocks: &'a [Block], mode: Mode) -> View<'a> {
-        static OPTS: Opts = Opts { backlog_rows: 0, banner_rows: Vec::new(), status_model: None, status_model_busy_only: false, footer_right: None, account_row: None, status_model_clip: None };
+        static OPTS: Opts = Opts { backlog_rows: 0, banner_rows: Vec::new(), status_model: None, status_model_busy_only: false, footer_right: None, account_row: None, status_model_clip: None, composer_glyph: None };
         View { layout, cols: 80, rows: 24, banner, blocks, mode, composer: "", suggestion: None, fresh: true, busy: None, notice: None, tick: 0, opts: &OPTS }
     }
 

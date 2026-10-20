@@ -201,6 +201,12 @@ impl Session {
         &self.world.exe
     }
 
+    /// The CLI-update canary for the fake agent `agent` (`fake_codex`): its `--version` and its start-up
+    /// check both play whatever script `script()` last wrote.
+    pub fn canary(&self, agent: &'static str) -> super::CanaryRig {
+        super::CanaryRig::new(agent, self.world.exe.clone(), self.script_path())
+    }
+
     /// The script file `script()` last wrote (`aux/script.toml`).
     pub fn script_path(&self) -> PathBuf {
         self.aux.join("script.toml")

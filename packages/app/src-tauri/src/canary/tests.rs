@@ -4,6 +4,7 @@
 use super::engine::{Deps, Engine, Source};
 use super::model::*;
 use super::run::{self, CanaryIo, Timing};
+use super::state;
 use super::strict;
 use crate::tui::profile_for;
 use std::sync::Arc;
@@ -233,6 +234,12 @@ struct Machine {
     /// What the fake CLI shows after the bump.
     after_bump: Arc<parking_lot::Mutex<&'static str>>,
     checks: Arc<parking_lot::Mutex<Vec<String>>>,
+    /// The clock, in ms.
+    clock: Arc<parking_lot::Mutex<i64>>,
+    /// The program's path, size and modified time as the fake machine reports them.
+    print: Arc<parking_lot::Mutex<Option<String>>>,
+    /// How many times `--version` was read.
+    reads: Arc<parking_lot::Mutex<usize>>,
 }
 
 fn codex_source() -> Source {
@@ -251,11 +258,15 @@ fn codex_source() -> Source {
 fn engine_on(machine: &Machine, state_file: Option<std::path::PathBuf>) -> Engine {
     let (version, screen, checks) = (machine.version.clone(), machine.after_bump.clone(), machine.checks.clone());
     let version_for_check = version.clone();
+    let (clock, print, reads) = (machine.clock.clone(), machine.print.clone(), machine.reads.clone());
     Engine::new(
         state_file,
         Deps {
             sources: Box::new(|| vec![codex_source()]),
-            read_version: Box::new(move |_| Some(version.lock().clone())),
+            read_version: Box::new(move |_| {
+                *reads.lock() += 1;
+                Some(version.lock().clone())
+            }),
             run_check: Box::new(move |source, seen| {
                 checks.lock().push(seen.clone().unwrap_or_default());
                 // The check drives the fake CLI through the real driver and the real profile.
@@ -266,7 +277,9 @@ fn engine_on(machine: &Machine, state_file: Option<std::path::PathBuf>) -> Engin
                 run::into_result(drive, &source.facts.id, &source.facts.label, seen, 1_000, profile.as_ref(), &|s| s.to_string())
             }),
             captures: Box::new(|_| 0),
-            now_ms: Box::new(|| 1_000),
+            now_ms: Box::new(move || *clock.lock()),
+            fingerprint: Box::new(move |_| print.lock().clone()),
+            source_of: Box::new(|id| id.eq_ignore_ascii_case("codex").then(codex_source)),
         },
     )
 }
@@ -276,6 +289,9 @@ fn machine(version: &str, screen: &'static str) -> Machine {
         version: Arc::new(parking_lot::Mutex::new(version.to_string())),
         after_bump: Arc::new(parking_lot::Mutex::new(screen)),
         checks: Default::default(),
+        clock: Arc::new(parking_lot::Mutex::new(1_000)),
+        print: Default::default(),
+        reads: Default::default(),
     }
 }
 
@@ -337,8 +353,9 @@ fn a_failed_check_after_a_bump_raises_the_inbox_card_and_a_later_pass_clears_it(
     assert_eq!(status.notices.len(), 1);
     assert_eq!(
         status.notices[0].text,
-        "Codex 0.162.1 changed its screens. Puppet Master will ask you before acting."
+        "Codex 0.159.3 \u{2192} 0.162.1: screens changed. Puppet Master will ask you before acting."
     );
+    assert_eq!(status.notices[0].kind, NoticeKind::Changed);
     assert_eq!(machine.checks.lock().len(), 1);
     // The check never sent a prompt.
     assert_eq!(view.last.as_ref().unwrap().screens.len(), 1);
@@ -354,8 +371,279 @@ fn a_failed_check_after_a_bump_raises_the_inbox_card_and_a_later_pass_clears_it(
     let view = engine.check("codex").unwrap();
     assert_eq!(view.last.as_ref().unwrap().outcome, Outcome::Ready);
     assert!(!view.strict, "{view:?}");
-    assert!(engine.status().notices.is_empty());
+    // The failure card is gone; the pass says so in its own card.
+    let notices = engine.status().notices;
+    assert_eq!(notices.len(), 1);
+    assert_eq!((notices[0].kind, notices[0].text.as_str()), (NoticeKind::Good, "Codex 0.162.1 \u{2192} 0.162.2: checked, all good."));
     strict::replace(Vec::<String>::new());
+}
+
+// ---- results, verified versions, signals, the spawn gate -----------------------------------------
+
+#[test]
+fn a_passing_check_clears_the_untested_chip_for_that_exact_version_only() {
+    let _lock = super::test_lock();
+    let machine = machine("codex-cli 0.159.3", CODEX_READY);
+    let engine = engine_on(&machine, None);
+    wire_strict(&engine);
+    let codex = profile_for("codex");
+    engine.refresh();
+
+    // The update lands outside the tested range: the chip is on until a check passes here.
+    *machine.version.lock() = "codex-cli 0.171.0".into();
+    assert_eq!(engine.refresh(), vec!["codex".to_string()]);
+    let view = engine.status().agents[0].clone();
+    assert_eq!((view.strict_reason, view.chip.as_deref(), view.verified), (Some(StrictReason::UntestedVersion), Some("Untested version"), false));
+    assert!(strict::is_strict("codex"));
+    assert_eq!(strict::startup_gate(codex.as_ref(), CODEX_UPDATE_MENU).unwrap().dismiss, None);
+
+    let view = engine.check("codex").unwrap();
+    assert!(view.verified && !view.strict && view.chip.is_none(), "{view:?}");
+    assert!(!strict::is_strict("codex"), "the strict set follows");
+    assert!(strict::startup_gate(codex.as_ref(), CODEX_UPDATE_MENU).unwrap().dismiss.is_some(), "the person's notices are closed for them again");
+    let status = engine.status();
+    assert_eq!(status.notices.len(), 1);
+    assert_eq!(
+        (status.notices[0].kind, status.notices[0].text.as_str()),
+        (NoticeKind::Good, "Codex 0.159.3 \u{2192} 0.171.0: checked, all good.")
+    );
+    let change = view.change.expect("the update is shown");
+    assert_eq!((change.from.as_str(), change.to.as_str(), change.verdict), ("0.159.3", "0.171.0", Verdict::Good));
+
+    // The next update is another exact version: the chip is back until it passes too.
+    *machine.version.lock() = "codex-cli 0.171.1".into();
+    assert_eq!(engine.refresh(), vec!["codex".to_string()]);
+    let view = engine.status().agents[0].clone();
+    assert_eq!((view.chip.as_deref(), view.verified), (Some("Untested version"), false));
+    assert!(strict::is_strict("codex"));
+
+    // Going back to the version that passed here needs no new check and has no chip.
+    *machine.version.lock() = "codex-cli 0.171.0".into();
+    assert!(engine.refresh().is_empty());
+    let view = engine.status().agents[0].clone();
+    assert!(view.verified && view.chip.is_none());
+    strict::replace(Vec::<String>::new());
+}
+
+#[test]
+fn same_screens_after_the_update_is_all_good_and_changed_screens_is_not() {
+    let _lock = super::test_lock();
+    // "Version 2 with the same screens."
+    let same = machine("codex-cli 0.159.3", CODEX_READY);
+    let engine = engine_on(&same, None);
+    wire_strict(&engine);
+    engine.refresh();
+    *same.version.lock() = "codex-cli 0.170.0".into();
+    let view = engine.run_due().remove(0);
+    assert_eq!(view.last.as_ref().unwrap().outcome, Outcome::Ready);
+    assert!(view.verified && view.chip.is_none());
+    assert_eq!(engine.status().notices[0].text, "Codex 0.159.3 \u{2192} 0.170.0: checked, all good.");
+
+    // "Version 2 with a changed input box."
+    let changed = machine("codex-cli 0.159.3", UNRECOGNISED);
+    let engine = engine_on(&changed, None);
+    wire_strict(&engine);
+    engine.refresh();
+    *changed.version.lock() = "codex-cli 0.170.0".into();
+    let view = engine.run_due().remove(0);
+    assert_eq!(view.last.as_ref().unwrap().outcome, Outcome::Unrecognised);
+    assert!(!view.verified && view.strict);
+    assert_eq!(view.strict_reason, Some(StrictReason::ChangedScreens));
+    assert_eq!(
+        engine.status().notices[0].text,
+        "Codex 0.159.3 \u{2192} 0.170.0: screens changed. Puppet Master will ask you before acting."
+    );
+    assert!(strict::is_strict("codex"));
+    strict::replace(Vec::<String>::new());
+}
+
+#[test]
+fn the_same_failure_twice_marks_the_screens_changed() {
+    let _lock = super::test_lock();
+    let machine = machine("codex-cli 0.159.3", "");
+    let engine = engine_on(&machine, None);
+    wire_strict(&engine);
+    engine.refresh();
+    *machine.version.lock() = "codex-cli 0.162.1".into();
+    let first = engine.check("codex").unwrap();
+    assert_eq!(first.last.as_ref().unwrap().outcome, Outcome::NeverDrew);
+    assert!(!first.strict && engine.status().notices.is_empty(), "one slow start proves nothing");
+    let second = engine.check("codex").unwrap();
+    assert_eq!(second.strict_reason, Some(StrictReason::ChangedScreens), "{second:?}");
+    assert_eq!(engine.status().notices.len(), 1);
+    assert!(strict::is_strict("codex"));
+    // A pass on the same version ends it.
+    *machine.after_bump.lock() = CODEX_READY;
+    let third = engine.check("codex").unwrap();
+    assert!(!third.strict && third.verified, "{third:?}");
+    strict::replace(Vec::<String>::new());
+}
+
+#[test]
+fn a_screen_signal_starts_one_check_and_a_storm_starts_no_more() {
+    let _lock = super::test_lock();
+    let machine = machine("codex-cli 0.162.1", CODEX_READY);
+    let engine = engine_on(&machine, None);
+    wire_strict(&engine);
+    engine.refresh();
+
+    let started = (0..50).filter(|_| engine.note_signal("codex", Signal::NotReady)).count();
+    assert_eq!(started, 1, "fifty signals, one check");
+    assert!(engine.check("codex").is_ok());
+    // Later signals on the same version: nothing, however much time passes.
+    *machine.clock.lock() += state::SIGNAL_GAP_MS * 10;
+    assert!(!engine.note_signal("codex", Signal::UnreadableScreen));
+    assert!(!engine.note_signal("codex", Signal::AmbiguousIdle));
+
+    // A new version is a new chance...
+    *machine.version.lock() = "codex-cli 0.162.2".into();
+    engine.refresh();
+    assert!(engine.note_signal("codex", Signal::NotReady));
+    assert!(!engine.note_signal("codex", Signal::NotReady));
+    // ...but even another new version waits for the gap since the last check a signal started.
+    *machine.version.lock() = "codex-cli 0.162.3".into();
+    engine.refresh();
+    *machine.clock.lock() += 1_000;
+    assert!(!engine.note_signal("codex", Signal::NotReady), "too soon after the last one");
+    *machine.clock.lock() += state::SIGNAL_GAP_MS;
+    assert!(engine.note_signal("codex", Signal::NotReady));
+    strict::replace(Vec::<String>::new());
+}
+
+#[test]
+fn a_signal_does_nothing_when_auto_check_is_off_or_the_agent_is_not_known() {
+    let _lock = super::test_lock();
+    let machine = machine("codex-cli 0.162.1", CODEX_READY);
+    let engine = engine_on(&machine, None);
+    wire_strict(&engine);
+    engine.refresh();
+    engine.set_auto_check(false);
+    assert!(!engine.note_signal("codex", Signal::NotReady));
+    assert!(!engine.note_signal("shell", Signal::NotReady));
+    assert!(!engine.note_signal("", Signal::NotReady));
+    engine.set_auto_check(true);
+    assert!(engine.note_signal("CODEX", Signal::NotReady), "the switch was the only thing in the way");
+    assert!(machine.checks.lock().is_empty(), "noting a signal launches nothing by itself");
+    strict::replace(Vec::<String>::new());
+}
+
+#[test]
+fn a_signal_check_that_finds_unreadable_screens_marks_the_agent_and_ends_the_signals() {
+    let _lock = super::test_lock();
+    let machine = machine("codex-cli 0.162.1", UNRECOGNISED);
+    let engine = engine_on(&machine, None);
+    wire_strict(&engine);
+    engine.refresh();
+    assert!(!engine.status().agents[0].strict, "nothing changed, nothing checked");
+    assert!(engine.note_signal("codex", Signal::UnreadableScreen));
+    let view = engine.check("codex").unwrap();
+    assert_eq!(view.strict_reason, Some(StrictReason::ChangedScreens));
+    assert_eq!(engine.status().notices[0].text, "Codex 0.162.1 changed its screens. Puppet Master will ask you before acting.");
+    *machine.clock.lock() += state::SIGNAL_GAP_MS * 5;
+    assert!(!engine.note_signal("codex", Signal::UnreadableScreen), "the answer is known");
+    strict::replace(Vec::<String>::new());
+}
+
+#[test]
+fn before_a_run_only_a_changed_program_makes_the_version_be_read_again() {
+    let _lock = super::test_lock();
+    let machine = machine("codex-cli 0.159.3", CODEX_READY);
+    *machine.print.lock() = Some("codex.exe|10|1".into());
+    let engine = engine_on(&machine, None);
+    wire_strict(&engine);
+    engine.refresh();
+    assert_eq!(*machine.reads.lock(), 1);
+
+    // Nothing changed: no process is started, nothing is read.
+    assert!(!engine.before_run("codex"));
+    assert!(!engine.before_run("codex"));
+    assert_eq!(*machine.reads.lock(), 1);
+
+    // The program was replaced by one with the same version: read once, remembered.
+    *machine.print.lock() = Some("codex.exe|11|2".into());
+    assert!(!engine.before_run("codex"));
+    assert_eq!(*machine.reads.lock(), 2);
+    assert!(!engine.before_run("codex"));
+    assert_eq!(*machine.reads.lock(), 2);
+
+    // The update lands between probes: seen at the next run, outside the range, so a check is wanted.
+    *machine.print.lock() = Some("codex.exe|12|3".into());
+    *machine.version.lock() = "codex-cli 0.171.0".into();
+    *machine.clock.lock() = 5_000;
+    assert!(engine.before_run("codex"));
+    assert_eq!(*machine.reads.lock(), 3);
+    let view = engine.status().agents[0].clone();
+    assert_eq!(view.version.as_deref(), Some("0.171.0"));
+    assert_eq!(view.strict_reason, Some(StrictReason::UntestedVersion), "strict before the run's start-up screens are met");
+    assert!(strict::is_strict("codex"));
+    let change = view.change.unwrap();
+    assert_eq!((change.from.as_str(), change.at_ms), ("0.159.3", 5_000));
+
+    // Not an agent, or no program to look at: nothing happens.
+    assert!(!engine.before_run("nope"));
+    *machine.print.lock() = None;
+    assert!(!engine.before_run("codex"));
+    assert_eq!(*machine.reads.lock(), 3);
+    strict::replace(Vec::<String>::new());
+}
+
+#[test]
+fn the_first_run_before_any_probe_only_remembers_the_program() {
+    let _lock = super::test_lock();
+    let machine = machine("codex-cli 0.171.0", CODEX_READY);
+    *machine.print.lock() = Some("codex.exe|10|1".into());
+    let engine = engine_on(&machine, None);
+    assert!(!engine.before_run("codex"), "nothing to compare with");
+    assert_eq!(*machine.reads.lock(), 0, "no process for a first look");
+    // The probe that follows takes it from there: the first sighting outside the range is checked.
+    assert_eq!(engine.refresh(), vec!["codex".to_string()]);
+    assert!(!engine.before_run("codex"));
+    assert_eq!(*machine.reads.lock(), 1);
+}
+
+#[test]
+fn a_program_change_with_auto_check_off_notes_the_version_and_starts_nothing() {
+    let _lock = super::test_lock();
+    let machine = machine("codex-cli 0.159.3", CODEX_READY);
+    *machine.print.lock() = Some("codex.exe|10|1".into());
+    let engine = engine_on(&machine, None);
+    wire_strict(&engine);
+    engine.refresh();
+    engine.set_auto_check(false);
+    *machine.print.lock() = Some("codex.exe|11|2".into());
+    *machine.version.lock() = "codex-cli 0.171.0".into();
+    assert!(!engine.before_run("codex"));
+    let view = engine.status().agents[0].clone();
+    assert_eq!(view.version.as_deref(), Some("0.171.0"));
+    assert!(view.strict, "an untested version is still handled carefully");
+    strict::replace(Vec::<String>::new());
+}
+
+#[test]
+fn an_old_state_file_loads_and_is_upgraded_when_the_next_check_saves() {
+    let _lock = super::test_lock();
+    let dir = std::env::temp_dir().join(format!("pm-canary-old-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("canary.json");
+    let old = r#"{"auto_check":true,"agents":{"codex":{"version":"codex-cli 0.171.0","probed_ms":5,"last_result":null,"notice":null}}}"#;
+    std::fs::write(&file, old).unwrap();
+
+    let machine = machine("codex-cli 0.171.0", CODEX_READY);
+    {
+        let engine = engine_on(&machine, Some(file.clone()));
+        let view = engine.status().agents[0].clone();
+        assert_eq!((view.version.as_deref(), view.verified, view.strict), (Some("0.171.0"), false, true));
+        assert!(view.change.is_none());
+        let view = engine.check("codex").unwrap();
+        assert!(view.verified && !view.strict);
+    }
+    // A restart keeps the verified version: no chip, no check.
+    let reborn = engine_on(&machine, Some(file));
+    let view = reborn.status().agents[0].clone();
+    assert!(view.verified && !view.strict, "{view:?}");
+    assert!(reborn.refresh().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

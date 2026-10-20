@@ -70,20 +70,31 @@ pub fn collect_probes() -> Vec<Probe> {
     crate::tui::descriptors()
         .into_iter()
         .filter(|d| d.kind == Kind::Cli.as_str() && d.dispatchable)
-        .map(|d| {
-            let profile = crate::tui::profile_for(d.id);
-            Probe {
-                id: d.id.to_string(),
-                label: d.label,
-                installed: d.installed,
-                version_command: if d.installed { profile.version_command() } else { None },
-                install_hint: d.install_hint,
-                install_fallback: d.install_fallback,
-                login_hint: d.login_hint,
-                can_test: d.installed && d.modes.headless && read_only.contains(&d.id),
-            }
-        })
+        .map(|d| probe_of(d, &read_only))
         .collect()
+}
+
+/// The probe of one agent, for callers that must not list them all (a run about to start).
+pub fn probe_for(id: &str) -> Option<Probe> {
+    let d = crate::tui::descriptor_for(id)?;
+    if d.kind != Kind::Cli.as_str() || !d.dispatchable {
+        return None;
+    }
+    Some(probe_of(d, &crate::tui::read_only_backends()))
+}
+
+fn probe_of(d: crate::tui::Descriptor, read_only: &[&'static str]) -> Probe {
+    let profile = crate::tui::profile_for(d.id);
+    Probe {
+        id: d.id.to_string(),
+        label: d.label,
+        installed: d.installed,
+        version_command: if d.installed { profile.version_command() } else { None },
+        install_hint: d.install_hint,
+        install_fallback: d.install_fallback,
+        login_hint: d.login_hint,
+        can_test: d.installed && d.modes.headless && read_only.contains(&d.id),
+    }
 }
 
 /// Quick check of every agent, one thread each so a hung CLI cannot delay the others.
