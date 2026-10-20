@@ -507,7 +507,7 @@ impl Engine {
             // The arrow menu of a nimbus file question takes arrows and Enter only; the y/n line takes neither digits
             // beyond its two rows nor letters beyond y and n; a numbered command menu takes its digits.
             Key::Char(_) if self.layout == Layout::Nimbus && dialog.menu == render::NimbusMenu::File => {}
-            Key::Char(c) if self.layout == Layout::Nimbus && dialog.menu == render::NimbusMenu::Command => {
+            Key::Char(c) if self.layout == Layout::Nimbus && matches!(dialog.menu, render::NimbusMenu::Command | render::NimbusMenu::RunNumbered) => {
                 if let Some(n) = c.to_digit(10).filter(|n| (1..=options as u32).contains(n)) {
                     confirm = Some(n as usize - 1);
                 }
@@ -632,8 +632,8 @@ impl Engine {
                         self.sleep = Some(Sleep { verb: self.verb.clone(), until: now + ms });
                     }
                 }
-                Step::Approve { kind, command, path, diff, auto_mode_option, on_allow, on_deny } => {
-                    let menu = match (self.layout, self.script.approvals, kind) {
+                Step::Approve { kind, command, path, diff, auto_mode_option, style, on_allow, on_deny } => {
+                    let menu = match (self.layout, style.unwrap_or(self.script.approvals), kind) {
                         (Layout::Nimbus, crate::script::Approvals::Menus, ApprovalKind::Bash) => render::NimbusMenu::Command,
                         (Layout::Nimbus, crate::script::Approvals::Menus, _) => render::NimbusMenu::File,
                         (Layout::Nimbus, crate::script::Approvals::Inverse, _) => render::NimbusMenu::Inverse,
@@ -643,6 +643,8 @@ impl Engine {
                         (Layout::Nimbus, crate::script::Approvals::Inline, _) => render::NimbusMenu::Inline,
                         (Layout::Nimbus, crate::script::Approvals::AlwaysOnly, _) => render::NimbusMenu::AlwaysOnly,
                         (Layout::Nimbus, crate::script::Approvals::Blind, _) => render::NimbusMenu::Blind,
+                        (Layout::Nimbus, crate::script::Approvals::RunNumbered, _) => render::NimbusMenu::RunNumbered,
+                        (Layout::Nimbus, crate::script::Approvals::YesMissed, _) => render::NimbusMenu::YesMissed,
                         _ => render::NimbusMenu::YesNo,
                     };
                     let dialog = Dialog {
@@ -1449,6 +1451,38 @@ mod nimbus_tests {
         let blind = ask(&styled_toml("blind", 0));
         let rows = blind.frame(20).rows;
         assert!(rows.iter().all(|r| !r.contains("\x1b[7m")) && blind.plain(20).contains("Allow once"), "nothing shows where the cursor is");
+    }
+
+    #[test]
+    fn the_run_numbered_menu_has_other_wording_and_takes_its_digits() {
+        let mut e = ask(&styled_toml("run_numbered", 0));
+        let plain = e.plain(20);
+        assert!(plain.contains("> 1. Run command") && plain.contains("2. Always run") && plain.contains("3. Cancel"), "{plain}");
+        e.on_key(Key::Char('1'), 30);
+        assert!(e.plain(40).contains("ran") || e.plain(40).contains("allowed"), "{}", e.plain(40));
+    }
+
+    #[test]
+    fn the_yes_missed_menu_draws_its_yes_row_at_another_indent() {
+        let mut e = ask(&styled_toml("yes_missed", 1));
+        let plain = e.plain(20);
+        let row = |text: &str| plain.lines().find(|l| l.contains(text)).unwrap_or_else(|| panic!("{text} in {plain}")).to_string();
+        let indent = |l: &str| l.chars().take_while(|c| *c == ' ').count();
+        assert_eq!(indent(&row("Yes, run command")), 1, "{plain}");
+        assert!(row("Always run in this project").trim_start().starts_with("> "), "the cursor starts on the second row: {plain}");
+        e.on_key(Key::Up, 30);
+        assert!(e.plain(40).contains(" > Yes, run command"), "{}", e.plain(40));
+        e.on_key(Key::Enter, 50);
+        assert!(e.plain(60).contains("ran"), "{}", e.plain(60));
+    }
+
+    #[test]
+    fn one_turn_may_ask_two_differently_drawn_questions() {
+        let toml = "approvals = \"inverse\"\n[[turn]]\nsteps = [{ do = \"approve\", kind = \"bash\", command = \"a\", on_allow = [{ do = \"say\", text = \"one\" }] }, { do = \"approve\", kind = \"bash\", command = \"b\", style = \"run_numbered\", on_allow = [{ do = \"say\", text = \"two\" }] }]";
+        let mut e = ask(toml);
+        assert!(e.plain(20).contains("Allow once") && !e.plain(20).contains("Run command"), "{}", e.plain(20));
+        e.on_key(Key::Enter, 30);
+        assert!(e.plain(40).contains("> 1. Run command"), "{}", e.plain(40));
     }
 
     #[test]
