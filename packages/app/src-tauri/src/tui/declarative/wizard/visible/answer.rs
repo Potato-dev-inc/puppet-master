@@ -211,7 +211,9 @@ pub fn fingerprint(screen: &str) -> String {
     let all: Vec<String> = rows(screen).into_iter().map(super::menu::normalise_row).filter(|r| !r.trim().is_empty()).collect();
     let from = all.len().saturating_sub(16);
     let marks = marker_chars();
-    let folded: Vec<String> = all[from..].iter().map(|r| r.trim_start_matches(|c: char| c.is_whitespace() || marks.contains(c)).to_string()).collect();
+    // The identity travels to the window and back: an address on the screen is `<email>` in it (the same question stays the same).
+    let folded: Vec<String> =
+        all[from..].iter().map(|r| crate::redact::mask_emails(r.trim_start_matches(|c: char| c.is_whitespace() || marks.contains(c)))).collect();
     frame_key(&folded.join("\n")).join("\n")
 }
 

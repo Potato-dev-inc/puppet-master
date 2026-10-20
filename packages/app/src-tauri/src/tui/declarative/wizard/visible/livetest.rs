@@ -283,7 +283,7 @@ impl Test<'_> {
         let rows: Vec<&str> = screen.lines().collect();
         let from = rows.len().saturating_sub(40);
         let shown = self.masked(&rows[from..].join("\n"));
-        *self.status.lock() = json!({
+        let mut value = json!({
             "running": true,
             "check": current,
             "needs_you": needs.map(|(kind, message)| {
@@ -302,6 +302,8 @@ impl Test<'_> {
             "screen": shown,
             "answered": self.answered_json(),
         });
+        exec::mask_private_json(&mut value);
+        *self.status.lock() = value;
     }
 
     /// How the answerer read the question on the pane (masked), and keep what it decided for the debug file.

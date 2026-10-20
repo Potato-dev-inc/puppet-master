@@ -255,6 +255,7 @@ fn a_run_that_stops_leaves_a_redacted_debug_file_with_the_looks_the_menu_and_the
     })
     .expect("the question stopped the wizard");
     assert!(status["menu_read"].as_str().unwrap().contains("(broad, highlighted)"), "{status}");
+    assert!(!status.to_string().contains("someone@example.com"), "no raw address reaches the window, not even in the question identity: {status}");
 
     // what the front end does at a stop
     let written = ok(&wizard, "capture", json!({"session": id, "op": "dump", "reason": "Nimbus asks a question that only you may answer. Mail someone@example.com"}));
@@ -287,4 +288,18 @@ fn a_run_that_stops_leaves_a_redacted_debug_file_with_the_looks_the_menu_and_the
     assert!(doc["capture"]["frames"].as_array().is_some_and(|f| !f.is_empty()), "the looks survive the discard");
     ok(&wizard, "cancel", json!({"session": id}));
     let _ = screens::IDLE;
+}
+
+#[test]
+fn the_questions_identity_never_carries_an_email_address_and_still_binds_the_ai_look() {
+    let mut d = Drive::new();
+    d.show("", 500);
+    let screen = "someone@example.com (Starter Quota)\nAllow nimbus to run `ls`?\n\n> 1. Always run in this project\n  2. Cancel\n";
+    d.show(screen, 4000);
+    let status = d.c.status_json(d.now);
+    let fp = status["question_fp"].as_str().expect("the identity").to_string();
+    assert!(!fp.contains("someone@example.com") && fp.contains("<email>"), "{fp}");
+    // the same identity comes back with the AI look's answer: Rust still knows which question it is (and refuses the option)
+    let err = d.c.menu_choice(&fp, "Always run in this project", &["Enter".to_string()]).unwrap_err();
+    assert!(err.contains("never picks"), "{err}");
 }

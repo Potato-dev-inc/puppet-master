@@ -339,6 +339,7 @@ impl CaptureRun {
             status["menu_look"] = json!({"emphasis": emphasis});
         }
         status["deliveries"] = json!(g.engine.deliveries());
+        exec::mask_private_json(&mut status);
         status
     }
 

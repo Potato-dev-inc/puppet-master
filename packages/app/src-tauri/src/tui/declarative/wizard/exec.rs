@@ -268,3 +268,18 @@ pub fn cut_bytes(text: &str, max: usize) -> String {
     }
     text[..end].to_string()
 }
+
+/// `mask_private` on every string of a JSON value, in place: the last net for a status the window reads.
+pub fn mask_private_json(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => {
+            let masked = mask_private(text);
+            if masked != *text {
+                *text = masked;
+            }
+        }
+        serde_json::Value::Array(list) => list.iter_mut().for_each(mask_private_json),
+        serde_json::Value::Object(map) => map.values_mut().for_each(mask_private_json),
+        _ => {}
+    }
+}
