@@ -163,15 +163,9 @@ fn strip_bom(text: &str) -> &str {
 
 /// Does git track `rel` in `project`? Outside a repo, or without git, it does not.
 pub fn git_tracks(project: &Path, rel: &str) -> bool {
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = crate::proc_util::hidden_command("git");
     cmd.arg("-C").arg(project).args(["ls-files", "--error-unmatch", "--"]).arg(rel);
     cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
     cmd.status().is_ok_and(|s| s.success())
 }
 

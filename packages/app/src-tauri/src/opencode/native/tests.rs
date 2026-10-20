@@ -1,4 +1,5 @@
 use super::*;
+use std::process::Command as StdCommand;
 
 /// Manual measurement: `cargo test --lib measure_native_startup -- --ignored --nocapture`.
 /// Needs `opencode` installed. Prints per-stage ms (serve spawn -> health -> session

@@ -9,7 +9,7 @@ use regex::Regex;
 use serde::Serialize;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -259,7 +259,7 @@ fn launch_tunnel(app: &AppHandle) -> Result<(), String> {
 
     let cloudflared_bin = resolve_cloudflared_bin(app).map_err(&fail)?;
     let local_target = format!("http://127.0.0.1:{}", pwa_server::pwa_port());
-    let mut command = Command::new(&cloudflared_bin);
+    let mut command = crate::proc_util::hidden_command(&cloudflared_bin);
     command
         .args(tunnel_config::cloudflared_args(&plan, &local_target))
         .stdout(Stdio::piped())

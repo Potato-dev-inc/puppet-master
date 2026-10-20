@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -126,17 +126,12 @@ fn is_file(path: &Path) -> bool {
 /// First line of the tool's version output, or `None` if it fails or exceeds the timeout. A
 /// non-zero exit (for example the Windows Store `python` stub) means "not usable".
 fn run_version(path: &Path, args: &[&str]) -> Option<String> {
-    let mut command = Command::new(path);
+    let mut command = crate::proc_util::hidden_command(path);
     command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
     let mut child = command.spawn().ok()?;
     let deadline = Instant::now() + PROBE_TIMEOUT;
     let status = loop {

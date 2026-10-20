@@ -5,7 +5,7 @@ use crate::operations::{OperationError, OperationSnapshot, OperationStatus};
 use parking_lot::Mutex;
 use serde_json::json;
 use std::collections::HashMap;
-use std::process::{Child, Command};
+use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 #[cfg(unix)]
@@ -37,7 +37,7 @@ pub(super) fn terminate(control: &HeadlessControl) -> Result<(), OperationError>
     }
     #[cfg(windows)]
     {
-        let output = Command::new("taskkill")
+        let output = crate::proc_util::hidden_command("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output()
             .map_err(|error| OperationError::new("WORKER_STOP_FAILED", error.to_string(), true))?;
@@ -60,7 +60,7 @@ pub(super) fn terminate(control: &HeadlessControl) -> Result<(), OperationError>
     #[cfg(unix)]
     {
         let process_group = format!("-{pid}");
-        let term_status = Command::new("kill")
+        let term_status = crate::proc_util::hidden_command("kill")
             .args(["-TERM", process_group.as_str()])
             .status()
             .map_err(|error| OperationError::new("WORKER_STOP_FAILED", error.to_string(), true))?;
@@ -72,7 +72,7 @@ pub(super) fn terminate(control: &HeadlessControl) -> Result<(), OperationError>
             ));
         }
         thread::sleep(Duration::from_millis(150));
-        let kill_status = Command::new("kill")
+        let kill_status = crate::proc_util::hidden_command("kill")
             .args(["-KILL", process_group.as_str()])
             .status()
             .map_err(|error| OperationError::new("WORKER_STOP_FAILED", error.to_string(), true))?;

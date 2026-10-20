@@ -4,7 +4,7 @@
 //! `is_valid_commit` before it gets here, so it can never be read as an option.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 #[derive(Debug, Clone)]
 pub struct GitOut {
@@ -22,7 +22,7 @@ pub fn raw(dir: &Path, args: &[&str]) -> Result<GitOut, String> {
     if let Ok(mut trace) = TRACE.lock() {
         trace.push(args.iter().map(|a| a.to_string()).collect());
     }
-    let mut cmd = Command::new("git");
+    let mut cmd = crate::proc_util::hidden_command("git");
     cmd.arg("-c")
         .arg("core.quotepath=false")
         .args(args)
@@ -33,11 +33,6 @@ pub fn raw(dir: &Path, args: &[&str]) -> Result<GitOut, String> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
     let out = cmd.output().map_err(|e| format!("could not run git: {e}"))?;
     Ok(GitOut {
         ok: out.status.success(),

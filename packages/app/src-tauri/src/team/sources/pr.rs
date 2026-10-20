@@ -5,7 +5,7 @@
 
 use crate::team::event::{is_valid_branch, PrRef};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 /// Delays after a push at which the lookup is retried.
 pub const RETRY_AFTER_MS: [u64; 2] = [30_000, 120_000];
@@ -23,7 +23,7 @@ impl PrLookup for GhCli {
         if !is_valid_branch(branch) {
             return None;
         }
-        let mut cmd = Command::new("gh");
+        let mut cmd = crate::proc_util::hidden_command("gh");
         cmd.args([
             "pr", "list", "--head", branch, "--state", "open", "--limit", "1",
             "--json", "number,title,url,isDraft,state,changedFiles,additions,deletions",
@@ -34,11 +34,6 @@ impl PrLookup for GhCli {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
         let out = cmd.output().ok()?;
         if !out.status.success() {
             return None;

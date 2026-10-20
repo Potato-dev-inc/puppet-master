@@ -1,7 +1,6 @@
 //! App install lifecycle: version metadata, external links, and uninstall.
 
 use serde::Serialize;
-use std::process::Command;
 
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
@@ -55,7 +54,7 @@ pub async fn launch_uninstall(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let uninstall = find_windows_uninstall_string()?;
-        Command::new("cmd.exe")
+        crate::proc_util::hidden_command("cmd.exe")
             .args(["/C", &uninstall])
             .spawn()
             .map_err(|err| format!("could not start uninstaller: {err}"))?;
@@ -73,7 +72,7 @@ pub async fn launch_uninstall(app: tauri::AppHandle) -> Result<(), String> {
             "tell application \"Finder\" to delete POSIX file \"{}\"",
             app_path.display()
         );
-        let status = Command::new("osascript")
+        let status = crate::proc_util::hidden_command("osascript")
             .args(["-e", &script])
             .status()
             .map_err(|err| format!("could not run uninstall: {err}"))?;
@@ -130,18 +129,15 @@ fn uninstall_instructions(platform: &str) -> String {
 fn open_url(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        Command::new("cmd.exe")
+        crate::proc_util::hidden_command("cmd.exe")
             .args(["/C", "start", "", url])
-            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|err| format!("could not open URL: {err}"))?;
         return Ok(());
     }
     #[cfg(target_os = "macos")]
     {
-        Command::new("open")
+        crate::proc_util::hidden_command("open")
             .arg(url)
             .spawn()
             .map_err(|err| format!("could not open URL: {err}"))?;
@@ -149,7 +145,7 @@ fn open_url(url: &str) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
-        Command::new("xdg-open")
+        crate::proc_util::hidden_command("xdg-open")
             .arg(url)
             .spawn()
             .map_err(|err| format!("could not open URL: {err}"))?;
@@ -164,8 +160,6 @@ fn open_url(url: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn find_windows_uninstall_string() -> Result<String, String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
     let script = format!(
         r#"$roots = @(
   'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -181,7 +175,7 @@ $entry = foreach ($root in $roots) {{
 }}
 if ($entry -and $entry.UninstallString) {{ $entry.UninstallString }} else {{ exit 1 }}"#
     );
-    let output = Command::new("powershell")
+    let output = crate::proc_util::hidden_command("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -190,7 +184,6 @@ if ($entry -and $entry.UninstallString) {{ $entry.UninstallString }} else {{ exi
             "-Command",
             &script,
         ])
-        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|err| format!("could not query uninstall registry: {err}"))?;
     if !output.status.success() {

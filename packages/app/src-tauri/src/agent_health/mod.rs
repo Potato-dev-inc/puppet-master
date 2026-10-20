@@ -11,7 +11,7 @@ use crate::tui::{Kind, VersionCommand};
 use serde::Serialize;
 use serde_json::Value;
 use std::io::Read;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 /// Longest a `--version` call may take before the agent counts as broken.
@@ -124,7 +124,7 @@ pub fn check_probe(probe: &Probe, timeout: Duration) -> AgentHealth {
         health.reason = installed_text.into();
         return health;
     };
-    match run_version(command, timeout) {
+    match run_version_cached(command, timeout) {
         VersionOutcome::Version(version) => {
             health.hooks = crate::agent_hooks::health::for_agent(&probe.id, &probe.label, Some(&version));
             health.version = Some(version);
@@ -145,6 +145,32 @@ pub fn check_probe(probe: &Probe, timeout: Duration) -> AgentHealth {
     health
 }
 
+/// How long a good `--version` answer is reused. The doctor, first-run and the Agents settings all
+/// ask on every visit, one process per agent each time (nine PowerShells for Cursor-style launchers).
+const VERSION_TTL: Duration = Duration::from_secs(30);
+
+/// [`run_version`], but a successful answer for the same program and arguments is remembered for
+/// [`VERSION_TTL`]. Failures and time-outs are never remembered, so Recheck after a fix always asks again.
+fn run_version_cached(command: &VersionCommand, timeout: Duration) -> VersionOutcome {
+    static VERSIONS: once_cell::sync::Lazy<crate::proc_util::TtlCache<(String, Vec<String>), String>> =
+        once_cell::sync::Lazy::new(|| crate::proc_util::TtlCache::new(VERSION_TTL));
+    let mut fresh = None;
+    let cached = VERSIONS.get_or_probe((command.program.clone(), command.args.clone()), || {
+        let outcome = run_version(command, timeout);
+        let version = match &outcome {
+            VersionOutcome::Version(version) => Some(version.clone()),
+            _ => None,
+        };
+        fresh = Some(outcome);
+        version
+    });
+    match (fresh, cached) {
+        (Some(outcome), _) => outcome,
+        (None, Some(version)) => VersionOutcome::Version(version),
+        (None, None) => VersionOutcome::Failed("no answer".into()),
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum VersionOutcome {
     Version(String),
@@ -154,17 +180,12 @@ pub enum VersionOutcome {
 
 /// Runs the version command with a hard timeout and returns its first non-empty line.
 pub fn run_version(command: &VersionCommand, timeout: Duration) -> VersionOutcome {
-    let mut process = Command::new(&command.program);
+    let mut process = crate::proc_util::hidden_command(&command.program);
     process
         .args(&command.args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        process.creation_flags(0x0800_0000);
-    }
     let mut child = match process.spawn() {
         Ok(child) => child,
         Err(error) => return VersionOutcome::Failed(short(&error.to_string())),

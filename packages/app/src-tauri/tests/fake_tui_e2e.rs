@@ -1098,3 +1098,8 @@ mod team;
 
 #[path = "fake_tui_run_mode.rs"]
 mod run_mode;
+
+// ---- no console window flashes while a lead runs the Cursor agent (fake launcher) -----------------------
+
+#[path = "fake_tui_no_windows.rs"]
+mod no_windows;

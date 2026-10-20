@@ -140,7 +140,7 @@ fn discover_interactive_path() -> String {
 #[cfg(unix)]
 fn read_login_shell_path() -> Option<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let output = std::process::Command::new(&shell)
+    let output = crate::proc_util::hidden_command(&shell)
         .args(["-l", "-c", "echo -n \"$PATH\""])
         .output()
         .ok()?;
@@ -162,16 +162,13 @@ fn read_login_shell_path() -> Option<String> {
 
 #[cfg(windows)]
 fn read_windows_path() -> Option<String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    let output = std::process::Command::new("powershell")
+    let output = crate::proc_util::hidden_command("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
             "-Command",
             "$u=[Environment]::GetEnvironmentVariable('Path','User');$m=[Environment]::GetEnvironmentVariable('Path','Machine');if($u-and$m){\"$u;$m\"}elseif($u){$u}else{$m}",
         ])
-        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     if !output.status.success() {

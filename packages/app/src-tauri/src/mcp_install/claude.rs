@@ -215,7 +215,7 @@ pub(super) fn run_claude_mcp_command<const N: usize>(args: [&str; N]) -> Result<
 }
 
 pub(super) fn run_claude_mcp_command_dynamic<S: AsRef<str>>(args: &[S]) -> Result<(), String> {
-    let output = std::process::Command::new("claude")
+    let output = crate::proc_util::hidden_command("claude")
         .args(args.iter().map(AsRef::as_ref))
         .env("PATH", crate::shell_env::path_for_spawn())
         .output()
