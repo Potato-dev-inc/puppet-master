@@ -623,6 +623,57 @@ pub struct Shown {
     pub hotkey: Option<char>,
 }
 
+/// A screen-level look at where the cursor is, for an answer (the AI look's Enter) that no read menu can vouch for. Finds
+/// the block of rows (no blank row inside it) that holds the named option (`is_target` says whether a row's text is that
+/// option). When the named row itself carries a cursor, or no cursor can be seen in the block, it is `None` (nothing
+/// against pressing Enter). When ANOTHER option-looking row of the same block carries the cursor (a marker such as `>` or
+/// `❯`, else the one row drawn highlighted), it is that row's text.
+pub fn cursor_elsewhere(screen: &str, styled: Option<&StyledScreen>, is_target: &dyn Fn(&str) -> bool) -> Option<String> {
+    let lines: Vec<String> = screen.lines().map(normalise_row).collect();
+    let from = lines.len().saturating_sub(40);
+    let lines = &lines[from..];
+    let mut start = 0;
+    while start < lines.len() {
+        if lines[start].trim().is_empty() {
+            start += 1;
+            continue;
+        }
+        let mut end = start;
+        while end < lines.len() && !lines[end].trim().is_empty() {
+            end += 1;
+        }
+        let block: Vec<(&String, Parsed)> = lines[start..end].iter().filter_map(|l| parse_row(l).map(|p| (l, p))).filter(|(_, p)| !HINT_ROW.is_match(&p.text)).collect();
+        start = end;
+        let Some(named) = block.iter().position(|(_, p)| is_target(&p.text)) else { continue };
+        let option_like = |p: &Parsed| p.num.is_some() || looks_like_option(&p.text);
+        let cursor_rows: Vec<usize> = (0..block.len()).filter(|i| block[*i].1.mark.is_some_and(is_cursor_marker) && (*i == named || option_like(&block[*i].1))).collect();
+        if cursor_rows.contains(&named) {
+            continue;
+        }
+        if let Some(other) = cursor_rows.first() {
+            return Some(block[*other].1.text.clone());
+        }
+        // no marker: the one row drawn highlighted, when the attributes are known
+        let Some(styled) = styled else { continue };
+        let candidates: Vec<usize> = (0..block.len()).filter(|i| *i == named || option_like(&block[*i].1)).collect();
+        if candidates.len() < 2 {
+            continue;
+        }
+        let styles: Vec<Option<CellStyle>> = candidates.iter().map(|i| style_of_text(styled, block[*i].0, &block[*i].1.text)).collect();
+        if styles.iter().any(Option::is_none) {
+            continue;
+        }
+        let styles: Vec<CellStyle> = styles.into_iter().flatten().collect();
+        if let Some(at) = style_highlight(&styles) {
+            let row = candidates[at];
+            if row != named {
+                return Some(block[row].1.text.clone());
+            }
+        }
+    }
+    None
+}
+
 pub fn shown_options(screen: &str) -> Vec<Shown> {
     let lines: Vec<String> = screen.lines().map(normalise_row).filter(|l| !l.trim().is_empty()).collect();
     let tail = &lines[lines.len().saturating_sub(16)..];

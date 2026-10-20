@@ -178,6 +178,63 @@ fn an_ai_look_is_held_to_the_highlight_of_the_block_that_holds_the_option_not_of
     }
 }
 
+// ---- Enter with no read menu to vouch for it: the cursor on the screen ---------------------------------------
+
+/// Offer the AI look's answer (the named option, then Enter) for a question the rules declined, and step once more.
+fn ai_enter(screen: &str, option: &str) -> Step {
+    let mut a = Answerer::new("capture", AnswerCfg::default());
+    let first = a.step(&permission_input(screen, 1000));
+    assert!(matches!(first, Step::Declined(_)), "the rules must decline this screen first: {first:?}");
+    assert!(a.declined().is_some_and(can_look), "{:?}", a.declined());
+    let fp = a.question_fp().unwrap().to_string();
+    a.offer_ai(screen, &fp, option, &["Enter".to_string()]).expect("valid on its own");
+    a.step(&permission_input(screen, 1100))
+}
+
+#[test]
+fn enter_on_the_real_screen_is_pressed_when_the_named_row_holds_the_cursor() {
+    // the rules would answer this one themselves; the AI path is the same check, so offer it directly
+    let screen = after_tool_calls();
+    assert_eq!(super::super::visible::menu::cursor_elsewhere(&screen, None, &|t| t == "Yes, run command"), None);
+    assert!(validate(&screen, "1. Yes, run command", &["Enter".to_string()]).is_ok());
+}
+
+#[test]
+fn enter_is_declined_when_the_cursor_is_on_another_row_even_though_the_reader_returns_no_menu() {
+    // the yes row and the cursor row are drawn at other indents, so no menu is read at all
+    let screen = "Run this command?\n Yes, run command\n> Always run\n";
+    assert!(parse_menu(screen).is_none(), "{:?}", parse_menu(screen));
+    match ai_enter(screen, "Yes, run command") {
+        Step::Declined(why) => assert!(why.contains("the cursor is on another row") && why.contains("Always run"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+    // the same screen with the cursor on the named row is pressed
+    let right = "Run this command?\n > Yes, run command\n  Always run\n";
+    assert!(matches!(ai_enter(right, "Yes, run command"), Step::Press { .. }));
+}
+
+#[test]
+fn enter_is_declined_when_the_numbered_always_row_holds_the_cursor() {
+    let screen = cursor_on_second();
+    assert_eq!(
+        super::super::visible::menu::cursor_elsewhere(&screen, None, &|t| t == "Yes, run command").as_deref(),
+        Some("Yes, and always allow in this conversation for commands that start with 'echo <word-3>'")
+    );
+    // and the read menu agrees: the highlight is on the second option
+    let mut a = Answerer::new("capture", AnswerCfg::default());
+    assert!(matches!(a.step(&permission_input(&screen, 1000)), Step::Press { .. }), "the rules walk to option 1 by its number");
+}
+
+#[test]
+fn a_cursor_in_another_block_or_on_a_prompt_echo_is_not_a_cursor_on_another_row() {
+    // the real screen has "> Run this shell command ..." (a prompt echo) well above the options, separated by blank rows
+    let screen = after_tool_calls();
+    assert_eq!(super::super::visible::menu::cursor_elsewhere(&screen, None, &|t| t == "No, cancel"), Some("Yes, run command".to_string()));
+    assert_eq!(super::super::visible::menu::cursor_elsewhere(&screen, None, &|t| t == "Yes, run command"), None);
+    // no cursor anywhere in the block: nothing against Enter
+    assert_eq!(super::super::visible::menu::cursor_elsewhere("Run it?\n  Yes\n  No\n", None, &|t| t == "Yes"), None);
+}
+
 // ---- through the capture engine --------------------------------------------------------------------------
 
 struct Drive {

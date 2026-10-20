@@ -512,6 +512,13 @@ impl Answerer {
                         if super::ai_menu::canon(&menu.options[here].text) != super::ai_menu::canon(&target) {
                             return decline(occ, &format!("the highlight is on \"{}\", not on the named option", menu.options[here].text));
                         }
+                    } else {
+                        // No read menu vouches for the named option: look at the screen itself. A cursor on another row
+                        // of the block that holds the option means Enter would answer that row.
+                        let is_target = |text: &str| super::ai_menu::canon(text) == super::ai_menu::canon(&target);
+                        if let Some(other) = super::menu::cursor_elsewhere(input.screen, input.styled, &is_target) {
+                            return decline(occ, &format!("the cursor is on another row (\"{other}\"), not on the named option"));
+                        }
                     }
                 }
                 let last = idx + 1 == keys.len();
