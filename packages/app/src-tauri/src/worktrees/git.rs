@@ -15,7 +15,7 @@ pub(super) struct GitOut {
 }
 
 fn command(dir: &Path, args: &[&str], env: &[(&str, &OsStr)]) -> Command {
-    let mut cmd = Command::new("git");
+    let mut cmd = crate::proc_util::hidden_command("git");
     cmd.arg("-c")
         .arg("core.quotepath=false")
         .args(args)
@@ -25,11 +25,6 @@ fn command(dir: &Path, args: &[&str], env: &[(&str, &OsStr)]) -> Command {
         .stdin(Stdio::null());
     for (key, value) in env {
         cmd.env(key, value);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
     }
     cmd
 }

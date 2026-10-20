@@ -1,5 +1,6 @@
 //! Live MCP + bridge readiness probes for the settings UI.
 
+use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_json::Value;
 use std::fs;
@@ -259,7 +260,18 @@ fn resolve_socket_addr(authority: &str) -> Result<SocketAddr, String> {
         .ok_or_else(|| format!("no address for {authority}"))
 }
 
-fn probe_node_and_npm() -> (bool, bool, Option<String>) {
+/// What `node` / `npm` are and the published package version, remembered for a minute: the runtime
+/// status block re-asks on every settings visit and project switch, and each ask used to start four
+/// processes (two `where`, an `npm view` that also needs the network, sometimes a second one).
+type NodeNpm = (bool, bool, Option<String>);
+
+fn probe_node_and_npm() -> NodeNpm {
+    static CACHE: Lazy<crate::proc_util::TtlCache<(), NodeNpm>> =
+        Lazy::new(|| crate::proc_util::TtlCache::new(std::time::Duration::from_secs(60)));
+    CACHE.get_or_probe((), || Some(probe_node_and_npm_now())).unwrap_or((false, false, None))
+}
+
+fn probe_node_and_npm_now() -> NodeNpm {
     let node_available = which_executable("node").is_some();
     let npm_available = which_executable("npm").is_some();
     let npm_package_version = if npm_available {
@@ -273,12 +285,9 @@ fn probe_node_and_npm() -> (bool, bool, Option<String>) {
 fn which_executable(name: &str) -> Option<String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let output = std::process::Command::new("cmd.exe")
+        let output = crate::proc_util::hidden_command("cmd.exe")
             .args(["/C", "where", name])
             .env("Path", crate::shell_env::path_for_spawn())
-            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .ok()?;
         if !output.status.success() {
@@ -294,7 +303,7 @@ fn which_executable(name: &str) -> Option<String> {
     #[cfg(unix)]
     {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        let output = std::process::Command::new(&shell)
+        let output = crate::proc_util::hidden_command(&shell)
             .args(["-l", "-c", &format!("command -v {name}")])
             .env("PATH", crate::shell_env::path_for_spawn())
             .output()
@@ -331,14 +340,11 @@ fn npm_view_version() -> Option<String> {
 fn run_npm_view(args: &[&str]) -> Option<String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let output = std::process::Command::new("cmd.exe")
+        let output = crate::proc_util::hidden_command("cmd.exe")
             .arg("/C")
             .arg("npm")
             .args(args)
             .env("Path", crate::shell_env::path_for_spawn())
-            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .ok()?;
         if !output.status.success() {
@@ -353,7 +359,7 @@ fn run_npm_view(args: &[&str]) -> Option<String> {
     }
     #[cfg(not(windows))]
     {
-        let output = std::process::Command::new("npm")
+        let output = crate::proc_util::hidden_command("npm")
             .args(args)
             .env("PATH", crate::shell_env::path_for_spawn())
             .output()

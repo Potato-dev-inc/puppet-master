@@ -57,22 +57,9 @@ pub fn note_session_pid(session_id: &str, pid: u32) {
 }
 
 pub(super) fn process_is_alive(pid: u32) -> bool {
-    #[cfg(windows)]
-    let output = std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-        .output();
-    #[cfg(not(windows))]
-    let output = std::process::Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .output();
-    match output {
-        #[cfg(windows)]
-        Ok(out) => String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")),
-        #[cfg(not(windows))]
-        Ok(out) => out.status.success(),
-        // Cannot tell: assume alive, so control is never released on a guess.
-        Err(_) => true,
-    }
+    // Asked of the OS directly (no `tasklist`/`kill` child): this runs on every MCP access check,
+    // under the session lock, and a child per check meant a console flash and ~50 ms each.
+    crate::proc_util::pid_alive(pid)
 }
 
 /// True only when we know this connection's process and it has exited. A host that abandons a

@@ -70,7 +70,7 @@ pub fn render_librarian_prompt(project_root: &Path) -> Result<String, String> {
     if !script.is_file() {
         return Err(format!("missing {}", script.display()));
     }
-    let output = std::process::Command::new("python")
+    let output = crate::proc_util::hidden_command("python")
         .arg(&script)
         .arg("--emit-prompt")
         .current_dir(project_root)
@@ -133,7 +133,7 @@ pub fn status(project_root: &Path, custom_indexer_path: Option<&str>) -> Project
 }
 
 fn current_git_sha(project_root: &Path) -> Option<String> {
-    let output = std::process::Command::new("git")
+    let output = crate::proc_util::hidden_command("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(project_root)
         .output()

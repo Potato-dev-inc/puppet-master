@@ -234,7 +234,7 @@ impl Host for LiveHost {
 /// The waiting child for a headless standby: stdin stays open for the task, and the environment is
 /// the spec's `[env]` plus the account's, exactly as a headless run would get it.
 pub(crate) fn standby_command(spec: &crate::tui::LaunchSpec, account_env: &crate::tui::LaunchEnv) -> Command {
-    let mut command = Command::new(&spec.program);
+    let mut command = crate::proc_util::hidden_command(&spec.program);
     command
         .args(&spec.args)
         .current_dir(&spec.cwd)

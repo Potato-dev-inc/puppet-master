@@ -104,7 +104,7 @@ pub fn goal_names_tests(objective: &str) -> bool {
 }
 
 fn git_project(project: &str) -> bool {
-    std::process::Command::new("git")
+    crate::proc_util::hidden_command("git")
         .args(["rev-parse", "--verify", "-q", "HEAD"])
         .current_dir(project)
         .stdout(std::process::Stdio::null())

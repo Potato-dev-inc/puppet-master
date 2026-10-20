@@ -7,7 +7,7 @@
 use std::ffi::OsStr;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use once_cell::sync::OnceCell;
 
@@ -27,9 +27,8 @@ impl std::error::Error for GitError {}
 pub fn git_available() -> bool {
     static AVAILABLE: OnceCell<bool> = OnceCell::new();
     *AVAILABLE.get_or_init(|| {
-        let mut cmd = Command::new("git");
+        let mut cmd = crate::proc_util::hidden_command("git");
         cmd.arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-        no_window(&mut cmd);
         cmd.status().map(|s| s.success()).unwrap_or(false)
     })
 }
@@ -46,18 +45,6 @@ fn forbid_pty_reader_thread() {
         tracing::error!(thread = ?thread.name(), "git ran on a PTY reader thread");
         #[cfg(test)]
         panic!("git ran on a PTY reader thread ({:?})", thread.name());
-    }
-}
-
-fn no_window(cmd: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = cmd;
     }
 }
 
@@ -100,7 +87,7 @@ impl Shadow {
         env: &[(&str, String)],
     ) -> Result<Out, GitError> {
         forbid_pty_reader_thread();
-        let mut cmd = Command::new("git");
+        let mut cmd = crate::proc_util::hidden_command("git");
         cmd.arg("--git-dir").arg(&self.git_dir).arg("--work-tree").arg(&self.work_tree);
         // Leave no room for the user's config (hooks, autocrlf, fsmonitor, safe.directory games).
         cmd.args(["-c", "core.autocrlf=false", "-c", "core.safecrlf=false", "-c", "core.quotepath=false"]);
@@ -124,7 +111,6 @@ impl Shadow {
         }
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
-        no_window(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| GitError(format!("could not start git: {e}")))?;
         if let (Some(data), Some(mut pipe)) = (stdin, child.stdin.take()) {
             // Written from a thread so a large stdin cannot deadlock against a full stdout pipe.

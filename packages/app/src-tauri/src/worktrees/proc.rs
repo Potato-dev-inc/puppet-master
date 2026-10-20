@@ -104,7 +104,7 @@ fn capture<R: Read + Send + 'static>(mut stream: R) -> std::thread::JoinHandle<S
 }
 
 pub(super) fn base_command(program: &Path, args: &[String], dir: &Path, env: &ToolEnv) -> Command {
-    let mut cmd = Command::new(program);
+    let mut cmd = crate::proc_util::hidden_command(program);
     cmd.args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
@@ -117,11 +117,6 @@ pub(super) fn base_command(program: &Path, args: &[String], dir: &Path, env: &To
     for (key, value) in &env.extra {
         cmd.env(key, value);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
     cmd
 }
 
@@ -129,13 +124,11 @@ pub(super) fn base_command(program: &Path, args: &[String], dir: &Path, env: &To
 pub(super) fn kill_tree(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        let _ = Command::new("taskkill")
+        let _ = crate::proc_util::hidden_command("taskkill")
             .args(["/PID", &child.id().to_string(), "/T", "/F"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .creation_flags(0x0800_0000)
             .status();
     }
     let _ = child.kill();

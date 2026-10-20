@@ -180,3 +180,40 @@ fn check_all_answers_for_every_probe() {
         }
     }
 }
+
+/// Overwrite a fake CLI made by [`fake_cli`] with a new body.
+fn rewrite_cli(command: &VersionCommand, unix: &str, windows: &str) {
+    #[cfg(windows)]
+    {
+        let _ = unix;
+        std::fs::write(&command.program, format!("@echo off\r\n{windows}\r\n")).unwrap();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = windows;
+        std::fs::write(&command.program, format!("#!/bin/sh\n{unix}\n")).unwrap();
+    }
+}
+
+#[test]
+fn a_good_version_is_reused_for_a_while_so_the_doctor_does_not_start_a_process_per_visit() {
+    let (_dir, cmd) = fake_cli("cached", "echo 'cached 1.0'", "echo cached 1.0");
+    let first = check_probe(&probe(Some(cmd.clone()), true, false), LONG);
+    assert_eq!(first.version.as_deref(), Some("cached 1.0"));
+    // The program changes underneath; a second look within the window gives the remembered answer
+    // (it did not start the program again).
+    rewrite_cli(&cmd, "echo 'cached 2.0'", "echo cached 2.0");
+    let second = check_probe(&probe(Some(cmd), true, false), LONG);
+    assert_eq!(second.version.as_deref(), Some("cached 1.0"));
+}
+
+#[test]
+fn a_failed_version_is_never_remembered_so_recheck_after_a_fix_works() {
+    let (_dir, cmd) = fake_cli("recheck", "echo 'boom' >&2; exit 3", "echo boom 1>&2\r\nexit /b 3");
+    let broken = check_probe(&probe(Some(cmd.clone()), true, false), LONG);
+    assert_eq!(broken.state, HealthState::Error);
+    rewrite_cli(&cmd, "echo 'recheck 3.0'", "echo recheck 3.0");
+    let fixed = check_probe(&probe(Some(cmd), true, false), LONG);
+    assert_eq!(fixed.state, HealthState::Unchecked);
+    assert_eq!(fixed.version.as_deref(), Some("recheck 3.0"));
+}
