@@ -16,6 +16,8 @@ export type CanaryOutcome =
   | 'start_failed'
   | 'inconclusive';
 export type StrictReason = 'untested_version' | 'changed_screens';
+/** How the newest version got on: a check passed on it here, its screens changed, or nothing has judged it. */
+export type CanaryVerdict = 'good' | 'changed' | 'unchecked';
 
 export interface CanaryShot {
   label: string;
@@ -30,6 +32,17 @@ export interface CanaryResultView {
   at_ms: number;
   version: string | null;
   screens: CanaryShot[];
+}
+
+/** The last version change and what became of it: "Claude Code 2.3.0 -> 2.4.0: checked, all good." */
+export interface CanaryChange {
+  from: string;
+  to: string;
+  /** When the new version was first seen. */
+  at_ms: number;
+  verdict: CanaryVerdict;
+  /** One short sentence, the same words as the Inbox card. */
+  text: string;
 }
 
 export interface CanaryAgent {
@@ -52,6 +65,10 @@ export interface CanaryAgent {
   last: CanaryResultView | null;
   /** Screens saved for this agent that Puppet Master did not recognise. */
   captures: number;
+  /** A check passed on exactly this version, on this computer. */
+  verified: boolean;
+  /** The last version change; null before the first one. */
+  change: CanaryChange | null;
 }
 
 export interface CanaryNotice {
@@ -60,6 +77,8 @@ export interface CanaryNotice {
   text: string;
   at_ms: number;
   dismissed: boolean;
+  /** `good`: the update was checked and read fine. `changed`: the screens changed. */
+  kind: 'good' | 'changed';
 }
 
 export interface CanaryStatus {
@@ -132,4 +151,12 @@ export function checkedAgo(atMs: number, now: number): string {
 export function lastCheckLine(agent: CanaryAgent, now: number): string | null {
   if (!agent.last) return null;
   return `${agent.last.summary} Checked ${checkedAgo(agent.last.at_ms, now)}.`;
+}
+
+/** The sentence under an agent in Settings about its last update ("Claude Code 2.3.0 -> 2.4.0: checked, all good. Updated 3 hours ago."), or null before any. */
+export function changeLine(agent: CanaryAgent, now: number): string | null {
+  const change = agent.change;
+  if (!change) return null;
+  if (!change.at_ms) return change.text;
+  return `${change.text} Updated ${checkedAgo(change.at_ms, now)}.`;
 }

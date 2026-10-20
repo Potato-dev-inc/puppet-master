@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Agent updates are now visible. When Claude Code, Codex, Cursor or OpenCode update, Settings > Agents and the Inbox say how it went
+  ("Claude Code 2.3.0 to 2.4.0: checked, all good." or "...: screens changed. Puppet Master will ask you before acting."). A check that
+  passes on this computer clears the "Untested version" label for that exact version only; the next update starts again. A run that
+  cannot find an agent's input box, a screen Puppet Master cannot read, or a turn that goes quiet without saying it finished now starts
+  one check (at most one per agent and version, never faster than every 10 minutes, and only while "Check agents after they update" is
+  on). Before a run starts, a changed program file makes Puppet Master read the version right away instead of waiting up to 15 minutes.
 - Windows: no more console windows flashing on screen while an agent runs. Starting the Cursor agent
   (whose launcher is PowerShell) or stopping a run used to open and close a PowerShell/`taskkill`
   window each time. Every helper process now starts hidden through one place (`proc_util`), a test

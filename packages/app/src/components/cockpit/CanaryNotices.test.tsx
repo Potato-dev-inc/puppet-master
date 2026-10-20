@@ -23,7 +23,7 @@ const status = (texts: string[]): CanaryStatus => ({
   agents: [],
   auto_check: true,
   captures: 0,
-  notices: texts.map((text, i) => ({ id: `n${i}`, agent: 'codex', text, at_ms: 1, dismissed: false })),
+  notices: texts.map((text, i) => ({ id: `n${i}`, agent: 'codex', text, at_ms: 1, dismissed: false, kind: 'changed' as const })),
 });
 
 function fakeApi(s: CanaryStatus): CanaryApi {
@@ -56,6 +56,28 @@ describe('version notes in the Inbox', () => {
     expect(card.querySelectorAll('.ib-actions')).toHaveLength(1);
     await act(async () => card.querySelector('button')!.click());
     expect(api.dismissNotice).toHaveBeenCalledWith('n0');
+  });
+
+  it('shows a good result as the same calm card, marked as good, with the same Dismiss', async () => {
+    const good: CanaryStatus = {
+      ...status([]),
+      notices: [
+        { id: 'canary:claude:2.4.0:ok', agent: 'claude', text: 'Claude Code 2.3.0 \u2192 2.4.0: checked, all good.', at_ms: 1, dismissed: false, kind: 'good' },
+      ],
+    };
+    const api = fakeApi(good);
+    await act(async () => root.render(<CanaryNotices api={api} />));
+    const card = host.querySelector('[data-testid="canary-notice"]')!;
+    expect(card.getAttribute('data-result')).toBe('good');
+    expect(card.querySelector('.ib-title')?.textContent).toBe('Claude Code 2.3.0 \u2192 2.4.0: checked, all good.');
+    expect(Array.from(card.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Dismiss']);
+    await act(async () => card.querySelector('button')!.click());
+    expect(api.dismissNotice).toHaveBeenCalledWith('canary:claude:2.4.0:ok');
+  });
+
+  it('marks a changed-screens card as changed', async () => {
+    await act(async () => root.render(<CanaryNotices api={fakeApi(status(['x']))} />));
+    expect(host.querySelector('[data-testid="canary-notice"]')?.getAttribute('data-result')).toBe('changed');
   });
 
   it('spaces several notes like every other list of cards', async () => {

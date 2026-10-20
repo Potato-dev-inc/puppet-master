@@ -68,6 +68,8 @@ Steps (`do = ...`): `think {ms, verb}` and `wait {ms}` stay busy; `say {text}`; 
 | `account_row = "text"` | an account or plan row (`someone@example.com (Nimbus Starter Quota)`) drawn under the footer from startup on, all the time; a status, not an error |
 | `inline = true`, `reprint_on_resize = true` or `false` | paint like an inline TUI: the conversation is printed top-down into the scrollback and only the visible part is redrawn; on a resize `reprint_on_resize` clears the screen and prints the WHOLE conversation again (rows that overflow reach the history a second time), otherwise only the visible part is redrawn |
 | `approvals = "menus"` | a command asks with a numbered menu (`Run this command?` / `> 1. Allow once` / `2. Always allow in this project` / `3. Deny`; digits answer) and a file write with an arrow menu (`Write <path>?` / `Yes, write it` ...; arrows and Enter); default `yn` is the one-line `[y/n]` |
+| `version_output = "fake-codex 2.0.0"` | what `pm-fake-tui --version [--script FILE]` prints (one line; default `pm-fake-tui <version>`). The canary end-to-end test reads it like a real CLI's version |
+| `composer_glyph = "»"` | Codex layout: the glyph that starts the input row (default `›`). A different one is a CLI update that redrew its input box: the real Codex profile no longer finds it |
 | `[[startup]] animate = true` | the trust question redraws while it waits: a blinking block after the question and a spinner row with a seconds counter under it |
 
 A turn that runs out of steps ends like a real one: a summary row, then the composer. A prompt no turn matches gets the first turn without `on_prompt`, else "OK".

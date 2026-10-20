@@ -26,6 +26,8 @@ export const CLAUDE_TESTED: CanaryAgent = {
     screens: [],
   },
   captures: 0,
+  verified: false,
+  change: null,
 };
 
 export const CODEX_UNTESTED: CanaryAgent = {
@@ -50,6 +52,8 @@ export const CODEX_UNTESTED: CanaryAgent = {
     screens: [],
   },
   captures: 2,
+  verified: false,
+  change: null,
 };
 
 export const CODEX_CHANGED: CanaryAgent = {
@@ -59,6 +63,14 @@ export const CODEX_CHANGED: CanaryAgent = {
   standing: 'tested',
   strict_reason: 'changed_screens',
   plain: 'Codex 0.162.1 changed its screens. Puppet Master will ask you before acting.',
+  verified: false,
+  change: {
+    from: '0.159.3',
+    to: '0.162.1',
+    at_ms: ago(2),
+    verdict: 'changed',
+    text: 'Codex 0.159.3 \u2192 0.162.1: screens changed. Puppet Master will ask you before acting.',
+  },
   last: {
     outcome: 'unrecognised',
     passed: false,
@@ -72,9 +84,51 @@ export const CODEX_CHANGED: CanaryAgent = {
 export const CODEX_CHANGED_NOTICE: CanaryNotice = {
   id: 'canary:codex:0.162.1',
   agent: 'codex',
-  text: 'Codex 0.162.1 changed its screens. Puppet Master will ask you before acting.',
+  text: 'Codex 0.159.3 \u2192 0.162.1: screens changed. Puppet Master will ask you before acting.',
   at_ms: ago(1),
   dismissed: false,
+  kind: 'changed',
+};
+
+/** Claude Code updated from 2.3.0 to 2.4.0 (outside the tested range) and a check passed on this computer. */
+export const CLAUDE_UPDATED_GOOD: CanaryAgent = {
+  ...CLAUDE_TESTED,
+  version: '2.4.0',
+  standing: 'untested',
+  verified: true,
+  plain: 'Claude Code 2.4.0 was checked on this computer. Its screens read fine.',
+  change: {
+    from: '2.3.0',
+    to: '2.4.0',
+    at_ms: ago(30),
+    verdict: 'good',
+    text: 'Claude Code 2.3.0 \u2192 2.4.0: checked, all good.',
+  },
+  last: {
+    outcome: 'ready',
+    passed: true,
+    summary: 'Claude Code started and reached its input box. Nothing was sent to it.',
+    at_ms: ago(29),
+    version: '2.4.0',
+    screens: [],
+  },
+};
+
+export const CLAUDE_UPDATED_NOTICE: CanaryNotice = {
+  id: 'canary:claude:2.4.0:ok',
+  agent: 'claude',
+  text: 'Claude Code 2.3.0 \u2192 2.4.0: checked, all good.',
+  at_ms: ago(29),
+  dismissed: false,
+  kind: 'good',
+};
+
+/** After an update that was checked and read fine: no chip, one calm card, the result in Settings. */
+export const UPDATED_GOOD_STATUS: CanaryStatus = {
+  agents: [CLAUDE_UPDATED_GOOD],
+  auto_check: true,
+  notices: [CLAUDE_UPDATED_NOTICE],
+  captures: 0,
 };
 
 /** Settings > Agents > Agent versions: one agent flagged, one fine, two screens saved. */
