@@ -764,3 +764,14 @@ fn the_run_path_closes_a_notice_normally_but_leaves_it_alone_in_strict_mode() {
     assert!(report.dismissed.is_empty());
     assert_eq!(report.blocked.map(|g| g.id), Some("update_available"));
 }
+
+#[test]
+fn the_live_wrapper_weighs_one_agents_signals_at_most_every_half_minute() {
+    use std::time::Instant;
+    let t0 = Instant::now();
+    assert!(super::live::signal_due("Signal_Throttle_Test", t0));
+    assert!(!super::live::signal_due("signal_throttle_test", t0 + Duration::from_secs(1)), "once a second is too often");
+    assert!(!super::live::signal_due("signal_throttle_test", t0 + Duration::from_secs(29)));
+    assert!(super::live::signal_due("signal_throttle_test", t0 + Duration::from_secs(31)));
+    assert!(super::live::signal_due("signal_throttle_other", t0 + Duration::from_secs(1)), "each agent has its own clock");
+}

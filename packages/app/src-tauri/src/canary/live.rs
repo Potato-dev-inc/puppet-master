@@ -178,7 +178,7 @@ pub fn init(app: AppHandle) {
 /// Never blocks the caller: the check runs on its own thread.
 pub fn note_signal(agent: &str, signal: Signal) {
     let Some(engine) = engine() else { return };
-    if !engine.note_signal(agent, signal) {
+    if !signal_due(agent, std::time::Instant::now()) || !engine.note_signal(agent, signal) {
         return;
     }
     let engine = engine.clone();
@@ -186,6 +186,22 @@ pub fn note_signal(agent: &str, signal: Signal) {
     let _ = std::thread::Builder::new().name("canary-signal".into()).spawn(move || {
         let _ = engine.check(&agent);
     });
+}
+
+/// Signals can arrive every second (a turn that stays ambiguous is looked at on each tick); looking up
+/// the agent costs a PATH scan, so an agent's signals are weighed at most this often.
+const SIGNAL_LOOK_EVERY: Duration = Duration::from_secs(30);
+
+pub(super) fn signal_due(agent: &str, now: std::time::Instant) -> bool {
+    static LAST: once_cell::sync::Lazy<parking_lot::Mutex<std::collections::HashMap<String, std::time::Instant>>> =
+        once_cell::sync::Lazy::new(Default::default);
+    let mut last = LAST.lock();
+    let key = agent.to_ascii_lowercase();
+    if last.get(&key).is_some_and(|at| now.saturating_duration_since(*at) < SIGNAL_LOOK_EVERY) {
+        return false;
+    }
+    last.insert(key, now);
+    true
 }
 
 /// The spawn gate: called before a run. When the program's path, size or modified time differs from
