@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Agent Wizard ("Finish without me"): a permission question that sits under the list of tool calls an agent
+  printed (`Edited 1 file`, `Explored 1 file`) is read from its real options again, so the wizard answers it
+  with the one-time yes instead of stopping. When a question really is yours to answer, the agent's pane now
+  stays open: "Show the pane" opens it and Retry goes on from there (before, the stop closed the pane and
+  the message told you to answer in a pane that was gone). If the agent quit by itself the message says so.
 - Windows: no more console windows flashing on screen while an agent runs. Starting the Cursor agent
   (whose launcher is PowerShell) or stopping a run used to open and close a PowerShell/`taskkill`
   window each time. Every helper process now starts hidden through one place (`proc_util`), a test

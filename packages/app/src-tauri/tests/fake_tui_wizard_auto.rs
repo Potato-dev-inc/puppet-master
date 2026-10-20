@@ -231,10 +231,30 @@ fn finish_without_me_run(name: &str, script: &str, recorded_draft: &str) {
     finish_without_me_run_with(name, script, recorded_draft, 3, false);
 }
 
+/// The founder's third question (an agent that prints a status bullet for every tool call): the command question is a
+/// numbered `>` menu with long "always allow" wording UNDER bullets (`Edited 1 file`, `Explored 1 file`) and rules. The
+/// wizard reads the numbered block, not the bullets, answers by its rules (no AI look is needed), presses the one-time
+/// yes only, and finishes APPROVED with no person input.
+#[test]
+fn finish_without_me_approves_when_the_command_question_sits_under_transcript_bullets() {
+    let draft = DRAFT.replace(r"allow nimbus to .*\[y/n\]", r"(?:allow nimbus to (?:create|run)|run this command\?)");
+    assert_ne!(draft, DRAFT);
+    // the work step's second question and the permission step's command question both use the bullets screen
+    let script = two_work_questions("bullets_numbered").replace("command = \"echo ok\", ", "command = \"echo ok\", style = \"bullets_numbered\", ");
+    assert!(script.matches("bullets_numbered").count() >= 2, "{script}");
+    let session = finish_without_me_run_with("wizard-auto-bullets", &script, &draft, 5, false);
+    let approvals = events_named(&session, "approval_answer");
+    let bullets: Vec<&Value> = approvals.iter().filter(|a| a["label"].as_str().is_some_and(|l| l.contains("run command") || l.contains("always allow") || l.contains("No, cancel"))).collect();
+    assert!(!bullets.is_empty(), "the bullets screen was asked: {approvals:?}");
+    assert!(bullets.iter().all(|a| a["label"] == "Yes, run command" && a["option"] == 1), "only the one-time yes was chosen: {bullets:?}");
+    assert!(approvals.iter().all(|a| a["answer"] == "allow"), "{approvals:?}");
+    assert!(approvals.iter().all(|a| !a["label"].as_str().unwrap_or_default().contains("always allow")), "{approvals:?}");
+}
+
 /// `answers`: how many questions the capture's safe answerer takes (the folder question and the permission ones).
 /// `menu_looks`: the permission questions include one the rules cannot decide, so the stand-in AI look is asked in the
 /// capture and in the test pane (and must be asked, at least once in each).
-fn finish_without_me_run_with(name: &str, script: &str, recorded_draft: &str, answers: usize, menu_looks: bool) {
+fn finish_without_me_run_with(name: &str, script: &str, recorded_draft: &str, answers: usize, menu_looks: bool) -> Session {
     let session = World::get().session(name);
     let rig = autonomous_rig(&session, script);
 
@@ -348,6 +368,7 @@ fn finish_without_me_run_with(name: &str, script: &str, recorded_draft: &str, an
         || p == "/exit"), "{prompts:?}");
     assert!(!events_named(&session, "gate_answer").is_empty(), "the folder question was answered (by the wizard's safe answerer)");
     session.until(10, || session.pane_ids().is_empty().then_some(())).unwrap_or_else(|| panic!("panes left: {:?}", session.pane_ids()));
+    session
 }
 
 #[test]
