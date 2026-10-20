@@ -886,7 +886,7 @@ describe('runAutonomous', () => {
   it('every stop leaves a debug file and says where it is', async () => {
     const w = world();
     stopsAtAQuestion(w);
-    const captureDump = vi.fn(async () => ({ path: 'C:\\Temp\\pm-wizard-wz_1\\wizard-debug.json' }));
+    const captureDump = vi.fn(async (_session: string, _reason: string) => ({ path: 'C:\\Temp\\pm-wizard-wz_1\\wizard-debug.json' }));
     w.api.captureDump = captureDump;
     const out = await run(w, []).done;
     expect(out.status).toBe('stopped');
