@@ -235,12 +235,18 @@ fn a_menu_whose_only_yes_is_always_allow_is_never_pressed() {
         std::thread::sleep(Duration::from_millis(150));
     };
     assert!(needs["message"].as_str().unwrap().contains("did not answer it for you: none of the options plainly means yes"), "{needs}");
-    assert_ne!(needs["unreadable"], true, "the menu was read; nobody may help with a menu that has no plain yes: {needs}");
-    // an AI look is refused too, whatever it names
-    let refused = rig
-        .call("capture", json!({"session": id, "op": "menu_choice", "option": "Always allow in this project", "keys": ["Enter"]}))
-        .unwrap_or_else(|e| panic!("menu_choice: {}", err(&e)));
-    assert_eq!(refused["accepted"], false, "{refused}");
+    // the menu was READ and has no plain yes: the checked AI look may be asked (SPEC 11.22), and the options as read are listed
+    assert_eq!(needs["unreadable"], true, "{needs}");
+    let read = status(&rig, &id)["menu_read"].as_str().unwrap_or_default().to_string();
+    assert!(read.contains("Always allow in this project\" (broad") && read.contains("Deny\" (no)"), "{read}");
+    // ...but Rust refuses whatever it names: an always option, a refusal
+    for option in ["Always allow in this project", "Deny"] {
+        let refused = rig
+            .call("capture", json!({"session": id, "op": "menu_choice", "option": option, "keys": ["Enter"]}))
+            .unwrap_or_else(|e| panic!("menu_choice: {}", err(&e)));
+        assert_eq!(refused["accepted"], false, "{refused}");
+        assert!(refused["why"].as_str().unwrap().contains("never picks"), "{refused}");
+    }
     std::thread::sleep(Duration::from_secs(4));
     assert!(events_named(&session, "approval_answer").is_empty(), "nothing pressed the always option: {:?}", events_named(&session, "approval_answer"));
     rig.call("cancel", json!({"session": id})).unwrap();
@@ -339,5 +345,78 @@ fn with_the_switch_off_an_unreadable_menu_gets_no_ai_look() {
     rig.call("probe", json!({"session": id})).unwrap();
     let refused = rig.call("capture", json!({"session": id, "op": "menu_choice", "option": "Allow once", "keys": ["Enter"]})).unwrap_err();
     assert_eq!(refused["code"], "WIZARD_NOT_AUTONOMOUS", "{refused}");
+    rig.call("cancel", json!({"session": id})).unwrap();
+}
+
+// ---- a second permission question in the same step, worded differently (SPEC 11.22) -------------------------------------
+
+/// The "Thinking and a tool" turn asks TWO permission questions one after the other; the second one is drawn as `second`.
+fn two_questions(style: &str, cursor: usize, second: &str) -> String {
+    let script = script(style, cursor);
+    let from = "command = \"ls\", on_allow = [";
+    assert!(script.contains(from), "the work turn of the script");
+    script.replace(from, &format!("command = \"ls\" }},\n  {{ do = \"approve\", kind = \"bash\", command = \"cat README.md\", style = \"{second}\", on_allow = ["))
+}
+
+/// `(label, via, menu)` of what the wizard answered, in order.
+fn answers(settled: &Value) -> Vec<(String, String, String)> {
+    settled["answered"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| (a["label"].as_str().unwrap().into(), a["via"].as_str().unwrap_or("").into(), a["menu"].as_str().unwrap_or("").into()))
+        .collect()
+}
+
+#[test]
+fn a_second_question_with_other_wording_is_answered_by_the_rules_with_no_person_input() {
+    let session = World::get().session("wizard-menus-two-run");
+    // the first question is the inverse menu (cursor on Always allow: Up, Enter); the second is numbered: Run command / Always run / Cancel
+    let rig = session.wizard_rig_with("nimbus", &two_questions("inverse", 0, "run_numbered"), |env| {
+        env.visible.capture.unsure_ms = 1500;
+        env.visible.capture.reply_unsure_ms = 1500;
+    });
+    let id = start_capture(&rig);
+    let settled = settle(&rig, &id, 180, |_| None);
+    let all = answers(&settled);
+    // the folder question, the two work-step questions, then the file and the command questions
+    assert_eq!(all.len(), 5, "{settled}");
+    assert_eq!(all[1].0, "Allow once");
+    assert_eq!((all[2].0.as_str(), all[2].1.as_str()), ("Run command", "rules"), "{settled}");
+    assert!(all[2].2.contains("Run command\" (plain yes") && all[2].2.contains("Always run\" (broad)") && all[2].2.contains("Cancel\" (no)"), "the options as read: {}", all[2].2);
+    let approvals = events_named(&session, "approval_answer");
+    assert!(approvals.iter().all(|a| a["answer"] == "allow"), "only yeses: {approvals:?}");
+    assert!(approvals.iter().any(|a| a["label"] == "Run command"), "{approvals:?}");
+    assert!(approvals.iter().all(|a| a["label"] != "Always run" && a["label"] != "Cancel"), "{approvals:?}");
+    rig.call("cancel", json!({"session": id})).unwrap();
+}
+
+#[test]
+fn a_second_question_whose_yes_row_the_parser_misses_is_answered_by_the_ai_look_and_verified() {
+    let session = World::get().session("wizard-menus-two-ai");
+    // cursor 1: the first question starts on "Always allow" (Up, Enter), the second on "Always run in this project"
+    let rig = session.wizard_rig_with("nimbus", &two_questions("inverse", 1, "yes_missed"), |env| {
+        env.visible.capture.unsure_ms = 1500;
+        env.visible.capture.reply_unsure_ms = 1500;
+    });
+    let id = start_capture(&rig);
+    let mut reads: Vec<String> = Vec::new();
+    let settled = settle(&rig, &id, 180, |s| {
+        let read = s["menu_read"].as_str().unwrap_or_default().to_string();
+        let screen = s["screen"].as_str().unwrap_or_default().to_string();
+        assert!(screen.contains("Yes, run command"), "{screen}");
+        reads.push(read);
+        Some(("Yes, run command".to_string(), vec!["Up".to_string(), "Enter".to_string()]))
+    });
+    assert_eq!(reads.len(), 1, "one look, for the one question the rules could not decide: {reads:?}");
+    assert!(reads[0].contains("Always run in this project\" (broad, highlighted)") && !reads[0].contains("Yes, run command"), "the parser missed the yes row: {}", reads[0]);
+    let all = answers(&settled);
+    let by_ai: Vec<_> = all.iter().filter(|a| a.1 == "ai_look").collect();
+    assert_eq!(by_ai.len(), 1, "{settled}");
+    assert_eq!(by_ai[0].0, "Yes, run command");
+    assert!(by_ai[0].2.contains("Always run in this project\" (broad"), "the answer keeps the menu as the parser read it: {}", by_ai[0].2);
+    let approvals = events_named(&session, "approval_answer");
+    assert!(approvals.iter().any(|a| a["label"] == "Yes, run command" && a["answer"] == "allow"), "{approvals:?}");
+    assert!(approvals.iter().all(|a| a["answer"] == "allow"), "{approvals:?}");
     rig.call("cancel", json!({"session": id})).unwrap();
 }

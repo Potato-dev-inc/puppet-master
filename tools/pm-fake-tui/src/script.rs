@@ -151,6 +151,11 @@ pub enum Approvals {
     /// An arrow menu whose cursor cannot be seen at all (no marker, no colour): only the person's eyes on the real
     /// program would know where it is. The parser cannot read it; an AI look names the option.
     Blind,
+    /// A numbered command menu (`> 1. Run command` / `2. Always run` / `3. Cancel`, digits answer): wording with no `Allow` in it.
+    RunNumbered,
+    /// An arrow menu whose yes row is drawn at another indent than the other rows (`Yes, run command` one column left of
+    /// `Always run in this project` / `No`), so a parser that groups rows by column reads only the last two.
+    YesMissed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -300,6 +305,9 @@ pub enum Step {
         /// Claude's extra "Yes, and switch to auto mode" row (a four-option menu).
         #[serde(default)]
         auto_mode_option: bool,
+        /// This question's look (nimbus only), instead of the script's `approvals`: one turn may ask two differently drawn questions.
+        #[serde(default)]
+        style: Option<Approvals>,
         #[serde(default)]
         on_allow: Vec<Step>,
         #[serde(default)]

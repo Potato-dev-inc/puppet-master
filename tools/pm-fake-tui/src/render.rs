@@ -91,6 +91,10 @@ pub enum NimbusMenu {
     AlwaysOnly,
     /// Arrow rows with no visible cursor at all.
     Blind,
+    /// A numbered command menu with other wording: `Run command` / `Always run` / `Cancel`.
+    RunNumbered,
+    /// An arrow menu whose yes row is drawn at another indent than the other rows.
+    YesMissed,
 }
 
 /// The permission dialog being shown.
@@ -144,6 +148,8 @@ impl Dialog {
                 }
                 NimbusMenu::Inline => vec!["Yes".into(), "No".into()],
                 NimbusMenu::AlwaysOnly => vec!["Always allow in this project".into(), "Deny".into()],
+                NimbusMenu::RunNumbered => vec!["Run command".into(), "Always run".into(), "Cancel".into()],
+                NimbusMenu::YesMissed => vec!["Yes, run command".into(), "Always run in this project".into(), "No".into()],
             },
         }
     }
@@ -649,8 +655,8 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
         };
         match dialog.menu {
             NimbusMenu::YesNo => rows.push(format!("Allow nimbus to {what}? [y/n]")),
-            NimbusMenu::Command => {
-                rows.push("Run this command?".into());
+            NimbusMenu::Command | NimbusMenu::RunNumbered => {
+                rows.push(if dialog.menu == NimbusMenu::RunNumbered { format!("Allow nimbus to {what}?") } else { "Run this command?".into() });
                 rows.push(format!("  {}", dialog.command.lines().next().unwrap_or_default()));
                 rows.push(String::new());
                 for (i, label) in dialog.options(Layout::Nimbus).iter().enumerate() {
@@ -697,6 +703,15 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
                     .map(|(i, label)| if i == dialog.selected { format!("{INVERSE} {label} {NO_INVERSE}") } else { format!(" {label} ") })
                     .collect();
                 rows.push(format!("  {}", buttons.join("  ")));
+            }
+            NimbusMenu::YesMissed => {
+                rows.push(format!("Allow nimbus to {what}?"));
+                rows.push(String::new());
+                for (i, label) in dialog.options(Layout::Nimbus).iter().enumerate() {
+                    let at = i == dialog.selected;
+                    // the yes row sits one column left of the others, with its own cursor drawn in front of it
+                    rows.push(if i == 0 { format!(" {}{label}", if at { "> " } else { "" }) } else { format!("   {} {label}", if at { ">" } else { " " }) });
+                }
             }
             NimbusMenu::Inline => rows.push(format!("Allow nimbus to {what}? [Y]es / [N]o")),
             NimbusMenu::File => {

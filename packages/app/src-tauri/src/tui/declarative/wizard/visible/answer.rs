@@ -71,18 +71,20 @@ pub struct AnsweredQ {
     pub screen: String,
     /// `rules` (the answerer read the menu itself) or `ai_look` (the AI named the option and the keys, Rust checked them).
     pub via: String,
+    /// How the answerer read the question's menu when it decided (`rows: "Allow once" (plain yes, highlighted); ...`).
+    pub read: String,
 }
 
 impl AnsweredQ {
     pub fn to_json(&self, mask: &dyn Fn(&str) -> String) -> Value {
-        json!({"place": self.place, "flavour": self.flavour, "label": self.label, "keys": self.keys, "via": self.via, "screen": mask(&self.screen)})
+        json!({"place": self.place, "flavour": self.flavour, "label": self.label, "keys": self.keys, "via": self.via, "menu": mask(&self.read), "screen": mask(&self.screen)})
     }
 }
 
 // ---- reading the question (menu.rs) ---------------------------------------------------------------
 
 pub use super::menu::{
-    classify_option, off_limits, parse_menu, parse_menu_ex, safe_pick, style_highlight, Menu, MenuKind, MenuOption, OptionClass,
+    classify_option, describe_menu, off_limits, parse_menu, parse_menu_ex, safe_pick, style_highlight, Menu, MenuKind, MenuOption, OptionClass, NO_PLAIN_YES,
 };
 use super::menu::marker_chars;
 use super::styled::StyledScreen;
@@ -99,6 +101,14 @@ pub const MENU_CHANGED: &str = "the menu changed while it was being answered";
 /// The reason is "I could not read the menu" (not "I read it and the answer is no").
 pub fn is_unreadable(reason: &str) -> bool {
     [NO_MENU, NO_HIGHLIGHT, LOST_HIGHLIGHT].contains(&reason)
+}
+
+/// The checked AI look may be asked about this question: the menu could not be READ, or it was read and no option is a plain
+/// yes (the parser may have missed or merged the row that is). Rust still holds the look's answer to the plain-yes rule
+/// (`ai_menu::validate`), so a menu that only has broad options is never pressed. A question the answerer will never answer
+/// (sign-in, payment, model, telemetry), a menu with several plain yeses and a menu that moved are nobody's to help with.
+pub fn can_look(reason: &str) -> bool {
+    is_unreadable(reason) || reason == NO_PLAIN_YES
 }
 
 /// A choice a draft's `[[tui.prompt]]` already knows (`allow_once`): the keys it names.
@@ -170,12 +180,16 @@ struct Occ {
     label: String,
     flavour: Flavour,
     first_screen: String,
+    /// How the menu was read when this question was first looked at (`describe_menu`, or why nothing was read).
+    read: String,
 }
 
 pub struct Answerer {
     cfg: AnswerCfg,
     place: &'static str,
     cur: Option<Occ>,
+    /// What it read and decided for each question, oldest first (the debug file keeps it).
+    log: Vec<Value>,
 }
 
 pub struct Input<'a> {
@@ -197,7 +211,9 @@ pub fn fingerprint(screen: &str) -> String {
     let all: Vec<String> = rows(screen).into_iter().map(super::menu::normalise_row).filter(|r| !r.trim().is_empty()).collect();
     let from = all.len().saturating_sub(16);
     let marks = marker_chars();
-    let folded: Vec<String> = all[from..].iter().map(|r| r.trim_start_matches(|c: char| c.is_whitespace() || marks.contains(c)).to_string()).collect();
+    // The identity travels to the window and back: an address on the screen is `<email>` in it (the same question stays the same).
+    let folded: Vec<String> =
+        all[from..].iter().map(|r| crate::redact::mask_emails(r.trim_start_matches(|c: char| c.is_whitespace() || marks.contains(c)))).collect();
     frame_key(&folded.join("\n")).join("\n")
 }
 
@@ -214,7 +230,7 @@ fn signature(screen: &str, styled: Option<&StyledScreen>) -> String {
 
 impl Answerer {
     pub fn new(place: &'static str, cfg: AnswerCfg) -> Self {
-        Self { cfg, place, cur: None }
+        Self { cfg, place, cur: None, log: Vec::new() }
     }
 
     /// Forget the question being answered (a retry of the step).
@@ -226,7 +242,7 @@ impl Answerer {
     /// them (`ai_menu::validate`) and, when they hold, the answerer presses them one at a time. Returns the option's label.
     pub fn offer_ai(&mut self, screen: &str, fp: &str, option: &str, keys: &[String]) -> Result<String, String> {
         let Some(occ) = self.cur.as_mut() else { return Err("no question is being answered".into()) };
-        if !occ.declined.as_deref().is_some_and(is_unreadable) {
+        if !occ.declined.as_deref().is_some_and(can_look) {
             return Err("the safe answerer did not ask for a look at this question".into());
         }
         if !occ.sent.is_empty() {
@@ -235,12 +251,32 @@ impl Answerer {
         if occ.fp != fingerprint(screen) || (!fp.is_empty() && occ.fp != fp) {
             return Err("the question changed since it was looked at".into());
         }
-        let plan = super::ai_menu::validate(screen, option, keys)?;
+        let read = occ.read.clone();
+        let flavour = occ.flavour.as_str();
+        let plan = match super::ai_menu::validate(screen, option, keys) {
+            Ok(plan) => plan,
+            Err(why) => {
+                self.log.push(json!({"place": self.place, "flavour": flavour, "menu": read, "decision": format!("AI look named \"{option}\" with keys {keys:?}; Rust refused: {why}")}));
+                return Err(why);
+            }
+        };
+        self.log.push(json!({"place": self.place, "flavour": flavour, "menu": read, "decision": format!("AI look named \"{}\"; Rust checked it against the screen", plan.target)}));
+        let occ = self.cur.as_mut().expect("the question is still being answered");
         occ.declined = None;
         occ.label = plan.target.clone();
         occ.via = "ai_look";
         occ.plan = Some(Plan::Ai { target: plan.target.clone(), keys: plan.keys });
         Ok(plan.target)
+    }
+
+    /// How the menu of the question being looked at was read (`describe_menu`, or why nothing was read).
+    pub fn menu_read(&self) -> Option<&str> {
+        self.cur.as_ref().map(|o| o.read.as_str())
+    }
+
+    /// What it read and decided for every question so far, oldest first.
+    pub fn decisions(&self) -> &[Value] {
+        &self.log
     }
 
     /// Why the answerer declined the question it is looking at, when it did.
@@ -294,13 +330,20 @@ impl Answerer {
                 label: String::new(),
                 flavour,
                 first_screen: input.screen.to_string(),
+                read: String::new(),
             };
-            match decide(input.screen, input.styled, input.hint) {
+            let (read, decision) = decide(input.screen, input.styled, input.hint);
+            occ.read = read;
+            match decision {
                 Ok((plan, label)) => {
+                    self.log.push(json!({"place": self.place, "flavour": flavour.as_str(), "menu": occ.read, "decision": format!("will answer: {label}")}));
                     occ.plan = Some(plan);
                     occ.label = label;
                 }
-                Err(reason) => occ.declined = Some(reason),
+                Err(reason) => {
+                    self.log.push(json!({"place": self.place, "flavour": flavour.as_str(), "menu": occ.read, "decision": format!("declined: {reason}")}));
+                    occ.declined = Some(reason);
+                }
             }
             self.cur = Some(occ);
         }
@@ -315,6 +358,7 @@ impl Answerer {
             keys: occ.sent.iter().map(AnswerKey::say).collect::<Vec<_>>().join(", "),
             screen: occ.first_screen.clone(),
             via: occ.via.to_string(),
+            read: occ.read.clone(),
         }
     }
 
@@ -474,12 +518,18 @@ impl Answerer {
     }
 }
 
-/// The plan for this screen, and the label of the option it picks.
-fn decide(screen: &str, styled: Option<&StyledScreen>, hint: Option<&Hint>) -> Result<(Plan, String), String> {
+/// How the menu was read, and the plan for this screen with the label of the option it picks.
+fn decide(screen: &str, styled: Option<&StyledScreen>, hint: Option<&Hint>) -> (String, Result<(Plan, String), String>) {
     if let Some(word) = off_limits(screen) {
-        return Err(format!("the question mentions \"{word}\", and sign-in, payment, model and telemetry questions are only yours to answer"));
+        return ("not read: it is a sign-in, payment, model or telemetry question".into(), Err(format!("the question mentions \"{word}\", and sign-in, payment, model and telemetry questions are only yours to answer")));
     }
     let menu = parse_menu_ex(screen, styled);
+    let read = menu.as_ref().map_or_else(|| "no menu read".to_string(), describe_menu);
+    let result = plan_for(menu, hint);
+    (read, result)
+}
+
+fn plan_for(menu: Option<Menu>, hint: Option<&Hint>) -> Result<(Plan, String), String> {
     // The draft's own `allow_once` keys are used when the screen has no menu to read (a one-line question).
     // A menu that can be read is walked row by row instead: the highlight is verified, so a default cursor
     // on "No" is never confirmed, and an "always" row is never the one pressed.

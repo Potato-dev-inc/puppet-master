@@ -130,7 +130,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let id = super::super::api::session_id(body)?;
     let op = body.get("op").and_then(Value::as_str).map(str::trim).filter(|o| !o.is_empty());
     let Some(op) = op else {
-        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, debug, test_status, test_act, verdict, test_verdict, menu_choice, test_menu_choice or discard"));
+        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, debug, dump, test_status, test_act, verdict, test_verdict, menu_choice, test_menu_choice or discard"));
     };
     match op {
         "plan" => {
@@ -167,6 +167,13 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             let live = run_of(&session).map(|run| run.debug_json(false));
             let kept = session.visible.debug.lock().clone();
             Ok(json!({"debug": live.or(kept)}))
+        }
+        "dump" => {
+            // the debug file of a run that stopped (SPEC 11.22): the last looks, the menu as read, what was decided, why
+            let session = wizard.read(&id, |s| s.clone())?;
+            let reason = body.get("reason").and_then(Value::as_str).unwrap_or("");
+            let capture = run_of(&session).map(|run| run.debug_json(false)).or_else(|| session.visible.debug.lock().clone());
+            super::dump::write(&session, &wizard.env().temp_root, capture, reason)
         }
         "test_status" => {
             let session = wizard.read(&id, |s| s.clone())?;
@@ -221,6 +228,10 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
         "discard" => {
             let session = wizard.read(&id, |s| s.clone())?;
             let host = wizard.env().host;
+            // keep the last looks: "why did it stop" is answered after the pane is gone (the debug file reads them)
+            if let Some(run) = run_of(&session) {
+                *session.visible.debug.lock() = Some(run.debug_json(false));
+            }
             session.visible.shut_down(&*host);
             *session.visible.captures.lock() = None;
             Ok(json!({"ok": true}))
