@@ -337,6 +337,12 @@ fn test_decision(session: &Session, verdict: Verdict) -> Decision {
             Decision::Stop { code: verdict::SIGN_IN_CODE }
         }
         Verdict::Error => {
+            // Rows the pane showed before the task went in, and account or status rows, are not an error.
+            let screen = session.visible.test_status.lock().get("screen").and_then(Value::as_str).unwrap_or("").to_string();
+            let baseline = session.visible.test_baseline.lock().clone().unwrap_or_default();
+            if super::super::agent_error::only_status_rows_look_wrong(&screen, &baseline) {
+                return Decision::Refused("the only rows that read like a problem are account or status rows that were on the screen before the task".into());
+            }
             *session.visible.test_ctl_reason.lock() = Some("the agent shows an error on its screen".into());
             *session.visible.test_ctl.lock() = Some("stop".into());
             Decision::StoppedTest

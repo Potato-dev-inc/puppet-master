@@ -7,6 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   buildPrompt,
   LOCAL_PROMPT_BUDGET,
+  maskEmails,
   PROMPT_VERSION,
   REMOTE_PROMPT_BUDGET,
   type AnsweredQuestion,
@@ -429,7 +430,8 @@ export const tauriWizardApi: WizardApi = {
   },
   finish: (session, provenance, auto) => invoke<FinishResult>('agent_wizard_finish', { session, provenance, autonomous: auto ?? null }),
   cancel: (session) => invoke('agent_wizard_cancel', { session }),
-  ask: async (session, agent, prompt) => (await invoke<{ answer: string }>('agent_wizard_ask', { session, agent, prompt })).answer,
+  ask: async (session, agent, prompt) =>
+    (await invoke<{ answer: string }>('agent_wizard_ask', { session, agent, prompt: maskEmails(prompt) })).answer,
   drafters: async () => (await invoke<Array<LocalDrafter & { ready?: boolean }>>('askbar_agents')).map(({ id, label }) => ({ id, label })),
 };
 
@@ -521,7 +523,7 @@ export const openRouterSupport: OpenRouterSupport = {
   ask: async (model, prompt, signal) => {
     const key = await resolveApiKey(await loadSettings(), 'openrouter');
     if (!key) throw new Error('Add your OpenRouter key in Settings > Keys first.');
-    return askOpenRouter({ apiKey: key, model, prompt, signal });
+    return askOpenRouter({ apiKey: key, model, prompt: maskEmails(prompt), signal });
   },
 };
 
@@ -912,7 +914,7 @@ function verifyVisiblePlan(verify: VerifyResult, visibleMode: boolean): PlannedV
 
 /** What to tell the person when the program itself returned an error (plain words, no profile jargon). */
 export function agentErrorMessage(agent: string, message: string): { title: string; text: string } {
-  const first = message.trim().split('\n')[0].replace(/[.\s]+$/, '');
+  const first = maskEmails(message.trim().split('\n')[0].replace(/[.\s]+$/, ''));
   return {
     title: `${agent} itself returned an error: ${first}.`,
     text: `This is a problem with ${agent}'s own setup (sign-in, model or provider), not with the profile. Fix it in ${agent}, then press Retry.`,

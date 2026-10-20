@@ -259,6 +259,9 @@ pub struct VisibleData {
     pub test_menu: Mutex<Option<(String, String, Vec<String>)>>,
     /// What the visible test made of it: `{accepted, label}` or `{accepted: false, why}`.
     pub test_menu_result: Mutex<Option<serde_json::Value>>,
+    /// The rows the test pane showed before the first task was sent (set when the task goes in, `None` before):
+    /// a verdict "error" about a row that was already there is refused (`agent_error::Baseline`).
+    pub test_baseline: Mutex<Option<super::agent_error::Baseline>>,
     /// What the autonomous wizard did (SPEC 11.19): the exact plans that ran and the verdicts it acted on.
     pub auto: AutoRecord,
 }

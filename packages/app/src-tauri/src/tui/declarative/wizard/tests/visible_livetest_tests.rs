@@ -445,3 +445,115 @@ fn a_real_provider_error_row_is_the_agents_own_error_and_is_shown_as_the_message
     assert_eq!(ae["external"], true, "{v}");
     assert_eq!(ae["message"], "Error: No endpoints found that support tool use. Check your provider settings.", "{ae}");
 }
+
+// ---- a row that was on the screen before the task is never the agent's error (founder run 2026-10-19) ----------------
+
+/// The account row an inline TUI draws from startup on: the person's address and the plan in parentheses ("quota" in it
+/// matched the external-error words).
+const ACCOUNT: &str = "someone@example.com (Nimbus Starter Quota)";
+
+fn with_account(screen: &str) -> String {
+    format!("{screen}  {ACCOUNT}\n")
+}
+
+/// An agent that shows `ACCOUNT` on every screen, takes the task and then shows `after` (a reply screen body) instead of
+/// the answer.
+fn account_agent(f: &Fixture, after: &'static str) {
+    let for_thread = f.host.clone();
+    f.host.on_deliver(move |h, pane, text| {
+        let word = text.rsplit(' ').next().unwrap_or("").to_string();
+        h.set_screen_of(pane, &with_account(&screens::working(&word, 0)));
+        let (host, pane) = (for_thread.clone(), pane.to_string());
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(120));
+            host.set_screen_of(&pane, &with_account(&screens::working(&word, 1)));
+            std::thread::sleep(Duration::from_millis(120));
+            host.set_screen_of(&pane, &with_account(&format!("NIMBUS 0.4\n\n> Reply with exactly the word: {word}\n{after}\n\ndone in 2s\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n")));
+        });
+        Delivered::Submitted
+    });
+}
+
+#[test]
+fn an_account_row_shown_since_startup_is_not_the_agents_error_and_the_draft_gets_the_failure() {
+    let f = fixture("vl-account", None, quick_limits);
+    account_agent(&f, "reply: something else entirely");
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(&with_account(screens::IDLE));
+    let v = f.finish(run);
+    assert_eq!(v["ok"], false);
+    assert_eq!(status_of(&v, "done_reply"), "failed", "{}", v["checks"]);
+    assert_eq!(v["agent_error"], json!(null), "the account row is status: {}", v["agent_error"]);
+    // the failure goes back to the drafter as an ordinary failed check, with the screen (the address masked)
+    let text = v["text"].as_str().unwrap();
+    assert!(text.contains("VISIBLETEST_DONE_REPLY_FAILED"), "{text}");
+    assert!(!v.to_string().contains("someone@example.com"), "no address in what the wizard shows: {v}");
+}
+
+#[test]
+fn a_row_that_read_like_an_error_but_was_on_the_screen_before_the_task_is_never_the_agents_error() {
+    let f = fixture("vl-baseline-tip", None, quick_limits);
+    const TIP: &str = "Tip: run /login to sign in with another provider.";
+    fn shown(body: String) -> String {
+        format!("{body}  {TIP}\n")
+    }
+    let for_thread = f.host.clone();
+    f.host.on_deliver(move |h, pane, text| {
+        let word = text.rsplit(' ').next().unwrap_or("").to_string();
+        h.set_screen_of(pane, &shown(screens::working(&word, 0)));
+        let (host, pane) = (for_thread.clone(), pane.to_string());
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            host.set_screen_of(&pane, &shown(format!("NIMBUS 0.4\n\n> Reply with exactly the word: {word}\nreply: not it\n\ndone in 2s\n\n| > Type a task...             |\n")));
+        });
+        Delivered::Submitted
+    });
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(&shown(screens::IDLE.to_string()));
+    let v = f.finish(run);
+    assert_eq!(v["ok"], false);
+    assert_eq!(status_of(&v, "done_reply"), "failed", "{}", v["checks"]);
+    assert_eq!(v["agent_error"], json!(null), "the tip was there before the task: {}", v["agent_error"]);
+}
+
+#[test]
+fn a_new_error_row_after_the_task_still_stops_with_that_row_even_beside_an_account_row() {
+    let f = fixture("vl-account-newerr", None, quick_limits);
+    account_agent(&f, "Error: quota exceeded");
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(&with_account(screens::IDLE));
+    let v = f.finish(run);
+    assert_eq!(v["ok"], false);
+    let ae = &v["agent_error"];
+    assert_eq!(ae["message"], "Error: quota exceeded", "{v}");
+    assert_eq!(ae["external"], true, "{ae}");
+    assert!(!v.to_string().contains("someone@example.com"), "{v}");
+}
+
+#[test]
+fn an_error_row_that_is_new_after_the_task_is_found_when_the_startup_screens_held_other_rows() {
+    let f = fixture("vl-new-429", None, quick_limits);
+    account_agent(&f, "429 Too Many Requests");
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(&with_account(screens::IDLE));
+    let v = f.finish(run);
+    assert_eq!(v["agent_error"]["message"], "429 Too Many Requests", "{v}");
+}
+
+#[test]
+fn an_error_at_startup_before_any_task_is_still_the_agents_error() {
+    // nothing was sent yet, so there is no "before": a sign-in wall that never reaches the input box is the program's own
+    let f = fixture("vl-startup-wall", None, quick_limits);
+    script_agent(&f.host, "");
+    let run = f.run();
+    f.pane();
+    f.host.set_screen("NIMBUS 0.4\n\nError: No endpoints found that support tool use. Check your provider settings.\n");
+    let v = f.finish(run);
+    assert_eq!(status_of(&v, "ready"), "failed", "{}", v["checks"]);
+    assert_eq!(v["agent_error"]["external"], true, "{v}");
+    assert!(v["agent_error"]["message"].as_str().unwrap().starts_with("Error: No endpoints found"), "{v}");
+}

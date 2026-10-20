@@ -1,6 +1,6 @@
 //! What counts as the program's own error (`wizard/agent_error.rs`): real rows only, never the banner.
 
-use super::super::agent_error::{find, first_text_row, is_banner_row, is_chrome_row, is_logo_row, is_real_message};
+use super::super::agent_error::{find, find_after, first_text_row, is_banner_row, is_chrome_row, is_logo_row, is_real_message, is_status_row, only_status_rows_look_wrong, Baseline};
 
 const BANNER_SCREEN: &str = "\u{2584}\u{2580} Antigravity CLI 1.4.2.\nSigned in as dev@example.com\n\n\u{2502} > Type your message  \u{2502}\n  ctrl+c to exit | /login to sign in\n";
 
@@ -92,4 +92,94 @@ fn a_message_is_real_only_when_it_holds_words() {
     for m in ["", "  ", "\u{2584}\u{2580}", "\u{2584}\u{2580} Antigravity CLI 1.4.2.", "v1.4.2"] {
         assert!(!is_real_message(m), "{m:?}");
     }
+}
+
+// ---- account and status rows are not errors; a row from before the task never is (founder run 2026-10-19) ---------
+
+const ACCOUNT_ROW: &str = "someone@example.com (Nimbus Starter Quota)";
+
+#[test]
+fn an_account_row_with_an_email_or_a_plan_in_parentheses_is_status_not_an_error() {
+    for row in [
+        ACCOUNT_ROW,
+        "\u{2502} someone@example.com (Nimbus Starter Quota) \u{2502}",
+        "<email> (Nimbus Starter Quota)",
+        "Plan: Starter",
+        "Credits: 12.40 left",
+        "Account someone@example.com",
+        "Nimbus (Pro tier)",
+        "Tier = Starter",
+        "Usage: 40% of the plan",
+        "someone@example.com \u{b7} Nimbus Starter Plan (500 credits)",
+    ] {
+        assert!(is_status_row(row), "{row:?} is a status row");
+        assert_eq!(find(&format!("\u{2584}\u{2580} Nimbus CLI 1.4.2.\n{row}\n"), None, &[], false), None, "{row:?} is no error");
+        assert_eq!(find(&format!("{row}\n"), None, &[], true), None, "{row:?} is no error, plain");
+    }
+}
+
+#[test]
+fn a_row_with_an_error_word_is_not_a_status_row_even_with_an_email_or_a_plan() {
+    for row in [
+        "Error: quota exceeded",
+        "Login failed for someone@example.com",
+        "someone@example.com: 429 Too Many Requests",
+        "Plan limit reached (Starter)",
+        "Quota exceeded (Starter plan)",
+        "Credits: invalid",
+        "Your session expired. Please sign in again as someone@example.com",
+        "(Starter plan) is out of credits",
+        "HTTP 402 Payment Required",
+        "No endpoints found that support tool use. Check your provider settings.",
+        "Not logged in. Run /login.",
+    ] {
+        assert!(!is_status_row(row), "{row:?} is not a status row");
+    }
+    assert_eq!(find("Error: quota exceeded\n", None, &[], false).unwrap().message, "Error: quota exceeded");
+    assert_eq!(find("429 Too Many Requests\n", None, &[], false).unwrap().message, "429 Too Many Requests");
+    assert!(find("Login failed for someone@example.com (Starter plan)\n", None, &[], false).unwrap().external);
+    let found = find(&format!("{ACCOUNT_ROW}\nError: No endpoints found that support tool use.\n"), None, &[], false).unwrap();
+    assert_eq!(found.message, "Error: No endpoints found that support tool use.", "the account row above it is skipped");
+}
+
+#[test]
+fn a_row_that_was_on_the_screen_before_the_task_is_never_the_error_a_new_one_is() {
+    let startup = "\u{2584}\u{2580} Nimbus CLI 1.4.2.\nTip: run /login to sign in with another provider\n\n| > Type a task |\n";
+    let mut baseline = Baseline::new();
+    baseline.add_screen(startup);
+    let after = format!("{startup}\n> Reply with exactly the word: abc\nreply: nothing\n");
+    // without a baseline the tip reads as a sign-in problem
+    assert!(find(&after, None, &[], false).unwrap().message.contains("run /login"));
+    // with it, the row that was there before is not the error
+    assert_eq!(find_after(&after, None, &[], false, &baseline), None);
+    assert_eq!(find_after(&after, None, &[], true, &baseline), None);
+    // a real error that is new stays the message, whatever else was there
+    let with_error = format!("{after}Error: quota exceeded\n");
+    assert_eq!(find_after(&with_error, None, &[], false, &baseline).unwrap().message, "Error: quota exceeded");
+    // a row the pane wrapped differently (a resize) is still the same row; a counter that ticked too
+    let mut b = Baseline::new();
+    b.add_screen("Tip: run /login to sign in with another provider (used 3 times)\n");
+    assert!(b.has_row("Tip: run /login to sign in with"));
+    assert!(b.has_row("Tip: run /login to sign in with another provider (used 7 times)"));
+    assert!(!b.has_row("Error: quota exceeded"));
+    // a short row is no evidence either way
+    let mut short = Baseline::new();
+    short.add_screen("Error: 429\n");
+    assert!(!short.has_row("Error: 429"));
+}
+
+#[test]
+fn a_verdict_error_about_only_status_or_baseline_rows_is_refused_but_a_real_error_is_not() {
+    let empty = Baseline::new();
+    assert!(only_status_rows_look_wrong(&format!("NIMBUS\n{ACCOUNT_ROW}\n| > Type a task |\n"), &empty));
+    assert!(only_status_rows_look_wrong("NIMBUS\n<email> (Nimbus Starter Quota)\n", &empty));
+    // a real error row beside the account row: the AI's look stands
+    assert!(!only_status_rows_look_wrong(&format!("{ACCOUNT_ROW}\nError: 429 rate limit reached\n"), &empty));
+    // nothing here reads like a problem at all: no say either way
+    assert!(!only_status_rows_look_wrong("NIMBUS\nsomething odd happened\n", &empty));
+    // a row from before the task is not new
+    let mut b = Baseline::new();
+    b.add_screen("Tip: run /login to sign in with another provider\n");
+    assert!(only_status_rows_look_wrong("Tip: run /login to sign in with another provider\n", &b));
+    assert!(!only_status_rows_look_wrong("Tip: run /login to sign in with another provider\nError: network down\n", &b));
 }

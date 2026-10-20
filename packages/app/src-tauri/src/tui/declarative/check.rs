@@ -41,7 +41,14 @@ fn read_regular(path: &Path) -> Result<String, String> {
     if meta.len() > MAX_FIXTURE_BYTES {
         return Err(format!("larger than {MAX_FIXTURE_BYTES} bytes"));
     }
-    std::fs::read_to_string(path).map_err(|e| e.to_string())
+    std::fs::read_to_string(path).map(|t| unmask_email(&t)).map_err(|e| e.to_string())
+}
+
+/// The wizard saves an email address it saw on a screen as `<email>` (SPEC 11.21). A profile reads real screens, which
+/// hold a real address, so a fixture is checked with an example address in its place (the drafter writes `\S+@\S+`,
+/// never `<email>`, in a regex; `verify` refuses a definition that holds the placeholder).
+fn unmask_email(text: &str) -> String {
+    crate::redact::unmask_emails(text)
 }
 
 /// A capture without its leading `# capture:` header comment lines.

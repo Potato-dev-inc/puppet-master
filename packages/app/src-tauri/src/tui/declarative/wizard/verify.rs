@@ -241,6 +241,14 @@ pub fn check_draft_with(session: &Session, env: &WizardEnv, text: &str, expects:
             "the file contains a word the live test uses as its expected answer, or the bare word `pong`. A definition must read any answer, not one the test asks for",
         ));
     }
+    if text.contains(crate::redact::EMAIL_MASK) {
+        out.errors.push(CheckError::new(
+            "wizard",
+            "WIZARD_EMAIL_PLACEHOLDER",
+            "",
+            "the file contains `<email>`. That is only what the wizard shows in place of an email address on a screen; the real screen holds a real address, so a pattern with `<email>` in it never matches. Match an address with `\\S+@\\S+` (or leave the account row out of the patterns).",
+        ));
+    }
     out.warnings = approval_warnings(&def);
     if !def.headless.as_ref().is_some_and(|h| h.optional.iter().any(|s| s.when == "resume")) {
         out.warnings.push("The draft has no resume segment, so follow-up turns will start a new conversation.".into());
@@ -278,7 +286,7 @@ pub fn check_draft_with(session: &Session, env: &WizardEnv, text: &str, expects:
 fn check_visible_fixtures(session: &Session, profile: &DeclarativeProfile, expects: &BTreeMap<String, String>, out: &mut Outcome) {
     let Some(set) = session.visible.captures.lock().clone() else { return };
     let words = &session.words;
-    let mask = |t: &str| super::livetest::mask_words(t, words);
+    let mask = |t: &str| super::exec::mask_private(&super::livetest::mask_words(t, words));
     let head = visible_fixtures::header(&session.command, session.version.number.as_deref(), set.grid);
     let (files, problems) = visible_fixtures::files(&set, profile, words, expects, &head);
     for p in problems {
@@ -321,7 +329,7 @@ fn check_fixtures(session: &Session, profile: &DeclarativeProfile, out: &mut Out
             "fixture",
             "FIXTURE_FAILED",
             r.fixture.clone(),
-            r.failures.join("; "),
+            super::exec::mask_private(&r.failures.join("; ")),
         ));
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -339,7 +347,7 @@ fn check_fixtures(session: &Session, profile: &DeclarativeProfile, out: &mut Out
             continue;
         }
         let judged = super::livetest::judge(profile, sample.stage, &sample.want, &sample.stdout, sample.exit, None, has_session);
-        let mask = |t: &str| super::livetest::mask_words(t, &session.words);
+        let mask = |t: &str| super::exec::mask_private(&super::livetest::mask_words(t, &session.words));
         out.samples_replayed += 1;
         for problem in judged.problems {
             out.errors.push(

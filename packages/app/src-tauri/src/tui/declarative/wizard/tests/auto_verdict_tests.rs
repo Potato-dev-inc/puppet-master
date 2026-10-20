@@ -199,3 +199,22 @@ fn a_trust_look_on_a_screen_that_does_not_talk_about_trust_or_permission_is_refu
     assert!(matches!(d.verdict(Verdict::QuestionTrustOrOnce), Decision::Refused(_)), "an update prompt is never the safe answerer's");
     assert!(pressed(&d.show(update, 20_000)).is_empty());
 }
+
+#[test]
+fn an_error_look_at_an_account_or_status_row_shown_since_startup_is_refused_but_a_real_error_row_still_counts() {
+    // the person's address and the plan in parentheses, drawn since startup: the AI called it an error; Rust does not
+    let account = "NIMBUS 0.4\n\nsomeone@example.com (Nimbus Starter Quota)\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n";
+    let mut d = Drive::new(true);
+    d.show(account, 5000);
+    assert!(matches!(d.verdict(Verdict::Error), Decision::Refused(_)), "an account row is no error");
+    assert!(!d.c.into_set().notes.iter().any(|n| n.contains("showed an error")));
+    // the same row beside a real new error row: the look stands
+    let mut d = Drive::new(true);
+    d.show(account, 5000);
+    d.show(&format!("{account}Error: 429 rate limit reached\n"), 5000);
+    assert_eq!(d.verdict(Verdict::Error), Decision::MarkedStuck);
+    // no row at all that reads like a problem: no say either way, the look stands
+    let mut d = Drive::new(true);
+    d.show("NIMBUS 0.4\n\nsomething broke in an odd way\n", 5000);
+    assert_eq!(d.verdict(Verdict::Error), Decision::MarkedStuck);
+}

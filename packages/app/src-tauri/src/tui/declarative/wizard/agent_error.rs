@@ -9,6 +9,15 @@
 //! not the input box, not a footer or key-hint row, not a row the profile's own chrome tables name, not
 //! a status row that says all is well (`Signed in as ...`), not an echo of the test's own task.
 //!
+//! Two more rules (founder run 2026-10-19, an account row `<email> (<Agent> Starter Quota)` shown since startup):
+//!
+//! - **Baseline.** A row that was already on the screen before the wizard sent its message (the startup and
+//!   idle frames: the `Baseline`) can never be the error row. An error is something new after the task went in.
+//! - **Status rows.** An account or status row is not an error: a row with an email address, or with `plan`,
+//!   `quota`, `credits` or `tier` in a parenthesis or after a label (`Plan: Starter`), and no error word in it
+//!   (`error`, `failed`, `exceeded`, `denied`, `invalid`, `expired`, `limit reached`, 401/402/403/429/5xx ...).
+//!   The word "quota" in `(Starter Quota)` matched the external-error words; it says which plan, not that it ran out.
+//!
 //! No agent names here: everything is generic shapes plus the profile's tables.
 
 use once_cell::sync::Lazy;
@@ -30,7 +39,7 @@ pub struct Found {
 /// Rows that look like a problem but say all is well, or that are about the working state, not a fault.
 static HEALTHY: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)\b(?:signed|logged)[ -]?in (?:as|with|via|to|using|successfully)\b|\bauthenticated (?:as|with|via)\b|\blogin successful\b|\bwelcome back\b|(?:using|connected to) (?:the )?(?:\w+ )?provider|\bno errors?\b",
+        r"(?i)\b(?:signed|logged)[ -]?in (?:as|with|via|to|using|successfully)\b|\bauthenticated (?:as|with|via)\b|\blogin successful\b|\bwelcome back\b|(?:using|connected to) (?:the )?(?:\w+ )?provider|\bno errors?\b",
     )
     .expect("healthy row regex")
 });
@@ -56,6 +65,77 @@ static USAGE: Lazy<Regex> = Lazy::new(|| {
 
 /// A row that starts with an input glyph (`> text`, `› text`, `❯ text`, `$ cmd`): the input box, or the echo of what was typed.
 static INPUT_ROW: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[>\u{203a}\u{276f}\u{25b8}$]\s").expect("input row regex"));
+
+/// Words that say something went wrong. A status row that holds one of these is NOT a status row.
+static ERROR_WORDS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)\b(?:errors?|fail(?:ed|ure|s)?|exceed(?:ed|s)?|denied|invalid|expired?|unauthori[sz]ed|forbidden|(?:limit|quota) (?:reached|hit|used up)|reached (?:your |the |its )?(?:\w+ )?(?:limit|quota)|(?:out of|no) (?:credits?|quota)|not (?:signed|logged)[ -]?in|logged out|(?:please|must|need to|needs to) (?:sign|log)[ -]?in|rate[- ]?limited|too many requests|insufficient|cannot|can't|unable|(?:http|status|code)\W{0,3}(?:401|402|403|429|5\d\d)|(?:401|402|403|429|5\d\d)\W{0,3}(?:unauthori[sz]ed|payment|forbidden|too many|internal|bad gateway|service|gateway))\b",
+    )
+    .expect("error words regex")
+});
+
+/// Plan, quota, credits or tier inside a parenthesis (`(Nimbus Starter Quota)`) or after a label (`Plan: Starter`,
+/// `Credits = 12.40`).
+static STATUS_WORD: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)\([^)]*\b(?:plan|quota|credits?|tier)\b[^)]*\)|\b(?:plan|quota|credits?|tier|usage|balance)\s*[:=]\s*\S")
+        .expect("status word regex")
+});
+
+/// An email address anywhere in the row.
+static HAS_EMAIL: Lazy<Regex> = Lazy::new(|| Regex::new(r"[\p{L}\p{N}._%+\-]+@[\p{L}\p{N}\-]+(?:\.[\p{L}\p{N}\-]+)*\.\p{L}{2,}|<email>").expect("email in row"));
+
+/// An account or status row, not an error: it names the person's account (an email address) or the plan, quota,
+/// credits or tier (in a parenthesis or after a label), and says nothing went wrong.
+pub fn is_status_row(row: &str) -> bool {
+    let core = unframed(row);
+    if ERROR_WORDS.is_match(&core) {
+        return false;
+    }
+    HAS_EMAIL.is_match(&core) || STATUS_WORD.is_match(&core)
+}
+
+/// The rows that were on the screen before the wizard sent its message. A row in it is never the error. Rows are
+/// compared as letters and digits only (digits folded, so a counter that ticked is still the same row) and as
+/// pieces of the baseline, so a row that the pane wrapped differently after a resize is still found.
+#[derive(Debug, Clone, Default)]
+pub struct Baseline {
+    squashed: String,
+}
+
+/// A row reduced to its letters, lowercase, digits folded to `#`.
+fn squash(row: &str) -> String {
+    row.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_lowercase()).map(|c| if c.is_ascii_digit() { '#' } else { c }).collect()
+}
+
+/// Rows shorter than this (squashed) are too small to be told apart from other text: they are never taken as baseline.
+const MIN_BASELINE_CHARS: usize = 10;
+
+impl Baseline {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.squashed.is_empty()
+    }
+
+    /// Remember every row of `screen`.
+    pub fn add_screen(&mut self, screen: &str) {
+        for raw in screen.lines() {
+            let key = squash(&unframed(raw));
+            if key.chars().count() >= MIN_BASELINE_CHARS && !self.squashed.contains(&key) {
+                self.squashed.push_str(&key);
+                self.squashed.push(' ');
+            }
+        }
+    }
+
+    /// The row (or a piece of it, when the pane wrapped it) was on the screen before.
+    pub fn has_row(&self, row: &str) -> bool {
+        let key = squash(&unframed(row));
+        key.chars().count() >= MIN_BASELINE_CHARS && self.squashed.contains(&key)
+    }
+}
 
 fn is_frame_char(c: char) -> bool {
     matches!(c,
@@ -112,14 +192,19 @@ fn profile_chrome(profile: Option<&dyn TuiProfile>, core: &str) -> bool {
 
 /// The rows of `text` that may hold an error: everything chrome is dropped, and so is a row that quotes one of
 /// `skip` (the test's own task and random words).
-fn candidate_rows<'a>(text: &'a str, profile: Option<&'a dyn TuiProfile>, skip: &'a [String]) -> impl Iterator<Item = String> + 'a {
+fn candidate_rows<'a>(
+    text: &'a str,
+    profile: Option<&'a dyn TuiProfile>,
+    skip: &'a [String],
+    baseline: &'a Baseline,
+) -> impl Iterator<Item = String> + 'a {
     text.lines().filter_map(move |raw| {
         let row = raw.trim();
         if row.is_empty() || row.starts_with('{') || row.starts_with('[') || is_chrome_row(row) {
             return None;
         }
         let core = unframed(row);
-        if profile_chrome(profile, &core) || HEALTHY.is_match(&core) {
+        if profile_chrome(profile, &core) || HEALTHY.is_match(&core) || is_status_row(&core) || baseline.has_row(&core) {
             return None;
         }
         let lower = core.to_lowercase();
@@ -135,7 +220,13 @@ fn candidate_rows<'a>(text: &'a str, profile: Option<&'a dyn TuiProfile>, skip: 
 /// `external`. With `plain`, a row that merely reads like an error (`Error: ...`, `cannot ...`) counts too, but a
 /// usage error (a wrong argument: the profile's) never does.
 pub fn find(text: &str, profile: Option<&dyn TuiProfile>, skip: &[String], plain: bool) -> Option<Found> {
-    let rows: Vec<String> = candidate_rows(text, profile, skip).collect();
+    find_after(text, profile, skip, plain, &Baseline::new())
+}
+
+/// `find`, for a screen the wizard looks at after it sent its message: a row of `baseline` (what was on the screen
+/// before) is never the error, whatever it says.
+pub fn find_after(text: &str, profile: Option<&dyn TuiProfile>, skip: &[String], plain: bool, baseline: &Baseline) -> Option<Found> {
+    let rows: Vec<String> = candidate_rows(text, profile, skip, baseline).collect();
     if let Some(row) = rows.iter().find(|r| EXTERNAL.is_match(r) && !USAGE.is_match(r)) {
         return Some(Found { message: exec::cut_chars(row, 300), external: true });
     }
@@ -145,6 +236,29 @@ pub fn find(text: &str, profile: Option<&dyn TuiProfile>, skip: &[String], plain
     rows.iter()
         .find(|r| !USAGE.is_match(r) && (crate::loop_guard::default_error_line(r) || profile.is_some_and(|p| p.is_error_line(r))))
         .map(|row| Found { message: exec::cut_chars(row, 300), external: false })
+}
+
+/// True when the screen has rows that read like a problem (an external-error word, or an `Error: ...` row) and
+/// every one of them is an account or status row or was on the screen before (`baseline`): what a drawn screen
+/// shows since startup, not something that went wrong. A screen with no such row at all is `false` (nothing here
+/// speaks for or against an error), and so is one with a real new error row.
+pub fn only_status_rows_look_wrong(text: &str, baseline: &Baseline) -> bool {
+    let mut seen_suspect = false;
+    for raw in text.lines() {
+        let row = raw.trim();
+        if row.is_empty() || is_chrome_row(row) {
+            continue;
+        }
+        let core = unframed(row);
+        if !(EXTERNAL.is_match(&core) || crate::loop_guard::default_error_line(&core)) || HEALTHY.is_match(&core) {
+            continue;
+        }
+        seen_suspect = true;
+        if !(is_status_row(&core) || baseline.has_row(&core)) {
+            return false;
+        }
+    }
+    seen_suspect
 }
 
 /// The first row of an error text the program itself gave (its own error event) that says something: not a

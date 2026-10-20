@@ -129,3 +129,23 @@ fn compose_cannot_leak_through_quoted_parts() {
     assert!(!line.as_str().contains("abcdefgh"), "{line}");
     assert!(line.as_str().starts_with("[\"") && line.as_str().ends_with("\"]"));
 }
+
+#[test]
+fn email_addresses_become_a_placeholder_and_host_paths_stay() {
+    let cases: &[(&str, &str)] = &[
+        ("someone@example.com (Nimbus Starter Quota)", "<email> (Nimbus Starter Quota)"),
+        ("│ Signed in as first.last+tag@mail.example.co.uk │", "│ Signed in as <email> │"),
+        ("Contact: a_b@x-y.example.org.", "Contact: <email>."),
+        ("clone git@github.com:org/repo.git", "clone <email>:org/repo.git"),
+        ("account someone@exam…", "account <email>"),
+        ("account someone@exam...", "account <email>"),
+        ("josé@exemple.fr et 用户@例子.中国", "<email> et <email>"),
+    ];
+    for (input, want) in cases {
+        assert_eq!(super::mask_emails(input), *want, "{input:?}");
+    }
+    // not email-shaped: a dotless host, a scope, a bare at-sign
+    for same in ["ssh deploy@buildhost", "npm i @scope/pkg", "a @ b", "price 5 @ 3.50", "no at sign here"] {
+        assert_eq!(super::mask_emails(same), same);
+    }
+}

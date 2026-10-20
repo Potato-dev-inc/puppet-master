@@ -1845,6 +1845,16 @@ impl Capture {
             }
             Verdict::Error => {
                 let shown = clean(&self.screen);
+                // An account or status row shown since startup (an email, a plan, a quota in a parenthesis) is not an
+                // error, and neither is a row the captured frames already showed before this step: the look may not
+                // stop the run for it. A screen with a real new error row, or with no such row to judge, is the AI's call.
+                let mut baseline = super::super::agent_error::Baseline::new();
+                for f in &self.frames {
+                    baseline.add_screen(&f.text);
+                }
+                if super::super::agent_error::only_status_rows_look_wrong(&shown, &baseline) {
+                    return Decision::Refused("the only rows that read like a problem are account or status rows that were on the screen since startup".into());
+                }
                 let last: Vec<&str> = shown.lines().map(str::trim).filter(|l| !l.is_empty()).rev().take(3).collect();
                 let tail: Vec<&str> = last.into_iter().rev().collect();
                 let masked = super::super::livetest::mask_words(&tail.join(" / "), &self.words);

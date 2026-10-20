@@ -54,6 +54,8 @@ pub struct Opts {
     pub status_model: Option<String>,
     pub status_model_busy_only: bool,
     pub footer_right: Option<String>,
+    /// A status row under the footer, shown from startup on (the account and its plan).
+    pub account_row: Option<String>,
     /// The model name in the status line is cut to this many characters (a narrow status bar clips it).
     pub status_model_clip: Option<usize>,
 }
@@ -765,6 +767,9 @@ fn finish_nimbus(mut rows: Vec<String>, rule: String, view: &View, cursor: Optio
         row = format!("  {GRAY}{hint}{}{right}{RESET}", " ".repeat(gap));
     }
     rows.push(row);
+    if let Some(account) = &view.opts.account_row {
+        rows.push(format!("  {GRAY}{account}{RESET}"));
+    }
     (rows, cursor)
 }
 
@@ -879,7 +884,7 @@ mod tests {
     use super::*;
 
     fn view<'a>(layout: Layout, banner: &'a Banner, blocks: &'a [Block], mode: Mode) -> View<'a> {
-        static OPTS: Opts = Opts { backlog_rows: 0, banner_rows: Vec::new(), status_model: None, status_model_busy_only: false, footer_right: None, status_model_clip: None };
+        static OPTS: Opts = Opts { backlog_rows: 0, banner_rows: Vec::new(), status_model: None, status_model_busy_only: false, footer_right: None, account_row: None, status_model_clip: None };
         View { layout, cols: 80, rows: 24, banner, blocks, mode, composer: "", suggestion: None, fresh: true, busy: None, notice: None, tick: 0, opts: &OPTS }
     }
 

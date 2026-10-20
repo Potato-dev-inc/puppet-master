@@ -65,6 +65,7 @@ Steps (`do = ...`): `think {ms, verb}` and `wait {ms}` stay busy; `say {text}`; 
 | `summary_row = "text"` | the row printed after every turn instead of `done in {secs}s`; `{secs}` is the turn's length (`▸ Thought for {secs}s, 298 tokens`) |
 | `echo_task = false` | no `> <task>` row for the submitted task: an agent that does not echo what it was asked |
 | `footer_right = "text"` | text flush against the last column of the footer row (a clipped column shows at once) |
+| `account_row = "text"` | an account or plan row (`someone@example.com (Nimbus Starter Quota)`) drawn under the footer from startup on, all the time; a status, not an error |
 | `inline = true`, `reprint_on_resize = true` or `false` | paint like an inline TUI: the conversation is printed top-down into the scrollback and only the visible part is redrawn; on a resize `reprint_on_resize` clears the screen and prints the WHOLE conversation again (rows that overflow reach the history a second time), otherwise only the visible part is redrawn |
 | `approvals = "menus"` | a command asks with a numbered menu (`Run this command?` / `> 1. Allow once` / `2. Always allow in this project` / `3. Deny`; digits answer) and a file write with an arrow menu (`Write <path>?` / `Yes, write it` ...; arrows and Enter); default `yn` is the one-line `[y/n]` |
 | `[[startup]] animate = true` | the trust question redraws while it waits: a blinking block after the question and a spinner row with a seconds counter under it |
