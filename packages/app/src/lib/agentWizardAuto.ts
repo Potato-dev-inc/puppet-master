@@ -307,7 +307,15 @@ export function aiLookText(agent: string, kind: string, read: string | null | un
 export type CaptureOutcome =
   | { status: 'done'; captures: CaptureFacts }
   | { status: 'sign_in'; message: string }
-  | { status: 'stopped'; title: string; text: string }
+  | {
+      status: 'stopped';
+      title: string;
+      text: string;
+      /** The agent's pane is still open (the question in it is the person's to answer): it is not discarded. */
+      paneOpen?: boolean;
+      /** Retry can go on from that pane (the capture is still running in it) instead of starting again. */
+      resumable?: boolean;
+    }
   | { status: 'cancelled' };
 
 interface DriveOptions {
@@ -319,6 +327,8 @@ interface DriveOptions {
   timings: AutoTimings;
   signal: AbortSignal;
   onStatus?: (s: CaptureStatus) => void;
+  /** Go on with the capture that is still running in its pane (after the person answered a question there). */
+  resume?: boolean;
 }
 
 /** Kinds where the wizard's safe answerer already looked and said no: only the person may answer these. */
@@ -326,12 +336,25 @@ const DIALOG_KINDS = new Set(['trust', 'permission']);
 /** What ends a need the AI could not help with: skip the step, or mark it stuck and go on. */
 const ESCALATE: Record<string, 'skip' | 'stuck'> = { unsure: 'skip', unsure_reply: 'skip', question: 'skip', stuck: 'skip', slow: 'stuck', typing: 'stuck' };
 
-function unanswerable(command: string, message: string, read?: string | null): CaptureOutcome {
+/**
+ * The question is the person's. The agent's pane stays open so they can answer in it (Show the pane) and Retry goes on from
+ * there. When the agent has quit by itself there is nothing to answer in: the text says so and Retry starts a fresh pane.
+ */
+function unanswerable(command: string, message: string, read?: string | null, alive = true): CaptureOutcome {
   const seen = read ? `\n\nThe wizard read these options: ${read}.` : '';
+  if (!alive) {
+    return {
+      status: 'stopped',
+      title: `${agentName(command)} quit before the question was answered.`,
+      text: `${agentName(command)} closed by itself while it was asking a question, so there is nothing left to answer in. Press Retry to start it again in a new pane.${seen}`,
+    };
+  }
   return {
     status: 'stopped',
     title: `${agentName(command)} asks a question that only you may answer.`,
-    text: `${message}${seen}\n\nThe wizard never picks "always", "don't ask again" or "all" for you. Open the pane and answer it yourself, then press Retry, or turn off "Finish without me".`,
+    text: `${message}${seen}\n\nThe wizard never picks "always", "don't ask again" or "all" for you. Use Show the pane, answer it there, then press Retry to go on, or turn off "Finish without me".`,
+    paneOpen: true,
+    resumable: true,
   };
 }
 
@@ -343,9 +366,15 @@ function unanswerable(command: string, message: string, read?: string | null): C
 export async function driveCapture(o: DriveOptions): Promise<CaptureOutcome> {
   const { api, start, looks, log, clock, timings: t, signal } = o;
   if (!api.verdict) throw new Error('WIZARD_NOT_AVAILABLE: this wizard cannot take an AI look.');
-  const plan = await api.capturePlan(start.session, []);
-  log(`Will run (capture): ${commandLine(start.command, plan.args)}`);
-  let status = await api.captureStart(start.session, [], plan.fingerprint);
+  let status: CaptureStatus;
+  if (o.resume) {
+    status = await api.captureStatus(start.session);
+    log('Went on from the pane after the question in it');
+  } else {
+    const plan = await api.capturePlan(start.session, []);
+    log(`Will run (capture): ${commandLine(start.command, plan.args)}`);
+    status = await api.captureStart(start.session, [], plan.fingerprint);
+  }
   const seenAnswers = new Set<number>();
   const classified = new Map<string, Verdict>();
   const firstSeen = new Map<string, number>();
@@ -417,7 +446,7 @@ export async function driveCapture(o: DriveOptions): Promise<CaptureOutcome> {
             log(`The AI look could not name an option for the menu (menu read: ${read ?? 'none'})`);
           }
         }
-        return unanswerable(start.command, need.message, status.menu_read ?? lastRead);
+        return unanswerable(start.command, need.message, status.menu_read ?? lastRead, status.alive !== false);
       }
       const ckey = `${key}|${status.fingerprint ?? ''}`;
       let verdict = classified.get(ckey);
@@ -452,7 +481,7 @@ export async function driveCapture(o: DriveOptions): Promise<CaptureOutcome> {
         const how = ESCALATE[need.kind] ?? 'skip';
         const step = need.step;
         if (how === 'skip' && (skippedSteps.has(step) || skips >= 3)) {
-          return unanswerable(start.command, need.message);
+          return unanswerable(start.command, need.message, undefined, status.alive !== false);
         }
         try {
           status = await api.captureAct(start.session, how, step);
@@ -636,6 +665,8 @@ export interface AutonomousOptions {
   timings?: Partial<AutoTimings>;
   clock?: Clock;
   maxLooks?: number;
+  /** Retry after a question the person answered in the still-open pane: the capture goes on, nothing is started again. */
+  resume?: boolean;
 }
 
 export type AutonomousOutcome =
@@ -651,7 +682,7 @@ export type AutonomousOutcome =
       checks: number;
     }
   | { status: 'sign_in'; message: string }
-  | { status: 'stopped'; title: string; text: string; agentError?: boolean }
+  | { status: 'stopped'; title: string; text: string; agentError?: boolean; paneOpen?: boolean; resumable?: boolean }
   | { status: 'cancelled' };
 
 /**
@@ -692,19 +723,20 @@ async function runAutonomousSteps(o: AutonomousOptions): Promise<AutonomousOutco
   const session = start.session;
   const looks = new AiLooks((prompt) => o.ask(prompt, 0), log, o.maxLooks ?? MAX_AI_LOOKS);
 
-  log(`Picked ${o.drafter.label} to write the profile`);
+  if (!o.resume) log(`Picked ${o.drafter.label} to write the profile`);
   o.onEvent({ step: 'capture', status: 'running', round: 0 });
-  const cap = await driveCapture({ api, start, looks, log, clock, timings, signal: o.signal, onStatus: o.onCaptureStatus });
+  const cap = await driveCapture({ api, start, looks, log, clock, timings, signal: o.signal, onStatus: o.onCaptureStatus, resume: o.resume });
   if (cap.status === 'cancelled') return { status: 'cancelled' };
   if (cap.status === 'sign_in') {
     o.onEvent({ step: 'capture', status: 'failed', round: 0, detail: cap.message });
     return { status: 'sign_in', message: cap.message };
   }
   if (cap.status === 'stopped') {
-    // the hidden pane is closed (a sign-in stop keeps it, so the person can open it and sign in)
-    await Promise.resolve(api.captureDiscard(session)).catch(() => undefined);
+    // The hidden pane is closed, except when the stop is a question for the person (like a sign-in stop): that pane stays
+    // open so they can answer in it, "Show the pane" opens it and Retry goes on from it.
+    if (!cap.paneOpen) await Promise.resolve(api.captureDiscard(session)).catch(() => undefined);
     o.onEvent({ step: 'capture', status: 'failed', round: 0, detail: cap.title });
-    return { status: 'stopped', title: cap.title, text: cap.text };
+    return { status: 'stopped', title: cap.title, text: cap.text, paneOpen: cap.paneOpen, resumable: cap.resumable };
   }
   o.onEvent({ step: 'capture', status: 'done', round: 0 });
 

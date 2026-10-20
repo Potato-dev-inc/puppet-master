@@ -142,7 +142,17 @@ export function AgentWizard({
   const [confirming, setConfirming] = useState<PlannedRun | null>(null);
   const [confirmingVisible, setConfirmingVisible] = useState<PlannedVisible | null>(null);
   const [result, setResult] = useState<Tested | null>(null);
-  const [stopped, setStopped] = useState<{ title: string; text: string; agentError?: boolean; keepable?: boolean; auto?: boolean } | null>(null);
+  const [stopped, setStopped] = useState<{
+    title: string;
+    text: string;
+    agentError?: boolean;
+    keepable?: boolean;
+    auto?: boolean;
+    /** The agent's pane is still open: "Show the pane" opens it. */
+    paneOpen?: boolean;
+    /** Retry goes on from that pane instead of starting a new one. */
+    resumable?: boolean;
+  } | null>(null);
   // The draft that passed the checks, kept when the program's own error stops the test: Retry runs only the tests.
   const [held, setHeld] = useState<{ toml: string; expects: Record<string, string>; verify: VerifyResult; rounds: number } | null>(null);
   // The finished visible profile while the optional one-task step runs (so a failure there loses nothing).
@@ -196,16 +206,18 @@ export function AgentWizard({
 
 /** "Finish without me": capture, draft, check, fix, test, finish and approve with no click. */
   const startAutonomous = useCallback(
-    async (target: Found, picked: Drafter) => {
+    async (target: Found, picked: Drafter, resume = false) => {
       const abort = new AbortController();
       abortRef.current = abort;
       autoRunRef.current = { found: target, drafter: picked };
       setError(null);
       setStopped(null);
-      setDecisions([]);
       setAutoCapture(null);
       setResult(null);
-      setEvents([{ step: 'help', status: 'done', round: 0 }]);
+      if (!resume) {
+        setDecisions([]);
+        setEvents([{ step: 'help', status: 'done', round: 0 }]);
+      }
       setPhase('auto');
       const session = target.start.session;
       let outcome: AutonomousOutcome;
@@ -221,6 +233,7 @@ export function AgentWizard({
           onCaptureStatus: setAutoCapture,
           signal: abort.signal,
           timings: autoTimings,
+          resume,
         });
       } catch (e) {
         if (abort.signal.aborted) return;
@@ -236,23 +249,32 @@ export function AgentWizard({
         return;
       }
       if (outcome.status === 'sign_in') {
-        setStopped({ title: outcome.message, text: 'The wizard stopped and typed nothing more. Sign in to the agent in its pane (use Show the pane) or finish its setup, then press Retry.', auto: true });
+        setStopped({ title: outcome.message, text: 'The wizard stopped and typed nothing more. Sign in to the agent in its pane (use Show the pane) or finish its setup, then press Retry.', auto: true, paneOpen: true });
       } else {
-        setStopped({ title: outcome.title, text: outcome.text, agentError: outcome.agentError, auto: true });
+        setStopped({ title: outcome.title, text: outcome.text, agentError: outcome.agentError, auto: true, paneOpen: outcome.paneOpen, resumable: outcome.resumable });
       }
       setPhase('stopped');
     },
     [api, autoTimings, onApprove],
   );
 
-  // Retry of a "Finish without me" run: the capture pane is closed and the whole run starts again on the same session.
+  // Retry of a "Finish without me" run. After a question the person answers in the agent's own pane (the pane was kept open)
+  // the capture goes on from there; when that pane is gone or the agent quit, or after any other stop, the capture pane is
+  // closed and the whole run starts again in a fresh pane on the same session.
   const retryAuto = useCallback(async () => {
     const again = autoRunRef.current;
     if (!again) return;
     const id = again.found.start.session;
+    if (stopped?.resumable) {
+      const live = await Promise.resolve(api.captureStatus(id)).catch(() => null);
+      if (live && live.state === 'running' && live.alive !== false) {
+        void startAutonomous(again.found, again.drafter, true);
+        return;
+      }
+    }
     await Promise.resolve(api.captureDiscard(id)).catch(() => undefined);
     void startAutonomous(again.found, again.drafter);
-  }, [api, startAutonomous]);
+  }, [api, startAutonomous, stopped]);
 
   const findIt = useCallback(async () => {
     const name = command.trim();
@@ -675,6 +697,7 @@ export function AgentWizard({
             decisions={decisions}
             capture={autoCapture}
             running={phase === 'auto'}
+            paneOpen={phase === 'auto' || stopped?.paneOpen === true}
             onCancel={() => void cancelAll()}
           />
         )}
@@ -911,6 +934,7 @@ function AutoPanel({
   decisions,
   capture,
   running,
+  paneOpen,
   onCancel,
 }: {
   api: WizardApi;
@@ -919,6 +943,8 @@ function AutoPanel({
   decisions: string[];
   capture: CaptureStatus | null;
   running: boolean;
+  /** The agent's pane is still open ("Show the pane" has something to open). */
+  paneOpen: boolean;
   onCancel: () => void;
 }) {
   const steps = capture?.steps ?? [];
@@ -948,14 +974,7 @@ function AutoPanel({
           </ul>
         )}
       </div>
-      {running && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className={BTN} onClick={() => void Promise.resolve(api.captureShow(session)).catch(() => undefined)}>
-            Show the pane
-          </button>
-        </div>
-      )}
-      {!running && (
+      {paneOpen && (
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" className={BTN} onClick={() => void Promise.resolve(api.captureShow(session)).catch(() => undefined)}>
             Show the pane
