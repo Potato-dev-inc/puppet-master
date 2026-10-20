@@ -179,10 +179,12 @@ export interface CaptureStatus {
   needs_you?: { step: CaptureStepId; kind: string; message: string; unreadable?: boolean } | null;
   /** The identity of the question the safe answerer is looking at (the AI look's answer is bound to it). */
   question_fp?: string | null;
+  /** How the answerer's parser read the menu of the question it is looking at (every option with its class), masked. */
+  menu_read?: string | null;
   /** Rows drawn highlighted (inverse video, a band, bold), masked: a hint for the AI look when the text shows no cursor. */
   menu_look?: { emphasis: string[] };
   /** Setup questions the wizard answered for the person so far (labels only). `via` is `ai_look` when an AI look named it. */
-  answered?: Array<{ place: string; flavour: string; label: string; keys: string; via?: string }>;
+  answered?: Array<{ place: string; flavour: string; label: string; keys: string; via?: string; menu?: string }>;
   auto_answer?: boolean;
   /** The pane's screen, masked, for the preview in the wizard window. */
   screen?: string;
@@ -223,6 +225,8 @@ export interface VisibleTestStatus {
   answered?: AnsweredQuestion[];
   /** What the test made of the AI look's choice (`accepted: false` with `why`), once it looked at it. */
   menu_choice?: { accepted: boolean; label?: string; why?: string } | null;
+  /** How the answerer read the menu of the question in the test pane (every option with its class), masked. */
+  menu_read?: string | null;
 }
 
 export interface VerifyResult {
@@ -382,6 +386,8 @@ export interface WizardApi {
   captureAct(session: string, action: CaptureAction, step?: CaptureStepId): Promise<CaptureStatus>;
   /** The last looks the capture kept (masked), while it runs and after it stopped. */
   captureDebug?(session: string): Promise<CaptureDebug | null>;
+  /** Writes the debug file of a run that stopped (the last looks, the menu as read, the decisions, why) and says where. */
+  captureDump?(session: string, reason: string): Promise<{ path: string; copy?: string | null } | null>;
   /** Opens the capture pane as a window (the person answers its questions there). */
   captureShow(session: string): Promise<void>;
   /** Stops the capture and returns the screens as the drafter will see them (test words masked). */
@@ -420,6 +426,7 @@ export const tauriWizardApi: WizardApi = {
   captureStatus: (session) => invoke<CaptureStatus>('agent_wizard_capture', { body: { session, op: 'status' } }),
   captureAct: (session, action, step) => invoke<CaptureStatus>('agent_wizard_capture', { body: { session, op: 'act', action, step } }),
   captureDebug: async (session) => (await invoke<{ debug: CaptureDebug | null }>('agent_wizard_capture', { body: { session, op: 'debug' } })).debug,
+  captureDump: (session, reason) => invoke<{ path: string; copy?: string | null }>('agent_wizard_capture', { body: { session, op: 'dump', reason } }),
   captureShow: async (session) => {
     await invoke('agent_wizard_capture', { body: { session, op: 'show' } });
   },

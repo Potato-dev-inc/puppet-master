@@ -457,16 +457,20 @@ fn row_menu(row: &str, styled: Option<&StyledScreen>) -> Option<Menu> {
 
 // ---- what is safe -----------------------------------------------------------------------------------
 
+/// A one-time affirmative action: yes, allow (once), run (the command), proceed, continue, approve, accept, OK, confirm,
+/// go ahead, "Yes, run command", "Yes, proceed". Anything broad is caught first by `UNSAFE`.
 static SAFE_YES: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)^(?:yes\b|y\b|allow(?: once| this time| just this once)?\b|approve(?: once)?\b|trust (?:this|the) (?:folder|project|workspace|directory)\b|run (?:once|this)\b|just this once\b)",
+        r"(?i)^(?:yes\b|y\b|ok(?:ay)?\b|allow(?: once| this time| just this once)?\b|approve(?: once)?\b|accept(?: once)?\b|proceed\b|continue\b|confirm\b|go ahead\b|run\b|execute\b|trust (?:this|the) (?:folder|project|workspace|directory)\b|just this once\b)",
     )
     .expect("safe yes regex")
 });
 
+/// Anything broader than this one action: always, don't ask again, the session, all, every time, remember, trust all,
+/// for this project, permanently... An option with one of these is never picked, whatever else it says.
 static UNSAFE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)always|don.?t ask|do not ask|never ask|ask again|for this session|this session|all tools|all commands|all (?:projects|folders|files)|trust all|yolo|bypass|dangerous|auto-?approve|skip (?:all )?permission|remember|every time|everything|permanently|forever|global|parent (?:folder|directory)|home (?:folder|directory)|full access|unrestricted",
+        r"(?i)always|don.?t ask|do not ask|never ask|ask again|for this session|this session|\ball\b|all tools|all commands|all (?:projects|folders|files)|trust all|yolo|bypass|dangerous|auto-?approve|skip (?:all )?permission|remember|every ?time|everything|permanently|forever|global|parent (?:folder|directory)|home (?:folder|directory)|full access|unrestricted|for (?:this|the|all|every) (?:project|repo\w*|workspace|folder|directory|chat|conversation|session)|from now on|\bfuture\b|allow[- ]?list|white[- ]?list|persist|wildcard|without|anyway|\bignore\b|\bany\b|\bevery\b",
     )
     .expect("unsafe regex")
 });
@@ -509,6 +513,42 @@ pub fn off_limits(screen: &str) -> Option<String> {
     OFF_LIMITS.find(&tail).map(|m| m.as_str().to_string())
 }
 
+/// Why `safe_pick` found nothing. The menu was READ and no option is a plain yes. (The checked AI look may still name one
+/// the parser missed: `ai_menu::validate` holds it to the same rule.)
+pub const NO_PLAIN_YES: &str = "none of the options plainly means yes, trust this folder or allow once";
+
+/// What the answerer thinks of one option, in words: `plain yes`, `broad`, `no` or `other`.
+pub fn option_word(text: &str) -> &'static str {
+    if is_deny(text) {
+        "no"
+    } else {
+        match classify_option(text) {
+            OptionClass::SafeYes => "plain yes",
+            OptionClass::Risky => "broad",
+            OptionClass::Other => "other",
+        }
+    }
+}
+
+/// The menu as the parser read it, for the decision log: `rows: "Allow once" (plain yes, highlighted); "Deny" (no)`.
+pub fn describe_menu(menu: &Menu) -> String {
+    let kind = match menu.kind {
+        MenuKind::Arrow => "rows",
+        MenuKind::Numbered => "numbered rows",
+        MenuKind::Row => "one row of buttons",
+        MenuKind::YesNo => return "a yes/no question".to_string(),
+    };
+    let options: Vec<String> = menu
+        .options
+        .iter()
+        .map(|o| {
+            let number = o.number.map(|n| format!("{n}. ")).unwrap_or_default();
+            format!("\"{number}{}\" ({}{})", o.text, option_word(&o.text), if o.highlighted { ", highlighted" } else { "" })
+        })
+        .collect();
+    format!("{kind}: {}", options.join("; "))
+}
+
 /// The one option to choose, or why there is none. Exactly one plain "yes" or nothing.
 pub fn safe_pick(menu: &Menu) -> Result<usize, String> {
     if menu.kind == MenuKind::YesNo {
@@ -517,7 +557,7 @@ pub fn safe_pick(menu: &Menu) -> Result<usize, String> {
     let safe: Vec<usize> = menu.options.iter().enumerate().filter(|(_, o)| classify_option(&o.text) == OptionClass::SafeYes).map(|(i, _)| i).collect();
     match safe.as_slice() {
         [one] => Ok(*one),
-        [] => Err("none of the options plainly means yes, trust this folder or allow once".into()),
+        [] => Err(NO_PLAIN_YES.into()),
         _ => Err("more than one option could be the safe one".into()),
     }
 }

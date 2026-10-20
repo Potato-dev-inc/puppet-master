@@ -298,9 +298,24 @@ impl Test<'_> {
             }),
             "checks": self.checks,
             "menu_choice": self.session.visible.test_menu_result.lock().clone(),
+            "menu_read": self.menu_read_json(),
             "screen": shown,
             "answered": self.answered_json(),
         });
+    }
+
+    /// How the answerer read the question on the pane (masked), and keep what it decided for the debug file.
+    fn menu_read_json(&self) -> Value {
+        let Some(cell) = self.auto.as_ref() else { return Value::Null };
+        let answerer = cell.lock();
+        let mut kept = self.session.visible.test_decisions.lock();
+        for entry in answerer.decisions() {
+            let entry = json!({"place": entry["place"], "flavour": entry["flavour"], "menu": self.masked(entry["menu"].as_str().unwrap_or("")), "decision": self.masked(entry["decision"].as_str().unwrap_or(""))});
+            if !kept.contains(&entry) {
+                kept.push(entry);
+            }
+        }
+        answerer.menu_read().map_or(Value::Null, |m| json!(self.masked(m)))
     }
 
     fn answered_json(&self) -> Vec<Value> {
@@ -388,7 +403,7 @@ impl Test<'_> {
                 Some(Ok(()))
             }
             AnswerStep::Declined(reason) => {
-                *self.unreadable.lock() = super::answer::is_unreadable(&reason).then(|| self.emphasised(look));
+                *self.unreadable.lock() = super::answer::can_look(&reason).then(|| self.emphasised(look));
                 Some(Err(reason))
             }
         }
@@ -433,7 +448,23 @@ impl Test<'_> {
         if self.collecting.load(Ordering::SeqCst) {
             self.baseline.lock().add_screen(&look.screen);
         }
+        self.keep_look(&look);
         Some(look)
+    }
+
+    /// Keep the last looks for the debug file: a new picture only (the same screen again is not a new look).
+    fn keep_look(&self, look: &Look) {
+        let text = self.masked(&look.screen);
+        let mut ring = self.session.visible.test_looks.lock();
+        if ring.back().is_some_and(|last| last["screen"].as_str() == Some(text.as_str())) {
+            return;
+        }
+        let highlight: Vec<String> = self.emphasised(look).iter().map(|r| self.masked(r)).collect();
+        let menu = super::menu::parse_menu_ex(&look.screen, look.styled.as_ref()).map(|m| self.masked(&super::menu::describe_menu(&m)));
+        if ring.len() >= super::capture::DEBUG_FRAMES {
+            ring.pop_front();
+        }
+        ring.push_back(json!({"ms": self.ms(), "screen": text, "highlight": highlight, "menu": menu}));
     }
 
     /// The task is about to be typed: what the pane showed so far is the baseline. (A look right before the
@@ -1117,6 +1148,8 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
 
     // Read before the struct below is built: its fields hold the captures lock until the statement ends.
     let capture_model = model_in_captures(session, draft);
+    session.visible.test_looks.lock().clear();
+    session.visible.test_decisions.lock().clear();
     let work_captured = session.visible.captures.lock().as_ref().is_some_and(|set| set.has("tui_work_reply"));
     let mut test = Test {
         host: &*host,

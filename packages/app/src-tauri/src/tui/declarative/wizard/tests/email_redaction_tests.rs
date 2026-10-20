@@ -92,6 +92,7 @@ fn account_session(tree: &Tree) -> (Arc<Wizard>, Arc<FakeHost>, String) {
                 keys: "Enter".into(),
                 screen: format!("Trust this folder?\n{ACCOUNT}\n"),
                 via: "rules".into(),
+                read: String::new(),
             });
         })
         .unwrap();

@@ -484,6 +484,7 @@ impl CaptureSet {
                             keys: q["keys"].as_str().unwrap_or("").to_string(),
                             screen: q["screen"].as_str().unwrap_or("").to_string(),
                             via: q["via"].as_str().unwrap_or("rules").to_string(),
+                            read: q["menu"].as_str().unwrap_or("").to_string(),
                         })
                         .collect()
                 })
@@ -550,6 +551,10 @@ pub struct DebugFrame {
     pub needs: Option<String>,
     /// Cleaned (real words still in it).
     pub text: String,
+    /// Rows drawn highlighted (a filled band, inverse video, bold) on this screen, cleaned.
+    pub highlight: Vec<String>,
+    /// The menu the answerer's parser read on this screen (`describe_menu`), when it read one.
+    pub menu: Option<String>,
 }
 
 pub struct Capture {
@@ -756,6 +761,11 @@ impl Capture {
         &self.answered
     }
 
+    /// What the answerer read and decided for each question (`Answerer::decisions`).
+    pub fn decisions(&self) -> Vec<Value> {
+        self.answerer.as_ref().map(|a| a.decisions().to_vec()).unwrap_or_default()
+    }
+
     pub fn auto_answer_on(&self) -> bool {
         self.answerer.is_some()
     }
@@ -792,6 +802,12 @@ impl Capture {
             quiet_ms: self.stab.quiet_for(now),
             needs: self.needs.as_ref().map(|n| n.kind.clone()),
             text: clean(&self.screen),
+            highlight: self.emphasised_rows().iter().map(|r| clean(r)).collect(),
+            menu: if self.kind.is_dialog() || self.needs.is_some() {
+                super::menu::parse_menu_ex(&self.screen, self.styled.as_ref()).map(|m| super::menu::describe_menu(&m))
+            } else {
+                None
+            },
         }
     }
 
@@ -1141,7 +1157,7 @@ impl Capture {
                 Auto::Handled
             }
             AnswerStep::Declined(reason) => {
-                self.menu_unreadable = super::answer::is_unreadable(&reason);
+                self.menu_unreadable = super::answer::can_look(&reason);
                 Auto::Declined(reason)
             }
         }
@@ -1963,7 +1979,7 @@ impl Capture {
             "steps": steps,
             "screen_kind": self.kind.as_str(),
             "auto_answer": self.answerer.is_some(),
-            "answered": self.answered.iter().map(|a| json!({"place": a.place, "flavour": a.flavour, "label": a.label, "keys": a.keys, "via": a.via})).collect::<Vec<_>>(),
+            "answered": self.answered.iter().map(|a| json!({"place": a.place, "flavour": a.flavour, "label": a.label, "keys": a.keys, "via": a.via, "menu": a.read})).collect::<Vec<_>>(),
             "frozen": self.frozen,
             "halted": self.halted,
             "fingerprint": self.stab.fingerprint(),
@@ -1972,6 +1988,7 @@ impl Capture {
             "settled": self.settled(),
             "needs_you": self.needs.as_ref().map(|n| json!({"step": n.step.as_str(), "kind": n.kind, "message": n.message, "unreadable": self.menu_unreadable && matches!(n.kind.as_str(), "trust" | "permission")})),
             "question_fp": self.answerer.as_ref().and_then(|a| a.question_fp()).map(str::to_string),
+            "menu_read": self.answerer.as_ref().and_then(|a| a.menu_read()).map(str::to_string),
             "can": can,
         })
     }

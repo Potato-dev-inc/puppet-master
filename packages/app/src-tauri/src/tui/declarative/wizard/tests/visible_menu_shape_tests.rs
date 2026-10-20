@@ -169,13 +169,14 @@ fn radio_rows_are_read_as_a_menu_with_the_chosen_row_highlighted() {
 }
 
 #[test]
-fn the_only_yes_being_always_allow_is_never_pressed_and_is_not_offered_to_an_ai_look() {
+fn the_only_yes_being_always_allow_is_never_pressed_and_an_ai_look_that_names_it_is_refused() {
     let (text, styled) = screen(&format!("Allow nimbus to run `ls`?\n\n  {INV} Always allow in this project {OFF}\n   Deny\n"));
     let mut a = Answerer::new("capture", AnswerCfg::default());
     match drive(&mut a, &(text.clone(), styled), 1000) {
         Step::Declined(why) => {
             assert!(why.contains("none of the options plainly means yes"), "{why}");
-            assert!(!is_unreadable(&why), "a menu that was read and has no plain yes is nobody's to help with");
+            assert!(!is_unreadable(&why), "the menu was read: it is not unreadable");
+            assert!(crate::tui::declarative::wizard::visible::answer::can_look(&why), "the checked AI look may still be asked (SPEC 11.22)");
         }
         other => panic!("{other:?}"),
     }

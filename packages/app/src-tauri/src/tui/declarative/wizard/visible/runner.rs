@@ -288,6 +288,8 @@ impl CaptureRun {
                     "quiet_ms": f.quiet_ms,
                     "needs_you": f.needs,
                     "screen": mask_words(&f.text, &self.words),
+                    "highlight": f.highlight.iter().map(|r| mask_words(r, &self.words)).collect::<Vec<_>>(),
+                    "menu": f.menu.as_ref().map(|m| mask_words(&exec::clean(m), &self.words)),
                 });
                 if with_raw {
                     v["raw"] = json!(f.text);
@@ -295,7 +297,7 @@ impl CaptureRun {
                 v
             })
             .collect();
-        json!({"at_ms": now, "frames": frames, "status": g.engine.status_json(now), "deliveries": g.engine.deliveries()})
+        json!({"at_ms": now, "frames": frames, "status": g.engine.status_json(now), "deliveries": g.engine.deliveries(), "decisions": g.engine.decisions()})
     }
 
     pub fn is_finished(&self) -> bool {
@@ -320,6 +322,17 @@ impl CaptureRun {
         status["pane"] = json!(g.pane);
         status["grid"] = json!({"cols": grid.0, "rows": grid.1});
         status["screen"] = json!(self.preview(&g.look));
+        // how the answerer read the menu (option labels are screen text: masked like the screen)
+        if let Some(read) = status["menu_read"].as_str().map(|r| mask_words(&exec::clean(r), &self.words)) {
+            status["menu_read"] = json!(read);
+        }
+        if let Some(list) = status["answered"].as_array_mut() {
+            for item in list {
+                if let Some(menu) = item["menu"].as_str().map(|r| mask_words(&exec::clean(r), &self.words)) {
+                    item["menu"] = json!(menu);
+                }
+            }
+        }
         if status["needs_you"]["unreadable"] == true {
             // what the AI look needs to name the option: the rows drawn highlighted (masked like the screen)
             let emphasis: Vec<String> = g.engine.emphasised_rows().iter().map(|r| mask_words(&exec::clean(r), &self.words)).collect();

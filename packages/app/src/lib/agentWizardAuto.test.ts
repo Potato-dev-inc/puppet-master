@@ -430,6 +430,13 @@ describe('the menu look', () => {
     expect(prompt).toContain('- Allow once');
     expect(prompt).toContain('<<<SCREEN\nAllow it?\n  Allow once\n  Deny\nSCREEN>>>');
     expect(buildMenuPrompt('nimbus', 'x')).not.toContain('Rows drawn highlighted');
+    expect(buildMenuPrompt('nimbus', 'x')).not.toContain('own reading');
+    // what the parser read goes with the screen: it may have missed or merged the row that is the plain yes
+    const read = 'rows: "Always run" (broad, highlighted); "No" (no)';
+    const withRead = buildMenuPrompt('nimbus', 'Run it?\n  Yes, run command\n  Always run\n  No', [], read);
+    expect(withRead).toContain(`The program's own reading of the menu (it may have missed or merged a row): ${read}`);
+    expect(withRead).toContain('which option is the plain yes');
+    expect(withRead.length).toBeLessThan(2800);
     expect(prompt.length).toBeLessThan(2400);
   });
 
@@ -559,7 +566,7 @@ describe('driveCapture', () => {
     expect(menuPrompts[0]).toContain('Rows drawn highlighted');
     expect(menuChoice).toHaveBeenCalledWith('wz_1', 'Allow once', ['Enter'], 'q1');
     expect(looks.used).toBe(2);
-    expect(log).toContain('The AI look named "Allow once" for the permission question; Rust checked it against the screen');
+    expect(log).toContain(`Nimbus's permission question: menu not read; nothing to pick from; the AI look named "Allow once"; Rust checked it against the screen`);
   });
 
   it('a menu the answerer READ and refused (only "always") never goes to the menu look', async () => {
@@ -603,6 +610,47 @@ describe('driveCapture', () => {
     const log: string[] = [];
     await driveCapture({ api: w.api, start, looks: new AiLooks(async () => 'ready_for_input', () => undefined), log: (t) => log.push(t), clock: fakeClock(), timings: TIMINGS, signal: new AbortController().signal });
     expect(log).toContain("Answered Nimbus's permission question: Allow once (AI look, verified)");
+  });
+
+  const READ = 'rows: "Always run in this project" (broad, highlighted); "No" (no)';
+
+  it('a menu that was READ but has no plain yes also goes to the menu look, with what the parser read, and the log says how it was decided', async () => {
+    const w = world();
+    unreadable(w, {
+      menu_read: READ,
+      needs_you: { step: 'work', kind: 'permission', message: 'The agent is asking for permission. The wizard did not answer it for you: none of the options plainly means yes, trust this folder or allow once.', unreadable: true },
+    });
+    const menuChoice = vi.fn(async () => ({ accepted: true, label: 'Yes, run command', status: { ...(await w.api.captureStatus('wz_1')) } }));
+    w.api.menuChoice = menuChoice as unknown as WizardApi['menuChoice'];
+    const ask = vi.fn(async (prompt: string) => (prompt.includes('"option"') ? '{"option": "Yes, run command", "keys": ["Up", "Enter"]}' : 'ready_for_input'));
+    const log: string[] = [];
+    const out = await driveCapture({ api: w.api, start, looks: new AiLooks(ask, (t) => log.push(t)), log: (t) => log.push(t), clock: fakeClock(), timings: TIMINGS, signal: new AbortController().signal });
+    expect(out.status).toBe('done');
+    const menuPrompt = ask.mock.calls.map((c) => String(c[0])).find((p) => p.includes('"option"')) ?? '';
+    expect(menuPrompt).toContain(`The program's own reading of the menu (it may have missed or merged a row): ${READ}`);
+    expect(menuChoice).toHaveBeenCalledWith('wz_1', 'Yes, run command', ['Up', 'Enter'], 'q1');
+    expect(log).toContain(`Nimbus's permission question: menu read: ${READ}; no plain yes; the AI look named "Yes, run command"; Rust checked it against the screen`);
+  });
+
+  it('says which options the wizard read when the look is refused and the run stops', async () => {
+    const w = world();
+    unreadable(w, { menu_read: READ });
+    w.api.menuChoice = vi.fn(async () => ({ accepted: false, why: '"Always run in this project" is not a plain yes or allow-once option, so the wizard never picks it' })) as unknown as WizardApi['menuChoice'];
+    const log: string[] = [];
+    const out = await driveCapture({ api: w.api, start, looks: new AiLooks(async () => '{"option": "Always run in this project", "keys": ["Enter"]}', (t) => log.push(t)), log: (t) => log.push(t), clock: fakeClock(), timings: TIMINGS, signal: new AbortController().signal });
+    expect(out.status).toBe('stopped');
+    expect(out.status === 'stopped' && out.text).toContain(`The wizard read these options: ${READ}.`);
+    expect(log.some((l) => l.startsWith("Rust refused the AI look's answer (menu read: rows:"))).toBe(true);
+  });
+
+  it('logs the options the rules read when they answered a question themselves', async () => {
+    const w = world();
+    const base = w.api.captureStart;
+    const menu = 'numbered rows: "1. Run command" (plain yes, highlighted); "2. Always run" (broad); "3. Cancel" (no)';
+    w.api.captureStart = vi.fn(async () => ({ ...(await base('wz_1', [], 'cap-A')), answered: [{ place: 'capture', flavour: 'permission', label: 'Run command', keys: '1, Enter', via: 'rules', menu }] }));
+    const log: string[] = [];
+    await driveCapture({ api: w.api, start, looks: new AiLooks(async () => 'ready_for_input', () => undefined), log: (t) => log.push(t), clock: fakeClock(), timings: TIMINGS, signal: new AbortController().signal });
+    expect(log).toContain(`Answered Nimbus's permission question: Run command (menu read: ${menu})`);
   });
 
   it('uses at most the allowed AI looks and keeps going by waiting and skipping', async () => {
@@ -689,7 +737,7 @@ describe('watchVisibleTest', () => {
     expect(ask).toHaveBeenCalledTimes(1);
     expect(testMenuChoice).toHaveBeenCalledTimes(1);
     expect(testMenuChoice).toHaveBeenCalledWith('wz_1', 'Allow once', ['Enter']);
-    expect(log).toContain('The AI look named "Allow once"; Rust checked it against the screen');
+    expect(log).toContain(`Nimbus's trust question in the test pane: menu not read; nothing to pick from; the AI look named "Allow once"; Rust checked it against the screen`);
     expect(w.testActs).toEqual([]);
   });
 
@@ -705,7 +753,7 @@ describe('watchVisibleTest', () => {
     w.api.testMenuChoice = vi.fn(async () => ({ accepted: null })) as unknown as WizardApi['testMenuChoice'];
     await settle({ t: 0 });
     watcher.stop();
-    expect(log.some((l) => l === "Rust refused the AI look's answer: never picks")).toBe(true);
+    expect(log.some((l) => l === "Rust refused the AI look's answer (menu read: none): never picks")).toBe(true);
   });
 
   it('logs a question Rust answered in the test pane, once', async () => {
@@ -825,6 +873,50 @@ describe('runAutonomous', () => {
     const out = await run(w, []).done;
     expect(out.status).toBe('stopped');
     expect(w.api.captureDiscard).toHaveBeenCalledWith('wz_1');
+  });
+
+  const stopsAtAQuestion = (w: World) => {
+    const base = w.api.captureStart;
+    w.api.captureStart = vi.fn(async () => ({
+      ...(await base('wz_1', [], 'cap-A')),
+      needs_you: { step: 'start' as const, kind: 'trust', message: 'The wizard did not answer it for you.' },
+    }));
+  };
+
+  it('every stop leaves a debug file and says where it is', async () => {
+    const w = world();
+    stopsAtAQuestion(w);
+    const captureDump = vi.fn(async () => ({ path: 'C:\\Temp\\pm-wizard-wz_1\\wizard-debug.json' }));
+    w.api.captureDump = captureDump;
+    const out = await run(w, []).done;
+    expect(out.status).toBe('stopped');
+    expect(out.status === 'stopped' && out.text).toContain('Details saved to C:\\Temp\\pm-wizard-wz_1\\wizard-debug.json');
+    expect(captureDump).toHaveBeenCalledTimes(1);
+    expect(captureDump.mock.calls[0][0]).toBe('wz_1');
+    expect(String(captureDump.mock.calls[0][1])).toContain('only you may answer');
+  });
+
+  it('a sign-in stop carries the path too, and a debug file that cannot be written changes nothing', async () => {
+    const w = world({}, (v) => (v === 'sign_in_or_payment' ? { decision: 'stop', stop: { code: 'WIZARD_SIGN_IN_NEEDED', message: 'Sign in to nimbus (or finish its setup), then press Retry.' } } : {}));
+    w.api.captureDump = vi.fn(async () => ({ path: 'C:\\Temp\\wizard-debug.json' }));
+    const out = await run(w, ['sign_in_or_payment']).done;
+    expect(out).toEqual({ status: 'sign_in', message: 'Sign in to nimbus (or finish its setup), then press Retry.\n\nDetails saved to C:\\Temp\\wizard-debug.json' });
+    const w2 = world();
+    stopsAtAQuestion(w2);
+    w2.api.captureDump = vi.fn(async () => {
+      throw new Error('disk full');
+    });
+    const out2 = await run(w2, []).done;
+    expect(out2.status).toBe('stopped');
+    expect(out2.status === 'stopped' && out2.text).not.toContain('Details saved');
+  });
+
+  it('a run that finishes leaves no debug file', async () => {
+    const w = world();
+    w.api.captureDump = vi.fn(async () => ({ path: 'x' }));
+    const out = await run(w, ['ready_for_input']).done;
+    expect(out.status).toBe('finished');
+    expect(w.api.captureDump).not.toHaveBeenCalled();
   });
 
   it('keeps the pane open for a sign-in stop so the person can open it', async () => {

@@ -10,6 +10,7 @@ pub mod ai_menu;
 pub mod answer;
 pub mod api;
 pub mod capture;
+pub mod dump;
 pub mod fixtures;
 pub mod host;
 pub mod livetest;
