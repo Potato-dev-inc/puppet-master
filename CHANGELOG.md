@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Windows: no more console windows flashing on screen while an agent runs. Starting the Cursor agent
+  (whose launcher is PowerShell) or stopping a run used to open and close a PowerShell/`taskkill`
+  window each time. Every helper process now starts hidden through one place (`proc_util`), a test
+  fails if new code starts one any other way, and checking whether an MCP connection is still alive
+  no longer starts `tasklist` at all.
 - The "+" menu starts an agent in the folder you selected. **Separate copy** now starts off (it used to start
   on for a Git project); turn it on per agent, and your own choice for a project is still remembered.
   "+" starts in the last folder you used, Recent projects never list a separate copy, and the pane header
