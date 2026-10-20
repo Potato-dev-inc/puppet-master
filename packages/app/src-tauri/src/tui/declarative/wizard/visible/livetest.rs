@@ -736,6 +736,9 @@ impl Test<'_> {
         watch.set_delivery_verified(self.profile.verifies_prompt_delivery());
         let until = Instant::now() + self.limits.done;
         let mut last = Look::default();
+        let mut stab = Stability::new();
+        // the wizard's own answerer, on a question the "work" task raises (SPEC 11.22): when it asked since this moment
+        let mut asked_since: Option<Instant> = None;
         loop {
             if self.cancel.load(Ordering::SeqCst) {
                 return Err(fail("The test was cancelled.", ""));
@@ -744,11 +747,51 @@ impl Test<'_> {
             if !look.alive {
                 return Err(self.gone("waiting for the reply", Some(look)));
             }
+            stab.observe(&look.screen, self.ms());
+            if label == "work" {
+                if let Some(cell) = self.auto.as_ref().filter(|_| !classify(&look.screen).is_dialog()) {
+                    // the question is gone: if the wizard pressed keys for it, it was answered
+                    if let AnswerStep::Answered(done) = cell.lock().step(&AnswerInput { screen: &look.screen, styled: None, flavour: None, stable_ms: 0, now: self.ms(), hint: None }) {
+                        self.answered.lock().push(done);
+                    }
+                    *self.unreadable.lock() = None;
+                    asked_since = None;
+                }
+            }
             self.publish(Some(label), None, &look.screen);
             let has_prompt = self.host.card(&self.pane).is_some() || look.status == "waiting_input";
             match observe_tui_turn(&mut watch, &look.status, &look.watch, has_prompt, &self.agent_type) {
                 TuiTurnDecision::Complete { result, .. } => return Ok((result, look)),
                 TuiTurnDecision::WaitingInput if look.status != "waiting_input" && !has_prompt => {}
+                TuiTurnDecision::WaitingInput if label == "work" && self.auto.is_some() && matches!(classify(&look.screen), ScreenKind::Dialog(Flavour::Trust | Flavour::Permission)) => {
+                    // The "thinking and a tool" task may make the agent ask permission to run a command, as it did in the capture.
+                    // Same pane rules as everywhere: the wizard's own pane and folder, the safe answerer, the checked AI look.
+                    let kind = classify(&look.screen);
+                    let since = *asked_since.get_or_insert_with(Instant::now);
+                    match self.auto_step(&look, kind, stab.stable_for(self.ms())) {
+                        Some(Ok(())) => self.publish(Some(label), None, &look.screen),
+                        Some(Err(reason)) => {
+                            let message = format!(
+                                "{} is asking a question in the test pane. Answer it there (it is the wizard's isolated temp folder, not your project). The wizard did not answer it for you: {reason}.",
+                                self.agent_name
+                            );
+                            self.publish(Some(label), Some(("permission", &message)), &look.screen);
+                            if let Some((_, why)) = self.take_ctl() {
+                                return Err(fail(
+                                    match why {
+                                        Some(why) => format!("The wizard stopped the test: {why}"),
+                                        None => "You stopped the test while the agent was asking a question.".to_string(),
+                                    },
+                                    &look.screen,
+                                ));
+                            }
+                            if since.elapsed() > self.limits.person {
+                                return Err(fail("The agent kept asking a question and nobody answered it.", &look.screen));
+                            }
+                        }
+                        None => return Err(fail("The agent asked a question while it was answering a plain message. Check `[[tui.prompt]] detect_regex`: it may match text that is not a question.", &look.watch)),
+                    }
+                }
                 TuiTurnDecision::WaitingInput => {
                     return Err(fail("The agent asked a question while it was answering a plain message. Check `[[tui.prompt]] detect_regex`: it may match text that is not a question.", &look.watch));
                 }
