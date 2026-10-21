@@ -203,6 +203,8 @@ pub fn observe_tui_turn(
             AWAITING_REPLY_TICKS
         };
         return if watch.reconcile_ticks >= patience {
+            // The screen would not say whether the turn ended: one hint that it may have changed.
+            crate::canary::note_signal(agent_type, crate::canary::Signal::AmbiguousIdle);
             TuiTurnDecision::AmbiguousIdle
         } else {
             TuiTurnDecision::Continue

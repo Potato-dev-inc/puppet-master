@@ -60,11 +60,16 @@
   color: var(--label-2);
 }
 .settings .st-ver-plain,
+.settings .st-ver-change,
 .settings .st-ver-last {
   margin: 4px 0 0;
   font-size: 12.5px;
   line-height: 1.5;
   color: var(--label-2);
+}
+/* The newest update and how it got on: a little stronger than the lines around it when it needs a look. */
+.settings .st-ver-change[data-verdict='changed'] {
+  color: var(--label-1);
 }
 .settings .st-ver-actions {
   flex: 0 0 auto;

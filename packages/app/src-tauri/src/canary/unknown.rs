@@ -153,6 +153,7 @@ pub fn tick(alive: &dyn Fn(&str) -> bool) {
     let due = TRACKER.lock().due(Instant::now(), alive);
     for item in due {
         super::save_unrecognised(&item.agent, &item.screen, item.unreadable_for);
+        super::note_signal(&item.agent, super::Signal::UnreadableScreen);
     }
 }
 

@@ -37,6 +37,12 @@ impl Outcome {
     pub fn changed_screens(self) -> bool {
         matches!(self, Outcome::Unrecognised)
     }
+
+    /// Not proof of a change alone, but the same failure twice in a row on one version is.
+    /// `StartFailed` and `Inconclusive` say nothing about the screens, so they never count.
+    pub fn counts_when_repeated(self) -> bool {
+        matches!(self, Outcome::NeverDrew | Outcome::Exited)
+    }
 }
 
 /// One screen the check saw, already redacted.
@@ -69,6 +75,17 @@ pub struct CanaryResult {
     pub screens: Vec<Shot>,
 }
 
+/// What an Inbox card says about a CLI update.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeKind {
+    /// The screens changed; Puppet Master asks before acting. (Every card from before this field.)
+    #[default]
+    Changed,
+    /// The update was checked on this computer and everything read fine.
+    Good,
+}
+
 /// An info card for the Inbox.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Notice {
@@ -78,8 +95,41 @@ pub struct Notice {
     pub at_ms: i64,
     #[serde(default)]
     pub dismissed: bool,
+    #[serde(default)]
+    pub kind: NoticeKind,
 }
 
+/// Something seen while the app ran that hints a CLI's screens changed (`canary::note_signal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signal {
+    /// A live pane stayed on a screen its profile cannot read.
+    UnreadableScreen,
+    /// A run could not type its task: the input box never showed.
+    NotReady,
+    /// A turn went quiet and the screen did not say whether it finished.
+    AmbiguousIdle,
+}
+
+impl Signal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Signal::UnreadableScreen => "unreadable_screen",
+            Signal::NotReady => "not_ready",
+            Signal::AmbiguousIdle => "ambiguous_idle",
+        }
+    }
+}
+
+/// Checks that failed the same way, one after another, on one version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Failing {
+    pub version: String,
+    pub outcome: Outcome,
+    pub count: u32,
+}
+
+/// Every field after `notice` is newer than the first `canary.json`; each has a default, so an old
+/// file still loads.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentRecord {
     /// The version the last probe read (the first line of `--version`, trimmed).
@@ -87,6 +137,27 @@ pub struct AgentRecord {
     pub probed_ms: i64,
     pub last_result: Option<CanaryResult>,
     pub notice: Option<Notice>,
+    /// The version before the last change (`2.3.0`), so the UI can say "2.3.0 to 2.4.0".
+    #[serde(default)]
+    pub previous_version: Option<String>,
+    /// When that change was seen.
+    #[serde(default)]
+    pub changed_ms: i64,
+    /// Versions a check passed on, on this computer (exact labels, `0.171.0`).
+    #[serde(default)]
+    pub verified: Vec<String>,
+    /// The version the screens were found changed on (one check, or two failures alike).
+    #[serde(default)]
+    pub screens_changed: Option<String>,
+    /// Failed checks of one kind in a row (`Outcome::counts_when_repeated`).
+    #[serde(default)]
+    pub failing: Option<Failing>,
+    /// The version a runtime signal already started a check for: one per agent and version.
+    #[serde(default)]
+    pub signal_checked: Option<String>,
+    /// Path, size and modified time of the program at the last probe.
+    #[serde(default)]
+    pub binary: Option<String>,
 }
 
 fn yes() -> bool {
@@ -147,6 +218,33 @@ pub struct AgentView {
     pub last: Option<ResultView>,
     /// Screens saved for this agent that Puppet Master did not recognise.
     pub captures: usize,
+    /// A check passed on exactly this version, on this computer.
+    pub verified: bool,
+    /// The last version change and what became of it; `None` before the first change.
+    pub change: Option<ChangeView>,
+}
+
+/// "Claude Code 2.3.0 -> 2.4.0: checked, all good."
+#[derive(Debug, Clone, Serialize)]
+pub struct ChangeView {
+    pub from: String,
+    pub to: String,
+    pub at_ms: i64,
+    pub verdict: Verdict,
+    /// One short sentence.
+    pub text: String,
+}
+
+/// How the newest version got on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Verdict {
+    /// A check passed on this version.
+    Good,
+    /// The screens changed; Puppet Master asks before acting.
+    Changed,
+    /// No check has judged it (not run yet, switched off, or not possible for this agent).
+    Unchecked,
 }
 
 #[derive(Debug, Clone, Serialize)]

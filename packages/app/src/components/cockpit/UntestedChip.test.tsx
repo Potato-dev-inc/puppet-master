@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_CANARY, type CanaryApi, type CanaryStatus } from '../../lib/canary';
-import { CHANGED_SCREENS_STATUS, CLAUDE_UNTESTED_STATUS, VERSIONS_STATUS } from '../../dev/canary-fixtures';
+import { CHANGED_SCREENS_STATUS, CLAUDE_UNTESTED_STATUS, UPDATED_GOOD_STATUS, VERSIONS_STATUS } from '../../dev/canary-fixtures';
 import { UntestedChip } from './UntestedChip';
 import { CanaryNotices } from './CanaryNotices';
 import { AgentVersions } from '../settings/blocks/AgentVersions';
@@ -65,7 +65,7 @@ describe('CanaryNotices', () => {
     await act(async () => root.render(<CanaryNotices api={api} />));
     await flush();
     expect(host.querySelector('[data-testid="canary-notice"]')?.textContent).toContain(
-      'Codex 0.162.1 changed its screens. Puppet Master will ask you before acting.',
+      'Codex 0.159.3 \u2192 0.162.1: screens changed. Puppet Master will ask you before acting.',
     );
     const button = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Dismiss')!;
     await act(async () => button.click());
@@ -91,6 +91,25 @@ describe('AgentVersions (Settings > Agents)', () => {
     expect(host.querySelector('[data-testid="agent-version-chip-claude"]')).toBeNull();
     expect(host.textContent).toContain('Checked 12 minutes ago');
     expect(host.textContent).toContain('2 screens saved on this computer');
+  });
+
+  it('says how the last update got on: checked and fine (no chip), or screens changed', async () => {
+    const at = UPDATED_GOOD_STATUS.agents[0].change!.at_ms;
+    await act(async () => root.render(<AgentVersions api={fakeApi(UPDATED_GOOD_STATUS)} now={() => at + 2 * 3_600_000} />));
+    await flush();
+    expect(host.querySelector('[data-testid="agent-version-change-claude"]')?.textContent).toBe(
+      'Claude Code 2.3.0 \u2192 2.4.0: checked, all good. Updated 2 hours ago.',
+    );
+    expect(host.querySelector('[data-testid="agent-version-chip-claude"]')).toBeNull();
+    expect(host.querySelector('[data-testid="agent-version-claude"]')?.textContent).toContain('was checked on this computer');
+
+    await act(async () => root.render(<AgentVersions api={fakeApi(CHANGED_SCREENS_STATUS)} now={() => at} />));
+    await flush();
+    const row = host.querySelector('[data-testid="agent-version-change-codex"]')!;
+    expect(row.getAttribute('data-verdict')).toBe('changed');
+    expect(row.textContent).toContain('Codex 0.159.3 \u2192 0.162.1: screens changed. Puppet Master will ask you before acting.');
+    // An agent with no update to report shows no such line.
+    expect(host.querySelector('[data-testid="agent-version-change-claude"]')).toBeNull();
   });
 
   it('"Check this agent" runs the check for that agent and shows it is busy meanwhile', async () => {

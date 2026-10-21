@@ -692,7 +692,9 @@ pub fn screen_tail(screen: &str, rows: usize) -> String {
 pub const SCREEN_NOT_READY: &str = "SCREEN_NOT_READY";
 
 /// The run error for a screen that never became ready (after the park ran out).
-pub fn not_ready_error(why: &str, screen: &str, pane_id: &str) -> crate::operations::OperationError {
+pub fn not_ready_error(agent: &str, why: &str, screen: &str, pane_id: &str) -> crate::operations::OperationError {
+    // A screen that never became the input box is a hint that the CLI changed (a rate-limited check).
+    crate::canary::note_signal(agent, crate::canary::Signal::NotReady);
     let mut error = crate::operations::OperationError::new(
         SCREEN_NOT_READY,
         format!(

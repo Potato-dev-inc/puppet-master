@@ -51,6 +51,19 @@ fn sources() -> Vec<Source> {
         .collect()
 }
 
+fn source_of(agent: &str) -> Option<Source> {
+    let probe = crate::agent_health::probe_for(agent)?;
+    let tested = crate::tui::profile_for(&probe.id).tested_versions().map(|r| r.as_str().to_string());
+    Some(Source {
+        facts: Facts { id: probe.id, label: probe.label, installed: probe.installed, tested },
+        version_command: probe.version_command,
+    })
+}
+
+fn fingerprint(source: &Source) -> Option<String> {
+    super::binary::fingerprint(&source.version_command.as_ref()?.program)
+}
+
 fn read_version(source: &Source) -> Option<String> {
     let command = source.version_command.as_ref()?;
     match crate::agent_health::run_version(command, crate::agent_health::VERSION_TIMEOUT) {
@@ -130,6 +143,8 @@ fn deps() -> Deps {
         run_check: Box::new(run_live),
         captures: Box::new(|agent| super::captures::count(&super::captures::root(), agent)),
         now_ms: Box::new(crate::event_log::now_ms),
+        fingerprint: Box::new(fingerprint),
+        source_of: Box::new(source_of),
     }
 }
 
@@ -155,6 +170,52 @@ pub fn init(app: AppHandle) {
             engine.run_due();
             std::thread::sleep(REPROBE_EVERY);
         }
+    });
+}
+
+/// A hint from a live pane or run that `agent`'s screens may have changed. Starts at most one check
+/// per agent and version, rate limited, only when the auto-check switch is on (`Engine::note_signal`).
+/// Never blocks the caller: the check runs on its own thread.
+pub fn note_signal(agent: &str, signal: Signal) {
+    let Some(engine) = engine() else { return };
+    if !signal_due(agent, std::time::Instant::now()) || !engine.note_signal(agent, signal) {
+        return;
+    }
+    let engine = engine.clone();
+    let agent = agent.to_string();
+    let _ = std::thread::Builder::new().name("canary-signal".into()).spawn(move || {
+        let _ = engine.check(&agent);
+    });
+}
+
+/// Signals can arrive every second (a turn that stays ambiguous is looked at on each tick); looking up
+/// the agent costs a PATH scan, so an agent's signals are weighed at most this often.
+const SIGNAL_LOOK_EVERY: Duration = Duration::from_secs(30);
+
+pub(super) fn signal_due(agent: &str, now: std::time::Instant) -> bool {
+    static LAST: once_cell::sync::Lazy<parking_lot::Mutex<std::collections::HashMap<String, std::time::Instant>>> =
+        once_cell::sync::Lazy::new(Default::default);
+    let mut last = LAST.lock();
+    let key = agent.to_ascii_lowercase();
+    if last.get(&key).is_some_and(|at| now.saturating_duration_since(*at) < SIGNAL_LOOK_EVERY) {
+        return false;
+    }
+    last.insert(key, now);
+    true
+}
+
+/// The spawn gate: called before a run. When the program's path, size or modified time differs from
+/// the last probe, `--version` is re-read now and, if the version changed, its check starts in the
+/// background. A run does not wait for the check.
+pub fn before_run(agent: &str) {
+    let Some(engine) = engine() else { return };
+    if !engine.before_run(agent) {
+        return;
+    }
+    let engine = engine.clone();
+    let agent = agent.to_string();
+    let _ = std::thread::Builder::new().name("canary-update".into()).spawn(move || {
+        let _ = engine.check(&agent);
     });
 }
 

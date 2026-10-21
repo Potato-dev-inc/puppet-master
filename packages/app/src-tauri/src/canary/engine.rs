@@ -8,7 +8,7 @@ use super::model::*;
 use super::state;
 use crate::tui::VersionCommand;
 use parking_lot::Mutex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// One installed (or missing) CLI agent, as the engine needs it.
@@ -27,6 +27,10 @@ pub struct Deps {
     /// Unrecognised screens saved for an agent.
     pub captures: Box<dyn Fn(Option<&str>) -> usize + Send + Sync>,
     pub now_ms: Box<dyn Fn() -> i64 + Send + Sync>,
+    /// Path, size and modified time of the program an agent starts from (`binary::fingerprint`).
+    pub fingerprint: Box<dyn Fn(&Source) -> Option<String> + Send + Sync>,
+    /// One agent by id, without listing every agent (the pre-run path must stay cheap).
+    pub source_of: Box<dyn Fn(&str) -> Option<Source> + Send + Sync>,
 }
 
 type Listener = Box<dyn Fn(&Status, &[String]) + Send + Sync>;
@@ -39,6 +43,8 @@ pub struct Engine {
     /// Only one live check at a time: each launches a real CLI.
     one_at_a_time: Mutex<()>,
     listeners: Mutex<Vec<Listener>>,
+    /// When a runtime signal last started a check, per agent (rate limit; not persisted).
+    last_signal: Mutex<HashMap<String, i64>>,
 }
 
 impl Engine {
@@ -51,6 +57,7 @@ impl Engine {
             checking: Mutex::new(HashSet::new()),
             one_at_a_time: Mutex::new(()),
             listeners: Mutex::new(Vec::new()),
+            last_signal: Mutex::new(HashMap::new()),
         }
     }
 
@@ -118,29 +125,90 @@ impl Engine {
         }
     }
 
+    /// Read one agent's version and fingerprint into its record. Returns whether the change calls
+    /// for a check. Does not save or publish.
+    fn probe_one(&self, source: &Source) -> bool {
+        let version = (self.deps.read_version)(source);
+        let fingerprint = (self.deps.fingerprint)(source);
+        let now = (self.deps.now_ms)();
+        let mut data = self.data.lock();
+        let auto = data.auto_check;
+        let before = data.agents.get(&source.facts.id).cloned();
+        let wanted = state::should_check(auto, &source.facts, before.as_ref(), version.as_deref());
+        let record = data.agents.entry(source.facts.id.clone()).or_default();
+        state::note_version(record, version, now);
+        record.probed_ms = now;
+        if fingerprint.is_some() {
+            record.binary = fingerprint;
+        }
+        wanted
+    }
+
     /// Read every agent's version. Returns the agents whose change calls for a check.
     pub fn refresh(&self) -> Vec<String> {
         let sources = (self.deps.sources)();
         let mut wanted = Vec::new();
         for source in sources.iter().filter(|s| s.facts.installed) {
-            let version = (self.deps.read_version)(source);
-            let now = (self.deps.now_ms)();
-            let mut data = self.data.lock();
-            let auto = data.auto_check;
-            let before = data.agents.get(&source.facts.id).cloned();
-            if state::should_check(auto, &source.facts, before.as_ref(), version.as_deref()) {
+            if self.probe_one(source) {
                 wanted.push(source.facts.id.clone());
             }
-            let record = data.agents.entry(source.facts.id.clone()).or_default();
-            // An unreadable version keeps the last good one: the CLI may just have been slow.
-            if version.is_some() {
-                record.version = version;
-            }
-            record.probed_ms = now;
         }
         self.save();
         self.publish();
         wanted
+    }
+
+    /// The spawn gate: before a run starts, has the program changed since the last probe? Compares
+    /// path, size and modified time (nothing is hashed); only when they differ is `--version` read
+    /// right away, instead of waiting for the next probe. Returns true when the new version calls
+    /// for a check (the caller starts it without making the run wait).
+    pub fn before_run(&self, agent: &str) -> bool {
+        let Some(source) = (self.deps.source_of)(agent).filter(|s| s.facts.installed) else { return false };
+        let Some(now_print) = (self.deps.fingerprint)(&source) else { return false };
+        let known = self.data.lock().agents.get(&source.facts.id).and_then(|r| r.binary.clone());
+        match known {
+            Some(print) if print == now_print => false,
+            None => {
+                // Nothing to compare with yet (the first probe has not run). Remember it; the probe
+                // reads the version.
+                self.data.lock().agents.entry(source.facts.id.clone()).or_default().binary = Some(now_print);
+                false
+            }
+            Some(_) => {
+                let wanted = self.probe_one(&source);
+                self.save();
+                self.publish();
+                wanted
+            }
+        }
+    }
+
+    /// A hint from a live run or pane that this agent's screens may have changed. Decides whether it
+    /// starts a check (once per agent and version, rate limited, `auto_check` permitting) and
+    /// records that it did. Cheap; never starts the check itself.
+    pub fn note_signal(&self, agent: &str, signal: Signal) -> bool {
+        let Some(source) = (self.deps.source_of)(agent) else { return false };
+        let now = (self.deps.now_ms)();
+        let id = source.facts.id.clone();
+        if self.checking.lock().contains(&id) {
+            return false;
+        }
+        let accepted = {
+            let mut data = self.data.lock();
+            let mut last = self.last_signal.lock();
+            let ok = state::should_check_for_signal(data.auto_check, &source.facts, data.agents.get(&id), now, last.get(&id).copied());
+            if ok {
+                last.insert(id.clone(), now);
+                let record = data.agents.entry(id.clone()).or_default();
+                record.signal_checked = Some(state::key(record.version.as_deref()));
+            }
+            ok
+        };
+        if accepted {
+            tracing::info!(agent = %id, signal = signal.as_str(), "a screen signal starts a check");
+            self.save();
+        }
+        accepted
     }
 
     /// Check one agent now (the version trigger or "Check this agent"). Blocks while the CLI runs.
@@ -160,9 +228,15 @@ impl Engine {
         self.publish();
         let _turn = self.one_at_a_time.lock();
         let version = (self.deps.read_version)(&source);
-        if version.is_some() {
+        let fingerprint = (self.deps.fingerprint)(&source);
+        {
+            let now = (self.deps.now_ms)();
             let mut data = self.data.lock();
-            data.agents.entry(source.facts.id.clone()).or_default().version = version.clone();
+            let record = data.agents.entry(source.facts.id.clone()).or_default();
+            state::note_version(record, version.clone(), now);
+            if fingerprint.is_some() {
+                record.binary = fingerprint;
+            }
         }
         let version_for_run = version.or_else(|| self.data.lock().agents.get(&source.facts.id).and_then(|r| r.version.clone()));
         let result = (self.deps.run_check)(&source, version_for_run);

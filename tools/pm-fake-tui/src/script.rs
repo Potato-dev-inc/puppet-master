@@ -54,6 +54,14 @@ pub struct Script {
     /// Version shown in the banner (default: the version the fixtures were captured from).
     #[serde(default)]
     pub version: Option<String>,
+    /// What `--version` prints (one line). Default: `pm-fake-tui <version>`. The canary's end-to-end test
+    /// reads it the way the app reads a real CLI's version.
+    #[serde(default)]
+    pub version_output: Option<String>,
+    /// Codex layout only: the glyph that starts the composer row (default `\u{203a}`). A different one is a
+    /// CLI update that redrew its input box: the profile no longer finds the composer.
+    #[serde(default)]
+    pub composer_glyph: Option<String>,
     /// Model line of the Claude banner / the Codex footer.
     #[serde(default)]
     pub model: Option<String>,
@@ -483,6 +491,14 @@ mod tests {
         let script = Script::parse(r#"{"agent":"claude","turn":[{"steps":[{"do":"exit","code":3}]}]}"#, true).unwrap();
         assert!(matches!(script.turn[0].steps[0], Step::Exit { code: 3 }));
         assert_eq!(script.burst_ms(), 0);
+    }
+
+    #[test]
+    fn the_version_line_and_the_composer_glyph_are_script_knobs() {
+        let script = Script::parse("version_output = \"fake-codex 2.0.0\"\ncomposer_glyph = \"\u{bb}\"", false).unwrap();
+        assert_eq!(script.version_output.as_deref(), Some("fake-codex 2.0.0"));
+        assert_eq!(script.composer_glyph.as_deref(), Some("\u{bb}"));
+        assert_eq!(Script::default().version_output, None);
     }
 
     #[test]

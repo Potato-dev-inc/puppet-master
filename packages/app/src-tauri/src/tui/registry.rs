@@ -124,9 +124,13 @@ pub fn admit(
     agent_type: &str,
     project: &str,
 ) -> Result<Option<DefinitionRef>, crate::operations::OperationError> {
-    profile_for_arc(agent_type)
+    let reference = profile_for_arc(agent_type)
         .spawn_gate(project)
-        .map_err(|e| crate::operations::OperationError::new(e.code, e.message, false))
+        .map_err(|e| crate::operations::OperationError::new(e.code, e.message, false))?;
+    // Has the program changed since the last probe? Compares path, size and modified time only; a
+    // difference re-reads `--version` now and starts the update check in the background.
+    crate::canary::before_run(agent_type);
+    Ok(reference)
 }
 
 /// Why `agent_type` is not registered although a definition for it exists on disk: the specific

@@ -16,10 +16,21 @@
 //!    an Inbox card.
 //! 4. **Unknown screens** (`unknown`, `captures`). A live pane that stays on a screen its profile
 //!    cannot read has that screen saved, redacted, to a folder the person can open.
+//! 5. **Results, not only failures.** Each record keeps the previous version, when it changed and
+//!    the exact versions a check passed on here (`verified`). A pass clears the "Untested version"
+//!    chip for that exact version only; the next update starts unverified. The Inbox and Settings
+//!    say "Claude Code 2.3.0 -> 2.4.0: checked, all good." or "...: screens changed."
+//! 6. **Runtime signals** (`note_signal`). A screen the profile cannot read, a run that could not
+//!    type its task, a turn that went quiet without saying it finished: each may start one check per
+//!    agent and version, rate limited, only with the auto-check switch on. Two failed checks of one
+//!    kind in a row on one version mark the screens changed.
+//! 7. **The spawn gate** (`before_run`). Before a run, the program's path, size and modified time
+//!    are compared with the last probe; only a difference re-reads `--version` at once.
 //!
 //! Agent-agnostic: nothing here matches an agent id. What "ready" or "a gate" looks like is the
 //! profile's.
 
+pub mod binary;
 pub mod captures;
 pub mod engine;
 mod live;
@@ -35,9 +46,13 @@ mod tests;
 #[cfg(test)]
 mod live_tests;
 
-pub use live::{check, dismiss_notice, init, open_captures, set_auto_check, status};
+pub use live::{before_run, check, dismiss_notice, init, note_signal, open_captures, set_auto_check, status};
+#[cfg(feature = "dev-fake-tui")]
+pub(crate) use live::run_live;
 
 use std::time::Duration;
+
+pub use model::Signal;
 
 /// Save a screen that stayed unreadable on a live pane (called by the `unknown` ticker).
 pub(crate) fn save_unrecognised(agent: &str, screen: &str, unreadable_for: Duration) {

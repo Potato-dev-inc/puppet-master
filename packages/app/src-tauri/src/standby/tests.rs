@@ -899,6 +899,8 @@ fn a_faked_version_bump_turns_the_chip_on_and_the_standby_cold() {
             run_check: Box::new(|_, _| unreachable!("this test only reads versions")),
             captures: Box::new(|_| 0),
             now_ms: Box::new(|| 0),
+            fingerprint: Box::new(|_| None),
+            source_of: Box::new(|_| None),
         },
     );
     let wired = pool.clone();

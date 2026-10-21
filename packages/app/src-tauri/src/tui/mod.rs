@@ -64,6 +64,14 @@ pub fn descriptors() -> Vec<Descriptor> {
         .collect()
 }
 
+/// One registered agent as `descriptors` lists it, without building the others.
+pub fn descriptor_for(agent_type: &str) -> Option<Descriptor> {
+    let profile = registry::snapshot().iter().find(|p| p.id().eq_ignore_ascii_case(agent_type))?.clone();
+    let mut descriptor = Descriptor::of(profile.as_ref());
+    overlay_definition(&mut descriptor);
+    Some(descriptor)
+}
+
 /// A declarative agent: source, label, icon, install hint, modes and `definition` come from its
 /// loaded definition (code profiles have no loader row and stay as `Descriptor::of` built them).
 fn overlay_definition(descriptor: &mut Descriptor) {

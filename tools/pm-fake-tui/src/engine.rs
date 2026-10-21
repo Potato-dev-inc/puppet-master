@@ -122,6 +122,7 @@ impl Engine {
                 footer_right: script.footer_right.clone(),
                 account_row: script.account_row.clone(),
                 status_model_clip: script.status_model_clip,
+                composer_glyph: script.composer_glyph.clone(),
             },
             script,
             layout,
@@ -991,6 +992,19 @@ mod tests {
         yes.on_key(Key::Enter, 10);
         assert_eq!(yes.exit_code(), None);
         assert!(yes.plain(20).contains("\u{276f}\u{a0}"), "{}", yes.plain(20));
+    }
+
+    /// A CLI update that redraws the input box: only the glyph that starts the composer row changes.
+    #[test]
+    fn a_composer_glyph_changes_the_codex_input_row_and_nothing_else() {
+        let mut real = engine("agent = \"codex\"");
+        real.tick(0);
+        let mut changed = engine("agent = \"codex\"\ncomposer_glyph = \"\u{bb}\"");
+        changed.tick(0);
+        let (a, b) = (real.plain(500), changed.plain(500));
+        assert!(a.contains("\u{203a} Ask Codex to do anything"), "{a}");
+        assert!(b.contains("\u{bb} Ask Codex to do anything") && !b.contains('\u{203a}'), "{b}");
+        assert_eq!(a.replace('\u{203a}', "\u{bb}"), b, "only the glyph differs");
     }
 
     /// Codex 0.162.1 after Trust (live v0.2.0 hunt, cx5): the composer is drawn at once, but typed

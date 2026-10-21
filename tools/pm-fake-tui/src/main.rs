@@ -1,4 +1,4 @@
-//! `pm-fake-tui [--agent claude|codex] [--script FILE] [--check FILE]`
+//! `pm-fake-tui [--agent claude|codex] [--script FILE] [--check FILE] [--version]`
 //!
 //! The script comes from `--script`, else the `PM_FAKE_TUI_SCRIPT` environment variable, else a bare
 //! agent of `--agent`'s layout that answers every prompt with "OK".
@@ -10,6 +10,7 @@ fn main() {
     let mut script_path: Option<String> = std::env::var("PM_FAKE_TUI_SCRIPT").ok().filter(|p| !p.is_empty());
     let mut agent: Option<Layout> = None;
     let mut check = false;
+    let mut version = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--script" => script_path = args.next(),
@@ -28,8 +29,9 @@ fn main() {
                     }
                 }
             }
+            "--version" | "-V" => version = true,
             "--help" | "-h" => {
-                println!("pm-fake-tui [--agent claude|codex|nimbus] [--script FILE.toml|FILE.json] [--check FILE]\nSee tools/pm-fake-tui/README.md for the script format.");
+                println!("pm-fake-tui [--agent claude|codex|nimbus] [--script FILE.toml|FILE.json] [--check FILE] [--version]\nSee tools/pm-fake-tui/README.md for the script format.");
                 return;
             }
             other => {
@@ -48,6 +50,14 @@ fn main() {
         },
         None => Script::default(),
     };
+    if version {
+        // One line, like a real CLI. The script's `version_output`, else `pm-fake-tui <banner version>`.
+        match &script.version_output {
+            Some(line) => println!("{line}"),
+            None => println!("pm-fake-tui {}", script.version.as_deref().unwrap_or("0.0.0")),
+        }
+        return;
+    }
     if check {
         println!("ok: {} turn(s), {} startup screen(s)", script.turn.len(), script.startup.len());
         return;

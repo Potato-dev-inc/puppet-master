@@ -4,7 +4,7 @@
 //
 // Copy follows UX-PHASE1 §0: "Untested version" is the only chip, no code names or raw ids.
 import { useCallback, useState } from 'react';
-import { lastCheckLine, tauriCanaryApi, useCanary, type CanaryApi } from '../../../lib/canary';
+import { changeLine, lastCheckLine, tauriCanaryApi, useCanary, type CanaryApi } from '../../../lib/canary';
 import { Btn, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
 import '../../../styles/canary.css';
 
@@ -44,6 +44,7 @@ export function AgentVersions({ api = tauriCanaryApi, now = () => Date.now() }: 
           {installed.map((agent) => {
             const busy = agent.checking || running.has(agent.agent);
             const last = lastCheckLine(agent, now());
+            const change = changeLine(agent, now());
             return (
               <li key={agent.agent} className="st-ver-row" data-testid={`agent-version-${agent.agent}`}>
                 <div className="st-ver-main">
@@ -57,6 +58,11 @@ export function AgentVersions({ api = tauriCanaryApi, now = () => Date.now() }: 
                     )}
                   </div>
                   <p className="st-ver-plain">{agent.plain}</p>
+                  {change && (
+                    <p className="st-ver-change" data-verdict={agent.change?.verdict} data-testid={`agent-version-change-${agent.agent}`}>
+                      {change}
+                    </p>
+                  )}
                   {busy ? (
                     <p className="st-ver-last">Checking. This can take up to a minute.</p>
                   ) : (
