@@ -26,6 +26,7 @@ mod visible_finish_tests;
 mod visible_livetest_tests;
 mod visible_menu_shape_tests;
 mod visible_read_menu_look_tests;
+mod visible_transcript_bullets_tests;
 mod visible_screen_agent_tests;
 mod visible_screen_tests;
 mod visible_verify_tests;

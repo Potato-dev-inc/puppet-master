@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Agent Wizard ("Finish without me"): a permission question that sits under the list of tool calls an agent
+  printed (`Edited 1 file`, `Explored 1 file`) is read from its real options again, so the wizard answers it
+  with the one-time yes instead of stopping. When a question really is yours to answer, the agent's pane now
+  stays open: "Show the pane" opens it and Retry goes on from there (before, the stop closed the pane and
+  the message told you to answer in a pane that was gone). If the agent quit by itself the message says so.
 - Agent updates are now visible. When Claude Code, Codex, Cursor or OpenCode update, Settings > Agents and the Inbox say how it went
   ("Claude Code 2.3.0 to 2.4.0: checked, all good." or "...: screens changed. Puppet Master will ask you before acting."). A check that
   passes on this computer clears the "Untested version" label for that exact version only; the next update starts again. A run that

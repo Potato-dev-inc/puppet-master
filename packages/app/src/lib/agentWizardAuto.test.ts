@@ -865,14 +865,62 @@ describe('runAutonomous', () => {
 
   it('closes the hidden pane when the capture stops for a reason a pane cannot fix', async () => {
     const w = world();
+    w.api.captureFinish = vi.fn(async () => ({ ...captures, files: [] }));
+    const out = await run(w, ['ready_for_input']).done;
+    expect(out.status).toBe('stopped');
+    expect(w.api.captureDiscard).toHaveBeenCalledWith('wz_1');
+  });
+
+  it('keeps the pane open when the stop is a question only the person answers, and says to use it', async () => {
+    const w = world();
     const base = w.api.captureStart;
     w.api.captureStart = vi.fn(async () => ({
       ...(await base('wz_1', [], 'cap-A')),
-      needs_you: { step: 'start' as const, kind: 'trust', message: 'The wizard did not answer it for you.' },
+      needs_you: { step: 'permission' as const, kind: 'permission', message: 'The agent is asking for permission. Press your answer in the pane. The wizard answers nothing.' },
+    }));
+    const out = await run(w, []).done;
+    expect(out).toMatchObject({ status: 'stopped', paneOpen: true, resumable: true });
+    expect(out.status === 'stopped' && out.text).toContain('Use Show the pane');
+    expect(w.api.captureDiscard).not.toHaveBeenCalled();
+  });
+
+  it('says the agent quit, and closes the pane, when it ended on its own while the question was open', async () => {
+    const w = world();
+    const base = w.api.captureStart;
+    w.api.captureStart = vi.fn(async () => ({
+      ...(await base('wz_1', [], 'cap-A')),
+      alive: false,
+      needs_you: { step: 'permission' as const, kind: 'permission', message: 'The agent is asking for permission. Press your answer in the pane. The wizard answers nothing.' },
     }));
     const out = await run(w, []).done;
     expect(out.status).toBe('stopped');
+    const text = out.status === 'stopped' ? `${out.title} ${out.text}` : '';
+    expect(text).toContain('quit');
+    expect(text).not.toContain('Press your answer in the pane');
+    expect(out).not.toMatchObject({ paneOpen: true });
     expect(w.api.captureDiscard).toHaveBeenCalledWith('wz_1');
+  });
+
+  it('a resumed run goes on from the open pane: it starts nothing and does not discard it', async () => {
+    const w = world();
+    const events: ProgressEvent[] = [];
+    const out = await runAutonomous({
+      api: w.api,
+      start,
+      probe,
+      drafter,
+      ask: async (prompt) => (prompt.startsWith('Below is the terminal screen') ? 'ready_for_input' : reply(GOOD)),
+      onEvent: (e) => events.push(e),
+      onDecision: () => undefined,
+      signal: new AbortController().signal,
+      timings: TIMINGS,
+      clock: fakeClock(),
+      resume: true,
+    });
+    expect(out.status).toBe('finished');
+    expect(w.api.captureStart).not.toHaveBeenCalled();
+    expect(w.api.capturePlan).not.toHaveBeenCalled();
+    expect(w.api.captureDiscard).not.toHaveBeenCalled();
   });
 
   const stopsAtAQuestion = (w: World) => {

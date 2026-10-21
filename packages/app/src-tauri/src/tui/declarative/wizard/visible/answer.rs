@@ -505,9 +505,19 @@ impl Answerer {
                 if next == AnswerKey::Enter {
                     // when the highlight can be read at all it must be on the named option
                     let menu = parse_menu_ex(input.screen, input.styled);
-                    if let Some((menu, here)) = menu.and_then(|m| m.highlighted().map(|h| (m, h))) {
+                    // A menu this read does not hold the named option in is another block of the screen (a list of the
+                    // transcript, say): its highlight says nothing about the named option, the same as no menu at all.
+                    let named = |m: &Menu| m.options.iter().any(|o| super::ai_menu::canon(&o.text) == super::ai_menu::canon(&target));
+                    if let Some((menu, here)) = menu.filter(named).and_then(|m| m.highlighted().map(|h| (m, h))) {
                         if super::ai_menu::canon(&menu.options[here].text) != super::ai_menu::canon(&target) {
                             return decline(occ, &format!("the highlight is on \"{}\", not on the named option", menu.options[here].text));
+                        }
+                    } else {
+                        // No read menu vouches for the named option: look at the screen itself. A cursor on another row
+                        // of the block that holds the option means Enter would answer that row.
+                        let is_target = |text: &str| super::ai_menu::canon(text) == super::ai_menu::canon(&target);
+                        if let Some(other) = super::menu::cursor_elsewhere(input.screen, input.styled, &is_target) {
+                            return decline(occ, &format!("the cursor is on another row (\"{other}\"), not on the named option"));
                         }
                     }
                 }

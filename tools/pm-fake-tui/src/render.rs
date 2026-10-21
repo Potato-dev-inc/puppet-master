@@ -98,6 +98,8 @@ pub enum NimbusMenu {
     RunNumbered,
     /// An arrow menu whose yes row is drawn at another indent than the other rows.
     YesMissed,
+    /// The numbered `>` menu with long options under the status bullets of earlier tool calls.
+    BulletsNumbered,
 }
 
 /// The permission dialog being shown.
@@ -153,6 +155,15 @@ impl Dialog {
                 NimbusMenu::AlwaysOnly => vec!["Always allow in this project".into(), "Deny".into()],
                 NimbusMenu::RunNumbered => vec!["Run command".into(), "Always run".into(), "Cancel".into()],
                 NimbusMenu::YesMissed => vec!["Yes, run command".into(), "Always run in this project".into(), "No".into()],
+                NimbusMenu::BulletsNumbered => {
+                    let cmd = self.command.lines().next().unwrap_or_default();
+                    vec![
+                        "Yes, run command".into(),
+                        format!("Yes, and always allow in this conversation for commands that start with '{cmd}'"),
+                        format!("Yes, and always allow for commands that start with '{cmd}' (Persist to settings.json)"),
+                        "No, cancel".into(),
+                    ]
+                }
             },
         }
     }
@@ -716,6 +727,32 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
                     // the yes row sits one column left of the others, with its own cursor drawn in front of it
                     rows.push(if i == 0 { format!(" {}{label}", if at { "> " } else { "" }) } else { format!("   {} {label}", if at { ">" } else { " " }) });
                 }
+            }
+            NimbusMenu::BulletsNumbered => {
+                let cmd = dialog.command.lines().next().unwrap_or_default();
+                let rule = "\u{2500}".repeat(view.cols.saturating_sub(2).clamp(30, 110));
+                // what an agent prints for the tool calls of the turns before: status bullets, never a menu
+                rows.pop();
+                rows.push("\u{25CB} Thought for 3.4s (Determining the correct file path to create the file within the designated directory structu...)".into());
+                rows.push("\u{25CF} Edited 1 file (hello.txt)".into());
+                rows.push("\u{25CF} Explored 1 file (hello.txt) (ctrl+o to expand)".into());
+                rows.push(String::new());
+                rows.push(rule.clone());
+                rows.push(format!("\u{25CF} Ran ({cmd}) (ctrl+o to expand)"));
+                rows.push(String::new());
+                rows.push("Command".into());
+                rows.push(rule);
+                rows.push(String::new());
+                rows.push("Requesting permission for:".into());
+                rows.push(format!("   {cmd}"));
+                rows.push(String::new());
+                rows.push("Run this command?".into());
+                for (i, label) in dialog.options(Layout::Nimbus).iter().enumerate() {
+                    rows.push(format!("{} {}. {label}", if i == dialog.selected { ">" } else { " " }, i + 1));
+                }
+                rows.push(String::new());
+                rows.push("  \u{2191}/\u{2193} Navigate \u{b7} tab Amend \u{b7} ctrl+g edit/expand command".into());
+                rows.push("esc to cancel".into());
             }
             NimbusMenu::Inline => rows.push(format!("Allow nimbus to {what}? [Y]es / [N]o")),
             NimbusMenu::File => {
