@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The Approve dialog for your own agents now shows the whole command: the program that will run (its path, with
+  your user folder shown as `~`) and then the arguments, for the headless command and the visible pane command.
+  A program that is not installed shows its name and "not found on this PC". The Agent Wizard's review screen
+  shows the program path too. Nothing about approvals changed: a different program behind the same name was
+  already caught by the pinned program path ("Changed since you approved it").
 - Agent Wizard ("Finish without me"): a permission question that sits under the list of tool calls an agent
   printed (`Edited 1 file`, `Explored 1 file`) is read from its real options again, so the wizard answers it
   with the one-time yes instead of stopping. When a question really is yours to answer, the agent's pane now

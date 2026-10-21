@@ -10,7 +10,7 @@ import {
   errorMessage,
   fileName,
   folderOf,
-  formatArgv,
+  formatCommand,
   plainError,
   removability,
   restoreMessage,
@@ -24,6 +24,7 @@ import {
   type DefinitionRow,
   type DefinitionsListing,
   type DraftsListing,
+  type ProgramInfo,
   type FixtureCheck,
   type ProjectScan,
   type RemovedAgent,
@@ -1007,8 +1008,8 @@ function ApproveDialog({
         {reviewing.error && <p className="mt-3 text-sm text-pm-text">{reviewing.error}</p>}
         {rendered && (
           <div className="mt-3 space-y-2">
-            <ArgvBlock title="Headless command" argv={rendered.headless_argv} />
-            <ArgvBlock title="Visible pane command" argv={rendered.tui_argv} />
+            <CommandBlock title="Headless command" program={preview?.program} argv={rendered.headless_argv} kind="headless" />
+            <CommandBlock title="Visible pane command" program={preview?.program} argv={rendered.tui_argv} kind="tui" />
           </div>
         )}
         <ChangesSinceApproval preview={preview} />
@@ -1070,13 +1071,25 @@ function ChangesSinceApproval({ preview }: { preview: DefinitionPreview | null }
   );
 }
 
-function ArgvBlock({ title, argv }: { title: string; argv: string[] | null }) {
+function CommandBlock({
+  title,
+  program,
+  argv,
+  kind,
+}: {
+  title: string;
+  program: ProgramInfo | null | undefined;
+  argv: string[] | null;
+  kind: 'headless' | 'tui';
+}) {
+  const { text, note } = formatCommand(program, argv, kind);
   return (
     <div>
       <div className="text-xs font-medium text-pm-muted">{title}</div>
       <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-pm-bg p-2 text-xs">
-        {argv ? formatArgv(argv) : 'not available'}
+        {text ?? 'not available'}
       </pre>
+      {note && <p className="mt-1 text-xs text-pm-muted">{note}</p>}
     </div>
   );
 }

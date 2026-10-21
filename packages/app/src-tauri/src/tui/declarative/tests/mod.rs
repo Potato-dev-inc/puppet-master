@@ -4,6 +4,7 @@ mod loader;
 mod model_and_summary;
 mod output;
 mod profile;
+mod program_preview;
 mod removal;
 mod resolve;
 mod schema;

@@ -48,7 +48,9 @@ pub fn agents_definition_preview(file: String) -> Result<Value, String> {
         .find(|e| std::fs::canonicalize(&e.path).unwrap_or_else(|_| e.path.clone()) == wanted)
         .ok_or_else(|| format!("AGENT_DEF_NOT_FOUND: no listed definition file {file}"))?;
     let text = std::fs::read_to_string(&entry.path).map_err(|e| format!("AGENT_DEF_NOT_FOUND: {e}"))?;
-    let mut preview = crate::tui::declarative::service::validate_global(&text, entry.source).map_err(command_error)?;
+    let here = entry.path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let mut preview =
+        crate::tui::declarative::service::validate_global_at(&text, entry.source, here).map_err(command_error)?;
     preview["approved"] = crate::tui::declarative::service::approved_snapshot_global(&entry.path.to_string_lossy());
     preview["binary_changed"] = serde_json::json!(entry.binary_changed);
     Ok(preview)

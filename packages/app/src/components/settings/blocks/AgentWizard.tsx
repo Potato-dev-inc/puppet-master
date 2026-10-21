@@ -9,7 +9,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   agentErrorMessage,
   chooseDefaultDrafter,
-  commandLine,
   factsFrom,
   MAX_ROUNDS,
   offersOneTaskMode,
@@ -18,6 +17,7 @@ import {
   promptBudget,
   provenanceOf,
   retryLiveTest,
+  reviewCommandLine,
   runDraftLoop,
   splitError,
   tauriWizardApi,
@@ -1050,8 +1050,12 @@ function Review({
   const verify: VerifyResult = result.verify;
   const { live, visible } = result;
   const line = visible
-    ? commandLine(found.start.command, verify.planned_visible?.args ?? verify.rendered?.tui_argv ?? [])
-    : commandLine(found.start.command, verify.rendered?.headless_argv);
+    ? reviewCommandLine(
+        verify.planned_visible?.program.display ?? found.start.program.display,
+        found.start.command,
+        verify.planned_visible?.args ?? verify.rendered?.tui_argv ?? [],
+      )
+    : reviewCommandLine(found.start.program.display, found.start.command, verify.rendered?.headless_argv);
   const livePassed = live ? live.stages.filter((s) => s.status === 'passed').length : 0;
   const liveRan = live ? live.stages.filter((s) => s.status !== 'skipped').length : 0;
   const version = visible?.version ?? live?.tested_version ?? null;

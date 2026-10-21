@@ -85,10 +85,22 @@ export interface ApprovedSnapshot {
   fingerprint: string;
 }
 
+/** The program a definition will run, as the backend resolved it (`display` has the user folder as `~`). */
+export interface ProgramInfo {
+  name: string;
+  path: string | null;
+  display: string;
+  found: boolean;
+  note: string | null;
+  /** A generic agent's visible command already starts with the program name. */
+  tui_argv_has_program?: boolean;
+}
+
 export interface DefinitionPreview {
   ok: boolean;
   errors: DefinitionError[];
   rendered: { headless_argv: string[] | null; tui_argv: string[] | null };
+  program?: ProgramInfo | null;
   /** Backend-computed flags: --auto / --dangerously / --yolo / --force, env keys, interpreters. */
   warnings?: string[];
   approved?: ApprovedSnapshot | null;
@@ -303,6 +315,25 @@ export function sourceLabel(source: string): string {
 /** Shell-ish display of an argv; display only, never executed. */
 export function formatArgv(argv: string[]): string {
   return argv.map((arg) => (/^[\w./:=@%+,-]+$/.test(arg) ? arg : JSON.stringify(arg))).join(' ');
+}
+
+/**
+ * The full command the Approve dialog shows: the program (path with the user folder as `~`) and then the
+ * arguments. A program that is not installed keeps its name and gets a short `note`. `text` is null when the
+ * definition has no such command. Without `program` (an older backend) it is the arguments alone.
+ */
+export function formatCommand(
+  program: ProgramInfo | null | undefined,
+  argv: string[] | null,
+  kind: 'headless' | 'tui',
+): { text: string | null; note: string | null } {
+  if (!argv) return { text: null, note: null };
+  if (!program) return { text: formatArgv(argv), note: null };
+  const args = kind === 'tui' && program.tui_argv_has_program ? argv.slice(1) : argv;
+  // Plain quotes only: JSON quoting would double every backslash of a Windows path.
+  const head = /\s/.test(program.display) ? `"${program.display}"` : program.display;
+  const text = [head, formatArgv(args)].filter(Boolean).join(' ');
+  return { text, note: program.found ? null : `${program.name}: ${program.note ?? 'not found on this PC'}` };
 }
 
 export function fileName(path: string): string {

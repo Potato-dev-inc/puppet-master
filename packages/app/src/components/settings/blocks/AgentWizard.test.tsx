@@ -298,7 +298,7 @@ describe('AgentWizard', () => {
 
     const review = host.querySelector('[data-testid="wizard-review"]');
     expect(review?.textContent).toContain('Ready for your approval');
-    expect(review?.textContent).toContain('fake-agent run --format json -- <task>');
+    expect(review?.textContent).toContain('~\\fake-agent.exe run --format json -- <task>');
     expect(review?.textContent).toContain('Say pong');
     expect(review?.textContent).toContain('skipped - the draft has no model option');
     expect(review?.textContent).toContain('Tested live on fake-agent 1.4.2: 2 of 2 checks passed');
