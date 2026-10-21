@@ -507,7 +507,7 @@ impl Engine {
             // The arrow menu of a nimbus file question takes arrows and Enter only; the y/n line takes neither digits
             // beyond its two rows nor letters beyond y and n; a numbered command menu takes its digits.
             Key::Char(_) if self.layout == Layout::Nimbus && dialog.menu == render::NimbusMenu::File => {}
-            Key::Char(c) if self.layout == Layout::Nimbus && matches!(dialog.menu, render::NimbusMenu::Command | render::NimbusMenu::RunNumbered) => {
+            Key::Char(c) if self.layout == Layout::Nimbus && matches!(dialog.menu, render::NimbusMenu::Command | render::NimbusMenu::RunNumbered | render::NimbusMenu::BulletsNumbered) => {
                 if let Some(n) = c.to_digit(10).filter(|n| (1..=options as u32).contains(n)) {
                     confirm = Some(n as usize - 1);
                 }
@@ -645,6 +645,7 @@ impl Engine {
                         (Layout::Nimbus, crate::script::Approvals::Blind, _) => render::NimbusMenu::Blind,
                         (Layout::Nimbus, crate::script::Approvals::RunNumbered, _) => render::NimbusMenu::RunNumbered,
                         (Layout::Nimbus, crate::script::Approvals::YesMissed, _) => render::NimbusMenu::YesMissed,
+                        (Layout::Nimbus, crate::script::Approvals::BulletsNumbered, _) => render::NimbusMenu::BulletsNumbered,
                         _ => render::NimbusMenu::YesNo,
                     };
                     let dialog = Dialog {
@@ -1460,6 +1461,27 @@ mod nimbus_tests {
         assert!(plain.contains("> 1. Run command") && plain.contains("2. Always run") && plain.contains("3. Cancel"), "{plain}");
         e.on_key(Key::Char('1'), 30);
         assert!(e.plain(40).contains("ran") || e.plain(40).contains("allowed"), "{}", e.plain(40));
+    }
+
+    #[test]
+    fn the_bullets_numbered_menu_draws_status_bullets_above_long_numbered_options_and_takes_its_digits() {
+        let mut e = ask(&styled_toml("bullets_numbered", 0));
+        let plain = e.plain(20);
+        for want in [
+            "\u{25CF} Edited 1 file (hello.txt)",
+            "\u{25CF} Explored 1 file (hello.txt) (ctrl+o to expand)",
+            "Run this command?",
+            "> 1. Yes, run command",
+            "  2. Yes, and always allow in this conversation for commands that start with 'echo ok'",
+            "  3. Yes, and always allow for commands that start with 'echo ok' (Persist to settings.json)",
+            "  4. No, cancel",
+        ] {
+            assert!(plain.lines().any(|l| l.trim_end() == want), "{want} in {plain}");
+        }
+        e.on_key(Key::Down, 30);
+        assert!(e.plain(40).contains("> 2. Yes, and always allow in this conversation"), "{}", e.plain(40));
+        e.on_key(Key::Char('1'), 50);
+        assert!(e.plain(60).contains("allowed") || e.plain(60).contains("ran"), "{}", e.plain(60));
     }
 
     #[test]

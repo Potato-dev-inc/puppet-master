@@ -269,6 +269,50 @@ describe('a run with the switch on', () => {
     expect(api.cancel).toHaveBeenCalledWith('wz_1');
   });
 
+  const PERMISSION = { step: 'permission' as const, kind: 'permission', message: 'The agent is asking for permission. Press your answer in the pane. The wizard answers nothing.' };
+
+  it('a question only the person answers keeps the pane open: Show the pane opens it and Retry goes on from it', async () => {
+    const api = mockApi();
+    let answered = false;
+    const asking = status({ step: 'permission', needs_you: PERMISSION });
+    api.captureStart = vi.fn(async () => asking);
+    api.captureStatus = vi.fn(async () => (answered ? status({ step: 'exit', settled: true, can: ['retry'] }) : asking));
+    const onApprove = vi.fn();
+    await render(api, onApprove);
+    await typeCommand('nimbus');
+    await click(button('Find it'));
+    await until(() => text().includes('asks a question that only you may answer'), 'the stop');
+    expect(api.captureDiscard).not.toHaveBeenCalled();
+    await click(button('Show the pane'));
+    expect(api.captureShow).toHaveBeenCalledWith('wz_1');
+    // the person answers in the pane, then presses Retry: the same capture goes on, nothing is started again
+    answered = true;
+    await click(button('Retry'));
+    await until(() => onApprove.mock.calls.length === 1, 'the approval');
+    expect(api.captureStart).toHaveBeenCalledTimes(1);
+    expect(api.captureDiscard).not.toHaveBeenCalled();
+  });
+
+  it('when the agent quit on its own the stop says so, has no Show the pane, and Retry starts a fresh pane', async () => {
+    const api = mockApi();
+    let quit = true;
+    const gone = status({ step: 'permission', alive: false, needs_you: PERMISSION });
+    api.captureStart = vi.fn(async () => (quit ? gone : status({ step: 'exit', settled: true, can: ['retry'] })));
+    api.captureStatus = vi.fn(async () => (quit ? gone : status({ step: 'exit', settled: true, can: ['retry'] })));
+    const onApprove = vi.fn();
+    await render(api, onApprove);
+    await typeCommand('nimbus');
+    await click(button('Find it'));
+    await until(() => text().includes('quit before the question was answered'), 'the stop');
+    expect(text()).not.toContain('Press your answer in the pane');
+    expect(button('Show the pane')).toBeUndefined();
+    quit = false;
+    await click(button('Retry'));
+    await until(() => onApprove.mock.calls.length === 1, 'the approval');
+    expect(api.captureDiscard).toHaveBeenCalledWith('wz_1');
+    expect(api.captureStart).toHaveBeenCalledTimes(2);
+  });
+
   it('a sign-in screen stops the run with the plain message; Retry starts it again', async () => {
     const api = mockApi({ signInStop: true });
     await render(api);

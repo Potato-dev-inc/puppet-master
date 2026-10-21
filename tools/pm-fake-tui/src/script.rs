@@ -156,6 +156,11 @@ pub enum Approvals {
     /// An arrow menu whose yes row is drawn at another indent than the other rows (`Yes, run command` one column left of
     /// `Always run in this project` / `No`), so a parser that groups rows by column reads only the last two.
     YesMissed,
+    /// A numbered `>`-cursor command question with long wording (`Yes, run command` / `Yes, and always allow in this
+    /// conversation for commands that start with ...` / `... (Persist to settings.json)` / `No, cancel`) UNDER the status
+    /// bullets an agent prints for earlier tool calls (`● Edited 1 file (...)`, `● Explored 1 file (...)`), a prompt echo
+    /// and rules.
+    BulletsNumbered,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
