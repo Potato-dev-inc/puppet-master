@@ -154,6 +154,45 @@ describe('AgentDefinitions', () => {
     expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('approve dialog shows the full command: the program first, then the arguments', async () => {
+    const api = mockApi();
+    (api.preview as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      errors: [],
+      rendered: {
+        headless_argv: ['--output-format', 'json', '--model', '<model>', '--conversation', '<session>', '--print', '<task>'],
+        tui_argv: ['--agent', 'build'],
+      },
+      program: { name: 'kilo', path: 'C:\\Users\\someone\\bin\\kilo.exe', display: '~\\bin\\kilo.exe', found: true, note: null, tui_argv_has_program: false },
+    });
+    await render(api);
+    await click(button('Review and approve'));
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain(
+      '~\\bin\\kilo.exe --output-format json --model "<model>" --conversation "<session>" --print "<task>"',
+    );
+    expect(dialog?.textContent).toContain('~\\bin\\kilo.exe --agent build');
+    // the user folder name never reaches the screen
+    expect(dialog?.textContent).not.toContain('someone');
+    expect(dialog?.textContent).not.toContain('not found on this PC');
+  });
+
+  it('approve dialog says so when the program is not installed', async () => {
+    const api = mockApi();
+    (api.preview as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      errors: [],
+      rendered: { headless_argv: ['run', '<task>'], tui_argv: ['--agent', 'build'] },
+      program: { name: 'kilo', path: null, display: 'kilo', found: false, note: 'not found on this PC', tui_argv_has_program: false },
+    });
+    await render(api);
+    await click(button('Review and approve'));
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('kilo run "<task>"');
+    expect(dialog?.textContent).toContain('kilo --agent build');
+    expect(dialog?.textContent).toContain('kilo: not found on this PC');
+  });
+
   it('approve shows a no-restart toast and never a restart prompt', async () => {
     const api = mockApi();
     await render(api);

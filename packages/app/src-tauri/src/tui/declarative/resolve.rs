@@ -71,13 +71,17 @@ fn canonical(path: &Path) -> Option<PathBuf> {
 
 /// Resolve against `PATH` from the environment, excluding the process cwd and `project_dir`.
 pub fn resolve_binary(binary: &BinaryTable, project_dir: &Path) -> Result<PathBuf, ResolveError> {
+    resolve_in(binary, &path_dirs(project_dir), Platform::current())
+}
+
+/// The folders `resolve_binary` searches: the process `PATH` without the current and `project_dir` folders.
+pub fn path_dirs(project_dir: &Path) -> Vec<PathBuf> {
     let mut exclude = vec![project_dir.to_path_buf()];
     if let Ok(cwd) = std::env::current_dir() {
         exclude.push(cwd);
     }
     let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let dirs = searchable_dirs(&path_var, &exclude);
-    resolve_in(binary, &dirs, Platform::current())
+    searchable_dirs(&path_var, &exclude)
 }
 
 /// Resolve against an explicit directory list (already filtered by `searchable_dirs`).

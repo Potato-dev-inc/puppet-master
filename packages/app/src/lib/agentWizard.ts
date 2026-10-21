@@ -988,8 +988,23 @@ export async function retryLiveTest(opts: {
   return { status: 'tested', ...base, live, visible };
 }
 
+/**
+ * The command line on the review screen: the program as the wizard found it (`display`, the user folder as `~`)
+ * and the argv with `<task>`. Without a path it is the program name, as `commandLine`.
+ */
+export function reviewCommandLine(display: string | null | undefined, command: string, argv: string[] | null | undefined): string {
+  if (!display) return commandLine(command, argv);
+  // Plain quotes only: JSON quoting would double every backslash of a Windows path.
+  const head = /\s/.test(display) ? `"${display}"` : display;
+  return [head, ...(argv ?? []).map(quoteArg)].join(' ');
+}
+
 /** The command line the person will approve: the program name and the argv with `<task>`. */
 export function commandLine(command: string, argv: string[] | null | undefined): string {
   if (!argv) return command;
-  return [command, ...argv].map((a) => (/^[\w./:=@%+,<>-]+$/.test(a) ? a : JSON.stringify(a))).join(' ');
+  return [command, ...argv].map(quoteArg).join(' ');
+}
+
+function quoteArg(a: string): string {
+  return /^[\w./:=@%+,<>-]+$/.test(a) ? a : JSON.stringify(a);
 }

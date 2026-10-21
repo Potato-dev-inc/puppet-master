@@ -5,6 +5,7 @@ import {
   askOpenRouter,
   chooseDefaultDrafter,
   commandLine,
+  reviewCommandLine,
   extractTomlBlock,
   factsFrom,
   MAX_ROUNDS,
@@ -219,6 +220,16 @@ describe('small helpers', () => {
     expect(commandLine('fake-agent', ['run', '--format', 'json', '--', '<task>'])).toBe('fake-agent run --format json -- <task>');
     expect(commandLine('x', ['-m', 'a b'])).toBe('x -m "a b"');
     expect(commandLine('x', null)).toBe('x');
+  });
+
+  it('shows the program path (user folder as ~) first in the line the person approves', () => {
+    expect(reviewCommandLine('~\\AppData\\fake-agent.exe', 'fake-agent', ['run', '--', '<task>'])).toBe(
+      '~\\AppData\\fake-agent.exe run -- <task>',
+    );
+    expect(reviewCommandLine('C:\\Program Files\\x\\x.exe', 'x', ['-m', 'a b'])).toBe('"C:\\Program Files\\x\\x.exe" -m "a b"');
+    // no path known: the name, as before
+    expect(reviewCommandLine(undefined, 'x', null)).toBe('x');
+    expect(reviewCommandLine('', 'x', ['run'])).toBe('x run');
   });
 
   it('keeps the real output of each stage that ran for the next prompt', () => {

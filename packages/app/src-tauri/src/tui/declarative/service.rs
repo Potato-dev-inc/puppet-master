@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use super::approvals::{now_rfc3339, Approval, Approvals};
 use super::loader::{build, load_all, load_text, reload_global, DefState, Entry, LoadInputs, OwnedInputs};
-use super::resolve::{resolve_binary, resolve_in};
+use super::resolve::{path_dirs, resolve_binary, resolve_in, Platform, ResolveError};
 use super::schema::DefError;
 use super::sources::{project_candidates, settings_path, source_name, Origin, SourceSettings};
 use super::template;
@@ -133,6 +133,11 @@ fn parse_source(name: &str) -> Option<Source> {
 
 /// Validate definition text without registering or approving anything: `{ok, errors, rendered}`.
 pub fn validate_text(text: &str, source: &str, code_ids: &[&str]) -> Result<Value, ServiceError> {
+    validate_text_in(text, source, code_ids, &path_dirs(Path::new(".")))
+}
+
+/// `validate_text`, looking for the program in `dirs` (what the Approve dialog shows as the program).
+pub fn validate_text_in(text: &str, source: &str, code_ids: &[&str], dirs: &[PathBuf]) -> Result<Value, ServiceError> {
     let source = parse_source(source)
         .ok_or_else(|| ServiceError::new(400, "INVALID_ARGUMENT", format!("unknown source: {source}")))?;
     let file = load_text(Path::new("<validate>"), text, text.len(), Origin::new(source), None, code_ids);
@@ -159,8 +164,33 @@ pub fn validate_text(text: &str, source: &str, code_ids: &[&str]) -> Result<Valu
         "ok": file.errors.is_empty(),
         "errors": file.errors.iter().map(error_json).collect::<Vec<_>>(),
         "rendered": {"headless_argv": headless_argv, "tui_argv": tui_argv},
+        "program": file.definition.as_ref().map_or(Value::Null, |def| {
+            program_json(def, resolve_in(&def.binary, dirs, Platform::current()))
+        }),
         "warnings": warnings,
     }))
+}
+
+/// The program the Approve dialog shows in front of the arguments: `name` (the definition's first binary
+/// name), `path` (absolute, null when not found), `display` (the path with the user folder as `~`, else the
+/// name), `found`, a short `note` when it was not found, and `tui_argv_has_program` (a generic agent's visible
+/// command already starts with the program name, so the dialog must not print it twice). This is the same
+/// resolution approval pins into the record, so it is the program that will run.
+pub(crate) fn program_json(def: &super::schema::Definition, resolved: Result<PathBuf, ResolveError>) -> Value {
+    let name = def.binary.names.first().cloned().unwrap_or_default();
+    let (path, note) = match resolved {
+        Ok(path) => (Some(path), None),
+        Err(ResolveError::NotFound { .. }) => (None, Some("not found on this PC")),
+        Err(ResolveError::ShimNeedsNative { .. }) => (None, Some("only a script shim was found, not the program itself")),
+    };
+    json!({
+        "name": name,
+        "path": path.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        "display": path.as_ref().map_or_else(|| name.clone(), |p| super::wizard::locate::display_path(p)),
+        "found": path.is_some(),
+        "note": note,
+        "tui_argv_has_program": def.agent.kind == super::schema::Kind::Generic,
+    })
 }
 
 /// Flags the approval dialog must show (P5-4): risky argv switches, environment overrides and
@@ -449,8 +479,13 @@ pub fn reload_global_with_diff() -> Value {
 }
 
 pub fn validate_global(text: &str, source: &str) -> Result<Value, ServiceError> {
+    validate_global_at(text, source, Path::new("."))
+}
+
+/// `validate_global` for the definition file in folder `here` (never searched for the program).
+pub fn validate_global_at(text: &str, source: &str, here: &Path) -> Result<Value, ServiceError> {
     let code_ids = crate::tui::registry::registry().code_ids();
-    validate_text(text, source, &code_ids)
+    validate_text_in(text, source, &code_ids, &path_dirs(here))
 }
 
 /// Reload the registry from the current settings and announce what changed.
