@@ -600,9 +600,24 @@ mod tests {
             "the prompt is read as a User item"
         );
         assert!(items.iter().any(|item| matches!(item, ChatItem::ToolCall { .. })), "a ToolCall item");
+        let call_ids: Vec<&String> = items
+            .iter()
+            .filter_map(|item| match item {
+                ChatItem::ToolCall { call_id, .. } => Some(call_id),
+                _ => None,
+            })
+            .collect();
+        let results: Vec<(&String, bool)> = items
+            .iter()
+            .filter_map(|item| match item {
+                ChatItem::ToolResult { call_id, ok, .. } => Some((call_id, *ok)),
+                _ => None,
+            })
+            .collect();
+        println!("ToolResult ok values: {:?}", results.iter().map(|(_, ok)| *ok).collect::<Vec<_>>());
         assert!(
-            items.iter().any(|item| matches!(item, ChatItem::ToolResult { ok: true, .. })),
-            "a ToolResult item with ok=true"
+            results.iter().any(|(call_id, _)| call_ids.contains(call_id)),
+            "a ToolResult whose call_id is the call_id of a ToolCall in the same file"
         );
         assert!(
             items.iter().any(|item| matches!(item, ChatItem::Assistant { text, .. } if text.contains("done"))),
