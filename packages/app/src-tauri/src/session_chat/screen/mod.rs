@@ -28,7 +28,7 @@ pub use registry::read_pane;
 /// What the screen reader gets from a pane.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScreenRead {
-    /// The pane's pane status as text (`running`, `waiting_input`, `idle`, `error`).
+    /// The pane's status as text (`running`, `waiting_input`, `idle`, `error`).
     pub status: String,
     /// How much of the pane's output the text includes, when known; passed back as `known` on the next read.
     pub position: Option<u64>,
@@ -58,6 +58,12 @@ pub struct ScreenChat {
     /// The text as of the last idle poll (the next turn's baseline).
     quiet_text: String,
     running: bool,
+    /// The last reading showed no conversation at all while some was known: a cleared screen, or a redraw caught
+    /// half way. It counts as cleared if the next look still shows none.
+    clear_pending: bool,
+    /// The last turn as it was when it ended. It stays ended while it reads the same, whatever the pane's status does
+    /// (a redraw makes it look busy for a moment), and is open again as soon as its text changes.
+    ended_last: Option<Parsed>,
 }
 
 impl ScreenChat {
@@ -72,6 +78,8 @@ impl ScreenChat {
             baseline: String::new(),
             quiet_text: String::new(),
             running: false,
+            clear_pending: false,
+            ended_last: None,
         }
     }
 
@@ -80,12 +88,18 @@ impl ScreenChat {
     pub fn observe(&mut self, text: Option<&str>, status: &str) -> Change {
         let idle = status == "idle";
         let mut changed = false;
+        let fresh = text.is_some_and(|text| self.last_text != Some(hash_of(text)));
+        if self.clear_pending && !fresh {
+            self.clear_pending = false;
+            self.turns.clear();
+            changed = true;
+        }
         match text {
-            Some(text) if self.last_text != Some(hash_of(text)) => {
+            Some(text) if fresh => {
                 self.last_text = Some(hash_of(text));
                 let before = self.turns.clone();
                 self.read(text, idle);
-                changed = before != self.turns;
+                changed |= before != self.turns;
             }
             _ if idle => self.running = false,
             _ => {}
@@ -95,11 +109,15 @@ impl ScreenChat {
             (true, true) => 1,
             (true, false) => self.idle_polls.saturating_add(1),
         };
+        if self.idle_polls >= ENDED_AFTER_IDLE_POLLS {
+            self.ended_last = self.turns.last().filter(|turn| turn.has_body()).cloned();
+        }
         let next = self.items(!idle);
         diff(&mut self.shown, next)
     }
 
     /// The items the viewer has been sent so far.
+    #[cfg(test)]
     pub fn shown(&self) -> &[ChatItem] {
         &self.shown
     }
@@ -149,12 +167,12 @@ impl ScreenChat {
     /// Puts the turns just read on `text` into the turns kept.
     fn merge(&mut self, mut parsed: Vec<Parsed>, text: &str) {
         if parsed.is_empty() {
-            // Nothing on screen is a message or an answer: a cleared screen, when none of what was read is there.
-            if !self.turns.is_empty() && !self.still_on(text) {
-                self.turns.clear();
-            }
+            // Nothing on screen is a message or an answer: a cleared screen, when none of what was read is there
+            // and the next look says the same.
+            self.clear_pending = !self.turns.is_empty() && !self.still_on(text);
             return;
         }
+        self.clear_pending = false;
         // Rows above the first message on screen are the end of a turn whose message scrolled off the top.
         if parsed[0].user.is_none() && !self.turns.is_empty() && align(&self.turns, &parsed).is_none() {
             let head = parsed.remove(0);
@@ -214,7 +232,8 @@ impl ScreenChat {
         };
         for (index, turn) in self.turns.iter().take(shown).enumerate() {
             let n = index + 1;
-            let ended = if n < shown { true } else { turn.has_body() && self.idle_polls >= ENDED_AFTER_IDLE_POLLS };
+            let ended = n < shown
+                || (turn.has_body() && (self.idle_polls >= ENDED_AFTER_IDLE_POLLS || self.ended_last.as_ref() == Some(turn)));
             if let Some(user) = &turn.user {
                 items.push(ChatItem::User { id: format!("screen:{n}:user"), at: None, text: user.clone() });
             }

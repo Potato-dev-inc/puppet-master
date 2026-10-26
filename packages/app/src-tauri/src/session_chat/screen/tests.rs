@@ -206,9 +206,13 @@ fn a_turn_ends_only_after_the_pane_was_idle_on_the_same_text_twice() {
     viewer.take(chat.observe(None, "idle"));
     assert_eq!(viewer.lines().last().map(String::as_str), Some("end"));
     assert!(viewer.lines().iter().any(|line| line.starts_with("assistant!:")), "final once the turn ended");
-    // Work starts again on the same turn: it is not ended any more and the viewer is told.
+    // The same text under a pane that looks busy for a moment (a redraw) keeps the turn ended.
     viewer.take(chat.observe(None, "running"));
-    assert!(!viewer.lines().contains(&"end".to_string()));
+    assert_eq!(viewer.lines().last().map(String::as_str), Some("end"));
+    assert_eq!(viewer.resets, 0);
+    // Work goes on in the turn (another tool row): it is open again, and the viewer is told.
+    viewer.look(&mut chat, &screen(&format!("{FIRST_DONE}\ntool: pwd")), "running");
+    assert!(!viewer.lines().contains(&"end".to_string()), "{:?}", viewer.lines());
     assert_eq!(viewer.resets, 1, "an item went away, so everything is sent again");
 }
 
@@ -220,6 +224,7 @@ fn a_screen_that_is_cleared_resets_the_chat_and_a_new_conversation_starts_at_tur
     settle(&mut viewer, &mut chat);
     assert!(viewer.lines().len() > 3);
     viewer.look(&mut chat, &screen(""), "idle");
+    settle(&mut viewer, &mut chat);
     assert_eq!(viewer.lines(), ["session:small-1"], "the model stays, the conversation is gone");
     assert_eq!(viewer.resets, 1);
     viewer.look(&mut chat, &screen("> a fresh start\nhello again"), "idle");
@@ -368,4 +373,19 @@ fn a_message_drawn_wrong_for_one_frame_is_put_right_under_the_same_id() {
     assert_eq!(viewer.lines()[1], "user:say hello to the room");
     assert_eq!(viewer.ids().iter().filter(|id| id.ends_with(":user")).count(), 1);
     assert_eq!(viewer.resets, 0);
+}
+
+#[test]
+fn a_redraw_caught_half_way_is_not_a_cleared_screen() {
+    let mut chat = chat();
+    let mut viewer = Viewer::default();
+    viewer.look(&mut chat, &screen(FIRST_DONE), "idle");
+    settle(&mut viewer, &mut chat);
+    let before = viewer.lines();
+    // The screen was wiped and is being drawn again: one look sees nothing, the next sees it all.
+    viewer.look(&mut chat, &screen(""), "running");
+    viewer.look(&mut chat, &screen(FIRST_DONE), "idle");
+    settle(&mut viewer, &mut chat);
+    assert_eq!(viewer.lines(), before);
+    assert_eq!(viewer.resets, 0, "nothing was taken away from the viewer");
 }

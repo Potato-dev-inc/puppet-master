@@ -170,7 +170,7 @@ fn a_three_line_answer_is_one_reply_with_its_lines() {
 
 #[test]
 fn the_chat_follows_a_turn_from_its_first_look_to_its_answer_without_a_reset() {
-    use crate::session_chat::Change;
+    use crate::session_chat::watch::Change;
     let mut chat = ScreenChat::new("opencode");
     let mut resets = 0;
     for (capture, status) in [(WORKING, "running"), (REPLY, "running"), (REPLY, "idle")] {
