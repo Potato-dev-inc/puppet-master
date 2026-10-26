@@ -473,6 +473,12 @@ pub trait TuiProfile: Send + Sync {
     fn hook_scheme(&self) -> Option<crate::tui::declarative::hooks::HooksTable> {
         None
     }
+
+    /// Where this agent writes the session file the chat view reads (`crate::session_chat`). `None` (the
+    /// default): the agent has no file Puppet Master can read, and the chat view says so.
+    fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
+        None
+    }
 }
 
 /// What `TuiProfile::context` returns.

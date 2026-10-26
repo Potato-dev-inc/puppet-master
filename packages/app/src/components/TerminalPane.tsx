@@ -12,6 +12,7 @@ import {
 import { errorMessage, tauriRecorderApi } from '../lib/agentDefinitions';
 import { useTerminalSession } from '../hooks/useTerminalSession';
 import type { PaneData } from '../hooks/usePaneRegistry';
+import { SessionChatPanel } from './chat/SessionChatPanel';
 
 interface Props {
   pane: PaneData;
@@ -33,6 +34,14 @@ const STATUS_COLOR: Record<string, string> = {
   idle: 'bg-pm-muted',
   error: 'bg-pm-err',
 };
+
+/** Terminal (the default) or the read-only chat over it. The terminal stays mounted either way. */
+type PaneView = 'terminal' | 'chat';
+
+/** A plain shell has no agent session file, so it gets no Chat toggle. */
+function isPlainShell(listing: AgentRegistryListing, agent: AgentType): boolean {
+  return listing.agents.find((a) => a.id === agent)?.kind === 'shell';
+}
 
 function switchPresetsFor(listing: AgentRegistryListing, agent: AgentType): LaunchEntry[] {
   const launchPresets = openableLaunchEntries(launchMenuEntries(listing));
@@ -56,6 +65,7 @@ export function TerminalPane({
   const [switching, setSwitching] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recorderNote, setRecorderNote] = useState<string | null>(null);
+  const [view, setView] = useState<PaneView>('terminal');
   const rootRef = useRef<HTMLDivElement>(null);
   const { containerRef, nudgeReflow } = useTerminalSession({
     paneId: pane.info.id,
@@ -71,6 +81,8 @@ export function TerminalPane({
   const listing = useAgentRegistry();
   const presets = switchPresetsFor(listing, agent);
   const preset = presets.find((p) => p.type === agent);
+  const chatAllowed = !isPlainShell(listing, agent);
+  const showChat = chatAllowed && view === 'chat';
 
   useEffect(() => {
     let cancelled = false;
@@ -144,6 +156,21 @@ export function TerminalPane({
             </option>
           ))}
         </select>
+        {chatAllowed && (
+          <div role="group" aria-label="Pane view" className="flex overflow-hidden rounded border border-pm-border">
+            {(['terminal', 'chat'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                className={`px-1.5 py-0.5 ${view === v ? 'bg-pm-border/60 text-pm-text' : 'text-pm-muted hover:text-pm-text'}`}
+                onClick={() => setView(v)}
+              >
+                {v === 'terminal' ? 'Terminal' : 'Chat'}
+              </button>
+            ))}
+          </div>
+        )}
         <span className="text-pm-muted truncate" title={pane.info.cwd}>
           {preset?.label ?? pane.info.agent_type} · pid {pane.info.pid}
         </span>
@@ -199,7 +226,13 @@ export function TerminalPane({
         </button>
       </div>
       <div className="relative flex-1 min-h-0">
-        <div ref={containerRef} className="h-full overflow-hidden terminal-host" />
+        {/* Hidden, never unmounted: unmounting would break the PTY grid. `invisible` keeps the layout size. */}
+        <div ref={containerRef} className={`h-full overflow-hidden terminal-host${showChat ? ' invisible' : ''}`} />
+        {showChat && (
+          <div className="absolute inset-0 z-10">
+            <SessionChatPanel paneId={pane.info.id} />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -9,6 +9,8 @@
 mod headless;
 mod prompt;
 mod screen;
+pub mod session_file;
+pub mod session_source;
 #[cfg(test)]
 mod fullscreen_tests;
 
@@ -66,6 +68,10 @@ impl TuiProfile for Claude {
 
     fn hook_scheme(&self) -> Option<crate::tui::declarative::hooks::HooksTable> {
         crate::tui::declarative::hooks::parse_hooks_toml(include_str!("hooks.toml"))
+    }
+
+    fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
+        Some(&session_source::SOURCE)
     }
 
     fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
