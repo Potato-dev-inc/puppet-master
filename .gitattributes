@@ -30,3 +30,6 @@ packages/app/src-tauri/src/tui/claude/fixtures/*.jsonl text eol=lf
 
 # Raw terminal bytes (cursor moves, CR/LF as the pane sent them), read by tests through the terminal emulator: never convert.
 packages/app/src-tauri/src/tui/**/fixtures/*.ansi -text
+
+# Codex trust-dialog captures: read through include_str! and split on newlines, keep them LF.
+packages/app/src-tauri/src/tui/codex/fixtures/trust_folder_*.txt text eol=lf

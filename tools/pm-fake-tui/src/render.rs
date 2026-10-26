@@ -904,6 +904,27 @@ fn gate_rows(view: &View, gate: &GateView) -> Vec<String> {
             ]);
             rows
         }
+        (Layout::Codex, GateKind::Trust) if matches!(gate.style, crate::script::TrustStyle::FolderAccess | crate::script::TrustStyle::FolderAccessBack) => {
+            let pointer = |i: usize| if gate.selected == i { "\u{203a}" } else { " " };
+            let (way_out, footer) = match gate.style {
+                crate::script::TrustStyle::FolderAccessBack => ("Back to Agent Command Center", "enter continue \u{b7} esc back"),
+                _ => ("Quit", "enter continue \u{b7} esc quit"),
+            };
+            vec![
+                String::new(),
+                "  Folder access".into(),
+                format!("  {cwd}"),
+                String::new(),
+                "  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. Folder settings".into(),
+                "  can run code automatically, even without a model request. Continue only if you trust these files. Your trust".into(),
+                "  decision will be saved.".into(),
+                String::new(),
+                format!("{} 1. Trust and continue", pointer(0)),
+                format!("{} 2. {way_out}", pointer(1)),
+                String::new(),
+                format!("  {footer}"),
+            ]
+        }
         (Layout::Codex, GateKind::Trust) => {
             let pointer = |i: usize| if gate.selected == i { "\u{203a}" } else { " " };
             vec![
