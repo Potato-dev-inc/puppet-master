@@ -72,6 +72,23 @@ describe('mergeItems', () => {
     expect(merged).toEqual([user('9:0', 'fresh')]);
   });
 
+  it('keeps only the latest usage item', () => {
+    const usage = (id: string, inputTokens: number): ChatItem => ({
+      kind: 'usage',
+      id,
+      at: null,
+      inputTokens,
+      outputTokens: 1,
+      contextWindow: null,
+    });
+    const first = mergeItems([user('1:0'), usage('2:0', 10)], [say('3:0', 'a'), usage('4:0', 20)], false);
+    expect(first.map((i) => i.id)).toEqual(['1:0', '3:0', '4:0']);
+    const second = mergeItems(first, [usage('5:0', 30)], false);
+    expect(second.map((i) => i.id)).toEqual(['1:0', '3:0', '5:0']);
+    // A re-sent copy of the newest usage item changes it in place.
+    expect(mergeItems(second, [usage('5:0', 31)], false).filter((i) => i.kind === 'usage')).toEqual([usage('5:0', 31)]);
+  });
+
   it('does not change its inputs', () => {
     const prev = [user('1:0')];
     const incoming = [say('2:0', 'a')];
@@ -105,6 +122,33 @@ describe('groupTurns', () => {
     if (step.kind !== 'tool') throw new Error('expected a tool step');
     expect(step.result?.output).toBe('files');
     expect(step.status).toBe('ok');
+  });
+
+  it('shows calls with the same callId as one row, with the latest call item and the result attached', () => {
+    const { turns } = groupTurns([
+      user('1:0'),
+      call('2:0', 'c1', 'Bash', 'git st'),
+      call('3:0', 'c1', 'Bash', 'git status'),
+      result('4:0', 'c1', true, 'clean'),
+      call('5:0', 'c2', 'Read', 'a.ts'),
+      end('6:0'),
+    ]);
+    expect(turns[0].steps).toHaveLength(2);
+    const step = turns[0].steps[0];
+    if (step.kind !== 'tool') throw new Error('expected a tool step');
+    expect(step.call.summary).toBe('git status');
+    expect(step.id).toBe('2:0');
+    expect(step.result?.output).toBe('clean');
+    expect(step.status).toBe('ok');
+  });
+
+  it('keeps the result when the repeated call arrives after it', () => {
+    const { turns } = groupTurns([user('1:0'), call('2:0', 'c1'), result('3:0', 'c1', false, 'boom'), call('4:0', 'c1', 'Bash', 'again')]);
+    expect(turns[0].steps).toHaveLength(1);
+    const step = turns[0].steps[0];
+    if (step.kind !== 'tool') throw new Error('expected a tool step');
+    expect(step.call.summary).toBe('again');
+    expect(step.status).toBe('error');
   });
 
   it('marks an error result as error', () => {

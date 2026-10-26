@@ -110,18 +110,22 @@ export function onSessionChatItems(cb: (event: SessionChatItemsEvent) => void): 
 /**
  * Add `incoming` to `prev`, one entry per `id`. An item whose `id` is already there replaces it in place,
  * so the order is the order of first arrival. `reset` drops `prev` first (the file was replaced).
+ * Only the latest `usage` item is kept: every agent message carries one and only the newest is shown.
  */
 export function mergeItems(prev: readonly ChatItem[], incoming: readonly ChatItem[], reset: boolean): ChatItem[] {
   const byId = new Map<string, ChatItem>();
   if (!reset) for (const item of prev) byId.set(item.id, item);
   for (const item of incoming) byId.set(item.id, item);
-  return [...byId.values()];
+  const merged = [...byId.values()];
+  const latestUsage = merged.map((item) => item.kind).lastIndexOf('usage');
+  return merged.filter((item, index) => item.kind !== 'usage' || index === latestUsage);
 }
 
 /**
  * Group items into turns. A turn starts at a `user` item and ends at its `turnEnd`. A tool result attaches
- * to the call with the same `callId` (a call without one is still running). Agent output before any user
- * item starts a turn with no `user`.
+ * to the call with the same `callId` (a call without one is still running). Calls that repeat a `callId`
+ * (a tool shown first as started, then as finished) are one row: the latest call item replaces the first.
+ * Agent output before any user item starts a turn with no `user`.
  */
 export function groupTurns(items: readonly ChatItem[]): GroupedChat {
   const turns: ChatTurn[] = [];
@@ -148,6 +152,11 @@ export function groupTurns(items: readonly ChatItem[]): GroupedChat {
         turnFor(item.id).steps.push({ kind: 'text', id: item.id, item });
         break;
       case 'toolCall': {
+        const known = calls.get(item.callId);
+        if (known) {
+          known.call = item;
+          break;
+        }
         const step: ToolStep = { kind: 'tool', id: item.id, call: item, result: null, status: 'running' };
         calls.set(item.callId, step);
         turnFor(item.id).steps.push(step);
