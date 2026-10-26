@@ -1,0 +1,101 @@
+/* Chat tab of a cockpit pane: the agent's session file as a plain list. Monochrome like the Transcript:
+   the person's messages sit on a soft fill, the agent's text is plain, each tool call is one mono row and a
+   failed one is only heavier. These restyle the hook classes SessionChatView adds next to its pm- classes
+   (the classic TerminalPane layout keeps the pm- look). */
+
+.cockpit .ck-chat {
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+  color: var(--label);
+  font: 13px/1.5 var(--font-ui);
+}
+.cockpit .ck-chat-head {
+  gap: 8px;
+  padding: 10px 20px;
+  background: transparent;
+  border-bottom: 1px solid var(--sep);
+  font-size: 12px;
+  color: var(--label-3);
+}
+.cockpit .ck-chat-model {
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-chat-cli {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-chat-note {
+  padding: 8px 20px;
+  font-size: 11px;
+  color: var(--label-3);
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-chat-body {
+  padding: 12px 20px 24px;
+}
+.cockpit .ck-chat-bubble {
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--label);
+  line-height: 1.45;
+}
+.cockpit .ck-chat-text {
+  color: var(--label);
+}
+.cockpit .ck-chat-tool {
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font: 12px/1.4 var(--font-mono);
+  color: var(--label-2);
+  transition: background 160ms var(--ease);
+}
+.cockpit .ck-chat-tool:hover {
+  background: var(--fill);
+}
+.cockpit .ck-chat-tool:focus-visible {
+  box-shadow: var(--focus);
+}
+.cockpit .ck-chat-tool-name {
+  color: var(--label);
+}
+.cockpit .ck-chat-tool-summary {
+  color: var(--label-3);
+}
+.cockpit .ck-chat-tool-status {
+  font: 500 11px var(--font-ui);
+  color: var(--label-3);
+}
+.cockpit .ck-chat-tool-status--error {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-chat-output {
+  margin: 4px 0 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  font: 11.5px/1.5 var(--font-mono);
+  color: var(--label-2);
+}
+.cockpit .ck-chat-end {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-chat-rule {
+  background: var(--sep);
+}
+.cockpit .ck-chat-empty {
+  max-width: none;
+  padding: 32px 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-chat-tool {
+    transition: none;
+  }
+}
