@@ -627,6 +627,22 @@ mod tests {
     }
 
     #[test]
+    fn two_zst_frames_in_one_file_decode_to_the_plain_fixture_twice() {
+        use std::io::Read;
+
+        let home = temp_home("zst-two-frames");
+        let path = home.join("rollout-two.jsonl.zst");
+        let frame = include_bytes!("fixtures/rollout_basic.jsonl.zst");
+        fs::write(&path, [frame.as_slice(), frame.as_slice()].concat()).unwrap();
+        let plain = include_str!("fixtures/rollout_basic.jsonl").replace("\r\n", "\n");
+
+        let mut text = String::new();
+        open_lines(&path).unwrap().read_to_string(&mut text).unwrap();
+        assert_eq!(text, plain.repeat(2));
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
     fn recent_rollouts_of_a_missing_home_is_empty() {
         let home = temp_home("missing");
         assert!(recent_rollouts(&home.join("nope"), SystemTime::now()).is_empty());
