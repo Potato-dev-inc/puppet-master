@@ -213,10 +213,11 @@ struct Fixture {
 fn fixture(name: &str, draft: String, idle: &str, reprints: Option<bool>) -> Fixture {
     let tree = Tree::new(name);
     let (wizard, host) = tree.visible_wizard_with(|env| {
-        env.visible.test.ready = Duration::from_millis(400);
-        env.visible.test.busy = Duration::from_millis(400);
-        env.visible.test.done = Duration::from_millis(800);
-        env.visible.test.permission = Duration::from_millis(400);
+        // long bounds: the fake agent moves on the wizard's own looks, so these only end a wait that fails
+        env.visible.test.ready = Duration::from_secs(20);
+        env.visible.test.busy = Duration::from_secs(20);
+        env.visible.test.done = Duration::from_secs(20);
+        env.visible.test.permission = Duration::from_secs(6);
     });
     let id = ok(&wizard, "start", json!({"command": "fake-agent"}))["session"].as_str().unwrap().to_string();
     ok(&wizard, "probe", json!({"session": id}));
@@ -253,7 +254,6 @@ impl Fixture {
     }
 
     fn agent_with(&self, idle: &'static str, rows_before_reply: &'static str, tall: bool) {
-        let host = self.host.clone();
         self.host.on_deliver(move |h, pane, text| {
             if text.contains("hello.txt") {
                 h.set_screen_of(pane, screens::PERMISSION);
@@ -262,20 +262,18 @@ impl Fixture {
             }
             let word = text.rsplit(' ').next().unwrap_or("").to_string();
             h.set_screen_of(pane, &screens::working(&word, 0));
-            let (host, pane) = (host.clone(), pane.to_string());
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(120));
-                host.set_screen_of(&pane, &screens::working(&word, 1));
-                std::thread::sleep(Duration::from_millis(120));
-                let echo = if tall { String::new() } else { format!("> Reply with exactly the word: {word}\n") };
-                let screen = format!(
-                    "NIMBUS 0.4\n\n{echo}{rows_before_reply}reply: {word}\n\ndone in 2s\n\n{}",
-                    idle.split_once("\n\n").map_or(idle, |(_, rest)| rest)
-                );
+            let first = screens::working(&word, 1);
+            h.then(pane, 3, move |h, pane| h.set_screen_of(pane, &first));
+            let echo = if tall { String::new() } else { format!("> Reply with exactly the word: {word}\n") };
+            let screen = format!(
+                "NIMBUS 0.4\n\n{echo}{rows_before_reply}reply: {word}\n\ndone in 2s\n\n{}",
+                idle.split_once("\n\n").map_or(idle, |(_, rest)| rest)
+            );
+            h.then(pane, 3, move |h, pane| {
                 if tall {
-                    host.push_scrollback(&pane, &[format!("> Reply with exactly the word: {word}").as_str()]);
+                    h.push_scrollback(pane, &[format!("> Reply with exactly the word: {word}").as_str()]);
                 }
-                host.set_screen_of(&pane, &screen);
+                h.set_screen_of(pane, &screen);
             });
             Delivered::Submitted
         });
@@ -466,7 +464,6 @@ fn the_command_question_becomes_a_card_in_a_second_test_pane() {
     let f = fixture("sa-command", draft, screens::IDLE, None);
     wizard_with_command_frame(&f);
     let host = f.host.clone();
-    let inner = f.host.clone();
     f.host.on_deliver(move |h, pane, text| {
         if text.contains("echo ") {
             h.set_screen_of(pane, COMMAND_QUESTION);
@@ -479,12 +476,9 @@ fn the_command_question_becomes_a_card_in_a_second_test_pane() {
             return Delivered::Submitted;
         }
         let word = text.rsplit(' ').next().unwrap_or("").to_string();
-        let (host, pane) = (inner.clone(), pane.to_string());
-        host.set_screen_of(&pane, &screens::working(&word, 0));
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(150));
-            host.set_screen_of(&pane, &screens::reply(&word));
-        });
+        h.set_screen_of(pane, &screens::working(&word, 0));
+        let reply = screens::reply(&word);
+        h.then(pane, 3, move |h, pane| h.set_screen_of(pane, &reply));
         Delivered::Submitted
     });
     let run = f.start(screens::IDLE);
