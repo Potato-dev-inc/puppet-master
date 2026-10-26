@@ -60,6 +60,21 @@ pub fn clean_extracted_result_after(
     previous_task: &str,
     agent_type: &str,
 ) -> Option<String> {
+    clean_extracted_result_in_turn(evidence, task, previous_task, agent_type, false)
+}
+
+/// [`clean_extracted_result_after`] for text that was cut from a turn whose task echo is KNOWN to sit above it:
+/// `echo_above` says the evidence starts under the agent's tool rows, so the echo (and what it used up of the task)
+/// is not among the lines. A reply row that is a slice of the task ("List the files, then reply with exactly: X" ->
+/// the reply `X`) is then the reply: the echo came first, above the tools, and this row is the second copy.
+pub fn clean_extracted_result_in_turn(
+    evidence: &str,
+    task: &str,
+    previous_task: &str,
+    agent_type: &str,
+    echo_above: bool,
+) -> Option<String> {
+    let this_task = task;
     let corpus = if previous_task.trim().is_empty() {
         task.to_string()
     } else {
@@ -80,8 +95,16 @@ pub fn clean_extracted_result_after(
         .copied()
         .filter(|line| !is_tui_chrome_line(line, agent_type))
         .collect();
+    // The cut above can have thrown the echo away: whatever sits before the last tool row was seen, not cleaned.
+    let echo_above = echo_above
+        || (after_tools > 0
+            && all[..after_tools]
+                .iter()
+                .filter(|line| !is_tui_chrome_line(line, agent_type))
+                .any(|line| line_echoes_task(line, this_task)));
     let mut echoed = echoed_lines(&candidates, task);
-    let rescued = keep_last_copy_of_repeated_echoes(&candidates, &mut echoed, previous_task);
+    let seed = echo_above.then(|| normalize_echo(this_task));
+    let rescued = keep_last_copy_of_repeated_echoes(&candidates, &mut echoed, previous_task, seed.as_deref());
     let mut lines: Vec<&str> = candidates
         .iter()
         .zip(&echoed)
@@ -145,6 +168,7 @@ fn keep_last_copy_of_repeated_echoes(
     lines: &[&str],
     echoed: &mut [bool],
     previous_task: &str,
+    seen_above: Option<&str>,
 ) -> bool {
     let mut rescued = false;
     let previous_n = normalize_echo(previous_task);
@@ -173,7 +197,8 @@ fn keep_last_copy_of_repeated_echoes(
     // slice of it. The echo comes first and has already used up that text, so a later echoed row
     // wholly contained in the rows before it is the reply, not a second echo. A wrapped echo
     // continues the text and is never contained in what precedes it.
-    let mut consumed = String::new();
+    // (When the cut left the echo above the evidence, the task itself is what the echo used up.)
+    let mut consumed = seen_above.unwrap_or_default().to_string();
     for index in 0..lines.len() {
         if !echoed[index] {
             continue;
