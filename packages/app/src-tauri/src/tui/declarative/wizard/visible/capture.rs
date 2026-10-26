@@ -667,13 +667,13 @@ pub fn message_task_for(word: &str) -> String {
 
 /// The sentence in front of every task that makes the agent use a tool: the wizard's pane is in its own isolated temporary
 /// folder and the agent must stay in it (the wizard answers its one-time questions only while they stay inside it).
-pub const STAY_IN_FOLDER: &str = "Only look inside this folder.";
+pub const STAY_IN_FOLDER: &str = "Stay in this folder.";
 
 /// The task of the work step: the agent must think and use one harmless tool (listing the folder), then answer with a
 /// sentence that holds the third random word. The reply is that sentence and nothing else; the screens before it show the
 /// rows an agent prints while it works (thinking, tool calls, a summary line).
 pub fn work_task(words: &TestWords) -> String {
-    format!("{STAY_IN_FOLDER} List the files in this folder, then reply with exactly: {}", work_sentence(words))
+    format!("{STAY_IN_FOLDER} List the files here, then reply with exactly: {}", work_sentence(words))
 }
 
 /// The answer the work task asks for: a sentence that holds the third random word.

@@ -53,7 +53,7 @@ fn work_working(a: &Agent, words: &TestWords, n: usize) -> String {
     a.at_rest("").replace(
         BOX,
         &format!(
-            "> Only look inside this folder. List the files in this folder, then reply with exactly: {}\n\n~ Thinking... ({n}s)\ntool: ls\n  -> README.md\n{spinner} Generating...  ctrl+c to stop\n\n{BOX}",
+            "> Stay in this folder. List the files here, then reply with exactly: {}\n\n~ Thinking... ({n}s)\ntool: ls\n  -> README.md\n{spinner} Generating...  ctrl+c to stop\n\n{BOX}",
             sentence_of(words)
         ),
     )
@@ -61,7 +61,7 @@ fn work_working(a: &Agent, words: &TestWords, n: usize) -> String {
 
 fn work_reply(a: &Agent, words: &TestWords) -> String {
     a.at_rest(&format!(
-        "> Only look inside this folder. List the files in this folder, then reply with exactly: {}\n\n~ Thinking... (3s)\ntool: ls\n  -> README.md\nreply: {}\n\u{25b8} Thought for 3s, 298 tokens\n\n",
+        "> Stay in this folder. List the files here, then reply with exactly: {}\n\n~ Thinking... (3s)\ntool: ls\n  -> README.md\nreply: {}\n\u{25b8} Thought for 3s, 298 tokens\n\n",
         sentence_of(words),
         sentence_of(words)
     ))
@@ -193,7 +193,7 @@ fn a_clean_profile_passes_the_work_task_and_reads_a_tall_reply_whole() {
     // the tasks that were typed: the plain message, the listing task (with the third word) and the tall reply
     let typed = f.host.delivered();
     assert_eq!(typed[0], format!("Reply with exactly the word: {}", f.words.two));
-    assert_eq!(typed[1], format!("Only look inside this folder. List the files in this folder, then reply with exactly: {}", work_sentence(&f.words)));
+    assert_eq!(typed[1], format!("Stay in this folder. List the files here, then reply with exactly: {}", work_sentence(&f.words)));
     assert!(typed[2].starts_with("Write the whole numbers from 1 to 70") && typed[2].ends_with(&f.words.two), "{}", typed[2]);
     // the sentence's word never reaches the drafter's text
     assert!(!v.to_string().contains(&f.words.sky), "{v}");

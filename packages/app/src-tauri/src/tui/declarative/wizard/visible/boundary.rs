@@ -13,10 +13,13 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::menu::{normalise_row, Menu, MenuKind};
-use super::screen::rows;
 
 /// How many rows above the first option the question may reach (the command it asks about, the paths).
 const REGION_ROWS: usize = 14;
+
+/// How many blocks of rows (set apart by a blank row) above the options belong to the question: its title and what it
+/// asks about (the command, the file). Whatever is above them is the conversation.
+const MAX_BLOCKS: usize = 2;
 
 /// The rows of a question.
 #[derive(Debug, Clone, Default)]
@@ -31,32 +34,45 @@ pub struct Region {
 /// The rows of the question: from the nearest rule above its options (the transcript of earlier turns is above it), at
 /// least the two rows above the options (the question and what it asks about), to the end of the screen.
 pub fn question_region(screen: &str, menu: Option<&Menu>) -> Region {
-    let all = rows(screen);
-    if all.is_empty() {
-        return Region::default();
-    }
+    let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
+    let Some(last) = lines.iter().rposition(|l| !l.trim().is_empty()) else { return Region::default() };
     let first_option = menu.filter(|m| m.kind != MenuKind::YesNo).and_then(|m| m.options.first()).and_then(|first| {
-        all.iter().rposition(|row| {
+        lines.iter().rposition(|row| {
             let row = normalise_row(row);
             row.trim_end().ends_with(first.text.as_str()) || (first.text.chars().count() > 30 && row.contains(first.text.as_str()))
         })
     });
-    let anchor = first_option.unwrap_or(all.len().saturating_sub(1));
-    let floor = anchor.saturating_sub(REGION_ROWS);
+    let anchor = first_option.unwrap_or(last + 1);
+    let floor = anchor.saturating_sub(REGION_ROWS * 2);
     let mut start = floor;
-    let mut collected = 0usize;
+    let (mut collected, mut blocks, mut in_block) = (0usize, 0usize, false);
     for index in (floor..anchor).rev() {
-        if is_rule(all[index]) {
+        let row = lines[index];
+        if row.trim().is_empty() {
+            in_block = false;
+            continue;
+        }
+        if is_rule(row) {
             if collected >= 2 {
                 start = index + 1;
                 break;
             }
+            in_block = false;
             continue;
+        }
+        if !in_block {
+            blocks += 1;
+            in_block = true;
+            if blocks > MAX_BLOCKS {
+                start = index + 1;
+                break;
+            }
         }
         collected += 1;
     }
-    let above_end = if first_option.is_some() { anchor } else { all.len() };
-    Region { above: all[start..above_end.max(start)].join("\n"), all: all[start..].join("\n") }
+    let keep = |from: usize, to: usize| lines[from..to.max(from)].iter().filter(|l| !l.trim().is_empty()).copied().collect::<Vec<_>>().join("
+");
+    Region { above: keep(start, anchor.min(lines.len())), all: keep(start, lines.len()) }
 }
 
 /// A full-width rule or box edge (`────────`, `╭────╮`, `+-----+`).
@@ -206,7 +222,13 @@ fn inside(path: &str, rest: &str, folder: &str) -> bool {
         }
     }
     let (Some(p), Some(f)) = (resolve(path), resolve(folder)) else { return false };
-    !f.is_empty() && p.len() >= f.len() && p[..f.len()] == f[..]
+    if !f.is_empty() && p.len() >= f.len() && p[..f.len()] == f[..] {
+        return true;
+    }
+    // the folder itself, cut short where a banner or a title ran out of room (`.../Temp/pm-wizard`): the path has got as
+    // far as the first letters of the folder's own name, so it is the folder, not one of the folders above it
+    let own_name_from = folder.rfind('/').map_or(0, |i| i + 1);
+    !path.is_empty() && folder.starts_with(path) && path.len() > own_name_from
 }
 
 /// A path token that reaches outside `folder`, as the screen shows it; `None` when it stays inside (or is not a path).
@@ -241,7 +263,8 @@ fn token_outside(token: &str, rest: &str, folder: Option<&str>) -> Option<String
     let is_env = (first.len() > 2 && first.starts_with('%') && first.ends_with('%'))
         || upper.starts_with("$ENV:")
         || ["$HOME", "${HOME}", "$USERPROFILE", "$TMPDIR", "$TEMP", "$TMP"].contains(&upper.as_str());
-    if first == "~" || is_env {
+    // a lone `~` is a word (a bullet, a spinner), not the home folder: only `~/…` is a path
+    if (first == "~" && slashed.len() > 1) || is_env {
         let tail = slashed[first.len()..].trim_start_matches('/');
         let base = if first == "~" { home() } else { env_dir(first) };
         if let Some(base) = base {
@@ -488,5 +511,23 @@ mod tests {
         assert_eq!(plain_no(&menu(&["Yes, I trust this folder", "No, exit"])), None);
         assert_eq!(plain_no(&menu(&["Yes", "No, and tell the agent what to do differently", "No"])), Some(2));
         assert_eq!(plain_no(&menu(&["Allow once", "Deny", "Deny and never ask again"])), Some(1));
+    }
+}
+
+#[cfg(test)]
+mod cut_short_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn a_lone_tilde_and_a_folder_cut_short_are_not_outside() {
+        let folder = PathBuf::from(r"C:\Users\user\AppData\Local\Temp\pm-wizard-wz_abc123");
+        let region = |t: &str| Region { above: t.into(), all: t.into() };
+        assert_eq!(breach(&region("~ Thinking... (1s)"), Some(&folder)), None);
+        assert_eq!(breach(&region(r"NIMBUS 0.4.2 | model | C:\Users\user\AppData\Local\Temp\pm-wizard"), Some(&folder)), None);
+        // the folders above it are outside
+        assert!(breach(&region(r"dir C:\Users\user\AppData\Local\Temp"), Some(&folder)).is_some());
+        assert!(breach(&region(r"dir C:\Users\user"), Some(&folder)).is_some());
+        assert!(breach(&region("ls ~/Desktop"), Some(&folder)).is_some());
     }
 }

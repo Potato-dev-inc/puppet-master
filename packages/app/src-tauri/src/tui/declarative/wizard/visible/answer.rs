@@ -572,7 +572,10 @@ fn decide(screen: &str, styled: Option<&StyledScreen>, hint: Option<&Hint>, fold
     let read = menu.as_ref().map_or_else(|| "no menu read".to_string(), describe_menu);
     // The wizard's panes stay in the wizard's folder: a question that reaches outside it is never answered "yes".
     let region = boundary::question_region(screen, menu.as_ref());
-    if let Some(why) = boundary::breach(&region, folder) {
+    // the folder as it was given and as the file system spells it (a short `PROGRA~1` name, a link): the agent may show either
+    let canonical = folder.and_then(|f| f.canonicalize().ok());
+    let breach = boundary::breach(&region, folder).filter(|_| canonical.as_deref().is_none_or(|c| boundary::breach(&region, Some(c)).is_some()));
+    if let Some(why) = breach {
         let result = deny_plan(menu, &why);
         return (read, result);
     }

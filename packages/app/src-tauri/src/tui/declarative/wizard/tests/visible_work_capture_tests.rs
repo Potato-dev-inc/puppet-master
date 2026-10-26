@@ -85,7 +85,7 @@ impl Drive {
 #[test]
 fn the_work_task_asks_the_agent_to_list_the_folder_and_answer_with_a_sentence() {
     let task = work_task(&words());
-    assert_eq!(task, "Only look inside this folder. List the files in this folder, then reply with exactly: folder listed, code cccccc.");
+    assert_eq!(task, "Stay in this folder. List the files here, then reply with exactly: folder listed, code cccccc.");
 }
 
 #[test]

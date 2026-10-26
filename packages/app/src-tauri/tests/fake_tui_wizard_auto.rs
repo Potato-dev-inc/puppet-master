@@ -361,9 +361,9 @@ fn finish_without_me_run_with(name: &str, script: &str, recorded_draft: &str, an
     // 5. Zero person input: the test never typed into a pane, and the fake agent saw only the wizard's own tasks.
     let prompts: Vec<String> = events_named(&session, "prompt").iter().filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
     assert!(prompts.iter().all(|p| p.starts_with("Reply with exactly the word")
-        || p.starts_with("List the files")
-        || p.starts_with("Create a file named hello.txt")
-        || p.starts_with("Run this shell command")
+        || p.contains("List the files")
+        || p.contains("Create a file named hello.txt")
+        || p.contains("Run this shell command")
         || p.starts_with("Write the whole numbers")
         || p == "/exit"), "{prompts:?}");
     assert!(!events_named(&session, "gate_answer").is_empty(), "the folder question was answered (by the wizard's safe answerer)");
