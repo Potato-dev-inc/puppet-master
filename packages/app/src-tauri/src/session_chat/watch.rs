@@ -57,7 +57,7 @@ impl Default for Tuning {
 
 /// What one look at the file changed.
 #[derive(Debug, PartialEq)]
-pub(super) enum Change {
+pub enum Change {
     Nothing,
     Append(Vec<ChatItem>),
     /// Items to add, or to put in place of the shown items with the same id (a screen read changes its items).

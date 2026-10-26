@@ -2,12 +2,14 @@
 //! (`opencode_native`). Everything TUI-facing lives in this folder:
 //!
 //! - `screen` — the interactive TUI's menus and selectors
+//! - `transcript` — how the conversation is drawn (message rows, tool rows, the input box, the sidebar)
 //!
 //! The HTTP API client (keys, quota, messages) is a protocol backend, not a screen-scraped TUI,
 //! and stays in `crate::opencode`.
 
 pub mod read_only;
 mod screen;
+mod transcript;
 
 use super::{Features, InstructionFile, Kind, StandbyScreen, StandbySupport, TuiProfile};
 
@@ -17,6 +19,43 @@ fn agents_md() -> Vec<InstructionFile> {
 }
 
 pub struct OpenCode;
+
+/// What both OpenCode profiles (the TUI and the TUI attached to the native server) read off the same screen.
+macro_rules! transcript_methods {
+    () => {
+        fn transcript_text(&self, text: &str) -> String {
+            transcript::transcript_text(text)
+        }
+
+        fn user_message_row(&self, row: &str) -> Option<String> {
+            transcript::user_message_row(row)
+        }
+
+        fn reads_user_messages(&self) -> bool {
+            true
+        }
+
+        fn is_chrome_line(&self, lower: &str) -> bool {
+            transcript::is_chrome_line(lower)
+        }
+
+        fn is_tool_activity_line(&self, lower: &str) -> bool {
+            transcript::is_tool_activity_line(lower)
+        }
+
+        fn is_thinking_line(&self, lower: &str) -> bool {
+            transcript::is_thinking_line(lower)
+        }
+
+        fn is_summary_line(&self, lower: &str) -> bool {
+            transcript::is_summary_line(lower)
+        }
+
+        fn detect_footer_model(&self, buffer: &str) -> Option<String> {
+            transcript::footer_model(buffer)
+        }
+    };
+}
 
 /// Where OpenCode keeps MCP servers (Toolbelt).
 const MCP_HOST: &str = r#"
@@ -103,6 +142,8 @@ impl TuiProfile for OpenCode {
     fn looks_like_menu(&self, text: &str) -> bool {
         screen::looks_like_menu(text)
     }
+
+    transcript_methods!();
 }
 
 pub struct OpenCodeNative;
@@ -144,6 +185,8 @@ impl TuiProfile for OpenCodeNative {
     fn looks_like_menu(&self, text: &str) -> bool {
         screen::looks_like_menu(text)
     }
+
+    transcript_methods!();
 }
 
 #[cfg(all(test, windows))]

@@ -99,17 +99,25 @@ impl ScreenChat {
         diff(&mut self.shown, next)
     }
 
+    /// The items the viewer has been sent so far.
+    pub fn shown(&self) -> &[ChatItem] {
+        &self.shown
+    }
+
     /// Reads `text` into the turns.
     fn read(&mut self, text: &str, idle: bool) {
         let profile = crate::tui::profile_for(&self.agent_type);
         if profile.startup_gate(text).is_some() {
             return;
         }
+        // The model is named in the footer, which the transcript leaves out.
         let tail: Vec<&str> = text.lines().rev().take(MODEL_TAIL_ROWS).collect();
         let tail = tail.into_iter().rev().collect::<Vec<_>>().join("\n");
         if let Some(model) = profile.detect_footer_model(&tail) {
             self.model = Some(model);
         }
+        let transcript = profile.transcript_text(text);
+        let text = transcript.as_str();
         if profile.reads_user_messages() {
             let parsed = parse_turns(text, &*profile, &self.agent_type);
             self.merge(parsed, text);

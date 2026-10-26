@@ -494,6 +494,13 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// The part of the pane's text that is the conversation, for the chat view's screen reader: what the TUI draws
+    /// beside or below it (a scrollbar, a sidebar, the input box, a footer) is left out, and a screen that is no
+    /// conversation yet (a home screen) gives nothing. Default: the text as it is.
+    fn transcript_text(&self, text: &str) -> String {
+        text.to_string()
+    }
+
     /// Whether `user_message_row` can ever answer (the profile declares how its transcript echoes a message).
     fn reads_user_messages(&self) -> bool {
         false
