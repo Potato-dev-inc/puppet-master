@@ -183,3 +183,35 @@ fn the_chat_follows_a_turn_from_its_first_look_to_its_answer_without_a_reset() {
     assert_eq!(resets, 0);
     assert_eq!(chat.shown().len(), 6);
 }
+
+const BASH: &str = include_str!("fixtures/screen_bash_wide.txt");
+
+#[test]
+fn the_box_a_shell_command_is_drawn_in_is_a_tool_row_and_not_a_second_message() {
+    let items = chat_of(&screen(BASH));
+    assert_eq!(
+        lines(&items),
+        [
+            "session:DeepSeek V4.1 Flash",
+            "user:Run the shell command: node -v   Then reply with only the version number.",
+            "tool:$ node -v",
+            "assistant!:v22.20.0",
+            "end",
+        ]
+    );
+}
+
+#[test]
+fn a_thought_in_its_bar_block_is_not_conversation_and_a_message_that_starts_like_one_still_is() {
+    let thought = "  ┃  Thinking: weighing the two files\n  ┃  and how to answer\n\n     the answer\n";
+    assert_eq!(transcript_text(thought).trim(), "the answer");
+    let note = "  ┃  Thinking about lunch, what should I eat?\n\n     soup\n";
+    // "Thinking about" is a message: only the label with its colon is a thought.
+    assert!(transcript_text(note).contains("Thinking about lunch"), "{}", transcript_text(note));
+}
+
+#[test]
+fn a_shell_box_with_a_title_row_keeps_only_the_command_as_a_tool_row() {
+    let boxed = "  ┃  # Show the node version\n  ┃\n  ┃  $ node -v\n  ┃  v22.20.0\n\n     v22.20.0\n";
+    assert_eq!(transcript_text(boxed).trim(), "$ node -v\n\n     v22.20.0");
+}

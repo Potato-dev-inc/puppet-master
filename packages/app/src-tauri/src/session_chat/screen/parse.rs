@@ -49,8 +49,9 @@ pub(super) fn parse_turns(text: &str, profile: &dyn TuiProfile, agent_type: &str
             }
             None => {
                 cuts.last_mut().expect("a cut exists").1.push(row);
-                // Blank and chrome rows (the empty rows of a boxed message) do not end a message.
-                in_message &= chrome;
+                // Chrome rows with something drawn (the empty bar rows of a boxed message) do not end a message; a row
+                // with nothing on it does.
+                in_message &= chrome && !row.trim().is_empty();
             }
         }
     }
