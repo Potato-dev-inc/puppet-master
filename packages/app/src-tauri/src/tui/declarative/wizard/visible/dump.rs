@@ -23,7 +23,7 @@ pub const FILE: &str = "wizard-debug.json";
 pub const COPY: &str = "pm-wizard-last-debug.json";
 
 /// How long the stop reason may be.
-const REASON_CHARS: usize = 600;
+const REASON_CHARS: usize = 6000;
 
 /// Every string in `value`, cleaned and masked in place.
 fn scrub(value: &mut Value, words: &TestWords) {
@@ -50,6 +50,8 @@ pub fn document(session: &Session, capture: Option<Value>, reason: &str) -> Valu
             "status": if test_status.is_null() { Value::Null } else { test_status },
             "looks": session.visible.test_looks.lock().iter().cloned().collect::<Vec<_>>(),
             "decisions": session.visible.test_decisions.lock().clone(),
+            // the profile the visible test ran, as the drafter wrote it (scrubbed like everything else)
+            "profile_toml": session.visible.test_profile.lock().clone(),
         },
         "ai_looks": session.visible.auto.verdicts.lock().clone(),
     })

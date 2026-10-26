@@ -33,7 +33,7 @@ import {
   type VisibleTestStatus,
   type WizardApi,
 } from './agentWizard';
-import type { CaptureFacts } from './agentWizardPrompt';
+import { answeredSentence, type CaptureFacts } from './agentWizardPrompt';
 
 export type { Verdict } from './agentWizard';
 
@@ -287,9 +287,9 @@ export function decisionText(where: 'capture' | 'test', reply: VerdictReply): st
 }
 
 /** The plain sentence for a question the wizard answered (the progress list shows it). */
-function answeredText(agent: string, a: { flavour: string; label: string; via?: string; menu?: string }, where: string): string {
+function answeredText(agent: string, a: { flavour: string; label: string; via?: string; menu?: string; denied?: string }, where: string): string {
   const how = a.via === 'ai_look' ? ' (AI look, verified)' : a.menu ? ` (menu read: ${a.menu})` : '';
-  return `Answered ${agent}'s ${a.flavour} question${where}: ${a.label}${how}`;
+  return `${answeredSentence(agent, a, where)}${how}`;
 }
 
 /**

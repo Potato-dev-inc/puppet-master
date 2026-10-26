@@ -677,7 +677,9 @@ const ALWAYS_ONLY_Q: &str = "Do you trust this folder?\n\n> Yes, always trust\n 
 impl Drive {
     fn auto() -> Self {
         let mut d = Self::new();
-        d.c = Capture::new(words(), (120, 40), Config::default()).with_auto_answer(true);
+        d.c = Capture::new(words(), (120, 40), Config::default())
+            .with_auto_answer(true)
+            .with_answer_folder(Some(std::path::PathBuf::from("C:/Users/me/AppData/Local/Temp/pm-wizard-wz_ab12")));
         d
     }
 }

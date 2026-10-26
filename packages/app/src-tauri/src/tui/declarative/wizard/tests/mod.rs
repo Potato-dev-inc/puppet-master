@@ -23,6 +23,7 @@ mod visible_autoanswer_tests;
 mod visible_api_tests;
 mod visible_capture_tests;
 mod visible_finish_tests;
+mod visible_isolation_tests;
 mod visible_livetest_tests;
 mod visible_menu_shape_tests;
 mod visible_read_menu_look_tests;

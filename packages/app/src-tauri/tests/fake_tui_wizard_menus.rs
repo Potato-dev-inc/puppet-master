@@ -420,3 +420,42 @@ fn a_second_question_whose_yes_row_the_parser_misses_is_answered_by_the_ai_look_
     assert!(approvals.iter().all(|a| a["answer"] == "allow"), "{approvals:?}");
     rig.call("cancel", json!({"session": id})).unwrap();
 }
+
+/// The wizard keeps the agent in its folder: the agent's "list the files" turn asks to run a command that inspects other
+/// processes (the founder's run: `Get-Process`, the machine's process list, the home folder). The question is drawn as
+/// that CLI draws it (a numbered menu, the broad rows long, a "No, cancel" last): the wizard presses the plain No row, the
+/// fake sees a denial and never an allow for it, and the denial is in the answered list with its reason. The other
+/// questions (a file write and a harmless command in the folder) are still answered "yes" once.
+#[test]
+fn a_command_that_inspects_other_processes_is_denied_with_the_plain_no_row_and_the_rest_is_still_allowed() {
+    let script = script("bullets_numbered", 0).replace(r#"{ do = "approve", kind = "bash", command = "ls", on_allow = ["#, r#"{ do = "approve", kind = "bash", command = "Get-Process | Where-Object { $_.ProcessName -match 'node' }", on_allow = [
+      { do = "say", text = "WENT OUTSIDE the folder" },"#);
+    // after the denial the agent still answers the task (it does without the process list)
+    let script = script.replace(
+        r#"{ do = "say", text = "folder listed, code {last_word}." },
+    ], on_deny = [{ do = "say", text = "Not run." }] },"#,
+        r#"{ do = "say", text = "folder listed, code {last_word}." },
+    ], on_deny = [{ do = "say", text = "folder listed, code {last_word}." }] },"#,
+    );
+    assert!(script.contains("WENT OUTSIDE"), "the script was changed");
+    assert!(script.matches("folder listed").count() == 2, "the work turn answers after a denial too");
+    let session = World::get().session("wizard-menus-isolation");
+    let rig = session.wizard_rig_with("nimbus", &script, |env| {
+        env.visible.capture.unsure_ms = 1500;
+        env.visible.capture.reply_unsure_ms = 1500;
+    });
+    let id = start_capture(&rig);
+    let settled = settle(&rig, &id, 150, |_| None);
+    let approvals = events_named(&session, "approval_answer");
+    assert!(approvals.iter().all(|a| a["answer"] != "allow" || a["label"] != "WENT OUTSIDE"), "{approvals:?}");
+    let denies: Vec<&Value> = approvals.iter().filter(|a| a["answer"] == "deny").collect();
+    assert_eq!(denies.len(), 1, "exactly one denial, the process listing: {approvals:?}");
+    assert_eq!(denies[0]["label"], "No, cancel", "{approvals:?}");
+    assert_eq!(approvals.iter().filter(|a| a["answer"] == "allow").count(), 2, "the file write and the harmless command: {approvals:?}");
+    let all = settled["answered"].as_array().unwrap();
+    let denied: Vec<&Value> = all.iter().filter(|a| a["denied"].is_string()).collect();
+    assert_eq!(denied.len(), 1, "{settled}");
+    assert_eq!((denied[0]["flavour"].as_str(), denied[0]["label"].as_str()), (Some("permission"), Some("No, cancel")), "{denied:?}");
+    assert!(denied[0]["denied"].as_str().unwrap().contains("other processes or the machine"), "{denied:?}");
+    rig.call("cancel", json!({"session": id})).unwrap();
+}

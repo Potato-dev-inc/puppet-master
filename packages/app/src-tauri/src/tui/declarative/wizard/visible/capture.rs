@@ -485,6 +485,7 @@ impl CaptureSet {
                             screen: q["screen"].as_str().unwrap_or("").to_string(),
                             via: q["via"].as_str().unwrap_or("rules").to_string(),
                             read: q["menu"].as_str().unwrap_or("").to_string(),
+                            denied: q["denied"].as_str().map(str::to_string),
                         })
                         .collect()
                 })
@@ -664,11 +665,15 @@ pub fn message_task_for(word: &str) -> String {
     format!("Reply with exactly the word: {word}")
 }
 
+/// The sentence in front of every task that makes the agent use a tool: the wizard's pane is in its own isolated temporary
+/// folder and the agent must stay in it (the wizard answers its one-time questions only while they stay inside it).
+pub const STAY_IN_FOLDER: &str = "Stay in this folder.";
+
 /// The task of the work step: the agent must think and use one harmless tool (listing the folder), then answer with a
 /// sentence that holds the third random word. The reply is that sentence and nothing else; the screens before it show the
 /// rows an agent prints while it works (thinking, tool calls, a summary line).
 pub fn work_task(words: &TestWords) -> String {
-    format!("List the files in this folder, then reply with exactly: {}", work_sentence(words))
+    format!("{STAY_IN_FOLDER} List the files here, then reply with exactly: {}", work_sentence(words))
 }
 
 /// The answer the work task asks for: a sentence that holds the third random word.
@@ -678,12 +683,12 @@ pub fn work_sentence(words: &TestWords) -> String {
 
 /// The task of the permission step: a file write (`tui_permission`).
 pub fn permission_task(words: &TestWords) -> String {
-    format!("Create a file named hello.txt in the current folder. It must contain the word {}.", words.sky)
+    format!("{STAY_IN_FOLDER} Create a file named hello.txt in the current folder. It must contain the word {}.", words.sky)
 }
 
 /// The second task of the permission step: running a command (`tui_permission_command`). A command that only prints.
 pub fn command_task(words: &TestWords) -> String {
-    format!("Run this shell command in the current folder and tell me what it printed: echo {}", words.sky)
+    format!("{STAY_IN_FOLDER} Run this shell command in the current folder and tell me what it printed: echo {}", words.sky)
 }
 
 impl Capture {
@@ -753,6 +758,12 @@ impl Capture {
     /// Let the engine answer the trust and one-time approval questions of this pane (SPEC 11.16).
     pub fn with_auto_answer(mut self, on: bool) -> Self {
         self.answerer = on.then(|| Answerer::new("capture", AnswerCfg::default()));
+        self
+    }
+
+    /// The wizard's own folder the pane lives in: what a question may name without being refused (`boundary`).
+    pub fn with_answer_folder(mut self, folder: Option<std::path::PathBuf>) -> Self {
+        self.answerer = self.answerer.take().map(|a| a.with_folder(folder));
         self
     }
 
@@ -1979,7 +1990,7 @@ impl Capture {
             "steps": steps,
             "screen_kind": self.kind.as_str(),
             "auto_answer": self.answerer.is_some(),
-            "answered": self.answered.iter().map(|a| json!({"place": a.place, "flavour": a.flavour, "label": a.label, "keys": a.keys, "via": a.via, "menu": a.read})).collect::<Vec<_>>(),
+            "answered": self.answered.iter().map(|a| json!({"place": a.place, "flavour": a.flavour, "label": a.label, "keys": a.keys, "via": a.via, "menu": a.read, "denied": a.denied})).collect::<Vec<_>>(),
             "frozen": self.frozen,
             "halted": self.halted,
             "fingerprint": self.stab.fingerprint(),

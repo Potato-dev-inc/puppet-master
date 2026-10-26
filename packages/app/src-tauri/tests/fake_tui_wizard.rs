@@ -150,9 +150,9 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     let prompts: Vec<String> = events_named(&session, "prompt").iter().filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
     assert_eq!(prompts.len(), 5, "{prompts:?}");
     assert_eq!(prompts[0], format!("Reply with exactly the word: {one}"));
-    assert_eq!(prompts[1], format!("List the files in this folder, then reply with exactly: folder listed, code {sky}."));
-    assert!(prompts[2].starts_with("Create a file named hello.txt") && prompts[2].contains(&sky), "{}", prompts[2]);
-    assert!(prompts[3].starts_with("Run this shell command") && prompts[3].ends_with(&format!("echo {sky}")), "{}", prompts[3]);
+    assert_eq!(prompts[1], format!("Stay in this folder. List the files here, then reply with exactly: folder listed, code {sky}."));
+    assert!(prompts[2].contains("Create a file named hello.txt") && prompts[2].contains(&sky), "{}", prompts[2]);
+    assert!(prompts[3].contains("Run this shell command") && prompts[3].ends_with(&format!("echo {sky}")), "{}", prompts[3]);
     assert_eq!(prompts[4], "/exit");
     // It answered no question: the only answers the fake saw were the person's (one gate answer, two approvals).
     assert_eq!(events_named(&session, "gate_answer").len(), 1);
@@ -231,10 +231,10 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     let prompts_after: Vec<String> = events_named(&session, "prompt").iter().skip(prompts_before).filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
     assert_eq!(prompts_after.len(), 5, "{prompts_after:?}");
     assert_eq!(prompts_after[0], format!("Reply with exactly the word: {two}"));
-    assert!(prompts_after[1].starts_with("List the files in this folder"));
+    assert!(prompts_after[1].contains("List the files here"));
     assert!(prompts_after[2].starts_with("Write the whole numbers from 1 to 70"));
     assert!(prompts_after[3].contains("hello.txt"));
-    assert!(prompts_after[4].starts_with("Run this shell command"));
+    assert!(prompts_after[4].contains("Run this shell command"));
     assert_eq!(events_named(&session, "approval_answer").len(), 2, "the permission checks answered nothing: only the person's earlier answers exist");
     assert!(session.pane_ids().iter().all(|p| !p.is_empty()));
 

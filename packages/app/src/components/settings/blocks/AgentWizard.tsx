@@ -1040,7 +1040,7 @@ function Review({
   showToml: boolean;
   oneTaskOffer: boolean;
   writesWithoutAsking: boolean;
-  answeredForYou: Array<{ flavour: string; label: string; keys?: string; screen?: string }>;
+  answeredForYou: Array<{ flavour: string; label: string; keys?: string; screen?: string; denied?: string }>;
   onToggleToml: () => void;
   onApprove: () => void;
   onRetry: () => void;

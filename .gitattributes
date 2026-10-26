@@ -17,6 +17,9 @@ integrations/** text eol=lf
 .claude-plugin/*.json text eol=lf
 .agents/plugins/*.json text eol=lf
 
+# Wizard test fixtures are split on "\n=====\n" or patched with multi-line replaces: keep them LF on every checkout.
+packages/app/src-tauri/src/tui/declarative/wizard/tests/fixtures/* text eol=lf
+
 # Golden files compared byte for byte by the agent pack tests.
 packages/app/src-tauri/src/agent_pack/golden/* text eol=lf
 

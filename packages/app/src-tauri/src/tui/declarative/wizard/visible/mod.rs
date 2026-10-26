@@ -8,6 +8,7 @@
 
 pub mod ai_menu;
 pub mod answer;
+pub mod boundary;
 pub mod api;
 pub mod capture;
 pub mod dump;

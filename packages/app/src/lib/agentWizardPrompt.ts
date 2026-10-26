@@ -90,6 +90,20 @@ export interface AnsweredQuestion {
   keys: string;
   /** The question as it was on screen (masked). */
   screen: string;
+  /** Set when the wizard said no: why (the question reached outside the wizard's temp folder). `label` is the "No" row it pressed. */
+  denied?: string;
+}
+
+/** Short words for why the wizard denied a question (the reason Rust logged is longer and names the path or the command). */
+export function deniedWhy(denied: string): string {
+  return /other processes or the machine/.test(denied) ? 'it asks about other processes or the machine' : 'outside the temp folder';
+}
+
+/** The plain sentence for a question the wizard answered (or denied) for the person: the progress list and the Review screen. */
+export function answeredSentence(agent: string, a: { flavour: string; label: string; denied?: string }, where = ''): string {
+  return a.denied
+    ? `Denied ${agent}'s ${a.flavour} question${where} (${deniedWhy(a.denied)}): ${a.label}`
+    : `Answered ${agent}'s ${a.flavour} question${where}: ${a.label}`;
 }
 
 /** What the guided capture learned (the masked set `capture finish` returns). */
@@ -330,7 +344,7 @@ function captureBlocks(c: CaptureFacts): string {
     `- Pane grid: ${c.grid.cols} columns by ${c.grid.rows} rows (the screens below are that size).`,
     c.facts.startup_dialogs.length
       ? `- Questions the agent asked at startup (answered ${
-          (c.facts.answered ?? []).length ? 'by the wizard, which pressed the plain yes in its own isolated folder' : 'by the person in the pane'
+          (c.facts.answered ?? []).some((a) => !a.denied) ? 'by the wizard, which pressed the plain yes in its own isolated folder' : 'by the person in the pane'
         }): ${c.facts.startup_dialogs.join(', ')}. Each needs its own [[tui.prompt]] (see the captures tui_trust / tui_firstrun below).`
       : '- The agent asked no question at startup.',
     c.facts.writes_without_asking || (c.facts.hello_written && !c.files.some((f) => f.name === 'tui_permission'))

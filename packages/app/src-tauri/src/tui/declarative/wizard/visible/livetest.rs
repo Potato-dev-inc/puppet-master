@@ -1140,6 +1140,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     session.visible.test_menu.lock().take();
     session.visible.test_menu_result.lock().take();
     session.visible.test_baseline.lock().take();
+    *session.visible.test_profile.lock() = Some(draft.text.clone());
     let mut outcome = Outcome { checks: Vec::new(), errors: Vec::new(), agent_error: None, screens: Vec::new(), answered: Vec::new(), answered_json: Vec::new() };
     let setup_failed = |outcome: &mut Outcome, code: &str, message: String| {
         outcome.errors.push(CheckError::new("visibletest", code, "", message));
@@ -1218,7 +1219,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         },
         expects_startup: session.visible.captures.lock().as_ref().is_some_and(|set| set.has("tui_trust") || set.has("tui_firstrun")),
         startup: parking_lot::Mutex::new(None),
-        auto: session.auto_answer.then(|| parking_lot::Mutex::new(Answerer::new("visibletest", AnswerCfg::default()))),
+        auto: session.auto_answer.then(|| parking_lot::Mutex::new(Answerer::new("visibletest", AnswerCfg::default()).with_folder(Some(session.work_dir.clone())))),
         scope: (session.work_dir.clone(), env.temp_root.clone()),
         answered: parking_lot::Mutex::new(Vec::new()),
         capture_model,

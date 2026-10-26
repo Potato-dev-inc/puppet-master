@@ -186,7 +186,7 @@ fn the_guided_capture_runs_end_to_end_and_finish_returns_masked_screens() {
     // the same for a command: the second permission task is typed, its question is shown and left alone
     host.set_screen(screens::IDLE);
     wait_for(20, || (host.delivered().len() >= 3).then_some(())).expect("the command task is typed");
-    assert!(host.delivered()[2].starts_with("Run this shell command") && host.delivered()[2].contains("echo "));
+    assert!(host.delivered()[2].contains("Run this shell command") && host.delivered()[2].contains("echo "));
     let s = wait_status(&wizard, &id, "the command question", |s| s["needs_you"]["kind"] == "permission" && s["permission_phase"] == 1);
     assert_eq!(s["step"], "permission");
     assert_eq!(host.delivered().len(), 3, "nothing is typed into the command question");

@@ -8,7 +8,7 @@ mod links;
 
 use crate::operations::ResultCapture;
 use clean::normalize_echo;
-pub use clean::{clean_extracted_result, clean_extracted_result_after, tui_turn_evidence};
+pub use clean::{clean_extracted_result, clean_extracted_result_after, clean_extracted_result_in_turn, tui_turn_evidence};
 pub use links::restore_link_paths;
 
 pub const STABLE_IDLE_TICKS: u8 = 2;
@@ -17,6 +17,10 @@ pub const RECONCILE_IDLE_TICKS: u8 = 4;
 /// each) before it is declared ambiguous. The TUI can look idle (echoed prompt, input footer) for
 /// seconds between submitting and the first token, so a 1s window ended turns before the reply.
 pub const AWAITING_REPLY_TICKS: u8 = 40;
+/// The same wait for a turn that stopped on a question (a permission or trust menu) and went on after it was answered:
+/// the agent runs its tool in silence and draws no reply for a while (a command that takes half a minute), so that turn
+/// is not declared ambiguous on the short wait.
+pub const AFTER_QUESTION_TICKS: u8 = 200;
 /// A turn that never showed activity gets this many idle ticks (250ms each) before it is declared
 /// not submitted. Cursor can take several seconds to start reacting, and its screen lags the PTY.
 pub const NOT_SUBMITTED_TICKS: u8 = 24;
@@ -37,6 +41,9 @@ pub struct TuiTurnWatch {
     saw_task_echo: bool,
     /// Reply text (after cleaning) has been on screen at some point this turn.
     saw_reply: bool,
+    /// The pane stopped on a question this turn (an approval menu, a trust question): it was answered, and the work it
+    /// allowed has to be waited for.
+    asked_question: bool,
     submit_retried: bool,
     /// The delivery protocol already verified the prompt was typed, submitted and the turn
     /// started (`TuiProfile::verifies_prompt_delivery`), so no blind second Enter is ever sent.
@@ -84,6 +91,7 @@ impl TuiTurnWatch {
         self.saw_activity = false;
         self.saw_task_echo = false;
         self.saw_reply = false;
+        self.asked_question = false;
         self.submit_retried = false;
     }
 }
@@ -149,6 +157,7 @@ pub fn observe_tui_turn(
     // The turn cannot have ended while the TUI has not even reached its input box.
     let startup_gate = crate::tui::profile_for(agent_type).startup_gate(screen).is_some();
     if has_prompt || startup_gate || pane_status == "waiting_input" {
+        watch.asked_question |= has_prompt || pane_status == "waiting_input";
         watch.idle_evidence = None;
         watch.idle_ticks = 0;
         watch.reconcile_ticks = 0;
@@ -199,6 +208,8 @@ pub fn observe_tui_turn(
     if watch.saw_activity {
         let patience = if watch.saw_reply {
             RECONCILE_IDLE_TICKS
+        } else if watch.asked_question {
+            AFTER_QUESTION_TICKS
         } else {
             AWAITING_REPLY_TICKS
         };
@@ -271,10 +282,7 @@ fn reply_after_echo(screen: &str, task: &str, previous_task: &str, agent_type: &
             let lines: Vec<&str> = screen.lines().collect();
             let turn = lines[at..].join("
 ");
-            EchoSlice::Found(
-                tui_turn_evidence(&turn, "", agent_type)
-                    .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task, agent_type)),
-            )
+            EchoSlice::Found(reply_in_turn(&turn, task, previous_task, agent_type))
         }
         None => EchoSlice::NoEcho,
     }
@@ -390,8 +398,18 @@ pub fn scrollback_reply(
     let lines: Vec<&str> = full.lines().collect();
     let turn = lines[at..].join("
 ");
-    tui_turn_evidence(&turn, "", agent_type)
-        .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task, agent_type))
+    reply_in_turn(&turn, task, previous_task, agent_type)
+}
+
+/// The reply in `turn`, the rows from this turn's task echo on. When the agent printed tool rows under the echo, what is
+/// read is what follows the last of them, so the echo is above the text that is cleaned (`echo_above`).
+fn reply_in_turn(turn: &str, task: &str, previous_task: &str, agent_type: &str) -> Option<String> {
+    let tools_after_echo = turn
+        .lines()
+        .skip(1)
+        .any(|line| crate::tui::is_tool_activity_line(&line.trim().to_ascii_lowercase(), agent_type));
+    tui_turn_evidence(turn, "", agent_type)
+        .and_then(|raw| clean_extracted_result_in_turn(&raw, task, previous_task, agent_type, tools_after_echo))
 }
 
 /// A last attempt to read this turn's reply before it is declared not captured: the visible rows
@@ -420,6 +438,7 @@ impl TuiTurnWatch {
             "saw_activity": self.saw_activity,
             "saw_task_echo": self.saw_task_echo,
             "saw_reply": self.saw_reply,
+            "asked_question": self.asked_question,
             "delivery_verified": self.delivery_verified,
             "reconcile_ticks": self.reconcile_ticks,
             "task_head": self.task.chars().take(80).collect::<String>(),

@@ -54,6 +54,9 @@ impl Menu {
     }
 }
 
+/// How many rows a long numbered option may be wrapped onto by the pane (the rows between it and the next number).
+const MAX_WRAPPED_ROWS: usize = 2;
+
 /// The longest numbered option row that is still read as an option.
 const MAX_NUMBERED_CHARS: usize = 200;
 
@@ -289,8 +292,14 @@ pub fn parse_menu_ex(screen: &str, styled: Option<&StyledScreen>) -> Option<Menu
     let mut runs: Vec<Vec<usize>> = Vec::new();
     for i in numbered {
         let number = parsed[i].as_ref().and_then(|p| p.num);
+        // The next number follows on the next row, or after the rows the pane wrapped a long option onto (a command
+        // repeated in the broad options is cut at the edge of the pane): a few plain rows, no hint, no other numbered row.
         let continues = runs.last().and_then(|r| r.last()).is_some_and(|last| {
-            *last + 1 == i && parsed[*last].as_ref().and_then(|p| p.num).zip(number).is_some_and(|(a, b)| b == a + 1)
+            let wrapped = i - *last - 1;
+            let plain_between = (*last + 1..i).all(|k| parsed[k].as_ref().is_none_or(|p| p.num.is_none() && !HINT_ROW.is_match(&p.text)));
+            wrapped <= MAX_WRAPPED_ROWS
+                && plain_between
+                && parsed[*last].as_ref().and_then(|p| p.num).zip(number).is_some_and(|(a, b)| b == a + 1)
         });
         match runs.last_mut() {
             Some(run) if continues => run.push(i),
