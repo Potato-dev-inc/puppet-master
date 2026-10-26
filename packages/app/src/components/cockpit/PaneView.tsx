@@ -120,7 +120,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   // A pane one of a mission's agents works in gets a Mission tab: the mission's Progress.
   const missions = useMissions();
   const mission = missionOfPane(missions.missions, paneId);
-  // The Chat tab reads an agent's session file, so a plain shell gets none (the rule TerminalPane uses).
+  // The Chat tab reads an agent's session file, or its screen when it writes none, so a plain shell gets none (the rule TerminalPane uses).
   const listing = useAgentRegistry();
   const agentType = pane?.info.agent_type ?? '';
   const chatAllowed = listing.agents.find((a) => a.id === agentType)?.kind !== 'shell';

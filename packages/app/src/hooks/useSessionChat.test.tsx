@@ -96,3 +96,49 @@ describe('useSessionChat under StrictMode', () => {
     expect(latest.waitingFor).toBe(WAITING);
   });
 });
+
+describe('useSessionChat source', () => {
+  it('tells a chat read from the screen from one read from a file, and treats a missing source as a file', async () => {
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === 'session_chat_open' ? { available: true, reason: null, items: [], waitingFor: null, source: 'screen' } : undefined,
+    );
+    act(() => root.render(<Probe paneId="p1" />));
+    await flush();
+    expect(latest.source).toBe('screen');
+
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === 'session_chat_open' ? { available: true, reason: null, items: [] } : undefined,
+    );
+    act(() => root.render(<Probe paneId="p2" />));
+    await flush();
+    expect(latest.source).toBe('file');
+
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === 'session_chat_open' ? { available: false, reason: 'no', items: [], source: null } : undefined,
+    );
+    act(() => root.render(<Probe paneId="p3" />));
+    await flush();
+    expect(latest.state).toBe('unavailable');
+    expect(latest.source).toBeNull();
+  });
+
+  it('puts a reply that is sent again under the same id in place of the old copy, keeping the order', async () => {
+    const reply = (text: string) => ({ kind: 'assistant', id: 'screen:1:reply', at: null, text, model: null, finalAnswer: false });
+    const user = { kind: 'user', id: 'screen:1:user', at: null, text: 'say hi' };
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === 'session_chat_open' ? { available: true, reason: null, items: [user, reply('hi')], source: 'screen' } : undefined,
+    );
+    act(() => root.render(<Probe paneId="p1" />));
+    await flush();
+    act(() => handlers.get('session-chat-items')!({ payload: { paneId: 'p1', items: [reply('hi there')], reset: false } }));
+    act(() => handlers.get('session-chat-items')!({ payload: { paneId: 'p1', items: [reply('hi there, friend')], reset: false } }));
+    expect(latest.turns).toHaveLength(1);
+    expect(latest.turns[0].user?.text).toBe('say hi');
+    expect(latest.turns[0].steps).toHaveLength(1);
+    const step = latest.turns[0].steps[0];
+    expect(step.kind === 'text' && step.item.text).toBe('hi there, friend');
+    // An item that went away is a reset with what is left.
+    act(() => handlers.get('session-chat-items')!({ payload: { paneId: 'p1', items: [user], reset: true } }));
+    expect(latest.turns[0].steps).toHaveLength(0);
+  });
+});

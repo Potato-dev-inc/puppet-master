@@ -9,6 +9,7 @@ import {
   onSessionChatStatus,
   openSessionChat,
   type ChatItem,
+  type ChatSource,
   type ChatTurn,
   type UsageItem,
 } from '../lib/sessionChat';
@@ -21,6 +22,8 @@ export interface SessionChatHook {
   reason: string | null;
   /** While there is nothing to show: what the reader is waiting for (from the backend), else null. */
   waitingFor: string | null;
+  /** Where the chat is read from, once known: `file`, or `screen` for an agent with no session file. */
+  source: ChatSource | null;
   turns: ChatTurn[];
   model: string | null;
   cliVersion: string | null;
@@ -31,9 +34,10 @@ interface Status {
   state: SessionChatState;
   reason: string | null;
   waitingFor: string | null;
+  source: ChatSource | null;
 }
 
-const LOADING: Status = { state: 'loading', reason: null, waitingFor: null };
+const LOADING: Status = { state: 'loading', reason: null, waitingFor: null, source: null };
 
 export function useSessionChat(paneId: string, enabled: boolean): SessionChatHook {
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -74,13 +78,18 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
         setItems((prev) => mergeItems(prev, snapshot.items, false));
         setStatus(
           snapshot.available
-            ? { state: 'ready', reason: null, waitingFor: snapshot.waitingFor ?? null }
-            : { state: 'unavailable', reason: snapshot.reason, waitingFor: null },
+            ? { state: 'ready', reason: null, waitingFor: snapshot.waitingFor ?? null, source: snapshot.source ?? 'file' }
+            : { state: 'unavailable', reason: snapshot.reason, waitingFor: null, source: null },
         );
       })
       .catch((error: unknown) => {
         if (!live) return;
-        setStatus({ state: 'unavailable', reason: error instanceof Error ? error.message : String(error), waitingFor: null });
+        setStatus({
+          state: 'unavailable',
+          reason: error instanceof Error ? error.message : String(error),
+          waitingFor: null,
+          source: null,
+        });
       });
 
     return () => {
@@ -96,6 +105,7 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
     state: status.state,
     reason: status.reason,
     waitingFor: status.waitingFor,
+    source: status.source,
     turns: grouped.turns,
     model: grouped.model,
     cliVersion: grouped.cliVersion,
