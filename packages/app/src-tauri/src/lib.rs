@@ -80,6 +80,7 @@ mod tunnel_auth_tests;
 #[cfg(test)]
 mod device_caps_tests;
 mod session_context;
+pub mod session_chat;
 mod secrets;
 mod settings_store;
 mod settings_patch;
