@@ -25,6 +25,8 @@ packages/app/src-tauri/src/agent_pack/golden/* text eol=lf
 
 # Codex rollout fixtures are read line by line and compared with their offsets: keep them LF.
 packages/app/src-tauri/src/tui/codex/fixtures/*.jsonl text eol=lf
+# A finished Codex rollout compressed with zstd (made from rollout_basic.jsonl): binary, never converted.
+packages/app/src-tauri/src/tui/codex/fixtures/*.zst binary
 # Claude session fixtures are read line by line and compared with their offsets: keep them LF.
 packages/app/src-tauri/src/tui/claude/fixtures/*.jsonl text eol=lf
 

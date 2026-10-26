@@ -4,8 +4,9 @@
 //!
 //! Only the events a chat view needs are read. `response_item` lines are skipped: they repeat the
 //! `event_msg` items and also hold injected context. Finished sessions are compressed to
-//! `.jsonl.zst`; this reader handles plain `.jsonl` only (live panes), so `.zst` files are never listed.
+//! `.jsonl.zst`; they are read the same way, decompressed by `session_chat::tail`.
 
+use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -13,6 +14,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Local};
 use serde_json::Value;
 
+use crate::session_chat::tail::open_lines;
 use crate::session_chat::{cut, ChatItem, SessionFormat, TurnOutcome};
 
 /// The Codex rollout format, for `codex` panes.
@@ -43,9 +45,10 @@ pub fn codex_home() -> Option<PathBuf> {
     }
 }
 
-/// Plain `rollout-*.jsonl` files modified at or after `since`, in the day folders for the local date of
-/// `since`, the day before it and the day after it (a file is written into the folder of the day it started,
-/// and a session can start just before midnight). `.jsonl.zst` files are not listed. Sorted by path.
+/// Rollouts modified at or after `since`, in the day folders for the local date of `since`, the day before it
+/// and the day after it (a file is written into the folder of the day it started, and a session can start just
+/// before midnight). Plain `rollout-*.jsonl` files and finished `rollout-*.jsonl.zst` files are both taken; when
+/// a session has both, the plain file is taken. Sorted by path.
 pub fn recent_rollouts(home: &Path, since: SystemTime) -> Vec<PathBuf> {
     let sessions = home.join("sessions");
     let today = DateTime::<Local>::from(since).date_naive();
@@ -55,17 +58,25 @@ pub fn recent_rollouts(home: &Path, since: SystemTime) -> Vec<PathBuf> {
         let Ok(entries) = std::fs::read_dir(sessions.join(day.format("%Y/%m/%d").to_string())) else {
             continue;
         };
+        let mut folder: Vec<(String, PathBuf)> = Vec::new();
         for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if !(name.starts_with("rollout-") && name.ends_with(".jsonl")) {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !(name.starts_with("rollout-") && (name.ends_with(".jsonl") || name.ends_with(".jsonl.zst"))) {
                 continue;
             }
             let modified = entry.metadata().and_then(|meta| meta.modified()).ok();
             if modified.is_some_and(|modified| modified >= since) {
-                found.push(entry.path());
+                folder.push((name, entry.path()));
             }
         }
+        let plain: HashSet<String> =
+            folder.iter().filter(|(name, _)| name.ends_with(".jsonl")).map(|(name, _)| name.clone()).collect();
+        found.extend(
+            folder
+                .into_iter()
+                .filter(|(name, _)| !name.strip_suffix(".zst").is_some_and(|stem| plain.contains(stem)))
+                .map(|(_, path)| path),
+        );
     }
     found.sort();
     found
@@ -73,9 +84,8 @@ pub fn recent_rollouts(home: &Path, since: SystemTime) -> Vec<PathBuf> {
 
 /// The `cwd` and thread `id` from a rollout's first line (`session_meta`), or `None` when it has none.
 pub fn rollout_meta(path: &Path) -> Option<(String, String)> {
-    let file = std::fs::File::open(path).ok()?;
     let mut first = String::new();
-    std::io::BufReader::new(file).read_line(&mut first).ok()?;
+    open_lines(path).ok()?.read_line(&mut first).ok()?;
     let root: Value = serde_json::from_str(&first).ok()?;
     if root["type"].as_str()? != "session_meta" {
         return None;
@@ -88,9 +98,8 @@ pub fn rollout_meta(path: &Path) -> Option<(String, String)> {
 
 /// When a rollout started: the `timestamp` of its first line (`session_meta`), or `None` when it has none.
 pub fn rollout_started(path: &Path) -> Option<SystemTime> {
-    let file = std::fs::File::open(path).ok()?;
     let mut first = String::new();
-    std::io::BufReader::new(file).read_line(&mut first).ok()?;
+    open_lines(path).ok()?.read_line(&mut first).ok()?;
     let root: Value = serde_json::from_str(&first).ok()?;
     let stamp = DateTime::parse_from_rfc3339(root["timestamp"].as_str()?).ok()?;
     Some(SystemTime::from(stamp))
@@ -541,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn recent_rollouts_takes_plain_jsonl_from_nearby_day_folders_modified_since() {
+    fn recent_rollouts_takes_rollouts_from_nearby_day_folders_modified_since() {
         let home = temp_home("recent");
         let now = SystemTime::now();
         let since = now - Duration::from_secs(3600);
@@ -564,7 +573,56 @@ mod tests {
             .iter()
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(names, vec!["rollout-yesterday.jsonl", "rollout-today.jsonl", "rollout-tomorrow.jsonl"]);
+        assert_eq!(
+            names,
+            vec!["rollout-yesterday.jsonl", "rollout-cut.jsonl.zst", "rollout-today.jsonl", "rollout-tomorrow.jsonl"]
+        );
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn a_session_with_a_plain_and_a_zst_file_is_taken_once_as_the_plain_file() {
+        let home = temp_home("recent-both");
+        let now = SystemTime::now();
+        let since = now - Duration::from_secs(3600);
+        let today = DateTime::<Local>::from(since).date_naive();
+        let folder = home.join("sessions").join(today.format("%Y/%m/%d").to_string());
+        write(&folder.join("rollout-both.jsonl"), now);
+        write(&folder.join("rollout-both.jsonl.zst"), now);
+        write(&folder.join("rollout-done.jsonl.zst"), now);
+
+        let names: Vec<String> = recent_rollouts(&home, since)
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["rollout-both.jsonl", "rollout-done.jsonl.zst"]);
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn a_zst_rollout_gives_its_cwd_and_id_from_its_first_line() {
+        let home = temp_home("meta-zst");
+        let folder = home.join("sessions").join("2026").join("10").join("27");
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("rollout-2026-10-27T09-00-00-basic.jsonl.zst");
+        fs::write(&path, include_bytes!("fixtures/rollout_basic.jsonl.zst")).unwrap();
+        assert_eq!(
+            rollout_meta(&path),
+            Some(("C:\\Users\\you\\proj".to_string(), "0198a000-0000-7000-8000-00000000c0de".to_string()))
+        );
+        let started = SystemTime::from(DateTime::parse_from_rfc3339("2026-10-27T09:00:00.000Z").unwrap());
+        assert_eq!(rollout_started(&path), Some(started));
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn the_zst_fixture_gives_the_same_lines_and_items_as_the_plain_fixture() {
+        let home = temp_home("zst-fixture");
+        let path = home.join("rollout-basic.jsonl.zst");
+        fs::write(&path, include_bytes!("fixtures/rollout_basic.jsonl.zst")).unwrap();
+        let lines = crate::session_chat::tail::read_all_lines(&path).unwrap();
+        assert_eq!(lines, fixture_lines());
+        assert_eq!(read_lines(&CodexRollout, &lines), read_lines(&CodexRollout, &fixture_lines()));
         fs::remove_dir_all(&home).unwrap();
     }
 
