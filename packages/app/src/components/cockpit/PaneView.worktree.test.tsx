@@ -128,7 +128,7 @@ describe('Changes tab for isolated panes', () => {
     worktreeFor = { iso: ITEM };
     await act(async () => root.render(<PaneView c={cockpit()} paneId="iso" />));
     await flush();
-    expect(tabs()).toEqual(['Terminal', 'Changes · 1', 'Transcript', 'Receipt', 'History']);
+    expect(tabs()).toEqual(['Terminal', 'Chat', 'Changes · 1', 'Transcript', 'Receipt', 'History']);
     const tab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith('Changes'))!;
     await act(async () => tab.click());
     await flush();
@@ -138,10 +138,10 @@ describe('Changes tab for isolated panes', () => {
     expect(actions).toEqual(expect.arrayContaining(['Merge', 'Discard']));
   });
 
-  it('keeps the usual four tabs for a pane that is not in a worktree', async () => {
+  it('keeps the usual tabs for a pane that is not in a worktree', async () => {
     await act(async () => root.render(<PaneView c={cockpit()} paneId="plain" />));
     await flush();
-    expect(tabs()).toEqual(['Terminal', 'Transcript', 'Receipt', 'History']);
+    expect(tabs()).toEqual(['Terminal', 'Chat', 'Transcript', 'Receipt', 'History']);
   });
 
   it('the Receipt tab shows the result, and the run ID only under a closed Details disclosure', async () => {

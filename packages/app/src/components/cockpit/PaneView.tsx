@@ -32,8 +32,10 @@ import { UntestedChip } from './UntestedChip';
 import { BudgetChip } from './BudgetChip';
 import { MissionProgress } from './mission/MissionProgress';
 import { missionOfPane, useMissions } from '../../lib/missions';
+import { useAgentRegistry } from '../../lib/agentRegistry';
+import { SessionChatPanel } from '../chat/SessionChatPanel';
 
-type Tab = 'mission' | 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
+type Tab = 'mission' | 'terminal' | 'chat' | 'changes' | 'transcript' | 'receipt' | 'history';
 
 /** Run info + transcript for the Transcript and Receipt tabs. `null` = the pane has no run. */
 export function useRunData(paneId: string, active: boolean, status: string) {
@@ -109,7 +111,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const [reflowKey, setReflowKey] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const getSelectionRef = useRef<(() => string) | null>(null);
-  const run = useRunData(paneId, tab !== 'terminal', pane?.status ?? '');
+  const run = useRunData(paneId, tab !== 'terminal' && tab !== 'chat', pane?.status ?? '');
   const lastTurn = useLastTurn(paneId);
   const worktree = usePaneWorktree(paneId, pane?.status ?? '');
   const { signals } = useLoopGuard();
@@ -118,6 +120,10 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   // A pane one of a mission's agents works in gets a Mission tab: the mission's Progress.
   const missions = useMissions();
   const mission = missionOfPane(missions.missions, paneId);
+  // The Chat tab reads an agent's session file, so a plain shell gets none (the rule TerminalPane uses).
+  const listing = useAgentRegistry();
+  const agentType = pane?.info.agent_type ?? '';
+  const chatAllowed = listing.agents.find((a) => a.id === agentType)?.kind !== 'shell';
 
   useEffect(() => {
     setTab('terminal');
@@ -131,7 +137,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   useEffect(() => {
     if (tab === 'changes' && !worktree) setTab('terminal');
     if (tab === 'mission' && !mission) setTab('terminal');
-  }, [tab, worktree, mission]);
+    if (tab === 'chat' && !chatAllowed) setTab('terminal');
+  }, [tab, worktree, mission, chatAllowed]);
 
   useEffect(() => {
     if (!menu) return;
@@ -335,6 +342,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           options={[
             ...(mission ? [{ id: 'mission' as const, label: 'Mission' }] : []),
             { id: 'terminal', label: 'Terminal' },
+            ...(chatAllowed ? [{ id: 'chat' as const, label: 'Chat' }] : []),
             ...(worktree ? [{ id: 'changes' as const, label: changesTabLabel(worktree) }] : []),
             { id: 'transcript', label: 'Transcript' },
             { id: 'receipt', label: 'Receipt' },
@@ -381,6 +389,11 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 getSelectionRef={getSelectionRef}
               />
             </div>
+          </div>
+        )}
+        {tab === 'chat' && chatAllowed && (
+          <div className="ck-scroll ck-fade-in" key="chat">
+            <SessionChatPanel paneId={paneId} />
           </div>
         )}
         {tab === 'changes' && worktree && (
