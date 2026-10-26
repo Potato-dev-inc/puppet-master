@@ -80,7 +80,7 @@ mod tunnel_auth_tests;
 #[cfg(test)]
 mod device_caps_tests;
 mod session_context;
-pub mod session_chat;
+mod session_chat;
 mod secrets;
 mod settings_store;
 mod settings_patch;
@@ -150,8 +150,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::new())
+        .manage(commands::SessionChatState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_panes,
+            commands::session_chat_open,
+            commands::session_chat_close,
             team::commands::team_state,
             team::commands::team_config_get,
             team::commands::team_config_set,
@@ -589,6 +592,9 @@ pub fn run() {
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 standby::shutdown();
+                if let Some(chat) = app_handle.try_state::<commands::SessionChatState>() {
+                    chat.shutdown();
+                }
                 bridge::port_file::release_owned(&app_paths::bridge_port_file());
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     pty::registry_kill_all(&state.registry);

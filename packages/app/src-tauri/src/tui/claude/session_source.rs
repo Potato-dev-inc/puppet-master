@@ -194,4 +194,40 @@ mod tests {
         facts.home = Some(config.0.clone());
         assert_eq!(SOURCE.locate(&facts), Located::Found(file));
     }
+
+    /// The whole path for a pane: the profile hands out the source, the watcher finds the file under the pane's
+    /// config folder and reads the fixture through the Claude format.
+    #[test]
+    fn a_watcher_reads_the_fixture_through_the_profile_hook() {
+        use crate::session_chat::{ChatItem, PaneLookup, Sink, Watchers};
+        use std::sync::Arc;
+
+        struct Quiet;
+        impl Sink for Quiet {
+            fn send(&self, _pane_id: &str, _items: Vec<ChatItem>, _reset: bool) {}
+        }
+        struct Pane(PaneFacts);
+        impl PaneLookup for Pane {
+            fn facts(&self, _pane_id: &str) -> Option<PaneFacts> {
+                Some(self.0.clone())
+            }
+        }
+
+        let config = Config::new();
+        let fixture = include_str!("fixtures/session_basic.jsonl").replace("\r\n", "\n");
+        let dir = config.0.join("projects").join(FOLDER);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("fixture-session.jsonl"), fixture).unwrap();
+
+        let mut facts = pane(ago(30), Some("fixture-session"));
+        facts.home = Some(config.0.clone());
+        let source = crate::tui::profile_for("claude").session_chat().expect("claude has a session source");
+        let watchers = Watchers::new(Arc::new(Quiet), Arc::new(Pane(facts)));
+        let items = watchers.open("pane-1", source);
+        watchers.close_all();
+
+        assert!(items.iter().any(|item| matches!(item, ChatItem::User { text, .. } if text == "list the files")));
+        assert!(items.iter().any(|item| matches!(item, ChatItem::ToolCall { name, .. } if name == "Bash")));
+        assert!(items.iter().any(|item| matches!(item, ChatItem::ToolResult { .. })));
+    }
 }

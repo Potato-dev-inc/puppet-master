@@ -255,4 +255,37 @@ mod tests {
         facts.home = Some(home.0.clone());
         assert_eq!(SOURCE.locate(&facts), Located::Found(mine));
     }
+
+    /// The whole path for a pane: the profile hands out the source, the watcher finds the rollout under the
+    /// pane's Codex home and reads the fixture through the rollout format.
+    #[test]
+    fn a_watcher_reads_the_fixture_through_the_profile_hook() {
+        use crate::session_chat::{PaneLookup, Sink, Watchers};
+        use std::sync::Arc;
+
+        struct Quiet;
+        impl Sink for Quiet {
+            fn send(&self, _pane_id: &str, _items: Vec<crate::session_chat::ChatItem>, _reset: bool) {}
+        }
+        struct Pane(PaneFacts);
+        impl PaneLookup for Pane {
+            fn facts(&self, _pane_id: &str) -> Option<PaneFacts> {
+                Some(self.0.clone())
+            }
+        }
+
+        let home = Home::new();
+        let path = home.rollout("t-fixture", CWD, ago(25));
+        std::fs::write(&path, include_str!("fixtures/rollout_basic.jsonl").replace("\r\n", "\n")).unwrap();
+
+        let mut facts = pane(ago(30), None);
+        facts.home = Some(home.0.clone());
+        let source = crate::tui::profile_for("codex").session_chat().expect("codex has a session source");
+        let watchers = Watchers::new(Arc::new(Quiet), Arc::new(Pane(facts)));
+        let items = watchers.open("pane-1", source);
+        watchers.close_all();
+
+        assert!(!items.is_empty());
+        assert!(items.iter().any(|item| matches!(item, crate::session_chat::ChatItem::User { .. })));
+    }
 }
