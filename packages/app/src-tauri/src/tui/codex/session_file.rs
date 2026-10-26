@@ -575,6 +575,55 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    /// Reads the real rollout named by `PM_REAL_CODEX_ROLLOUT`; run with `cargo test -- --ignored`.
+    /// Prints the item kinds only (never the text) and checks the chat a real `codex exec` run must give.
+    #[test]
+    #[ignore]
+    fn a_real_session_file_reads_as_chat() {
+        let Some(path) = std::env::var_os("PM_REAL_CODEX_ROLLOUT") else {
+            println!("PM_REAL_CODEX_ROLLOUT is not set; skipped");
+            return;
+        };
+        let text = fs::read_to_string(&path).expect("the real rollout can be read");
+        let mut offset = 0u64;
+        let mut lines = Vec::new();
+        for line in text.split_inclusive('\n') {
+            lines.push((offset, line.trim_end_matches(['\r', '\n']).to_string()));
+            offset += line.len() as u64;
+        }
+        let items = read_lines(&CodexRollout, &lines);
+        let kinds: Vec<&str> = items.iter().map(kind_name).collect();
+        println!("{} lines gave {} items", lines.len(), items.len());
+        println!("kinds: {}", kinds.join(" "));
+        assert!(
+            items.iter().any(|item| matches!(item, ChatItem::User { text, .. } if text.contains("chatview-check"))),
+            "the prompt is read as a User item"
+        );
+        assert!(items.iter().any(|item| matches!(item, ChatItem::ToolCall { .. })), "a ToolCall item");
+        assert!(
+            items.iter().any(|item| matches!(item, ChatItem::ToolResult { ok: true, .. })),
+            "a ToolResult item with ok=true"
+        );
+        assert!(
+            items.iter().any(|item| matches!(item, ChatItem::Assistant { text, .. } if text.contains("done"))),
+            "an Assistant item whose text contains \"done\""
+        );
+        assert!(items.iter().any(|item| matches!(item, ChatItem::TurnEnd { .. })), "a TurnEnd item");
+    }
+
+    /// The kind of an item, as printed by the real-file test.
+    fn kind_name(item: &ChatItem) -> &'static str {
+        match item {
+            ChatItem::User { .. } => "User",
+            ChatItem::Assistant { .. } => "Assistant",
+            ChatItem::ToolCall { .. } => "ToolCall",
+            ChatItem::ToolResult { .. } => "ToolResult",
+            ChatItem::TurnEnd { .. } => "TurnEnd",
+            ChatItem::Usage { .. } => "Usage",
+            ChatItem::Session { .. } => "Session",
+        }
+    }
+
     fn temp_home(name: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = std::env::temp_dir().join(format!("pm-codex-rollout-{name}-{}-{nanos}", std::process::id()));

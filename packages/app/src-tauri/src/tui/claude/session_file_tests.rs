@@ -304,3 +304,46 @@ fn newest_session_of_a_missing_folder_is_none() {
     let scratch = Scratch::new();
     assert_eq!(newest_session(&scratch.path().join("missing"), SystemTime::UNIX_EPOCH), None);
 }
+
+/// Reads the real session file named by `PM_REAL_CLAUDE_SESSION`; run with `cargo test -- --ignored`.
+/// Prints the item kinds only (never the text) and checks the chat a real `claude -p` run must give.
+#[test]
+#[ignore]
+fn a_real_session_file_reads_as_chat() {
+    let Some(path) = std::env::var_os("PM_REAL_CLAUDE_SESSION") else {
+        println!("PM_REAL_CLAUDE_SESSION is not set; skipped");
+        return;
+    };
+    let text = std::fs::read_to_string(&path).expect("the real session file can be read");
+    let (_, items) = parse_text(&text);
+    let kinds: Vec<&str> = items.iter().map(kind_name).collect();
+    println!("{} lines gave {} items", text.lines().count(), items.len());
+    println!("kinds: {}", kinds.join(" "));
+    assert!(
+        items.iter().any(|item| matches!(item, ChatItem::User { text, .. } if text.contains("chatview-check"))),
+        "the prompt is read as a User item"
+    );
+    assert!(items.iter().any(|item| matches!(item, ChatItem::ToolCall { .. })), "a ToolCall item");
+    assert!(
+        items.iter().any(|item| matches!(item, ChatItem::ToolResult { ok: true, .. })),
+        "a ToolResult item with ok=true"
+    );
+    assert!(
+        items.iter().any(|item| matches!(item, ChatItem::Assistant { text, .. } if text.contains("done"))),
+        "an Assistant item whose text contains \"done\""
+    );
+    assert!(items.iter().any(|item| matches!(item, ChatItem::TurnEnd { .. })), "a TurnEnd item");
+}
+
+/// The kind of an item, as printed by the real-file tests.
+fn kind_name(item: &ChatItem) -> &'static str {
+    match item {
+        ChatItem::User { .. } => "User",
+        ChatItem::Assistant { .. } => "Assistant",
+        ChatItem::ToolCall { .. } => "ToolCall",
+        ChatItem::ToolResult { .. } => "ToolResult",
+        ChatItem::TurnEnd { .. } => "TurnEnd",
+        ChatItem::Usage { .. } => "Usage",
+        ChatItem::Session { .. } => "Session",
+    }
+}
