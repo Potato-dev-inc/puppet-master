@@ -33,8 +33,10 @@ fn verdict(a: &mut Answerer, screen: &str) -> Result<String, String> {
     }
 }
 
-fn real_questions() -> Vec<&'static str> {
-    include_str!("fixtures/agy_questions.txt").split("\n=====\n").collect()
+/// The screens of the fixture. A CRLF checkout (core.autocrlf=true) must read the same as an LF one, so the line endings
+/// are normalised before the screens are split.
+fn screens() -> Vec<String> {
+    include_str!("fixtures/agy_questions.txt").replace("\r\n", "\n").split("\n=====\n").map(str::to_string).collect()
 }
 
 /// A command question as that CLI draws it (the broad rows repeat the command and wrap).
@@ -47,7 +49,8 @@ fn command_question(command: &str) -> String {
 
 #[test]
 fn the_non_workspace_menu_gets_the_deny_row_not_yes() {
-    let screen = real_questions()[7];
+    let questions = screens();
+    let screen = questions[7].as_str();
     assert!(screen.contains("1. Yes, allow access") && screen.contains("Reason: outside workspace"));
     let mut a = answerer();
     // "3. No, deny access"
@@ -134,7 +137,7 @@ fn a_path_in_the_transcript_above_the_question_does_not_deny_a_harmless_one() {
 fn the_real_questions_of_the_run_get_the_answers_they_should() {
     // In the order the wizard met them. `true` = it may answer yes (nothing leaves the folder).
     let expected = [true, true, true, false, false, false, false, false, false, false, false, false];
-    let questions = real_questions();
+    let questions = screens();
     assert_eq!(questions.len(), expected.len());
     for (i, (screen, yes)) in questions.iter().zip(expected).enumerate() {
         let mut a = answerer();
@@ -179,7 +182,8 @@ fn with_no_known_folder_nothing_outside_is_assumed_inside() {
 fn a_numbered_menu_whose_broad_options_the_pane_wrapped_is_read_whole_down_to_its_no_row() {
     use crate::tui::declarative::wizard::visible::answer::parse_menu;
     // the real question of the run: options 2 and 3 repeat the command and run over onto a second row
-    let screen = real_questions()[3];
+    let questions = screens();
+    let screen = questions[3].as_str();
     assert!(screen.contains("\"puppet|wizard|python|node\" }'"), "{screen}");
     let menu = parse_menu(screen).expect("a menu");
     let texts: Vec<&str> = menu.options.iter().map(|o| o.text.split(',').next().unwrap_or("")).collect();
