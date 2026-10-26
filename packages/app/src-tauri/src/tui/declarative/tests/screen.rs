@@ -233,3 +233,29 @@ fn visible_pane_launch_renders_tui_argv() {
     assert_eq!(render_tui(tui, "C:/p", false, Some("a/b"), Some("ses_1")), ["--pure", "-m", "a/b", "-s", "ses_1"]);
     assert_eq!(render_tui(tui, "C:/p", true, None, None), ["--pure", "--read-only"]);
 }
+
+#[test]
+fn the_transcript_echo_regex_reads_the_persons_message_off_a_row() {
+    // No delivery table: the profile cannot read a message.
+    assert!(!gen().reads_user_messages());
+    assert_eq!(gen().user_message_row("> hello"), None);
+
+    let with = |regex: &str| {
+        let text = GENERIC.replace(
+            "[tui.classify]",
+            &format!("[tui.delivery]\ninput_echo_regex = \"^>\"\ntranscript_echo_regex = '{regex}'\n\n[tui.classify]"),
+        );
+        build_for_test(&text).unwrap()
+    };
+    // A pattern that points at the first character of the text (the form a wizard writes): the bar and the
+    // spaces in front of it are not the message.
+    let bar = with(r"\u{2503}\s+\S");
+    assert!(bar.reads_user_messages());
+    assert_eq!(bar.user_message_row("  \u{2503}  tell me the name  ").as_deref(), Some("tell me the name"));
+    assert_eq!(bar.user_message_row("  \u{2503}"), None, "an empty bar row is not a message");
+    assert_eq!(bar.user_message_row("The name is X."), None);
+    // A named group says exactly where the text is.
+    let named = with(r"^you:\s*(?P<text>.+)$");
+    assert_eq!(named.user_message_row("You:   what is 2+2? ").as_deref(), Some("what is 2+2?"));
+    assert_eq!(named.user_message_row("reply: 4"), None);
+}
