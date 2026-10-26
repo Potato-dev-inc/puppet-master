@@ -557,3 +557,21 @@ fn an_error_at_startup_before_any_task_is_still_the_agents_error() {
     assert_eq!(v["agent_error"]["external"], true, "{v}");
     assert!(v["agent_error"]["message"].as_str().unwrap().starts_with("Error: No endpoints found"), "{v}");
 }
+
+/// The debug file of a stop carries the profile the visible test ran, so the next failure can be reproduced exactly.
+#[test]
+fn the_debug_file_holds_the_profile_text_the_visible_test_ran() {
+    let draft = format!("{}\n# marker: drafted-by-the-test someone@example.com\n", visible_draft("fake-agent"));
+    let f = fixture("vl-debug-profile", Some(draft), |_| ());
+    script_agent(&f.host, "");
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(screens::IDLE);
+    let _ = f.finish(run);
+    let written = ok(&f.wizard, "capture", json!({"session": f.id, "op": "dump", "reason": "the test stopped"}));
+    let text = std::fs::read_to_string(written["path"].as_str().unwrap()).expect("the debug file");
+    let doc: Value = serde_json::from_str(&text).expect("json");
+    let profile = doc["test"]["profile_toml"].as_str().expect("the profile text");
+    assert!(profile.contains("[tui]") && profile.contains("drafted-by-the-test"), "{profile}");
+    assert!(!text.contains("someone@example.com") && profile.contains("<email>"), "redacted like the rest of the file: {profile}");
+}

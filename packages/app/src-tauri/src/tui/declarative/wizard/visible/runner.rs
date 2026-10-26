@@ -120,7 +120,7 @@ impl CaptureRun {
         auto: Option<AutoScope>,
     ) -> Arc<CaptureRun> {
         let shared = Arc::new(Mutex::new(Shared {
-            engine: Capture::new(words.clone(), grid, cfg.capture.clone()).with_auto_answer(auto.is_some()),
+            engine: Capture::new(words.clone(), grid, cfg.capture.clone()).with_auto_answer(auto.is_some()).with_answer_folder(auto.as_ref().map(|a| a.work_dir.clone())),
             scope: auto,
             pane,
             profile_id,
@@ -330,6 +330,9 @@ impl CaptureRun {
             for item in list {
                 if let Some(menu) = item["menu"].as_str().map(|r| mask_words(&exec::clean(r), &self.words)) {
                     item["menu"] = json!(menu);
+                }
+                if let Some(why) = item["denied"].as_str().map(|r| mask_words(&exec::clean(r), &self.words)) {
+                    item["denied"] = json!(why);
                 }
             }
         }

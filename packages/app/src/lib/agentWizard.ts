@@ -184,7 +184,7 @@ export interface CaptureStatus {
   /** Rows drawn highlighted (inverse video, a band, bold), masked: a hint for the AI look when the text shows no cursor. */
   menu_look?: { emphasis: string[] };
   /** Setup questions the wizard answered for the person so far (labels only). `via` is `ai_look` when an AI look named it. */
-  answered?: Array<{ place: string; flavour: string; label: string; keys: string; via?: string; menu?: string }>;
+  answered?: Array<{ place: string; flavour: string; label: string; keys: string; via?: string; menu?: string; denied?: string }>;
   auto_answer?: boolean;
   /** The pane's screen, masked, for the preview in the wizard window. */
   screen?: string;

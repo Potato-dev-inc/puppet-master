@@ -397,6 +397,27 @@ describe('the capture panel', () => {
     expect(list?.textContent).toContain("Answered Nimbus's trust question: Yes, I trust this folder");
   });
 
+  it('shows a question the wizard denied the same way as one it answered', async () => {
+    const api = mockApi(PLAIN_HELP);
+    api.captureStatus.mockResolvedValue(
+      running({
+        answered: [
+          { place: 'capture', flavour: 'permission', label: 'No, deny access', keys: '3, Enter', denied: "the agent asked for access outside the wizard's temp folder: <path>" },
+          { place: 'capture', flavour: 'permission', label: 'No, cancel', keys: '4, Enter', denied: 'the agent asked to inspect or control other processes or the machine: Get-Process' },
+        ],
+        auto_answer: true,
+      }),
+    );
+    await render(api);
+    await startCapture(api);
+    await flush(900);
+    const list = host.querySelector('[data-testid="answered-list"]');
+    expect(list?.textContent).toContain("Denied Nimbus's permission question (outside the temp folder): No, deny access");
+    expect(list?.textContent).toContain("Denied Nimbus's permission question (it asks about other processes or the machine): No, cancel");
+    expect(list?.textContent).not.toContain('Answered Nimbus');
+    expect(list?.querySelectorAll('[data-denied="true"]').length).toBe(2);
+  });
+
   it('the exit step offers /exit and "I closed it myself"', async () => {
     const api = mockApi(PLAIN_HELP);
     const atExit = running({ step: 'exit', steps: STEPS({ permission: { status: 'done' }, exit: { status: 'running' } }), can: ['skip', 'retry', 'stuck', 'try_exit', 'closed'] });

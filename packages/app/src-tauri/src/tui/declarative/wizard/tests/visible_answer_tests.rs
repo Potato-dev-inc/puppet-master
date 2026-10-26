@@ -20,7 +20,7 @@ const ALWAYS_ONLY: &str = "Allow this command to run?\n\n> Yes, always allow\n  
 const SESSION_AND_ONCE: &str = "Allow this command to run?\n\n  Yes\n> Yes, and don't ask again for this session\n  No\n";
 
 fn answerer() -> Answerer {
-    Answerer::new("capture", AnswerCfg::default())
+    Answerer::new("capture", AnswerCfg::default()).with_folder(Some(std::path::PathBuf::from(r"C:\Users\me\AppData\Local\Temp\pm-wizard-wz_ab12")))
 }
 
 fn look(a: &mut Answerer, screen: &str, flavour: Option<Flavour>, stable_ms: u64, now: u64) -> Step {

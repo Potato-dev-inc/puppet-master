@@ -267,6 +267,8 @@ pub struct VisibleData {
     pub test_looks: Mutex<std::collections::VecDeque<serde_json::Value>>,
     /// What the test pane's answerer read and decided for each question (`Answerer::decisions`).
     pub test_decisions: Mutex<Vec<serde_json::Value>>,
+    /// The profile text (TOML) the last visible test ran: what the debug file shows so a failed test can be reproduced.
+    pub test_profile: Mutex<Option<String>>,
     /// What the autonomous wizard did (SPEC 11.19): the exact plans that ran and the verdicts it acted on.
     pub auto: AutoRecord,
 }

@@ -9,7 +9,7 @@
 //! the screen, how long it has held still and the time, and carries out the keys it is handed (after
 //! `scope_ok` said the pane is the wizard's own). The tests drive it with scripted screens.
 
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 use serde_json::{json, Value};
 
@@ -73,16 +73,23 @@ pub struct AnsweredQ {
     pub via: String,
     /// How the answerer read the question's menu when it decided (`rows: "Allow once" (plain yes, highlighted); ...`).
     pub read: String,
+    /// Why the answer was "no": the question reached outside the wizard's temp folder (`boundary`). `None` = a "yes".
+    pub denied: Option<String>,
 }
 
 impl AnsweredQ {
     pub fn to_json(&self, mask: &dyn Fn(&str) -> String) -> Value {
-        json!({"place": self.place, "flavour": self.flavour, "label": self.label, "keys": self.keys, "via": self.via, "menu": mask(&self.read), "screen": mask(&self.screen)})
+        let mut value = json!({"place": self.place, "flavour": self.flavour, "label": self.label, "keys": self.keys, "via": self.via, "menu": mask(&self.read), "screen": mask(&self.screen)});
+        if let Some(why) = &self.denied {
+            value["denied"] = json!(mask(why));
+        }
+        value
     }
 }
 
 // ---- reading the question (menu.rs) ---------------------------------------------------------------
 
+use super::boundary;
 pub use super::menu::{
     classify_option, describe_menu, off_limits, parse_menu, parse_menu_ex, safe_pick, style_highlight, Menu, MenuKind, MenuOption, OptionClass, NO_PLAIN_YES,
 };
@@ -122,9 +129,10 @@ pub struct Hint {
 enum Plan {
     Hint(Vec<AnswerKey>),
     /// Rows (Up / Down) or one row of buttons (`horizontal`: Right / Left, else Tab) walked until the highlight is on the target.
-    Arrow { target: String, horizontal: bool },
+    Arrow { target: String, horizontal: bool, deny: bool },
     Number { number: u32, target: String },
-    YesNo,
+    /// `y` (or `n` when `deny`), then Enter when the question is still there.
+    YesNo { deny: bool },
     /// The letter of the option (`[Y]es`).
     Letter { letter: char, target: String },
     /// The keys an AI look named; checked by `ai_menu::validate`, pressed one at a time with the screen read after each.
@@ -182,6 +190,8 @@ struct Occ {
     first_screen: String,
     /// How the menu was read when this question was first looked at (`describe_menu`, or why nothing was read).
     read: String,
+    /// The plan is a "no": why (the question reached outside the wizard's temp folder).
+    denied: Option<String>,
 }
 
 pub struct Answerer {
@@ -190,6 +200,9 @@ pub struct Answerer {
     cur: Option<Occ>,
     /// What it read and decided for each question, oldest first (the debug file keeps it).
     log: Vec<Value>,
+    /// The wizard's own isolated folder. A question that names a place outside it (or says the access is outside the
+    /// workspace) is answered "no" (`boundary`). `None` = not known: every absolute path counts as outside.
+    folder: Option<PathBuf>,
 }
 
 pub struct Input<'a> {
@@ -230,7 +243,13 @@ fn signature(screen: &str, styled: Option<&StyledScreen>) -> String {
 
 impl Answerer {
     pub fn new(place: &'static str, cfg: AnswerCfg) -> Self {
-        Self { cfg, place, cur: None, log: Vec::new() }
+        Self { cfg, place, cur: None, log: Vec::new(), folder: None }
+    }
+
+    /// The folder the pane lives in (the wizard's session folder, inside its temporary root).
+    pub fn with_folder(mut self, folder: Option<PathBuf>) -> Self {
+        self.folder = folder;
+        self
     }
 
     /// Forget the question being answered (a retry of the step).
@@ -331,14 +350,20 @@ impl Answerer {
                 flavour,
                 first_screen: input.screen.to_string(),
                 read: String::new(),
+                denied: None,
             };
-            let (read, decision) = decide(input.screen, input.styled, input.hint);
+            let (read, decision) = decide(input.screen, input.styled, input.hint, self.folder.as_deref());
             occ.read = read;
             match decision {
-                Ok((plan, label)) => {
-                    self.log.push(json!({"place": self.place, "flavour": flavour.as_str(), "menu": occ.read, "decision": format!("will answer: {label}")}));
+                Ok(Decision { plan, label, denied }) => {
+                    let said = match &denied {
+                        Some(why) => format!("Denied: {why}; will answer: {label}"),
+                        None => format!("will answer: {label}"),
+                    };
+                    self.log.push(json!({"place": self.place, "flavour": flavour.as_str(), "menu": occ.read, "decision": said}));
                     occ.plan = Some(plan);
                     occ.label = label;
+                    occ.denied = denied;
                 }
                 Err(reason) => {
                     self.log.push(json!({"place": self.place, "flavour": flavour.as_str(), "menu": occ.read, "decision": format!("declined: {reason}")}));
@@ -359,6 +384,7 @@ impl Answerer {
             screen: occ.first_screen.clone(),
             via: occ.via.to_string(),
             read: occ.read.clone(),
+            denied: occ.denied.clone(),
         }
     }
 
@@ -392,7 +418,8 @@ impl Answerer {
             occ.sent.extend(keys.iter().cloned());
             occ.final_sent |= final_key;
             occ.sig = Some(signature(input.screen, input.styled));
-            Step::Press { keys, note: format!("Answering the {} question: {}", occ.flavour.as_str(), occ.label) }
+            let verb = if occ.denied.is_some() { "Denying" } else { "Answering" };
+            Step::Press { keys, note: format!("{verb} the {} question: {}", occ.flavour.as_str(), occ.label) }
         };
         let waiting = || Step::Waiting("Answered. Waiting for the question to go.".into());
         match plan {
@@ -403,9 +430,9 @@ impl Answerer {
                     waiting()
                 }
             }
-            Plan::YesNo => {
+            Plan::YesNo { deny } => {
                 if occ.sent.is_empty() {
-                    press(occ, vec![AnswerKey::Text("y".into())], false)
+                    press(occ, vec![AnswerKey::Text(if deny { "n" } else { "y" }.into())], false)
                 } else if !occ.final_sent {
                     // some prompts need Enter after the letter; the question is still here
                     press(occ, vec![AnswerKey::Enter], true)
@@ -448,12 +475,13 @@ impl Answerer {
                     Step::Waiting("Waiting for the question to react to the number.".into())
                 }
             }
-            Plan::Arrow { target, horizontal } => {
+            Plan::Arrow { target, horizontal, deny } => {
                 let wanted = if horizontal { MenuKind::Row } else { MenuKind::Arrow };
                 let Some(menu) = parse_menu_ex(input.screen, input.styled).filter(|m| m.kind == wanted) else {
                     return decline(occ, MENU_CHANGED);
                 };
-                let picked = safe_pick(&menu).ok().filter(|i| menu.options[*i].text == target);
+                let chosen = if deny { boundary::plain_no(&menu) } else { safe_pick(&menu).ok() };
+                let picked = chosen.filter(|i| menu.options[*i].text == target);
                 let (Some(want), Some(here)) = (picked, menu.highlighted()) else {
                     return decline(occ, LOST_HIGHLIGHT);
                 };
@@ -528,15 +556,61 @@ impl Answerer {
     }
 }
 
+/// What the answerer will do about a question: the plan, the label of the option it presses, and (for a "no") why.
+struct Decision {
+    plan: Plan,
+    label: String,
+    denied: Option<String>,
+}
+
 /// How the menu was read, and the plan for this screen with the label of the option it picks.
-fn decide(screen: &str, styled: Option<&StyledScreen>, hint: Option<&Hint>) -> (String, Result<(Plan, String), String>) {
+fn decide(screen: &str, styled: Option<&StyledScreen>, hint: Option<&Hint>, folder: Option<&Path>) -> (String, Result<Decision, String>) {
     if let Some(word) = off_limits(screen) {
         return ("not read: it is a sign-in, payment, model or telemetry question".into(), Err(format!("the question mentions \"{word}\", and sign-in, payment, model and telemetry questions are only yours to answer")));
     }
     let menu = parse_menu_ex(screen, styled);
     let read = menu.as_ref().map_or_else(|| "no menu read".to_string(), describe_menu);
-    let result = plan_for(menu, hint);
+    // The wizard's panes stay in the wizard's folder: a question that reaches outside it is never answered "yes".
+    let region = boundary::question_region(screen, menu.as_ref());
+    if let Some(why) = boundary::breach(&region, folder) {
+        let result = deny_plan(menu, &why);
+        return (read, result);
+    }
+    let result = plan_for(menu, hint).map(|(plan, label)| Decision { plan, label, denied: None });
     (read, result)
+}
+
+/// The plan for a question that reaches outside the wizard's folder: press its plain "No" row. With none that can be
+/// found without a doubt the question is the person's (a reason that no look may overrule).
+fn deny_plan(menu: Option<Menu>, why: &str) -> Result<Decision, String> {
+    let stuck = |what: &str| format!("{why}; {what}, so the question is yours to answer");
+    let Some(menu) = menu else { return Err(stuck("no menu could be read to find its \"No\" row")) };
+    let Some(pick) = boundary::plain_no(&menu) else { return Err(stuck("no plain \"No\" row was found")) };
+    let denied = Some(why.to_string());
+    match menu.kind {
+        MenuKind::YesNo => Ok(Decision { plan: Plan::YesNo { deny: true }, label: "No".into(), denied }),
+        MenuKind::Numbered => {
+            let o = &menu.options[pick];
+            Ok(Decision { plan: Plan::Number { number: o.number.unwrap_or(0), target: o.text.clone() }, label: o.text.clone(), denied })
+        }
+        MenuKind::Arrow => {
+            if menu.highlighted().is_none() {
+                return Err(stuck("the highlighted row could not be seen"));
+            }
+            let o = &menu.options[pick];
+            Ok(Decision { plan: Plan::Arrow { target: o.text.clone(), horizontal: false, deny: true }, label: o.text.clone(), denied })
+        }
+        MenuKind::Row => {
+            let o = &menu.options[pick];
+            if let Some(letter) = o.hotkey {
+                return Ok(Decision { plan: Plan::Letter { letter, target: o.text.clone() }, label: o.text.clone(), denied });
+            }
+            if menu.highlighted().is_none() {
+                return Err(stuck("the highlighted button could not be seen"));
+            }
+            Ok(Decision { plan: Plan::Arrow { target: o.text.clone(), horizontal: true, deny: true }, label: o.text.clone(), denied })
+        }
+    }
 }
 
 fn plan_for(menu: Option<Menu>, hint: Option<&Hint>) -> Result<(Plan, String), String> {
@@ -553,7 +627,7 @@ fn plan_for(menu: Option<Menu>, hint: Option<&Hint>) -> Result<(Plan, String), S
     };
     let pick = safe_pick(&menu)?;
     match menu.kind {
-        MenuKind::YesNo => Ok((Plan::YesNo, "Yes".into())),
+        MenuKind::YesNo => Ok((Plan::YesNo { deny: false }, "Yes".into())),
         MenuKind::Numbered => {
             let o = &menu.options[pick];
             Ok((Plan::Number { number: o.number.unwrap_or(0), target: o.text.clone() }, o.text.clone()))
@@ -563,7 +637,7 @@ fn plan_for(menu: Option<Menu>, hint: Option<&Hint>) -> Result<(Plan, String), S
                 return Err(NO_HIGHLIGHT.into());
             }
             let o = &menu.options[pick];
-            Ok((Plan::Arrow { target: o.text.clone(), horizontal: false }, o.text.clone()))
+            Ok((Plan::Arrow { target: o.text.clone(), horizontal: false, deny: false }, o.text.clone()))
         }
         MenuKind::Row => {
             let o = &menu.options[pick];
@@ -574,7 +648,7 @@ fn plan_for(menu: Option<Menu>, hint: Option<&Hint>) -> Result<(Plan, String), S
             if menu.highlighted().is_none() {
                 return Err(NO_HIGHLIGHT.into());
             }
-            Ok((Plan::Arrow { target: o.text.clone(), horizontal: true }, o.text.clone()))
+            Ok((Plan::Arrow { target: o.text.clone(), horizontal: true, deny: false }, o.text.clone()))
         }
     }
 }

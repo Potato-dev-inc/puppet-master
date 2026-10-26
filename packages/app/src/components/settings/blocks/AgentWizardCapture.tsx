@@ -15,7 +15,7 @@ import {
   type StartInfo,
   type WizardApi,
 } from '../../../lib/agentWizard';
-import type { CaptureFacts } from '../../../lib/agentWizardPrompt';
+import { answeredSentence, type CaptureFacts } from '../../../lib/agentWizardPrompt';
 
 export const BTN =
   'rounded-lg border border-pm-border px-3 py-1.5 text-xs font-medium hover:bg-pm-border/40 disabled:opacity-50';
@@ -47,7 +47,7 @@ export function AnsweredList({
   command,
   heading,
 }: {
-  items: Array<{ flavour: string; label: string; keys?: string; screen?: string }>;
+  items: Array<{ flavour: string; label: string; keys?: string; screen?: string; denied?: string }>;
   command: string;
   heading?: string;
 }) {
@@ -57,10 +57,8 @@ export function AnsweredList({
       {heading && <p className="font-medium">{heading}</p>}
       <ul className="mt-1 space-y-1">
         {items.map((a, i) => (
-          <li key={`${a.flavour}-${i}`} data-flavour={a.flavour}>
-            <span>
-              Answered {agentName(command)}'s {a.flavour} question: {a.label}
-            </span>
+          <li key={`${a.flavour}-${i}`} data-flavour={a.flavour} data-denied={a.denied ? 'true' : undefined}>
+            <span>{answeredSentence(agentName(command), a)}</span>
             {a.screen ? (
               <details className="mt-0.5 text-pm-muted">
                 <summary className="cursor-pointer">The question</summary>

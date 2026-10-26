@@ -612,6 +612,17 @@ describe('driveCapture', () => {
     expect(log).toContain("Answered Nimbus's permission question: Allow once (AI look, verified)");
   });
 
+  it('logs a question the wizard denied (outside the temp folder) as denied, not answered', async () => {
+    const w = world();
+    const base = w.api.captureStart;
+    const denied = "the agent asked for access outside the wizard's temp folder: <path>";
+    w.api.captureStart = vi.fn(async () => ({ ...(await base('wz_1', [], 'cap-A')), answered: [{ place: 'capture', flavour: 'permission', label: 'No, deny access', keys: '3, Enter', via: 'rules', denied }] }));
+    const log: string[] = [];
+    await driveCapture({ api: w.api, start, looks: new AiLooks(async () => 'ready_for_input', () => undefined), log: (t) => log.push(t), clock: fakeClock(), timings: TIMINGS, signal: new AbortController().signal });
+    expect(log).toContain("Denied Nimbus's permission question (outside the temp folder): No, deny access");
+    expect(log.some((l) => l.startsWith("Answered Nimbus's permission question"))).toBe(false);
+  });
+
   const READ = 'rows: "Always run in this project" (broad, highlighted); "No" (no)';
 
   it('a menu that was READ but has no plain yes also goes to the menu look, with what the parser read, and the log says how it was decided', async () => {
