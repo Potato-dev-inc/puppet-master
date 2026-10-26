@@ -8,6 +8,7 @@
 
 mod headless;
 mod prompt;
+pub mod session_file;
 mod screen;
 
 use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionFile, LaunchSpec, RunFacts, StandbyScreen, StandbySupport, StartupGate, SubmitSequence, TuiProfile, Warning};
