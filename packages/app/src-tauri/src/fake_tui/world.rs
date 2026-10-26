@@ -586,6 +586,11 @@ impl Session {
         let _ = registry_kill_pane(&self.world.registry, pane_id);
     }
 
+    /// The Chat tab of a pane, read off its screen (what the app does for an agent with no session file).
+    pub fn open_screen_chat(&self, pane_id: &str, agent_type: &str) -> super::ChatProbe {
+        super::ChatProbe::open(self.world.registry.clone(), pane_id, agent_type)
+    }
+
     /// Polls `check` every 100 ms until it returns `Some` or `secs` pass.
     pub fn until<T>(&self, secs: u64, mut check: impl FnMut() -> Option<T>) -> Option<T> {
         let deadline = Instant::now() + Duration::from_secs(secs);

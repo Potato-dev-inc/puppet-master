@@ -13,12 +13,14 @@
 //! `fake-tui-e2e` (its own app-data folder), so a running Puppet Master is never touched.
 
 mod canary_rig;
+mod chat;
 mod profile;
 mod team;
 mod wizard_rig;
 mod world;
 
 pub use canary_rig::CanaryRig;
+pub use chat::ChatProbe;
 pub use wizard_rig::{Answers, WizardRig};
 pub use team::{leak_check, Person, Remote};
 pub use world::{Session, World};
