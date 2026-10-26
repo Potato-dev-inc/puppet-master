@@ -10,6 +10,7 @@ import {
   groupTurns,
   mergeItems,
   onSessionChatItems,
+  onSessionChatStatus,
   openSessionChat,
   type ChatItem,
 } from './sessionChat';
@@ -194,6 +195,15 @@ describe('groupTurns', () => {
     expect(grouped.turns).toHaveLength(1);
   });
 
+  it('takes the model from the newest agent message when no session item names it', () => {
+    const said = (id: string, model: string | null): ChatItem => ({ kind: 'assistant', id, at: null, text: 'x', model, finalAnswer: false });
+    const session: ChatItem = { kind: 'session', id: '0:0', at: null, model: null, cliVersion: '2.1.0' };
+    expect(groupTurns([session, user('1:0'), said('2:0', 'model-a')]).model).toBe('model-a');
+    expect(groupTurns([session, user('1:0'), said('2:0', 'model-a'), said('3:0', 'model-b')]).model).toBe('model-b');
+    expect(groupTurns([user('1:0'), said('2:0', 'model-a'), said('3:0', null)]).model).toBe('model-a');
+    expect(groupTurns([user('1:0'), said('2:0', null)]).model).toBeNull();
+  });
+
   it('returns nothing for no items', () => {
     expect(groupTurns([])).toEqual({ turns: [], model: null, cliVersion: null, usage: null });
   });
@@ -214,6 +224,66 @@ describe('Tauri wrappers', () => {
     invoke.mockResolvedValueOnce(undefined);
     await closeSessionChat('p1');
     expect(invoke).toHaveBeenLastCalledWith('session_chat_close', { paneId: 'p1' });
+  });
+
+  it('keeps the waiting line the backend sends', async () => {
+    setTauri(true);
+    const snapshot = { available: true, reason: null, items: [], waitingFor: 'Looking in C:\\x for a file written after 05:03:05.' };
+    invoke.mockResolvedValueOnce(snapshot);
+    await expect(openSessionChat('p2')).resolves.toEqual(snapshot);
+  });
+
+  it('sends each pane\'s open and close one after the other, in the order asked', async () => {
+    setTauri(true);
+    const log: string[] = [];
+    const finish: Array<() => void> = [];
+    invoke.mockImplementation(
+      (command: string) =>
+        new Promise((resolve) => {
+          log.push(`start ${command}`);
+          finish.push(() => {
+            log.push(`end ${command}`);
+            resolve(undefined);
+          });
+        }),
+    );
+    // What a dev build does at once: open, close (unmount), open again.
+    const all = Promise.all([openSessionChat('p3'), closeSessionChat('p3'), openSessionChat('p3')]);
+    await Promise.resolve();
+    expect(log).toEqual(['start session_chat_open']);
+    for (let i = 0; i < 3; i++) {
+      await vi.waitFor(() => expect(finish).toHaveLength(i + 1));
+      finish[i]();
+    }
+    await all;
+    expect(log).toEqual([
+      'start session_chat_open', 'end session_chat_open',
+      'start session_chat_close', 'end session_chat_close',
+      'start session_chat_open', 'end session_chat_open',
+    ]);
+  });
+
+  it('keeps going after a failed call and does not mix up panes', async () => {
+    setTauri(true);
+    invoke.mockReset();
+    invoke.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce({ available: true, reason: null, items: [] });
+    const first = openSessionChat('p4');
+    const second = openSessionChat('p4');
+    await expect(first).rejects.toThrow('boom');
+    await expect(second).resolves.toMatchObject({ available: true });
+    invoke.mockResolvedValueOnce(undefined);
+    await closeSessionChat('p5');
+    expect(invoke).toHaveBeenLastCalledWith('session_chat_close', { paneId: 'p5' });
+  });
+
+  it('subscribes to session-chat-status and unwraps the payload', async () => {
+    setTauri(true);
+    const cb = vi.fn();
+    await onSessionChatStatus(cb);
+    expect(listen).toHaveBeenCalledWith('session-chat-status', expect.any(Function));
+    const handler = listen.mock.calls[0][1] as unknown as (e: { payload: unknown }) => void;
+    handler({ payload: { paneId: 'p1', waitingFor: null } });
+    expect(cb).toHaveBeenCalledWith({ paneId: 'p1', waitingFor: null });
   });
 
   it('refuses outside the desktop shell', async () => {

@@ -9,6 +9,7 @@ export function SessionChatPanel({ paneId }: { paneId: string }) {
     <SessionChatView
       state={chat.state}
       reason={chat.reason}
+      waitingFor={chat.waitingFor}
       turns={chat.turns}
       model={chat.model}
       cliVersion={chat.cliVersion}

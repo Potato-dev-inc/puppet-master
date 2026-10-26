@@ -30,12 +30,14 @@ impl SessionChatState {
     }
 }
 
-/// Answer of `session_chat_open`.
+/// Answer of `session_chat_open`. `waiting_for`: while there are no items, what the reader is waiting for.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionChatOpened {
     available: bool,
     reason: Option<String>,
     items: Vec<ChatItem>,
+    waiting_for: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -46,11 +48,22 @@ struct ItemsEvent<'a> {
     reset: bool,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StatusEvent<'a> {
+    pane_id: &'a str,
+    waiting_for: Option<&'a str>,
+}
+
 struct EventSink(AppHandle);
 
 impl Sink for EventSink {
     fn send(&self, pane_id: &str, items: Vec<ChatItem>, reset: bool) {
         let _ = self.0.emit("session-chat-items", ItemsEvent { pane_id, items, reset });
+    }
+
+    fn waiting(&self, pane_id: &str, waiting_for: Option<&str>) {
+        let _ = self.0.emit("session-chat-status", StatusEvent { pane_id, waiting_for });
     }
 }
 
@@ -88,7 +101,7 @@ pub async fn session_chat_open(
         .map(|pane| pane.info.agent_type.clone())
         .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
     let Some(source) = crate::tui::profile_for(&agent_type).session_chat() else {
-        return Ok(SessionChatOpened { available: false, reason: Some(NO_SOURCE.into()), items: Vec::new() });
+        return Ok(SessionChatOpened { available: false, reason: Some(NO_SOURCE.into()), items: Vec::new(), waiting_for: None });
     };
     let registry = state.registry.clone();
     let watchers = chat
@@ -96,10 +109,13 @@ pub async fn session_chat_open(
         .get_or_init(|| Arc::new(Watchers::new(Arc::new(EventSink(app)), Arc::new(RegistryPanes(registry)))))
         .clone();
     // The first read of a long session file happens in this call.
-    let items = tauri::async_runtime::spawn_blocking(move || watchers.open(&pane_id, source))
-        .await
-        .map_err(|e| format!("INTERNAL: {e}"))?;
-    Ok(SessionChatOpened { available: true, reason: None, items })
+    let (items, waiting_for) = tauri::async_runtime::spawn_blocking(move || {
+        let items = watchers.open(&pane_id, source);
+        (items, watchers.waiting_for(&pane_id))
+    })
+    .await
+    .map_err(|e| format!("INTERNAL: {e}"))?;
+    Ok(SessionChatOpened { available: true, reason: None, items, waiting_for })
 }
 
 /// Stop following the pane's session file.

@@ -10,5 +10,5 @@ pub mod tail;
 pub mod watch;
 
 pub use model::{cut, ChatItem, SessionFormat, TurnOutcome};
-pub use source::{Located, PaneFacts, SessionSource};
+pub use source::{plain_path, Located, PaneFacts, SessionSource};
 pub use watch::{PaneLookup, Sink, Watchers};

@@ -34,4 +34,49 @@ pub trait SessionSource: Send + Sync {
     fn format(&self) -> &dyn SessionFormat;
     /// The session file this pane is writing, if it can be told yet. Called about once a second.
     fn locate(&self, pane: &PaneFacts) -> Located;
+    /// The folder `locate` looks in for this pane, to tell the person what the view is waiting for.
+    fn looking_in(&self, _pane: &PaneFacts) -> Option<PathBuf> {
+        None
+    }
+}
+
+/// A folder path as a program sees it: no `\\?\` / `//?/` extended-length prefix (`\\?\UNC\h\s` is `\\h\s`).
+/// Trailing separators stay; separators are not changed.
+pub fn plain_path(path: &str) -> String {
+    for prefix in [r"\\?\", "//?/", r"\\.\", "//./"] {
+        if let Some(rest) = path.strip_prefix(prefix) {
+            let unc = rest.get(..4).is_some_and(|head| head.eq_ignore_ascii_case("UNC\\") || head.eq_ignore_ascii_case("UNC/"));
+            return match (unc, rest.get(4..)) {
+                (true, Some(share)) => format!(r"\\{share}"),
+                _ => rest.to_string(),
+            };
+        }
+    }
+    path.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plain_path;
+
+    #[test]
+    fn the_extended_length_prefix_is_dropped() {
+        assert_eq!(plain_path(r"\\?\C:\Users\you\proj"), r"C:\Users\you\proj");
+        assert_eq!(plain_path("//?/C:/Users/you/proj"), "C:/Users/you/proj");
+        assert_eq!(plain_path(r"\\.\C:\x"), r"C:\x");
+    }
+
+    #[test]
+    fn a_unc_share_keeps_two_leading_slashes() {
+        assert_eq!(plain_path(r"\\?\UNC\host\share\x"), r"\\host\share\x");
+        assert_eq!(plain_path(r"\\?\unc\host\share"), r"\\host\share");
+    }
+
+    #[test]
+    fn an_ordinary_path_is_unchanged() {
+        assert_eq!(plain_path(r"C:\Users\you\proj\"), r"C:\Users\you\proj\");
+        assert_eq!(plain_path(r"\\host\share\x"), r"\\host\share\x");
+        assert_eq!(plain_path("/home/you/proj"), "/home/you/proj");
+        assert_eq!(plain_path(""), "");
+    }
 }

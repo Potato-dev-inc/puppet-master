@@ -160,18 +160,18 @@ pub fn comparable_project_path(path: &Path) -> String {
     }
 }
 
-/// `\?\C:\x` -> `C:\x` (and `\?\UNC\host\share` -> `\host\share`), the spelling a program's working
+/// `\\?\C:\x` -> `C:\x` (and `\\?\UNC\host\share` -> `\\host\share`), the spelling a program's working
 /// directory and the person's own folder list use. `canonicalize` returns the extended-length form on
 /// Windows. A share that was reached through a mapped drive letter keeps the letter: `cmd.exe` cannot
 /// start in a UNC folder.
 fn plain_spelling(canonical: PathBuf, as_given: &Path) -> PathBuf {
     let text = canonical.to_string_lossy().into_owned();
-    if let Some(share) = text.strip_prefix(r"\?\UNC\") {
+    if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
         let given = as_given.to_string_lossy();
         let given_is_drive = given.len() >= 2 && given.as_bytes()[1] == b':';
-        return if given_is_drive { as_given.to_path_buf() } else { PathBuf::from(format!(r"\{share}")) };
+        return if given_is_drive { as_given.to_path_buf() } else { PathBuf::from(format!(r"\\{share}")) };
     }
-    match text.strip_prefix(r"\?\") {
+    match text.strip_prefix(r"\\?\") {
         Some(rest) if rest.len() >= 2 && rest.as_bytes()[1] == b':' => PathBuf::from(rest),
         _ => canonical,
     }
@@ -488,11 +488,24 @@ mod persist_tests {
     }
 
     #[test]
+    fn the_extended_length_prefix_is_dropped_from_a_canonical_path() {
+        let plain = |canonical: &str, given: &str| plain_spelling(PathBuf::from(canonical), Path::new(given));
+        assert_eq!(plain(r"\\?\C:\Users\you\proj", r"C:\Users\you\proj"), PathBuf::from(r"C:\Users\you\proj"));
+        assert_eq!(plain(r"\\?\D:\", r"D:\"), PathBuf::from(r"D:\"));
+        // A share keeps its two slashes; reached through a mapped drive it keeps the letter.
+        assert_eq!(plain(r"\\?\UNC\host\share\x", r"\\host\share\x"), PathBuf::from(r"\\host\share\x"));
+        assert_eq!(plain(r"\\?\UNC\host\share\x", r"Z:\x"), PathBuf::from(r"Z:\x"));
+        // Anything else is left alone.
+        assert_eq!(plain(r"C:\Users\you", r"C:\Users\you"), PathBuf::from(r"C:\Users\you"));
+        assert_eq!(plain(r"\\?\Volume{1}\x", r"\\?\Volume{1}\x"), PathBuf::from(r"\\?\Volume{1}\x"));
+    }
+
+    #[test]
     fn a_selected_folder_is_used_exactly_as_picked() {
         let dir = temp_folder("exact");
         let picked = resolve_selected_folder(Some(&text(&dir))).unwrap().expect("a folder");
         assert!(!picked.contains(".puppet-master"), "{picked}");
-        assert!(!picked.starts_with(r"\?\"), "no extended-length prefix reaches a program's cwd: {picked}");
+        assert!(!picked.starts_with(r"\\?\"), "no extended-length prefix reaches a program's cwd: {picked}");
         assert_eq!(comparable_project_path(Path::new(&picked)), comparable_project_path(&dir));
         let _ = std::fs::remove_dir_all(dir);
     }

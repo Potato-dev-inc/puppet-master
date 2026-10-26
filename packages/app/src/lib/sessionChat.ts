@@ -36,6 +36,8 @@ export interface SessionChatSnapshot {
   available: boolean;
   reason: string | null;
   items: ChatItem[];
+  /** While there are no items: one short line saying what the reader is waiting for (where it looks). */
+  waitingFor?: string | null;
 }
 
 /** Payload of the `session-chat-items` event. `reset`: the file was replaced or truncated, drop old items. */
@@ -43,6 +45,12 @@ export interface SessionChatItemsEvent {
   paneId: string;
   items: ChatItem[];
   reset: boolean;
+}
+
+/** Payload of the `session-chat-status` event: what an empty chat is waiting for changed (`null`: nothing). */
+export interface SessionChatStatusEvent {
+  paneId: string;
+  waitingFor: string | null;
 }
 
 export type ToolStatus = 'running' | 'ok' | 'error';
@@ -77,7 +85,7 @@ export interface ChatTurn {
 
 export interface GroupedChat {
   turns: ChatTurn[];
-  /** Latest known model and CLI version (the newest `session` item that has each). */
+  /** Latest known model (a `session` or `assistant` item) and CLI version (a `session` item). */
   model: string | null;
   cliVersion: string | null;
   /** Latest `usage` item. */
@@ -92,19 +100,40 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   return invoke<T>(command, args);
 }
 
+// A pane's open and close reach the backend one after the other, in the order they were asked: the app's
+// dev build mounts, unmounts and mounts the chat again at once, and a close that overtook the second open
+// would leave the pane with a view and no reader.
+const queues = new Map<string, Promise<unknown>>();
+
+function inOrder<T>(paneId: string, run: () => Promise<T>): Promise<T> {
+  const done = (queues.get(paneId) ?? Promise.resolve()).then(run, run);
+  const tail = done.catch(() => undefined);
+  queues.set(paneId, tail);
+  void tail.then(() => {
+    if (queues.get(paneId) === tail) queues.delete(paneId);
+  });
+  return done;
+}
+
 /** Start reading this pane's session file. The backend keeps tailing it until `closeSessionChat`. */
 export function openSessionChat(paneId: string): Promise<SessionChatSnapshot> {
-  return call<SessionChatSnapshot>('session_chat_open', { paneId });
+  return inOrder(paneId, () => call<SessionChatSnapshot>('session_chat_open', { paneId }));
 }
 
 export function closeSessionChat(paneId: string): Promise<void> {
-  return call<void>('session_chat_close', { paneId });
+  return inOrder(paneId, () => call<void>('session_chat_close', { paneId }));
 }
 
 /** Every pane's item batches; the caller filters by `paneId`. Resolves to a no-op outside the desktop shell. */
 export function onSessionChatItems(cb: (event: SessionChatItemsEvent) => void): Promise<UnlistenFn> {
   if (!isTauri()) return Promise.resolve(noopUnlisten);
   return listen<SessionChatItemsEvent>('session-chat-items', (e) => cb(e.payload));
+}
+
+/** What an empty chat waits for, per pane; the caller filters by `paneId`. A no-op outside the desktop shell. */
+export function onSessionChatStatus(cb: (event: SessionChatStatusEvent) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return Promise.resolve(noopUnlisten);
+  return listen<SessionChatStatusEvent>('session-chat-status', (e) => cb(e.payload));
 }
 
 /**
@@ -150,6 +179,8 @@ export function groupTurns(items: readonly ChatItem[]): GroupedChat {
         break;
       case 'assistant':
         turnFor(item.id).steps.push({ kind: 'text', id: item.id, item });
+        // A session item need not name the model (it is on each message); the newest one that does wins.
+        model = item.model ?? model;
         break;
       case 'toolCall': {
         const known = calls.get(item.callId);

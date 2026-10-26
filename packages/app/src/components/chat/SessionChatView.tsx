@@ -13,6 +13,8 @@ const AT_BOTTOM_PX = 24;
 export interface SessionChatViewProps {
   state: SessionChatState;
   reason: string | null;
+  /** What an empty chat is waiting for, under the waiting line (where the reader looks). */
+  waitingFor?: string | null;
   turns: ChatTurn[];
   model: string | null;
   cliVersion: string | null;
@@ -96,7 +98,7 @@ function TurnView({ turn }: { turn: ChatTurn }) {
   );
 }
 
-export function SessionChatView({ state, reason, turns, model, cliVersion }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, turns, model, cliVersion }: SessionChatViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
 
@@ -126,7 +128,12 @@ export function SessionChatView({ state, reason, turns, model, cliVersion }: Ses
           </div>
         )}
         {state !== 'unavailable' && turns.length === 0 && (
-          <p className="ck-sub text-pm-muted">Waiting for the agent&apos;s session file…</p>
+          <div className="ck-chat-waiting">
+            <p className="ck-sub text-pm-muted">Waiting for the agent&apos;s session file…</p>
+            {waitingFor && (
+              <p className="mt-0.5 break-words text-[11px] text-pm-muted opacity-70 ck-chat-waiting-for">{waitingFor}</p>
+            )}
+          </div>
         )}
         {state !== 'unavailable' && turns.map((turn) => <TurnView key={turn.id} turn={turn} />)}
       </div>
