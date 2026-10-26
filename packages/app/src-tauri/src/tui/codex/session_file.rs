@@ -86,6 +86,16 @@ pub fn rollout_meta(path: &Path) -> Option<(String, String)> {
     Some((cwd, id))
 }
 
+/// When a rollout started: the `timestamp` of its first line (`session_meta`), or `None` when it has none.
+pub fn rollout_started(path: &Path) -> Option<SystemTime> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut first = String::new();
+    std::io::BufReader::new(file).read_line(&mut first).ok()?;
+    let root: Value = serde_json::from_str(&first).ok()?;
+    let stamp = DateTime::parse_from_rfc3339(root["timestamp"].as_str()?).ok()?;
+    Some(SystemTime::from(stamp))
+}
+
 /// The items of one line. Ids are `<line offset>:<index in the line>`, so they are stable across re-reads.
 struct Emit {
     offset: u64,
@@ -277,7 +287,7 @@ fn str_field(value: &Value, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session_chat::read_lines;
+    use crate::session_chat::items::read_lines;
     use serde_json::json;
     use std::fs;
     use std::time::{Duration, UNIX_EPOCH};

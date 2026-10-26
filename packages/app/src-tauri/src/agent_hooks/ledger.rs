@@ -221,6 +221,12 @@ pub fn recent(pane_id: &str) -> Vec<HookEvent> {
     LEDGERS.lock().get(pane_id).map(|l| l.ring.iter().cloned().collect()).unwrap_or_default()
 }
 
+/// The agent session id this pane is pinned to (the first one its hooks reported, replaced by a clear or
+/// resume), or `None` before any hook event or after the session ended.
+pub fn pinned_session(pane_id: &str) -> Option<String> {
+    LEDGERS.lock().get(pane_id).and_then(|l| l.pinned_session.clone())
+}
+
 /// True once any pane of this agent has reported (the doctor's "connected").
 pub fn agent_ever_connected(agent: &str) -> bool {
     EVER_CONNECTED.lock().contains(agent)

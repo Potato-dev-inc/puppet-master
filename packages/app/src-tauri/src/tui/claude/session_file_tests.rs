@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::session_chat::MAX_OUTPUT_CHARS;
+use crate::session_chat::model::MAX_OUTPUT_CHARS;
 
 /// Synthetic session: invented chat, `C:\Users\you\proj`, one broken line. See the fixtures folder.
 const FIXTURE: &str = include_str!("fixtures/session_basic.jsonl");
