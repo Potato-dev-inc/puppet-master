@@ -442,10 +442,10 @@ mod tests {
 
     #[test]
     fn a_folder_with_a_space_in_its_name_is_still_inside() {
-        let spaced = PathBuf::from(r"C:\Users\Jo Smith\AppData\Local\Temp\pm-wizard-wz_1");
-        let text = r#"Read "C:\Users\Jo Smith\AppData\Local\Temp\pm-wizard-wz_1\test-project\a.txt""#;
+        let spaced = PathBuf::from(r"C:\Users\you two\AppData\Local\Temp\pm-wizard-wz_1");
+        let text = r#"Read "C:\Users\you two\AppData\Local\Temp\pm-wizard-wz_1\test-project\a.txt""#;
         assert_eq!(breach(&region(text), Some(&spaced)), None);
-        assert!(breach(&region(r#"Read "C:\Users\Jo Smith\Desktop\a.txt""#), Some(&spaced)).is_some());
+        assert!(breach(&region(r#"Read "C:\Users\you two\Desktop\a.txt""#), Some(&spaced)).is_some());
     }
 
     #[test]
