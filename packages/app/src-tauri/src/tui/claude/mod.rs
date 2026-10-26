@@ -9,6 +9,7 @@
 mod headless;
 mod prompt;
 mod screen;
+pub mod session_file;
 #[cfg(test)]
 mod fullscreen_tests;
 
