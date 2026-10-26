@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::session_file::{config_dir, newest_session, project_dir, session_path, ClaudeSessionFile};
-use crate::session_chat::{Located, PaneFacts, SessionFormat, SessionSource};
+use crate::session_chat::{plain_path, Located, PaneFacts, SessionFormat, SessionSource};
 
 /// A session file can be a few seconds older than the pane when the clocks or the filesystem round.
 const SLACK: Duration = Duration::from_secs(5);
@@ -18,35 +18,52 @@ impl SessionSource for ClaudeSource {
         &ClaudeSessionFile
     }
 
-    /// The pane's own account folder, else `CLAUDE_CONFIG_DIR` / `~/.claude`.
+    /// The pane's own account folder, then `CLAUDE_CONFIG_DIR` / `~/.claude`.
     fn locate(&self, pane: &PaneFacts) -> Located {
-        match pane.home.clone().or_else(config_dir) {
-            Some(config) => locate_in(&config, pane),
-            None => Located::NotYet,
+        locate_in(&config_dirs(pane), pane)
+    }
+
+    fn looking_in(&self, pane: &PaneFacts) -> Option<PathBuf> {
+        config_dirs(pane).first().map(|config| existing_project_dir(config, &pane.cwd))
+    }
+}
+
+/// Where this pane's session files may be: its own account folder first, and the CLI's default folder
+/// too (an account folder that holds nothing for the pane must not hide the file in the default one).
+fn config_dirs(pane: &PaneFacts) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = pane.home.iter().cloned().collect();
+    if let Some(default) = config_dir().filter(|default| !dirs.contains(default)) {
+        dirs.push(default);
+    }
+    dirs
+}
+
+/// The file the pane's agent reported (hook session id) when it exists; else the newest session file in the
+/// pane's project folder written since the pane started; else, with an id, the file that id will have.
+fn locate_in(configs: &[PathBuf], pane: &PaneFacts) -> Located {
+    let id = pane.provider_session_id.as_deref().filter(|id| !id.is_empty());
+    let dir_of = |config: &PathBuf| existing_project_dir(config, &pane.cwd);
+    if let Some(id) = id {
+        if let Some(path) = configs.iter().map(|config| session_path(&dir_of(config), id)).find(|path| path.is_file()) {
+            return Located::Found(path);
         }
     }
-}
-
-/// With the session id (reported by the agent's hooks) the file is known; without it, the newest
-/// session file in the pane's project folder written since the pane started.
-fn locate_in(config: &Path, pane: &PaneFacts) -> Located {
-    let dir = existing_project_dir(config, &pane.cwd);
-    if let Some(id) = pane.provider_session_id.as_deref().filter(|id| !id.is_empty()) {
-        return Located::Found(session_path(&dir, id));
-    }
     let since = pane.started_at.checked_sub(SLACK).unwrap_or(pane.started_at);
-    match newest_session(&dir, since) {
-        Some(path) => Located::Found(path),
-        None => Located::NotYet,
+    if let Some(path) = configs.iter().find_map(|config| newest_session(&dir_of(config), since)) {
+        return Located::Found(path);
+    }
+    match (id, configs.first()) {
+        (Some(id), Some(config)) => Located::Found(session_path(&dir_of(config), id)),
+        _ => Located::NotYet,
     }
 }
 
-/// `<config>/projects/<encoded cwd>`. A trailing separator on the cwd is ignored, and where the folder
-/// exists only under another letter case (Windows paths) that folder is used.
+/// `<config>/projects/<encoded cwd>`. A `\\?\` prefix and a trailing separator on the cwd are ignored, and
+/// where the folder exists only under another letter case (Windows paths) that folder is used.
 fn existing_project_dir(config: &Path, cwd: &Path) -> PathBuf {
-    let text = cwd.to_string_lossy();
+    let text = plain_path(&cwd.to_string_lossy());
     let trimmed = text.trim_end_matches(['/', '\\']);
-    let exact = project_dir(config, Path::new(if trimmed.is_empty() { &*text } else { trimmed }));
+    let exact = project_dir(config, Path::new(if trimmed.is_empty() { text.as_str() } else { trimmed }));
     if exact.is_dir() {
         return exact;
     }
@@ -119,7 +136,7 @@ mod tests {
         let config = Config::new();
         let dir = config.0.join("projects").join(FOLDER);
         assert_eq!(
-            locate_in(&config.0, &pane(ago(60), Some("abc-1"))),
+            locate_in(&[config.0.clone()], &pane(ago(60), Some("abc-1"))),
             Located::Found(dir.join("abc-1.jsonl"))
         );
     }
@@ -129,7 +146,7 @@ mod tests {
         let config = Config::new();
         let mine = config.session(FOLDER, "mine.jsonl", ago(30));
         config.session(FOLDER, "other.jsonl", ago(1));
-        assert_eq!(locate_in(&config.0, &pane(ago(60), Some("mine"))), Located::Found(mine));
+        assert_eq!(locate_in(&[config.0.clone()], &pane(ago(60), Some("mine"))), Located::Found(mine));
     }
 
     #[test]
@@ -137,33 +154,84 @@ mod tests {
         let config = Config::new();
         config.session(FOLDER, "old.jsonl", ago(600));
         let first = config.session(FOLDER, "first.jsonl", ago(20));
-        assert_eq!(locate_in(&config.0, &pane(ago(30), None)), Located::Found(first));
+        assert_eq!(locate_in(&[config.0.clone()], &pane(ago(30), None)), Located::Found(first));
         let newer = config.session(FOLDER, "newer.jsonl", ago(2));
-        assert_eq!(locate_in(&config.0, &pane(ago(30), None)), Located::Found(newer));
+        assert_eq!(locate_in(&[config.0.clone()], &pane(ago(30), None)), Located::Found(newer));
     }
 
     #[test]
     fn a_file_a_few_seconds_older_than_the_pane_still_counts() {
         let config = Config::new();
         let file = config.session(FOLDER, "slack.jsonl", ago(33));
-        assert_eq!(locate_in(&config.0, &pane(ago(30), None)), Located::Found(file.clone()));
+        assert_eq!(locate_in(&[config.0.clone()], &pane(ago(30), None)), Located::Found(file.clone()));
         config.session(FOLDER, "too-old.jsonl", ago(40));
-        assert_eq!(locate_in(&config.0, &pane(ago(30), None)), Located::Found(file));
+        assert_eq!(locate_in(&[config.0.clone()], &pane(ago(30), None)), Located::Found(file));
     }
 
     #[test]
     fn no_file_since_the_pane_started_is_not_yet() {
         let config = Config::new();
-        assert_eq!(locate_in(&config.0, &pane(ago(30), None)), Located::NotYet);
+        assert_eq!(locate_in(&[config.0.clone()], &pane(ago(30), None)), Located::NotYet);
         config.session(FOLDER, "old.jsonl", ago(600));
-        assert_eq!(locate_in(&config.0, &pane(ago(30), None)), Located::NotYet);
+        assert_eq!(locate_in(&[config.0.clone()], &pane(ago(30), None)), Located::NotYet);
     }
 
     #[test]
     fn other_projects_are_not_looked_at() {
         let config = Config::new();
         config.session("C--Users-you-other", "x.jsonl", ago(1));
-        assert_eq!(locate_in(&config.0, &pane(ago(30), None)), Located::NotYet);
+        assert_eq!(locate_in(&[config.0.clone()], &pane(ago(30), None)), Located::NotYet);
+    }
+
+    #[test]
+    fn an_extended_length_prefix_on_the_cwd_is_ignored() {
+        // A folder picked in the app reached the registry as `\\?\D:\...`; the CLI writes under `D--...`.
+        let config = Config::new();
+        let file = config.session(FOLDER, "a.jsonl", ago(1));
+        let mut facts = pane(ago(30), None);
+        facts.cwd = PathBuf::from(format!(r"\\?\{CWD}"));
+        assert_eq!(locate_in(&[config.0.clone()], &facts), Located::Found(file.clone()));
+        facts.cwd = PathBuf::from(format!(r"\\?\{CWD}\"));
+        assert_eq!(locate_in(&[config.0.clone()], &facts), Located::Found(file));
+    }
+
+    #[test]
+    fn a_session_id_whose_file_does_not_exist_falls_back_to_the_newest_file() {
+        let config = Config::new();
+        let file = config.session(FOLDER, "real.jsonl", ago(3));
+        assert_eq!(locate_in(&[config.0.clone()], &pane(ago(30), Some("not-written"))), Located::Found(file));
+    }
+
+    #[test]
+    fn a_session_id_whose_file_appears_later_takes_over_from_the_fallback() {
+        let config = Config::new();
+        let stale = config.session(FOLDER, "stale.jsonl", ago(20));
+        let facts = pane(ago(30), Some("mine"));
+        assert_eq!(locate_in(&[config.0.clone()], &facts), Located::Found(stale));
+        let mine = config.session(FOLDER, "mine.jsonl", ago(1));
+        assert_eq!(locate_in(&[config.0.clone()], &facts), Located::Found(mine));
+    }
+
+    #[test]
+    fn an_account_folder_without_the_file_also_tries_the_default_folder() {
+        let account = Config::new();
+        let default = Config::new();
+        let file = default.session(FOLDER, "a.jsonl", ago(1));
+        let both = [account.0.clone(), default.0.clone()];
+        assert_eq!(locate_in(&both, &pane(ago(30), None)), Located::Found(file.clone()));
+        assert_eq!(locate_in(&both, &pane(ago(30), Some("a"))), Located::Found(file));
+        // The account folder wins when it has a file too.
+        let own = account.session(FOLDER, "b.jsonl", ago(1));
+        assert_eq!(locate_in(&both, &pane(ago(30), None)), Located::Found(own));
+    }
+
+    #[test]
+    fn the_folder_looked_in_is_named_for_the_person() {
+        let config = Config::new();
+        let mut facts = pane(ago(30), None);
+        facts.home = Some(config.0.clone());
+        facts.cwd = PathBuf::from(format!(r"\\?\{CWD}"));
+        assert_eq!(SOURCE.looking_in(&facts), Some(config.0.join("projects").join(FOLDER)));
     }
 
     #[test]
@@ -172,7 +240,7 @@ mod tests {
         let file = config.session(FOLDER, "a.jsonl", ago(1));
         let mut facts = pane(ago(30), None);
         facts.cwd = PathBuf::from(format!(r"{CWD}\"));
-        assert_eq!(locate_in(&config.0, &facts), Located::Found(file));
+        assert_eq!(locate_in(&[config.0.clone()], &facts), Located::Found(file));
     }
 
     #[test]
@@ -180,7 +248,7 @@ mod tests {
         let config = Config::new();
         let file = config.session("c--users-you-proj", "a.jsonl", ago(1));
         // A case-insensitive filesystem answers with the cwd's own spelling of the folder.
-        let Located::Found(found) = locate_in(&config.0, &pane(ago(30), None)) else {
+        let Located::Found(found) = locate_in(&[config.0.clone()], &pane(ago(30), None)) else {
             panic!("not found");
         };
         assert_eq!(found.to_string_lossy().to_lowercase(), file.to_string_lossy().to_lowercase());

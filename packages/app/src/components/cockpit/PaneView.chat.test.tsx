@@ -16,6 +16,7 @@ vi.mock('../../lib/sessionChat', async (importOriginal) => ({
   openSessionChat: vi.fn(async () => ({ available: true, reason: null, items: SAMPLE })),
   closeSessionChat: vi.fn(async () => undefined),
   onSessionChatItems: vi.fn(async () => () => undefined),
+  onSessionChatStatus: vi.fn(async () => () => undefined),
 }));
 
 import { openSessionChat } from '../../lib/sessionChat';

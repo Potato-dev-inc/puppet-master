@@ -62,6 +62,22 @@ describe('SessionChatView states', () => {
     expect(text()).toContain(WAITING);
   });
 
+  it('says what it is waiting for in a muted line under the waiting note', () => {
+    const line = 'Looking in C:\\x\\projects\\p for a file written after 05:03:05.';
+    render({ state: 'ready', turns: [], waitingFor: line });
+    expect(text()).toContain(WAITING);
+    const note = [...host.querySelectorAll('p')].find((p) => p.textContent === line);
+    expect(note?.className).toContain('text-pm-muted');
+    expect(note?.previousElementSibling?.textContent).toBe(WAITING);
+  });
+
+  it('shows no extra line when nothing is known, and none once there are turns', () => {
+    render({ state: 'ready', turns: [] });
+    expect(host.querySelector('.ck-chat-waiting-for')).toBeNull();
+    render({ state: 'ready', turns: turnsFrom(SAMPLE), waitingFor: 'stale line' });
+    expect(text()).not.toContain('stale line');
+  });
+
   it('shows the reason when the chat is unavailable', () => {
     render({ state: 'unavailable', reason: 'This agent keeps no session file.' });
     expect(text()).toContain('This agent keeps no session file.');

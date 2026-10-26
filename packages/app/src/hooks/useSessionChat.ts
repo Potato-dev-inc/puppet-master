@@ -6,6 +6,7 @@ import {
   groupTurns,
   mergeItems,
   onSessionChatItems,
+  onSessionChatStatus,
   openSessionChat,
   type ChatItem,
   type ChatTurn,
@@ -18,6 +19,8 @@ export interface SessionChatHook {
   state: SessionChatState;
   /** Why the chat is unavailable (from the backend, or the error that stopped the open). */
   reason: string | null;
+  /** While there is nothing to show: what the reader is waiting for (from the backend), else null. */
+  waitingFor: string | null;
   turns: ChatTurn[];
   model: string | null;
   cliVersion: string | null;
@@ -27,9 +30,10 @@ export interface SessionChatHook {
 interface Status {
   state: SessionChatState;
   reason: string | null;
+  waitingFor: string | null;
 }
 
-const LOADING: Status = { state: 'loading', reason: null };
+const LOADING: Status = { state: 'loading', reason: null, waitingFor: null };
 
 export function useSessionChat(paneId: string, enabled: boolean): SessionChatHook {
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -39,6 +43,7 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
     if (!enabled) return;
     let live = true;
     let unlisten: (() => void) | null = null;
+    let unlistenStatus: (() => void) | null = null;
     setItems([]);
     setStatus(LOADING);
 
@@ -53,20 +58,35 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
       })
       .catch(() => undefined);
 
+    void onSessionChatStatus((event) => {
+      if (!live || event.paneId !== paneId) return;
+      setStatus((prev) => ({ ...prev, waitingFor: event.waitingFor }));
+    })
+      .then((off) => {
+        if (live) unlistenStatus = off;
+        else off();
+      })
+      .catch(() => undefined);
+
     openSessionChat(paneId)
       .then((snapshot) => {
         if (!live) return;
         setItems((prev) => mergeItems(prev, snapshot.items, false));
-        setStatus(snapshot.available ? { state: 'ready', reason: null } : { state: 'unavailable', reason: snapshot.reason });
+        setStatus(
+          snapshot.available
+            ? { state: 'ready', reason: null, waitingFor: snapshot.waitingFor ?? null }
+            : { state: 'unavailable', reason: snapshot.reason, waitingFor: null },
+        );
       })
       .catch((error: unknown) => {
         if (!live) return;
-        setStatus({ state: 'unavailable', reason: error instanceof Error ? error.message : String(error) });
+        setStatus({ state: 'unavailable', reason: error instanceof Error ? error.message : String(error), waitingFor: null });
       });
 
     return () => {
       live = false;
       unlisten?.();
+      unlistenStatus?.();
       void closeSessionChat(paneId).catch(() => undefined);
     };
   }, [paneId, enabled]);
@@ -75,6 +95,7 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
   return {
     state: status.state,
     reason: status.reason,
+    waitingFor: status.waitingFor,
     turns: grouped.turns,
     model: grouped.model,
     cliVersion: grouped.cliVersion,

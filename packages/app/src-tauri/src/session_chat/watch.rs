@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Local};
 use parking_lot::Mutex;
 
 use super::items::read_lines;
@@ -22,6 +23,8 @@ pub const MAX_ITEMS: usize = 3000;
 /// Where batches of items go. `reset`: drop everything shown before and show `items` instead.
 pub trait Sink: Send + Sync {
     fn send(&self, pane_id: &str, items: Vec<ChatItem>, reset: bool);
+    /// What a pane with nothing to show is waiting for changed (`None`: it is not waiting any more).
+    fn waiting(&self, _pane_id: &str, _waiting_for: Option<&str>) {}
 }
 
 /// What the watcher asks about a pane: its facts, or `None` when the pane is gone.
@@ -59,11 +62,13 @@ struct Follower {
     file: Option<PathBuf>,
     tail: Option<Tail>,
     last_locate: Option<Instant>,
+    /// The last answer was `Ambiguous`.
+    ambiguous: bool,
 }
 
 impl Follower {
     fn new(source: &'static dyn SessionSource) -> Self {
-        Follower { source, file: None, tail: None, last_locate: None }
+        Follower { source, file: None, tail: None, last_locate: None, ambiguous: false }
     }
 
     fn step(&mut self, facts: &PaneFacts, now: Instant, relocate: Duration) -> Change {
@@ -71,7 +76,9 @@ impl Follower {
         if !matches!(self.last_locate, Some(at) if now.duration_since(at) < relocate) {
             self.last_locate = Some(now);
             // Ambiguous and NotYet keep the file already followed; only a different file replaces it.
-            if let Located::Found(path) = self.source.locate(facts) {
+            let located = self.source.locate(facts);
+            self.ambiguous = matches!(located, Located::Ambiguous(_));
+            if let Located::Found(path) = located {
                 if self.file.as_ref() != Some(&path) {
                     switched = self.file.is_some();
                     self.tail = Some(Tail::new(path.clone()));
@@ -100,9 +107,34 @@ impl Follower {
     }
 }
 
+impl Follower {
+    /// In words, what a pane with nothing to show is waiting for. For the person, one short sentence.
+    fn waiting(&self, facts: &PaneFacts) -> String {
+        let since: DateTime<Local> = facts.started_at.into();
+        let since = since.format("%H:%M:%S");
+        match &self.file {
+            None if self.ambiguous => "Several files could be this pane's; waiting for one to stand out.".to_string(),
+            None => match self.source.looking_in(facts) {
+                Some(place) => format!("Looking in {} for a file written after {since}.", place.display()),
+                None => format!("Looking for a file written after {since}."),
+            },
+            Some(path) => {
+                let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                if path.is_file() {
+                    format!("Reading {name}: nothing to show in it yet.")
+                } else {
+                    format!("Waiting for {name} to be written.")
+                }
+            }
+        }
+    }
+}
+
 /// The items one pane shows, and the way to stop its thread.
 struct Watch {
     items: Mutex<VecDeque<ChatItem>>,
+    /// What the pane is waiting for while it has no items (see `Follower::waiting`).
+    waiting: Mutex<Option<String>>,
     stop: AtomicBool,
     finished: AtomicBool,
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -112,6 +144,7 @@ impl Watch {
     fn new() -> Self {
         Watch {
             items: Mutex::new(VecDeque::new()),
+            waiting: Mutex::new(None),
             stop: AtomicBool::new(false),
             finished: AtomicBool::new(false),
             thread: Mutex::new(None),
@@ -166,6 +199,7 @@ impl Watchers {
         let first = follower.step(&facts, Instant::now(), self.tuning.relocate);
         apply(&watch, first, self.tuning.max_items, None);
         let snapshot = watch.snapshot();
+        *watch.waiting.lock() = waiting_of(&watch, &follower, &facts);
 
         let worker = Worker {
             pane_id: pane_id.to_string(),
@@ -188,6 +222,11 @@ impl Watchers {
             }
         }
         snapshot
+    }
+
+    /// What the pane is waiting for while it has nothing to show; `None` once it has items (or is not open).
+    pub fn waiting_for(&self, pane_id: &str) -> Option<String> {
+        self.open.lock().get(pane_id).and_then(|watch| watch.waiting.lock().clone())
     }
 
     /// Stops following the pane. Its thread ends within one poll; nothing waits for it.
@@ -239,11 +278,22 @@ impl Worker {
             };
             let change = self.follower.step(&facts, Instant::now(), self.tuning.relocate);
             apply(&self.watch, change, self.tuning.max_items, Some((&*self.sink, &self.pane_id)));
+            let waiting = waiting_of(&self.watch, &self.follower, &facts);
+            let mut known = self.watch.waiting.lock();
+            if *known != waiting {
+                self.sink.waiting(&self.pane_id, waiting.as_deref());
+                *known = waiting;
+            }
         }
         self.watch.finished.store(true, Ordering::SeqCst);
         self.alive.fetch_sub(1, Ordering::SeqCst);
         tracing::debug!(pane = %self.pane_id, "session chat: reader stopped");
     }
+}
+
+/// What the pane is waiting for: only while it has nothing to show.
+fn waiting_of(watch: &Watch, follower: &Follower, facts: &PaneFacts) -> Option<String> {
+    watch.items.lock().is_empty().then(|| follower.waiting(facts))
 }
 
 /// Puts a change into the pane's items (dropping the oldest past `max`) and sends it to the sink.

@@ -21,6 +21,7 @@ impl SessionFormat for FakeFormat {
 /// A source whose answer the test sets.
 struct FakeSource {
     located: Mutex<Located>,
+    place: Mutex<Option<PathBuf>>,
 }
 
 impl SessionSource for FakeSource {
@@ -31,20 +32,31 @@ impl SessionSource for FakeSource {
     fn locate(&self, _pane: &PaneFacts) -> Located {
         self.located.lock().clone()
     }
+
+    fn looking_in(&self, _pane: &PaneFacts) -> Option<PathBuf> {
+        self.place.lock().clone()
+    }
 }
 
+const PLACE: &str = "/sessions/proj";
+
 fn source(located: Located) -> &'static FakeSource {
-    Box::leak(Box::new(FakeSource { located: Mutex::new(located) }))
+    Box::leak(Box::new(FakeSource { located: Mutex::new(located), place: Mutex::new(Some(PathBuf::from(PLACE))) }))
 }
 
 #[derive(Default)]
 struct FakeSink {
     sent: Mutex<Vec<(String, Vec<ChatItem>, bool)>>,
+    waits: Mutex<Vec<(String, Option<String>)>>,
 }
 
 impl Sink for FakeSink {
     fn send(&self, pane_id: &str, items: Vec<ChatItem>, reset: bool) {
         self.sent.lock().push((pane_id.to_string(), items, reset));
+    }
+
+    fn waiting(&self, pane_id: &str, waiting_for: Option<&str>) {
+        self.waits.lock().push((pane_id.to_string(), waiting_for.map(str::to_string)));
     }
 }
 
@@ -395,4 +407,48 @@ fn the_follower_asks_where_the_file_is_only_once_per_relocate_interval() {
         Change::Append(items) => assert_eq!(texts(&items), strings(&["one"])),
         other => panic!("{other:?}"),
     }
+}
+
+fn last_wait(rig: &Rig) -> Option<String> {
+    rig.sink.waits.lock().last().and_then(|(_, text)| text.clone())
+}
+
+#[test]
+fn a_pane_without_a_file_says_where_it_looks_and_since_when() {
+    let rig = Rig::new(MAX_ITEMS);
+    assert!(rig.watchers.open("p1", source(Located::NotYet)).is_empty());
+    let waiting = rig.watchers.waiting_for("p1").expect("waiting");
+    let want = format!("Looking in {} for a file written after 00:00:00.", Path::new(PLACE).display());
+    assert_eq!(waiting.len(), want.len(), "{waiting}");
+    assert_eq!(waiting[..waiting.len() - 9], want[..want.len() - 9], "{waiting}");
+    assert_eq!(rig.watchers.waiting_for("other"), None);
+}
+
+#[test]
+fn the_waiting_text_follows_the_file_and_ends_when_there_are_items() {
+    let rig = Rig::new(MAX_ITEMS);
+    let path = rig.file("later.jsonl");
+    let src = source(Located::NotYet);
+    rig.watchers.open("p1", src);
+
+    // A file named but not written yet.
+    *src.located.lock() = Located::Found(path.clone());
+    wait_until("the named file", || last_wait(&rig).as_deref() == Some("Waiting for later.jsonl to be written."));
+    // The file exists but holds nothing readable.
+    append(&path, "noise\n");
+    wait_until("the empty file", || last_wait(&rig).is_some_and(|text| text.starts_with("Reading later.jsonl")));
+    // Items arrive: no longer waiting.
+    append(&path, "u:hi\n");
+    wait_until("no more waiting", || rig.sink.waits.lock().last().is_some_and(|(_, text)| text.is_none()));
+    assert_eq!(rig.watchers.waiting_for("p1"), None);
+    // Each change was sent once.
+    let waits = rig.sink.waits.lock().clone();
+    assert_eq!(waits.len(), 3, "{waits:?}");
+}
+
+#[test]
+fn several_candidate_files_are_called_out() {
+    let rig = Rig::new(MAX_ITEMS);
+    rig.watchers.open("p1", source(Located::Ambiguous(vec![rig.file("a.jsonl"), rig.file("b.jsonl")])));
+    assert!(rig.watchers.waiting_for("p1").unwrap().starts_with("Several files"));
 }
