@@ -172,7 +172,7 @@ impl ScreenChat {
                     match self.turns.get_mut(first + offset) {
                         Some(known) if turn.user.is_none() => grow(known, turn),
                         Some(known) => {
-                            let user = longer(known.user.take(), turn.user.clone());
+                            let user = newest_message(known.user.take(), turn.user.clone());
                             *known = Parsed { user, ..turn };
                         }
                         None => self.turns.push(turn),
@@ -260,11 +260,9 @@ fn same_message(a: Option<&str>, b: Option<&str>) -> bool {
     }
 }
 
-fn longer(a: Option<String>, b: Option<String>) -> Option<String> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(if a.chars().count() > b.chars().count() { a } else { b }),
-        (a, b) => a.or(b),
-    }
+/// The message as the newest reading has it: a draft grew, or a frame drawn mid-redraw was put right.
+fn newest_message(known: Option<String>, new: Option<String>) -> Option<String> {
+    new.or(known)
 }
 
 /// Adds what `more` shows of a turn that is only partly on screen: new tool rows, and a reply when it is not

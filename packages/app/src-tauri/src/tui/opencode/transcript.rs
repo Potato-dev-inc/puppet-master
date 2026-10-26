@@ -92,8 +92,8 @@ pub(super) fn footer_model(buffer: &str) -> Option<String> {
     buffer
         .lines()
         .rev()
-        .filter_map(|row| MODEL_ROW.captures(row.trim()))
-        .map(|found| found["model"].trim().to_string())
+        .map(|row| SCROLLBAR.replace(row, ""))
+        .filter_map(|row| MODEL_ROW.captures(row.trim()).map(|found| found["model"].trim().to_string()))
         .find(|model| !model.is_empty())
 }
 

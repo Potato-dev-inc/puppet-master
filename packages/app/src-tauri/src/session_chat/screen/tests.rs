@@ -356,3 +356,16 @@ fn profile_helpers_in_the_probe_behave_as_described() {
     assert_eq!(profile.user_message_row("hello"), None);
     assert!(!crate::tui::profile_for(NO_ECHO).reads_user_messages());
 }
+
+#[test]
+fn a_message_drawn_wrong_for_one_frame_is_put_right_under_the_same_id() {
+    let mut chat = chat();
+    let mut viewer = Viewer::default();
+    // The layout was still settling: the side column's text sat in the message row.
+    viewer.look(&mut chat, &screen("> say hello to the room          New session 2026\nreply: hello"), "running");
+    assert!(viewer.lines()[1].starts_with("user:say hello to the room") && viewer.lines()[1].ends_with("New session 2026"), "{:?}", viewer.lines());
+    viewer.look(&mut chat, &screen("> say hello to the room\nreply: hello"), "running");
+    assert_eq!(viewer.lines()[1], "user:say hello to the room");
+    assert_eq!(viewer.ids().iter().filter(|id| id.ends_with(":user")).count(), 1);
+    assert_eq!(viewer.resets, 0);
+}

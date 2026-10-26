@@ -1,0 +1,57 @@
+# capture: opencode 1.19.0, pane 158x56, while a turn runs: two file reads done, no answer yet (esc interrupt in the footer), 2026-10-27
+                                                                                                                 █
+  ┃                                                                                                              █    sum.js and test.js review
+  ┃  Read sum.js and test.js, then answer in exactly three short lines: what sum.js does, what test.js does,     █
+  ┃  and the word DONE.                                                                                          █    Context
+  ┃                                                                                                              █    14,201 tokens
+                                                                                                                 █    1% used
+     → Read sum.js                                                                                               █    $0.00 spent
+     → Read test.js                                                                                              █
+                                                                                                                 █    MCP
+     ▣  Build · DeepSeek V4.1 Flash                                                                              █    • pencil Connected
+                                                                                                                 █
+                                                                                                                 █    LSP
+                                                                                                                 █    LSPs are disabled
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · DeepSeek V4.1 Flash OpenCode Go                                                                          /D:\pm-hunt\demo-a:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝■■■■■  esc interrupt                                                     14.2K (1%) · $0.00  ctrl+p commands    • OpenCode 1.19.0
+

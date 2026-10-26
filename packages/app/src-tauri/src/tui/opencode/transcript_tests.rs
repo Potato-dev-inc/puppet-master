@@ -131,3 +131,55 @@ fn a_second_turn_under_the_first_is_a_second_turn_and_the_input_box_is_never_one
         ]
     );
 }
+
+#[test]
+fn the_model_is_not_followed_by_the_sidebar_on_the_same_row() {
+    let row = format!("     ▣  Build · DeepSeek V4.1 Flash{:<60}█    $0.00 spent", "");
+    assert_eq!(footer_model(&row).as_deref(), Some("DeepSeek V4.1 Flash"));
+}
+
+const WORKING: &str = include_str!("fixtures/screen_working_wide.txt");
+const REPLY: &str = include_str!("fixtures/screen_reply_wide.txt");
+
+#[test]
+fn a_turn_in_flight_shows_the_message_and_the_tool_rows_and_no_end() {
+    let mut chat = ScreenChat::new("opencode");
+    chat.observe(Some(&screen(WORKING)), "running");
+    assert_eq!(
+        lines(chat.shown()),
+        [
+            "session:DeepSeek V4.1 Flash",
+            "user:Read sum.js and test.js, then answer in exactly three short lines: what sum.js does, what test.js does, and the word DONE.",
+            "tool:→ Read sum.js",
+            "tool:→ Read test.js",
+        ]
+    );
+}
+
+#[test]
+fn a_three_line_answer_is_one_reply_with_its_lines() {
+    let items = chat_of(&screen(REPLY));
+    let lines = lines(&items);
+    assert_eq!(lines.len(), 6, "{lines:#?}");
+    assert_eq!(
+        lines[4],
+        "assistant!:sum.js exports a sum function that adds all numbers in an array.\ntest.js asserts sum(1,2,3) is 6 and sum([]) is 0, then logs \"all tests passed\".\nDONE"
+    );
+    assert_eq!(lines[5], "end");
+}
+
+#[test]
+fn the_chat_follows_a_turn_from_its_first_look_to_its_answer_without_a_reset() {
+    use crate::session_chat::Change;
+    let mut chat = ScreenChat::new("opencode");
+    let mut resets = 0;
+    for (capture, status) in [(WORKING, "running"), (REPLY, "running"), (REPLY, "idle")] {
+        if matches!(chat.observe(Some(&screen(capture)), status), Change::Reset(_)) {
+            resets += 1;
+        }
+    }
+    chat.observe(None, "idle");
+    chat.observe(None, "idle");
+    assert_eq!(resets, 0);
+    assert_eq!(chat.shown().len(), 6);
+}
