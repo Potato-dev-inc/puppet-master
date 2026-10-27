@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Local};
 use parking_lot::Mutex;
 
+use super::api::{ApiEndpoint, ApiFollower, ChatFrom, SessionApi};
 use super::items::read_lines;
 use super::model::ChatItem;
 use super::screen::{ScreenFollower, ScreenRead};
@@ -29,6 +30,8 @@ pub trait Sink: Send + Sync {
     fn send(&self, pane_id: &str, items: Vec<ChatItem>, reset: bool);
     /// What a pane with nothing to show is waiting for changed (`None`: it is not waiting any more).
     fn waiting(&self, _pane_id: &str, _waiting_for: Option<&str>) {}
+    /// Where a pane's chat is read from changed (`ChatFrom::name`): the API stopped answering, or answers again.
+    fn source(&self, _pane_id: &str, _source: &str) {}
 }
 
 /// What the watcher asks about a pane: its facts, or `None` when the pane is gone.
@@ -39,6 +42,10 @@ pub trait PaneLookup: Send + Sync {
     fn screen(&self, _pane_id: &str, _known: Option<u64>) -> Option<ScreenRead> {
         None
     }
+    /// Where the pane's agent serves its session API (`None`: it does not, or not yet).
+    fn api(&self, _pane_id: &str) -> Option<ApiEndpoint> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -47,6 +54,8 @@ pub struct Tuning {
     pub poll: Duration,
     /// How often a pane's screen is looked at (the chat read from the screen).
     pub screen_poll: Duration,
+    /// How often the agent's session API is asked (the whole conversation, so not as often as a file).
+    pub api_poll: Duration,
     /// How often the pane's file is looked for again (to find it, and to follow a switch).
     pub relocate: Duration,
     pub max_items: usize,
@@ -54,7 +63,7 @@ pub struct Tuning {
 
 impl Default for Tuning {
     fn default() -> Self {
-        Tuning { poll: Duration::from_millis(400), screen_poll: Duration::from_millis(700), relocate: Duration::from_secs(1), max_items: MAX_ITEMS }
+        Tuning { poll: Duration::from_millis(400), screen_poll: Duration::from_millis(700), api_poll: Duration::from_secs(1), relocate: Duration::from_secs(1), max_items: MAX_ITEMS }
     }
 }
 
@@ -143,10 +152,12 @@ impl Follower {
     }
 }
 
-/// What a pane's chat is read from: its session file, or its screen.
+/// What a pane's chat is read from: its session file, its screen, or the agent's session API (the screen while the
+/// API does not answer).
 enum Reader {
     File(Follower),
     Screen(ScreenFollower),
+    Api(ApiFollower),
 }
 
 impl Reader {
@@ -155,6 +166,16 @@ impl Reader {
         match self {
             Reader::File(follower) => Some(follower.step(&panes.facts(pane_id)?, now, relocate)),
             Reader::Screen(follower) => follower.step(panes, pane_id),
+            Reader::Api(follower) => follower.step(panes, pane_id),
+        }
+    }
+
+    /// Where the items come from now: `"file"`, `"screen"` or `"api"`.
+    fn source(&self) -> &'static str {
+        match self {
+            Reader::File(_) => "file",
+            Reader::Screen(_) => ChatFrom::Screen.name(),
+            Reader::Api(follower) => follower.from().name(),
         }
     }
 
@@ -162,6 +183,7 @@ impl Reader {
         match self {
             Reader::File(follower) => Some(follower.waiting(&panes.facts(pane_id)?)),
             Reader::Screen(follower) => Some(follower.waiting()),
+            Reader::Api(follower) => Some(follower.waiting()),
         }
     }
 
@@ -169,6 +191,10 @@ impl Reader {
         match self {
             Reader::File(_) => tuning.poll,
             Reader::Screen(_) => tuning.screen_poll,
+            Reader::Api(follower) => match follower.from() {
+                ChatFrom::Api => tuning.api_poll,
+                ChatFrom::Screen => tuning.screen_poll,
+            },
         }
     }
 }
@@ -180,6 +206,8 @@ struct Watch {
     holders: Mutex<Holders>,
     /// What the pane is waiting for while it has no items (see `Follower::waiting`).
     waiting: Mutex<Option<String>>,
+    /// Where the items come from (`Reader::source`); it changes for a reader that can fall back to the screen.
+    source: Mutex<&'static str>,
     stop: AtomicBool,
     finished: AtomicBool,
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -191,6 +219,7 @@ impl Watch {
             items: Mutex::new(Items::new()),
             holders: Mutex::new(Holders::default()),
             waiting: Mutex::new(None),
+            source: Mutex::new("file"),
             stop: AtomicBool::new(false),
             finished: AtomicBool::new(false),
             thread: Mutex::new(None),
@@ -259,6 +288,12 @@ impl Watchers {
         self.open_reader(pane_id, hold.into(), Reader::File(Follower::new(source)))
     }
 
+    /// As `open`, for an agent that serves its session over an API: the chat is read from there, and from the
+    /// pane's screen while the API does not answer.
+    pub fn open_api<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, api: &'static dyn SessionApi, agent_type: &str) -> Vec<ChatItem> {
+        self.open_reader(pane_id, hold.into(), Reader::Api(ApiFollower::new(api, agent_type)))
+    }
+
     /// As `open`, for an agent with no session file: the chat is read from the pane's screen.
     pub fn open_screen<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, agent_type: &str) -> Vec<ChatItem> {
         self.open_reader(pane_id, hold.into(), Reader::Screen(ScreenFollower::new(agent_type)))
@@ -281,6 +316,7 @@ impl Watchers {
         apply(&watch, first, self.tuning.max_items, None);
         let snapshot = watch.snapshot();
         *watch.waiting.lock() = waiting_of(&watch, &reader, &*self.panes, pane_id);
+        *watch.source.lock() = reader.source();
 
         let worker = Worker {
             pane_id: pane_id.to_string(),
@@ -303,6 +339,11 @@ impl Watchers {
             }
         }
         snapshot
+    }
+
+    /// Where the open pane's items come from now (`"file"`, `"screen"` or `"api"`); `None` when it is not open.
+    pub fn source_of(&self, pane_id: &str) -> Option<&'static str> {
+        self.open.lock().get(pane_id).map(|watch| *watch.source.lock())
     }
 
     /// What the pane is waiting for while it has nothing to show; `None` once it has items (or is not open).
@@ -371,6 +412,14 @@ impl Worker {
                 break;
             };
             apply(&self.watch, change, self.tuning.max_items, Some((&*self.sink, &self.pane_id)));
+            let source = self.reader.source();
+            {
+                let mut known = self.watch.source.lock();
+                if *known != source {
+                    *known = source;
+                    self.sink.source(&self.pane_id, source);
+                }
+            }
             let waiting = waiting_of(&self.watch, &self.reader, &*self.panes, &self.pane_id);
             let mut known = self.watch.waiting.lock();
             if *known != waiting {

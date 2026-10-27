@@ -70,8 +70,12 @@ export type UsageItem = Extract<ChatItem, { kind: 'usage' }>;
 export type PlanChatItem = Extract<ChatItem, { kind: 'plan' }>;
 export type NoticeItem = Extract<ChatItem, { kind: 'notice' }>;
 
-/** Where a pane's chat is read from: the agent's own session file, or the terminal's text (an agent with no file). */
-export type ChatSource = 'file' | 'screen';
+/**
+ * Where a pane's chat is read from: the agent's own session file, the agent's local session API (an agent that serves
+ * its session; the terminal's text is read while the API does not answer), or the terminal's text (an agent with
+ * neither).
+ */
+export type ChatSource = 'file' | 'api' | 'screen';
 
 /** `session_chat_open` answer: whether this pane has a chat we can read, where from, and the items so far. */
 export interface SessionChatSnapshot {
@@ -95,6 +99,12 @@ export interface SessionChatItemsEvent {
 export interface SessionChatStatusEvent {
   paneId: string;
   waitingFor: string | null;
+}
+
+/** Payload of the `session-chat-source` event: a pane's chat is now read from another source (the API went or came back). */
+export interface SessionChatSourceEvent {
+  paneId: string;
+  source: ChatSource;
 }
 
 export type ToolStatus = 'running' | 'ok' | 'error';

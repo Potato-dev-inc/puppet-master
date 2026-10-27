@@ -24,6 +24,11 @@ impl ScreenFollower {
         Some(self.chat.observe(text.as_deref(), &status))
     }
 
+    /// Everything the viewer has been sent from the screen so far.
+    pub fn all(&self) -> Vec<crate::session_chat::ChatItem> {
+        self.chat.shown().to_vec()
+    }
+
     /// For a chat with nothing to show: what it waits for.
     pub fn waiting(&self) -> String {
         if self.seen {

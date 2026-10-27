@@ -5,7 +5,7 @@
 
 use super::AppState;
 use crate::pty::PaneRegistry;
-use crate::session_chat::{ChatItem, Opening, PaneFacts, PaneLookup, ScreenRead, Sink, Watchers};
+use crate::session_chat::{ApiEndpoint, ChatItem, Opening, PaneFacts, PaneLookup, ScreenRead, Sink, Watchers};
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -39,7 +39,8 @@ impl SessionChatState {
 }
 
 /// Answer of `session_chat_open`. `waiting_for`: while there are no items, what the reader is waiting for.
-/// `source`: where the items come from, `"file"` (the agent's session file) or `"screen"` (read off the terminal).
+/// `source`: where the items come from, `"file"` (the agent's session file), `"api"` (the agent's local session API)
+/// or `"screen"` (read off the terminal).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionChatOpened {
@@ -60,6 +61,13 @@ struct ItemsEvent<'a> {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SourceEvent<'a> {
+    pane_id: &'a str,
+    source: &'a str,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StatusEvent<'a> {
     pane_id: &'a str,
     waiting_for: Option<&'a str>,
@@ -74,6 +82,10 @@ impl Sink for EventSink {
 
     fn waiting(&self, pane_id: &str, waiting_for: Option<&str>) {
         let _ = self.0.emit("session-chat-status", StatusEvent { pane_id, waiting_for });
+    }
+
+    fn source(&self, pane_id: &str, source: &str) {
+        let _ = self.0.emit("session-chat-source", SourceEvent { pane_id, source });
     }
 }
 
@@ -92,6 +104,12 @@ impl PaneLookup for RegistryPanes {
                 .and_then(|id| crate::accounts::Store::default_location().get(id))
                 .map(|account| PathBuf::from(account.home)),
         })
+    }
+
+    fn api(&self, pane_id: &str) -> Option<ApiEndpoint> {
+        let registry = self.0.lock();
+        let pane = registry.get(pane_id)?;
+        crate::tui::profile_for(&pane.info.agent_type).session_api_endpoint(pane)
     }
 
     fn screen(&self, pane_id: &str, known: Option<u64>) -> Option<ScreenRead> {
@@ -122,11 +140,10 @@ pub async fn session_chat_open(
     };
     let watchers = chat.watchers(&app, &state.registry);
     let holder = holder_id(window.label(), surface.as_deref());
-    let source = opening.source_name();
     // The first read of a long session file happens in this call.
-    let (items, waiting_for) = tauri::async_runtime::spawn_blocking(move || {
+    let (items, waiting_for, source) = tauri::async_runtime::spawn_blocking(move || {
         let items = opening.open(&watchers, &pane_id, holder.as_str().into());
-        (items, watchers.waiting_for(&pane_id))
+        (items, watchers.waiting_for(&pane_id), opening.source_now(&watchers, &pane_id))
     })
     .await
     .map_err(|e| format!("INTERNAL: {e}"))?;

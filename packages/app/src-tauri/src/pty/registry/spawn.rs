@@ -161,7 +161,9 @@ pub fn spawn_pane(
     account_env.set.extend(hooks.env);
     // Names the pane to any MCP shim the agent starts, so a helper it starts can be nested under it.
     account_env.set.push((crate::pty::PANE_ID_ENV.to_string(), pane_id.clone()));
-    let extra_args: Vec<String> = user_args.into_iter().chain(hooks.extra_args).collect();
+    // An agent that serves its session over a local API is told where (the chat view reads it from there).
+    let api_args = profile.prepare_session_api(&pane_id, &user_args);
+    let extra_args: Vec<String> = user_args.into_iter().chain(hooks.extra_args).chain(api_args).collect();
     let cmd = launch_command(
         profile.as_ref(),
         &crate::tui::SpawnRequest {

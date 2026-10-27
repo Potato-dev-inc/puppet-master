@@ -238,4 +238,10 @@ describe('SessionChatView markdown source', () => {
     const bubble = chat.querySelector('.ck-chat-bubble');
     expect(bubble?.querySelector('strong')).toBeNull();
   });
+
+  it('formats the agent text read from the agent API the same way, and does not call it a screen read', () => {
+    const chat = renderChat({ source: 'api' });
+    expect(chat.querySelector('.ck-chat-md strong')?.textContent).toBe('Bridge:');
+    expect(chat.querySelector('[data-testid="session-chat-screen-note"]')).toBeNull();
+  });
 });

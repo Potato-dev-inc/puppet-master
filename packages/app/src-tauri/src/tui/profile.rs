@@ -496,6 +496,26 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// The local HTTP API this agent serves its session on, which the chat view reads when `session_chat` has no
+    /// file for it (`crate::session_chat::SessionApi`). `None` (the default): none. The screen is read while the API
+    /// does not answer.
+    fn session_api(&self) -> Option<&'static dyn crate::session_chat::SessionApi> {
+        None
+    }
+
+    /// Where `pane` serves that API, if it does (a pane the app starts with the server, or one whose launch
+    /// arguments `prepare_session_api` set).
+    fn session_api_endpoint(&self, _pane: &crate::pty::registry::PaneState) -> Option<crate::session_chat::ApiEndpoint> {
+        None
+    }
+
+    /// Called when a pane of this agent is about to start: launch arguments that make its TUI serve the session API
+    /// (and remembers where, for `session_api_endpoint`). Default: none. `user_args` are the arguments the person
+    /// asked for; an agent that is already told where to serve must leave its pane alone then.
+    fn prepare_session_api(&self, _pane_id: &str, _user_args: &[String]) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Whether the chat view may be built from this agent's screen when `session_chat` has no file for it.
     /// Default: every agent that is not a plain shell (a shell has no turns to show).
     fn screen_chat(&self) -> bool {

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::*;
 use crate::session_chat::model::ChatItem;
 
-pub(super) const ECHO: &str = "chat-screen-probe";
+pub(in crate::session_chat) const ECHO: &str = "chat-screen-probe";
 /// The same agent without a tool table: its tool rows are ordinary text.
 const NO_TOOLS: &str = "chat-screen-probe-no-tools";
 /// An agent whose transcript does not echo what was typed.
@@ -41,7 +41,7 @@ fn definition(id: &str, tools: bool, echo: bool) -> String {
 }
 
 /// Registered once for the whole test run (the tests run side by side and share the registry).
-pub(super) fn register_probes() {
+pub(in crate::session_chat) fn register_probes() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         for (id, tools, echo) in [(ECHO, true, true), (NO_TOOLS, false, true), (NO_ECHO, true, false)] {
