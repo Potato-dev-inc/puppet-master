@@ -317,6 +317,86 @@ fn newest_session_of_a_missing_folder_is_none() {
     assert_eq!(newest_session(&scratch.path().join("missing"), SystemTime::UNIX_EPOCH), None);
 }
 
+/// Synthetic `!` shell commands and their output (see the fixture). Only the non-`Session` items are kept.
+const BASH_FIXTURE: &str = include_str!("fixtures/session_bash.jsonl");
+
+fn bash_items() -> (Vec<u64>, Vec<ChatItem>) {
+    let (offsets, items) = parse_text(&BASH_FIXTURE.replace("\r\n", "\n"));
+    (offsets, items.into_iter().filter(|item| !matches!(item, ChatItem::Session { .. })).collect())
+}
+
+#[test]
+fn bash_mode_commands_are_shell_calls_and_their_output_the_matching_results() {
+    let (o, items) = bash_items();
+    let want = vec![
+        ChatItem::User { id: id(&o, 0, 1), at: ts(0), text: "run two shell commands".into() },
+        ChatItem::ToolCall {
+            id: id(&o, 2, 1),
+            at: ts(2),
+            call_id: "shell:u-b2".into(),
+            name: "Shell".into(),
+            summary: "git status --short".into(),
+            detail: ToolDetail { input: Some(json!({"command": "git status --short"})), ..ToolDetail::default() },
+        },
+        ChatItem::ToolResult {
+            id: id(&o, 3, 1),
+            at: ts(3),
+            call_id: "shell:u-b2".into(),
+            ok: true,
+            output: " M proj.txt\n?? notes.md".into(),
+        },
+        ChatItem::ToolCall {
+            id: id(&o, 5, 1),
+            at: ts(5),
+            call_id: "shell:u-b5".into(),
+            name: "Shell".into(),
+            summary: "ls --color missing".into(),
+            detail: ToolDetail { input: Some(json!({"command": "ls --color missing"})), ..ToolDetail::default() },
+        },
+        // Stderr makes the result not ok; its colour codes are gone.
+        ChatItem::ToolResult {
+            id: id(&o, 6, 1),
+            at: ts(6),
+            call_id: "shell:u-b5".into(),
+            ok: false,
+            output: "ls: cannot access 'missing': No such file or directory".into(),
+        },
+        // An output line with no `parentUuid` gets a call of its own, with no command.
+        ChatItem::ToolCall {
+            id: id(&o, 7, 1),
+            at: ts(7),
+            call_id: "shell:u-b7".into(),
+            name: "Shell".into(),
+            summary: String::new(),
+            detail: ToolDetail::default(),
+        },
+        ChatItem::ToolResult { id: id(&o, 7, 2), at: ts(7), call_id: "shell:u-b7".into(), ok: true, output: "orphan".into() },
+    ];
+    assert_eq!(items, want);
+}
+
+#[test]
+fn bash_mode_caveat_and_local_command_output_give_nothing() {
+    let (o, _) = bash_items();
+    let text = BASH_FIXTURE.replace("\r\n", "\n");
+    let lines: Vec<&str> = text.lines().collect();
+    // Line 1 is the caveat (meta) and line 4 is `<local-command-stdout>`: each gives only its Session row.
+    for line in [1, 4] {
+        let items = ClaudeSessionFile.parse_line(lines[line], o[line]);
+        assert_eq!(items, vec![session(&o, line)], "line {line}");
+    }
+}
+
+#[test]
+fn strip_ansi_removes_colour_titles_links_and_two_character_codes() {
+    assert_eq!(strip_ansi("\u{1b}[1;31mred\u{1b}[0m done"), "red done");
+    assert_eq!(strip_ansi("\u{1b}]0;title\u{7}text"), "text");
+    assert_eq!(strip_ansi("\u{1b}]8;;http://x\u{1b}\\link\u{1b}]8;;\u{1b}\\"), "link");
+    assert_eq!(strip_ansi("a\u{1b}Mb"), "ab");
+    assert_eq!(strip_ansi("plain \u{1b}"), "plain ");
+    assert_eq!(strip_ansi("é[ok]"), "é[ok]");
+}
+
 /// Reads the real session file named by `PM_REAL_CLAUDE_SESSION`; run with `cargo test -- --ignored`.
 /// Prints the item kinds only (never the text) and checks the chat a real `claude -p` run must give.
 #[test]
