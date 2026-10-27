@@ -256,3 +256,28 @@ describe('risk words', () => {
     for (const word of Object.values(LEVEL_WORD)) expect(rust).toContain(`"${word}"`);
   });
 });
+
+describe('the agent\'s own question', () => {
+  const question: PanePrompt = {
+    promptId: 'q-1',
+    kind: 'question',
+    text: 'Pick a colour\nRed\nBlue',
+    summary: 'Pick a colour',
+    choices: [
+      { id: '1', label: 'Red' },
+      { id: '2', label: 'Blue' },
+    ],
+    risk: { level: 'low', headline: 'The agent has a question', reasons: ['Pick the answer you want. Nothing is changed until you do.'] },
+  };
+
+  it('keeps the agent\'s words on the buttons and shows no risk word', () => {
+    const onAnswer = render(question);
+    expect(btn('Red')).toBeTruthy();
+    expect(btn('Blue')).toBeTruthy();
+    expect(btn('Allow once')).toBeUndefined();
+    expect(host.textContent).not.toContain(LEVEL_WORD.low);
+    act(() => btn('Blue')!.click());
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer.mock.calls[0][0]).toMatchObject({ id: '2', label: 'Blue' });
+  });
+});

@@ -17,7 +17,7 @@ use crate::tui::types::{
     SpawnRequest, StandbySupport,
 };
 use crate::pty::status::PaneStatus;
-use crate::tui::types::{Reply, StandbyScreen, VersionCommand};
+use crate::tui::types::{Reply, StandbyScreen, StartupGate, VersionCommand};
 use crate::tui::{generic, AgentId, TuiProfile};
 use serde_json::Value;
 
@@ -555,6 +555,22 @@ impl TuiProfile for DeclarativeProfile {
 
     fn classify_screen(&self, visible_tail: &str) -> Option<PaneStatus> {
         self.engine.as_ref()?.classify_screen(visible_tail)
+    }
+
+    fn declares_prompt(&self, visible_tail: &str) -> bool {
+        self.engine.as_ref().is_some_and(|engine| engine.declares_prompt(visible_tail))
+    }
+
+    /// A `[[tui.prompt]]` of kind `workspace_trust` (or `startup_screen`) is the CLI's startup question: it cannot take a
+    /// task until the person answered, so generic code parks a run on it and the canary counts the screen as known. It
+    /// has no `dismiss`: only the person passes a trust gate.
+    fn startup_gate(&self, screen: &str) -> Option<StartupGate> {
+        let kind = self.engine.as_ref()?.startup_gate_kind(screen)?;
+        Some(if kind == "workspace_trust" {
+            StartupGate { id: StartupGate::WORKSPACE_TRUST, summary: "This agent asks whether to trust this folder", dismiss: None }
+        } else {
+            StartupGate { id: "startup_screen", summary: "This agent shows a startup screen", dismiss: None }
+        })
     }
 
     fn standby_screen(&self, screen: &str) -> StandbyScreen {

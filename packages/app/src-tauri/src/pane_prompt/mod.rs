@@ -11,6 +11,7 @@ use tauri::AppHandle;
 
 pub mod answers;
 mod generic_menu;
+pub(crate) mod summary;
 
 /// Phrases that open an approval dialog. The prompt text is taken from the last such line, so
 /// output scrolling above the dialog cannot change its id while the same question is showing.
@@ -171,6 +172,13 @@ pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool
             }
         }
         prompt["summary"] = Value::String(command_summary(&prompt));
+    }
+    // A card with no summary of its own gets the question next to the menu (never the top of the screen, which can be a
+    // logo banner with the signed-in account), capped and redacted.
+    if prompt.get("summary").and_then(Value::as_str).is_none_or(|s| s.trim().is_empty()) {
+        if let Some(summary) = summary::for_screen(screen) {
+            prompt["summary"] = Value::String(summary);
+        }
     }
     let id = prompt_id_for(&prompt)?;
     prompt["prompt_id"] = Value::String(id);
@@ -660,3 +668,6 @@ mod tests;
 
 #[cfg(test)]
 mod claude_tests;
+
+#[cfg(test)]
+mod question_tests;

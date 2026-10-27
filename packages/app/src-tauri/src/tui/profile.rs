@@ -297,6 +297,21 @@ pub trait TuiProfile: Send + Sync {
         false
     }
 
+    /// Lowercase words this TUI's menu footer uses to say how to move and choose (`enter to select`, `navigate`). The
+    /// generic "the pane is asking" rule (`menu_shape`) needs one of them under a menu that has a cursor row. The
+    /// default list covers the common footers; `looks_like_menu` (a declarative `[tui.menu] regex`) counts as well.
+    fn menu_hints(&self) -> &[&'static str] {
+        menu_shape::DEFAULT_MENU_HINTS
+    }
+
+    /// Whether the profile's OWN prompt tables (a declarative `[[tui.prompt]]`) recognise a question on the visible tail.
+    /// Unlike `detect_prompt` this never counts the shared wording guess, so a reply that merely mentions "allow once" is
+    /// not a question. A pane showing such a question is `waiting_input` even when the definition has no
+    /// `[tui.classify] waiting_regex` (wizard-made definitions often lack it). Default: no tables.
+    fn declares_prompt(&self, _visible_tail: &str) -> bool {
+        false
+    }
+
     /// Input that empties the TUI's prompt box without side effects, when it has one.
     fn clear_input_sequence(&self) -> Option<&'static str> {
         None
