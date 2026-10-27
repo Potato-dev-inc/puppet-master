@@ -199,15 +199,21 @@
   color: var(--label);
   font: 16px/1.4 var(--font-ui);
 }
+/* One focus ring: the row's (`:focus-within`). The field drops the ring `.ph :focus-visible` gives it. */
+.ph .ph-chat .ck-chat-composer-field:focus-visible {
+  box-shadow: none;
+}
 .ph .ph-chat .ck-chat-composer-field::placeholder {
   color: var(--label-3);
 }
 .ph .ph-chat .ck-chat-composer-field:disabled {
   color: var(--label-3);
 }
+/* 44px is the smallest touch target; the pill keeps its look, its box grows to reach it. */
 .ph .ph-chat .ck-chat-send {
   flex: none;
-  min-height: 36px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0 14px;
   border-radius: 12px;
   background: var(--label);
@@ -264,8 +270,10 @@
 .ph .ph-chat .ck-chat-pending-body--failed .ck-chat-pending-meta {
   color: var(--label-2);
 }
+/* Cancel, Copy text and Hide: 44px touch targets; the underlined text keeps its size. */
 .ph .ph-chat .ck-chat-link {
-  min-height: 32px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0 2px;
   font: inherit;
   color: var(--label-2);

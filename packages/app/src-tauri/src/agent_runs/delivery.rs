@@ -220,10 +220,31 @@ fn normalize(text: &str) -> String {
         .join(" ")
 }
 
+/// Lower-case letters and digits only, with every space and mark gone. The input box is compared
+/// this way: a TUI wraps long text at the box edge, so a word can be split across two rows (`tes`
+/// then `t.rs`), and the box border adds characters that were never typed.
+fn squeezed(text: &str) -> String {
+    text.chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 fn head_of(prompt: &str) -> Option<String> {
-    let head: String = normalize(prompt).chars().take(HEAD_CHARS).collect();
-    let head = head.trim_end().to_string();
+    let head: String = squeezed(prompt).chars().take(HEAD_CHARS).collect();
     (head.chars().count() >= MIN_HEAD_CHARS).then_some(head)
+}
+
+/// The last [`TAIL_CHARS`] letters of a prompt longer than its head. A short or narrow pane shows
+/// only the end of a long prompt (its top scrolls out of the box), so the tail is what proves the
+/// text is there. `None` for a prompt the head already covers.
+fn tail_of(prompt: &str) -> Option<String> {
+    let text: Vec<char> = squeezed(prompt).chars().collect();
+    if text.len() <= HEAD_CHARS {
+        return None;
+    }
+    let tail: String = text[text.len() - TAIL_CHARS..].iter().collect();
+    (tail.chars().count() >= MIN_HEAD_CHARS).then_some(tail)
 }
 
 fn bottom_rows(screen: &str, rows: usize) -> String {
@@ -231,32 +252,35 @@ fn bottom_rows(screen: &str, rows: usize) -> String {
     lines[lines.len().saturating_sub(rows)..].join("\n")
 }
 
-/// Whether the prompt (a distinctive prefix of it) is visible in the input area at the bottom of
-/// the screen. A long or multi-line paste may be shown as a `[Pasted text ...]` placeholder, which
-/// also counts. Prompts too short to be distinctive are accepted by a non-empty input area check
-/// being impossible, so they fall back to "the whole prompt is visible".
+/// Whether the prompt is visible in the input area at the bottom of the screen. The prompt's head
+/// (its first [`HEAD_CHARS`] letters) shows, and for a prompt that fits the box its tail too. A
+/// prompt longer than the box shows its end only (the top scrolls out of view in a short or narrow
+/// pane), so its tail alone is enough. A long or multi-line paste may be shown as a
+/// `[Pasted text ...]` placeholder, which also counts. Only letters are compared, so wrapping and
+/// the box border do not matter. Prompts too short to be distinctive are checked whole.
 pub fn prompt_visible_in_input(screen: &str, prompt: &str) -> bool {
-    let area = normalize(&bottom_rows(screen, INPUT_AREA_ROWS));
-    if let Some(head) = head_of(prompt) {
-        // A multi-line or large paste may be shown as a placeholder instead of its text:
-        // `[Pasted text #1 +5 lines]`, or Codex's `[Pasted Content 1889 chars]`.
-        if (prompt.contains('\n') || prompt.chars().count() > LARGE_PROMPT_CHARS)
-            && (area.contains("pasted text") || area.contains("pasted content"))
-        {
-            return true;
-        }
-        // A follow-up often starts like the previous prompt, so for prompts that fit the box
-        // also require the end of the text, not just the shared opening.
-        let norm = normalize(prompt);
-        let len = norm.chars().count();
-        let tail_ok = len <= HEAD_CHARS || len > TAIL_CHECK_MAX || {
-            let tail: String = norm.chars().skip(len - TAIL_CHARS).collect();
-            area.contains(tail.trim_start())
-        };
-        return area.contains(&head) && tail_ok;
+    let area = squeezed(&bottom_rows(screen, INPUT_AREA_ROWS));
+    let Some(head) = head_of(prompt) else {
+        let whole = squeezed(prompt);
+        return !whole.is_empty() && area.contains(&whole);
+    };
+    // A multi-line or large paste may be shown as a placeholder instead of its text:
+    // `[Pasted text #1 +5 lines]`, or Codex's `[Pasted Content 1889 chars]`.
+    if (prompt.contains('\n') || prompt.chars().count() > LARGE_PROMPT_CHARS)
+        && (area.contains("pastedtext") || area.contains("pastedcontent"))
+    {
+        return true;
     }
-    let whole = normalize(prompt);
-    !whole.is_empty() && area.contains(&whole)
+    let tail = tail_of(prompt);
+    // A follow-up often starts like the previous prompt, so for prompts that fit the box also
+    // require the end of the text, not just the shared opening.
+    let tail_ok = normalize(prompt).chars().count() > TAIL_CHECK_MAX
+        || tail.as_ref().is_none_or(|tail| area.contains(tail));
+    if area.contains(&head) && tail_ok {
+        return true;
+    }
+    // The head scrolled out of view (or wrapped out of the box): the end of the text is the proof.
+    tail.is_some_and(|tail| area.contains(&tail))
 }
 
 fn occurrences(haystack: &str, needle: &str) -> usize {
@@ -281,11 +305,11 @@ pub fn turn_started(before: &str, now: &str, prompt: &str, busy: bool) -> bool {
     let Some(head) = head_of(prompt) else {
         return normalize(before) != normalize(now);
     };
-    let (before_n, now_n) = (normalize(before), normalize(now));
-    if occurrences(&now_n, &head) > occurrences(&before_n, &head) {
+    // Letters only, as the input box is compared: an echo wrapped at the pane's width still counts.
+    if occurrences(&squeezed(now), &head) > occurrences(&squeezed(before), &head) {
         return true;
     }
-    !prompt_visible_in_input(now, prompt) && before_n != now_n
+    !prompt_visible_in_input(now, prompt) && normalize(before) != normalize(now)
 }
 
 /// What the input box says about a submit, for a profile that can read it. `Some(true)`: the turn
@@ -1897,3 +1921,7 @@ working
         assert_ne!(outcome, Delivery::NotVisible { cleared: true });
     }
 }
+
+#[cfg(test)]
+#[path = "delivery_visibility_tests.rs"]
+mod visibility_tests;
