@@ -57,7 +57,7 @@ impl ChatProbe {
     pub(super) fn open(registry: Arc<Mutex<PaneRegistry>>, pane_id: &str, agent_type: &str) -> Self {
         let viewer = Arc::new(Mutex::new(Viewer::default()));
         let watchers = Watchers::new(viewer.clone(), Arc::new(Screens(registry)));
-        let first = watchers.open_screen(pane_id, agent_type);
+        let first = watchers.open_screen(pane_id, "w", agent_type);
         {
             let mut shown = viewer.lock();
             if shown.batches == 0 {

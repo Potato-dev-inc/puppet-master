@@ -100,7 +100,7 @@ describe('pane Chat tab', () => {
     await act(async () => tab('Chat').click());
     await flush();
     expect(tab('Chat').getAttribute('aria-selected')).toBe('true');
-    expect(openSessionChat).toHaveBeenCalledWith('p1');
+    expect(openSessionChat).toHaveBeenCalledWith('p1', expect.any(String));
     const chat = host.querySelector('.ck-pane-body [data-testid="session-chat"]');
     expect(chat).not.toBeNull();
     expect(chat!.textContent).toContain('List the files');

@@ -11,6 +11,7 @@ import type { PublicSettings } from './bridge-settings';
 import type { PreviewUrl } from './pane-preview';
 import type { AttentionAnswerBody, AttentionAnswerOutcome, AttentionSnapshot } from './attention';
 import type { Question, QuestionAnswer } from './questions';
+import type { PhoneChatReply } from './sessionChatModel';
 
 export interface WriteInputOptions {
   viaOpencodeApi?: boolean;
@@ -403,6 +404,11 @@ export interface BridgeClient {
     args: { answer: string; request_id?: string },
   ): Promise<unknown>;
   getSettings(): Promise<PublicSettings>;
+  /**
+   * `GET /panes/{id}/chat`: the read-only chat of an agent pane (needs `watch`). With `since` (the `rev` of the last
+   * answer) only what changed. Absent on clients that are not a phone.
+   */
+  paneChat?(paneId: string, since?: number): Promise<PhoneChatReply>;
   /** What this phone may do (`GET /pair/me`). Absent on clients that are not a phone. */
   pairMe?(): Promise<{ local: boolean; device_id?: string; caps: string[] }>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;

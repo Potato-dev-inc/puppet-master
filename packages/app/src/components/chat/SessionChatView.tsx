@@ -1,8 +1,7 @@
 // Read-only chat of a terminal pane's agent session: the person's messages, the agent's text, each tool
 // call as one row (click to see its output) and a divider where a turn ended. Text is plain (no markdown).
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { SessionChatState } from '../../hooks/useSessionChat';
-import type { ChatSource, ChatTurn, ToolStep, TurnStep } from '../../lib/sessionChat';
+import type { ChatSource, ChatTurn, SessionChatState, ToolStep, TurnStep } from '../../lib/sessionChatModel';
 import '../../styles/cockpit-chat.css';
 
 export const SESSION_CHAT_NOTE = "Read-only. You can answer the agent's questions in the card at the bottom.";

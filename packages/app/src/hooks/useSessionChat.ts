@@ -1,6 +1,6 @@
 // Read-only chat of one terminal pane: opens the backend's session-file reader while `enabled`, merges the
 // item batches for this pane, and closes the reader again on unmount or when disabled.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   closeSessionChat,
   groupTurns,
@@ -11,10 +11,11 @@ import {
   type ChatItem,
   type ChatSource,
   type ChatTurn,
+  type SessionChatState,
   type UsageItem,
 } from '../lib/sessionChat';
 
-export type SessionChatState = 'loading' | 'ready' | 'unavailable';
+export type { SessionChatState };
 
 export interface SessionChatHook {
   state: SessionChatState;
@@ -40,6 +41,10 @@ interface Status {
 const LOADING: Status = { state: 'loading', reason: null, waitingFor: null, source: null };
 
 export function useSessionChat(paneId: string, enabled: boolean): SessionChatHook {
+  // This view's own id for the backend: it holds the pane's reader until this view lets go (not the window's).
+  const surfaceRef = useRef<string | null>(null);
+  surfaceRef.current ??= `s-${Math.random().toString(36).slice(2, 10)}`;
+  const surface = surfaceRef.current;
   const [items, setItems] = useState<ChatItem[]>([]);
   const [status, setStatus] = useState<Status>(LOADING);
 
@@ -72,7 +77,7 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
       })
       .catch(() => undefined);
 
-    openSessionChat(paneId)
+    openSessionChat(paneId, surface)
       .then((snapshot) => {
         if (!live) return;
         setItems((prev) => mergeItems(prev, snapshot.items, false));
@@ -96,9 +101,9 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
       live = false;
       unlisten?.();
       unlistenStatus?.();
-      void closeSessionChat(paneId).catch(() => undefined);
+      void closeSessionChat(paneId, surface).catch(() => undefined);
     };
-  }, [paneId, enabled]);
+  }, [paneId, enabled, surface]);
 
   const grouped = useMemo(() => groupTurns(items), [items]);
   return {

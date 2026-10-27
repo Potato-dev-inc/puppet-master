@@ -157,7 +157,7 @@ fn items_already_in_the_file_come_back_from_open_and_are_not_sent_again() {
     append(&path, "u:one\nnoise\nu:two\n");
     let src = source(Located::Found(path.clone()));
 
-    let items = rig.watchers.open("p1", src);
+    let items = rig.watchers.open("p1", "w", src);
     assert_eq!(texts(&items), strings(&["one", "two"]));
     assert_eq!(items[1].id(), "12:0");
     assert!(rig.sink.texts().is_empty());
@@ -173,7 +173,7 @@ fn a_file_that_appears_late_is_found_and_read_while_the_pane_lives() {
     let path = rig.file("late.jsonl");
     let src = source(Located::NotYet);
 
-    assert!(rig.watchers.open("p1", src).is_empty());
+    assert!(rig.watchers.open("p1", "w", src).is_empty());
     std::thread::sleep(Duration::from_millis(60));
     assert!(rig.sink.texts().is_empty());
     assert_eq!(rig.watchers.running(), 1);
@@ -181,7 +181,7 @@ fn a_file_that_appears_late_is_found_and_read_while_the_pane_lives() {
     append(&path, "u:hello\n");
     *src.located.lock() = Located::Found(path);
     wait_until("the late file", || rig.sink.texts() == vec![(strings(&["hello"]), false)]);
-    assert_eq!(texts(&rig.watchers.open("p1", src)), strings(&["hello"]));
+    assert_eq!(texts(&rig.watchers.open("p1", "w", src)), strings(&["hello"]));
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn an_ambiguous_answer_waits_like_not_yet() {
     append(&b, "u:b\n");
     let src = source(Located::Ambiguous(vec![a.clone(), b]));
 
-    assert!(rig.watchers.open("p1", src).is_empty());
+    assert!(rig.watchers.open("p1", "w", src).is_empty());
     std::thread::sleep(Duration::from_millis(60));
     assert!(rig.sink.texts().is_empty());
 
@@ -205,7 +205,7 @@ fn lines_appended_in_pieces_are_sent_once_each_when_complete() {
     let rig = Rig::new(MAX_ITEMS);
     let path = rig.file("pieces.jsonl");
     append(&path, "");
-    rig.watchers.open("p1", source(Located::Found(path.clone())));
+    rig.watchers.open("p1", "w", source(Located::Found(path.clone())));
 
     append(&path, "u:fir");
     std::thread::sleep(Duration::from_millis(60));
@@ -227,11 +227,11 @@ fn a_truncated_file_sends_a_reset_with_what_is_left() {
     let path = rig.file("trunc.jsonl");
     append(&path, "u:one\nu:two\n");
     let src = source(Located::Found(path.clone()));
-    rig.watchers.open("p1", src);
+    rig.watchers.open("p1", "w", src);
 
     std::fs::write(&path, "u:new\n").unwrap();
     wait_until("the reset", || rig.sink.texts() == vec![(strings(&["new"]), true)]);
-    assert_eq!(texts(&rig.watchers.open("p1", src)), strings(&["new"]));
+    assert_eq!(texts(&rig.watchers.open("p1", "w", src)), strings(&["new"]));
 }
 
 #[test]
@@ -240,7 +240,7 @@ fn a_different_file_for_the_pane_sends_a_reset_with_the_new_file() {
     let (old, new) = (rig.file("old.jsonl"), rig.file("new.jsonl"));
     append(&old, "u:before\n");
     let src = source(Located::Found(old.clone()));
-    assert_eq!(texts(&rig.watchers.open("p1", src)), strings(&["before"]));
+    assert_eq!(texts(&rig.watchers.open("p1", "w", src)), strings(&["before"]));
 
     append(&new, "u:after\n");
     *src.located.lock() = Located::Found(new);
@@ -258,11 +258,11 @@ fn a_new_file_that_is_still_empty_clears_the_view() {
     let old = rig.file("old.jsonl");
     append(&old, "u:before\n");
     let src = source(Located::Found(old));
-    rig.watchers.open("p1", src);
+    rig.watchers.open("p1", "w", src);
 
     *src.located.lock() = Located::Found(rig.file("not-written-yet.jsonl"));
     wait_until("the clear", || rig.sink.texts() == vec![(Vec::new(), true)]);
-    assert!(rig.watchers.open("p1", src).is_empty());
+    assert!(rig.watchers.open("p1", "w", src).is_empty());
 }
 
 #[test]
@@ -271,7 +271,7 @@ fn losing_the_answer_keeps_following_the_file_it_had() {
     let path = rig.file("keep.jsonl");
     append(&path, "u:one\n");
     let src = source(Located::Found(path.clone()));
-    rig.watchers.open("p1", src);
+    rig.watchers.open("p1", "w", src);
 
     *src.located.lock() = Located::NotYet;
     append(&path, "u:two\n");
@@ -285,11 +285,11 @@ fn opening_an_open_pane_starts_no_second_thread() {
     append(&path, "u:one\n");
     let src = source(Located::Found(path));
 
-    assert_eq!(texts(&rig.watchers.open("p1", src)), strings(&["one"]));
-    assert_eq!(texts(&rig.watchers.open("p1", src)), strings(&["one"]));
+    assert_eq!(texts(&rig.watchers.open("p1", "w", src)), strings(&["one"]));
+    assert_eq!(texts(&rig.watchers.open("p1", "w", src)), strings(&["one"]));
     assert_eq!(rig.watchers.running(), 1);
 
-    rig.watchers.open("p2", src);
+    rig.watchers.open("p2", "w", src);
     assert_eq!(rig.watchers.running(), 2);
 }
 
@@ -298,18 +298,18 @@ fn close_stops_the_thread_and_sends_nothing_more() {
     let rig = Rig::new(MAX_ITEMS);
     let path = rig.file("close.jsonl");
     append(&path, "u:one\n");
-    rig.watchers.open("p1", source(Located::Found(path.clone())));
+    rig.watchers.open("p1", "w", source(Located::Found(path.clone())));
     assert_eq!(rig.watchers.running(), 1);
 
-    rig.watchers.close("p1");
+    rig.watchers.close("p1", "w");
     wait_until("the thread to stop", || rig.watchers.running() == 0);
     append(&path, "u:late\n");
     std::thread::sleep(Duration::from_millis(60));
     assert!(rig.sink.texts().is_empty());
 
     // Closing again, or a pane that was never open, is fine.
-    rig.watchers.close("p1");
-    rig.watchers.close("never-open");
+    rig.watchers.close("p1", "w");
+    rig.watchers.close("never-open", "w");
 }
 
 #[test]
@@ -318,14 +318,14 @@ fn a_pane_that_is_gone_stops_its_thread_and_can_be_opened_again() {
     let path = rig.file("gone.jsonl");
     append(&path, "u:one\n");
     let src = source(Located::Found(path));
-    rig.watchers.open("p1", src);
+    rig.watchers.open("p1", "w", src);
 
     *rig.panes.facts.lock() = None;
     wait_until("the thread to stop", || rig.watchers.running() == 0);
-    assert!(rig.watchers.open("p1", src).is_empty());
+    assert!(rig.watchers.open("p1", "w", src).is_empty());
 
     *rig.panes.facts.lock() = Some(facts());
-    assert_eq!(texts(&rig.watchers.open("p1", src)), strings(&["one"]));
+    assert_eq!(texts(&rig.watchers.open("p1", "w", src)), strings(&["one"]));
     wait_until("the new thread", || rig.watchers.running() == 1);
 }
 
@@ -335,8 +335,8 @@ fn close_all_stops_every_thread() {
     let path = rig.file("all.jsonl");
     append(&path, "u:one\n");
     let src = source(Located::Found(path));
-    rig.watchers.open("p1", src);
-    rig.watchers.open("p2", src);
+    rig.watchers.open("p1", "w", src);
+    rig.watchers.open("p2", "w", src);
     assert_eq!(rig.watchers.running(), 2);
 
     rig.watchers.close_all();
@@ -350,7 +350,7 @@ fn dropping_the_watchers_stops_the_threads() {
     append(&path, "u:one\n");
     let alive = rig.watchers.alive.clone();
     let watchers = Watchers::with_tuning(rig.sink.clone(), rig.panes.clone(), Tuning { poll: Duration::from_millis(10), ..Tuning::default() });
-    watchers.open("p1", source(Located::Found(path)));
+    watchers.open("p1", "w", source(Located::Found(path)));
     assert_eq!(watchers.running(), 1);
 
     drop(watchers);
@@ -365,13 +365,13 @@ fn only_the_last_items_are_kept() {
     append(&path, &lines);
     let src = source(Located::Found(path.clone()));
 
-    let items = rig.watchers.open("p1", src);
+    let items = rig.watchers.open("p1", "w", src);
     assert_eq!(texts(&items), strings(&["m8", "m9", "m10", "m11", "m12"]));
 
     // One more line at the cap is an ordinary append; the oldest item falls out of the snapshot.
     append(&path, "u:m13\n");
     wait_until("the append", || rig.sink.texts() == vec![(strings(&["m13"]), false)]);
-    assert_eq!(texts(&rig.watchers.open("p1", src)), strings(&["m9", "m10", "m11", "m12", "m13"]));
+    assert_eq!(texts(&rig.watchers.open("p1", "w", src)), strings(&["m9", "m10", "m11", "m12", "m13"]));
 
     // A batch bigger than the cap goes out as a reset with the capped tail, not as a batch with a gap.
     let more: String = (14..=22).map(|n| format!("u:m{n}\n")).collect();
@@ -416,7 +416,7 @@ fn last_wait(rig: &Rig) -> Option<String> {
 #[test]
 fn a_pane_without_a_file_says_where_it_looks_and_since_when() {
     let rig = Rig::new(MAX_ITEMS);
-    assert!(rig.watchers.open("p1", source(Located::NotYet)).is_empty());
+    assert!(rig.watchers.open("p1", "w", source(Located::NotYet)).is_empty());
     let waiting = rig.watchers.waiting_for("p1").expect("waiting");
     let want = format!("Looking in {} for a file written after 00:00:00.", Path::new(PLACE).display());
     assert_eq!(waiting.len(), want.len(), "{waiting}");
@@ -429,7 +429,7 @@ fn the_waiting_text_follows_the_file_and_ends_when_there_are_items() {
     let rig = Rig::new(MAX_ITEMS);
     let path = rig.file("later.jsonl");
     let src = source(Located::NotYet);
-    rig.watchers.open("p1", src);
+    rig.watchers.open("p1", "w", src);
 
     // A file named but not written yet.
     *src.located.lock() = Located::Found(path.clone());
@@ -449,6 +449,97 @@ fn the_waiting_text_follows_the_file_and_ends_when_there_are_items() {
 #[test]
 fn several_candidate_files_are_called_out() {
     let rig = Rig::new(MAX_ITEMS);
-    rig.watchers.open("p1", source(Located::Ambiguous(vec![rig.file("a.jsonl"), rig.file("b.jsonl")])));
+    rig.watchers.open("p1", "w", source(Located::Ambiguous(vec![rig.file("a.jsonl"), rig.file("b.jsonl")])));
     assert!(rig.watchers.waiting_for("p1").unwrap().starts_with("Several files"));
+}
+
+#[test]
+fn a_reader_two_surfaces_hold_runs_until_the_last_one_lets_go() {
+    let rig = Rig::new(MAX_ITEMS);
+    let path = rig.file("held.jsonl");
+    append(&path, "u:one\n");
+    let src = source(Located::Found(path.clone()));
+    // The cockpit and a pane view show the same pane.
+    rig.watchers.open("p1", "cockpit", src);
+    assert_eq!(texts(&rig.watchers.open("p1", "pane-view", src)), strings(&["one"]));
+    assert_eq!(rig.watchers.running(), 1, "two holders, one reader");
+
+    rig.watchers.close("p1", "pane-view");
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(rig.watchers.running(), 1, "the cockpit still shows it");
+    append(&path, "u:two\n");
+    wait_until("the line reaches the remaining surface", || rig.sink.texts() == vec![(strings(&["two"]), false)]);
+
+    rig.watchers.close("p1", "cockpit");
+    wait_until("the reader to stop", || rig.watchers.running() == 0);
+}
+
+#[test]
+fn closing_twice_or_as_a_stranger_does_not_stop_the_holders_reader() {
+    let rig = Rig::new(MAX_ITEMS);
+    let path = rig.file("stranger.jsonl");
+    append(&path, "u:one\n");
+    let src = source(Located::Found(path));
+    rig.watchers.open("p1", "a", src);
+    rig.watchers.open("p1", "b", src);
+    rig.watchers.close("p1", "a");
+    rig.watchers.close("p1", "a");
+    rig.watchers.close("p1", "nobody");
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(rig.watchers.running(), 1, "b still holds it");
+}
+
+#[test]
+fn a_lease_ends_by_itself_and_a_renewed_one_does_not() {
+    let rig = Rig::new(MAX_ITEMS);
+    let path = rig.file("lease.jsonl");
+    append(&path, "u:one\n");
+    let src = source(Located::Found(path));
+    let lease = || Hold::lease("phone", Duration::from_millis(120));
+    rig.watchers.open("p1", lease(), src);
+    for _ in 0..4 {
+        std::thread::sleep(Duration::from_millis(50));
+        rig.watchers.open("p1", lease(), src);
+        assert_eq!(rig.watchers.running(), 1, "each request renews the lease");
+    }
+    wait_until("the lease to run out", || rig.watchers.running() == 0);
+    // Opening again starts a new reader that reads the file again.
+    assert_eq!(texts(&rig.watchers.open("p1", lease(), src)), strings(&["one"]));
+    assert_eq!(rig.watchers.running(), 1);
+}
+
+#[test]
+fn a_surface_keeps_the_reader_after_the_phones_lease_ends_and_the_phone_keeps_it_after_the_surface_closes() {
+    let rig = Rig::new(MAX_ITEMS);
+    let path = rig.file("mixed.jsonl");
+    append(&path, "u:one\n");
+    let src = source(Located::Found(path));
+    rig.watchers.open("p1", "window", src);
+    rig.watchers.open("p1", Hold::lease("phone", Duration::from_millis(60)), src);
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(rig.watchers.running(), 1, "the window outlives the lease");
+
+    rig.watchers.open("p1", Hold::lease("phone", Duration::from_secs(30)), src);
+    rig.watchers.close("p1", "window");
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(rig.watchers.running(), 1, "the phone still holds it");
+    rig.watchers.close("p1", "phone");
+    wait_until("the reader to stop", || rig.watchers.running() == 0);
+}
+
+#[test]
+fn since_follows_the_items_of_an_open_pane() {
+    let rig = Rig::new(MAX_ITEMS);
+    let path = rig.file("since.jsonl");
+    append(&path, "u:one\n");
+    let src = source(Located::Found(path.clone()));
+    assert!(rig.watchers.since("p1", None, 300).is_none(), "not open");
+    rig.watchers.open("p1", "w", src);
+    let first = rig.watchers.since("p1", None, 300).unwrap();
+    assert_eq!(texts(&first.items), strings(&["one"]));
+    append(&path, "u:two\n");
+    wait_until("the new line", || rig.watchers.since("p1", Some(first.rev), 300).is_some_and(|delta| delta.items.len() == 1));
+    let next = rig.watchers.since("p1", Some(first.rev), 300).unwrap();
+    assert_eq!(texts(&next.items), strings(&["two"]));
+    assert!(!next.reset && next.rev > first.rev);
 }

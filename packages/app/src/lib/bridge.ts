@@ -204,6 +204,8 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       call('POST', `/panes/${encodeURIComponent(paneId)}/opencode/question/reply`, args),
     getSettings: () => call('GET', '/settings'),
     pairMe: () => call('GET', '/pair/me'),
+    paneChat: (paneId, since) =>
+      call('GET', `/panes/${encodeURIComponent(paneId)}/chat${since === undefined ? '' : `?since=${since}`}`),
     patchSettings: (patch) => call('PATCH', '/settings', patch),
     postOrchestratorMessage: (text, messageId) =>
       call('POST', '/orchestrator/message', { text, message_id: messageId }),

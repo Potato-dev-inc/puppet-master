@@ -1,0 +1,165 @@
+/* Chat view of an agent tab on the phone (PhoneChatView over SessionChatView) and the Terminal | Chat switch.
+   Grayscale like the rest of the phone; text is phone-sized (the desktop's 12-13px is too small to read here),
+   16px gutters, and what waits on the person (the docked card) sits under the conversation in the flow. */
+
+/* ---------- Terminal | Chat switch ---------- */
+.ph .ph-viewbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: 6px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--sep);
+}
+.ph .ph-viewswitch {
+  display: flex;
+  width: 100%;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.ph .ph-viewswitch button {
+  flex: 1;
+  height: 32px;
+  border-radius: 8px;
+  text-align: center;
+  font: 500 14px/1 var(--font-ui);
+  color: var(--label-2);
+  transition: background 160ms var(--ease), color 160ms var(--ease);
+}
+.ph .ph-viewswitch button[aria-pressed='true'] {
+  background: var(--fill-active);
+  color: var(--label);
+}
+
+/* ---------- chat ---------- */
+/* Over the terminal, which stays mounted under it (hidden, never unmounted: unmounting would break the grid). */
+.ph .ph-chat {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+.ph .ph-chat-plain {
+  margin: 0;
+  padding: 32px 16px;
+  text-align: center;
+  font: 400 15px/1.4 var(--font-ui);
+  color: var(--label-3);
+}
+.ph .ph-chat .ck-chat {
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+  color: var(--label);
+  font: 16px/1.5 var(--font-ui);
+}
+.ph .ph-chat .ck-chat-head {
+  gap: 8px;
+  padding: 10px 16px;
+  background: transparent;
+  border-bottom: 1px solid var(--sep);
+  font-size: 13px;
+  color: var(--label-3);
+}
+.ph .ph-chat .ck-chat-model {
+  font-weight: 600;
+  color: var(--label);
+}
+.ph .ph-chat .ck-chat-cli {
+  font-size: 12px;
+  color: var(--label-3);
+}
+.ph .ph-chat .ck-chat-note {
+  padding: 8px 16px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--label-3);
+  border-bottom: 1px solid var(--sep);
+}
+.ph .ph-chat .ck-chat-body {
+  padding: 12px 16px 24px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.ph .ph-chat .ck-chat-bubble {
+  max-width: 88%;
+  padding: 9px 13px;
+  border-radius: 16px;
+  background: var(--fill);
+  color: var(--label);
+  line-height: 1.45;
+}
+.ph .ph-chat .ck-chat-text {
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.ph .ph-chat .ck-chat-tool {
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font: 13px/1.4 var(--font-mono);
+  color: var(--label-2);
+}
+.ph .ph-chat .ck-chat-tool:active {
+  background: var(--fill-hover);
+}
+.ph .ph-chat .ck-chat-tool-name {
+  color: var(--label);
+}
+.ph .ph-chat .ck-chat-tool-summary {
+  color: var(--label-3);
+}
+.ph .ph-chat .ck-chat-tool-status {
+  font: 500 12px var(--font-ui);
+  color: var(--label-3);
+}
+.ph .ph-chat .ck-chat-tool-status--error {
+  color: var(--label);
+  font-weight: 600;
+}
+.ph .ph-chat .ck-chat-output {
+  margin: 4px 0 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  font: 12.5px/1.5 var(--font-mono);
+  color: var(--label-2);
+}
+.ph .ph-chat .ck-chat-end {
+  font-size: 12px;
+  color: var(--label-3);
+}
+.ph .ph-chat .ck-chat-rule {
+  background: var(--sep);
+}
+.ph .ph-chat .ck-chat-empty,
+.ph .ph-chat .ck-chat-waiting {
+  max-width: none;
+  padding: 24px 0;
+  font: 400 15px/1.4 var(--font-ui);
+  color: var(--label-3);
+}
+.ph .ph-chat .ck-chat-waiting-for {
+  font-size: 13px;
+}
+
+/* The docked card in the chat: under the conversation, in the flow (over the terminal it floats at the top). */
+.ph .ph-chat .ck-chat-dock {
+  flex: none;
+  background: var(--bg);
+  border-top: 1px solid var(--sep);
+}
+.ph .ph-chat .ph-dock {
+  position: static;
+  max-height: 55vh;
+  padding-bottom: calc(6px + var(--safe-b));
+  border-bottom: 0;
+}
+.ph .ph-chat .ck-chat-dock:empty {
+  display: none;
+}

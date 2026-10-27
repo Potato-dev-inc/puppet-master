@@ -291,7 +291,7 @@ mod tests {
         facts.home = Some(config.0.clone());
         let source = crate::tui::profile_for("claude").session_chat().expect("claude has a session source");
         let watchers = Watchers::new(Arc::new(Quiet), Arc::new(Pane(facts)));
-        let items = watchers.open("pane-1", source);
+        let items = watchers.open("pane-1", "w", source);
         watchers.close_all();
 
         assert!(items.iter().any(|item| matches!(item, ChatItem::User { text, .. } if text == "list the files")));
