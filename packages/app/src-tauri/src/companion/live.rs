@@ -6,7 +6,7 @@
 //! only through `pane_outbox::Outbox::send`. Nothing here types into a pane, presses a key or answers
 //! a dialog.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 
-use super::host::{Blocking, Host, Reply, SpawnSpec};
+use super::host::{Blocking, FinishedTurn, Host, Reply, SpawnSpec};
 use super::keeper::Pane;
 use super::model::CompanionView;
 use super::service::Service;
@@ -42,7 +42,7 @@ pub fn service() -> Option<Arc<Service>> {
 /// Starts the keeper thread. Call once, from the app setup, after the bridge and the registries.
 pub fn start(app: AppHandle, registry: Arc<Mutex<PaneRegistry>>) {
     let root = crate::app_paths::app_data_dir();
-    let host = Arc::new(LiveHost { app, registry, readers: Mutex::new(HashSet::new()) });
+    let host = Arc::new(LiveHost { app, registry, readers: Mutex::new(HashSet::new()), parents: Mutex::new(HashMap::new()) });
     let service = Arc::new(Service::new(host, root));
     if SERVICE.set(service.clone()).is_err() {
         return;
@@ -68,6 +68,9 @@ pub struct LiveHost {
     registry: Arc<Mutex<PaneRegistry>>,
     /// `<pane>|<companion>` pairs whose session-chat reader this companion already holds.
     readers: Mutex<HashSet<String>>,
+    /// Pane id -> (its parent pane id, the parent's agent label), remembered while panes are alive: a
+    /// helper's pane is usually closed by the time its turn is listed.
+    parents: Mutex<HashMap<String, (String, String)>>,
 }
 
 impl LiveHost {
@@ -201,6 +204,41 @@ impl Host for LiveHost {
     fn last_sentence(&self, pane_id: &str) -> Option<Reply> {
         let summary = crate::turn_summary::tracker().summaries(pane_id).pop()?;
         Some(Reply { id: format!("turn-{}-{}", summary.turn, summary.ended_at_ms), text: summary.sentence })
+    }
+
+    fn finished_turns(&self, since_ms: i64) -> Vec<FinishedTurn> {
+        // Remember who each live pane's parent is, and what agent the parent runs.
+        {
+            let registry = self.registry.lock();
+            let panes = registry.list();
+            let mut parents = self.parents.lock();
+            for pane in &panes {
+                if let Some(parent) = &pane.parent_pane_id {
+                    let label = panes
+                        .iter()
+                        .find(|p| &p.id == parent)
+                        .map(|p| crate::tui::descriptor_for(&p.agent_type).map(|d| d.label).unwrap_or_else(|| p.agent_type.clone()))
+                        .or_else(|| parents.get(&pane.id).map(|(_, label)| label.clone()))
+                        .unwrap_or_else(|| "another agent".to_string());
+                    parents.insert(pane.id.clone(), (parent.clone(), label));
+                }
+            }
+        }
+        let parents = self.parents.lock();
+        crate::turn_summary::tracker()
+            .since_with_project(since_ms.max(0) as u64)
+            .into_iter()
+            .map(|(summary, project)| FinishedTurn {
+                parent_label: parents.get(&summary.pane_id).map(|(_, label)| label.clone()),
+                pane_id: summary.pane_id,
+                turn: summary.turn,
+                ended_at_ms: summary.ended_at_ms as i64,
+                end: summary.end.kind,
+                agent: summary.agent,
+                folder_name: project.map(|p| view::folder_name(&p.display().to_string())).unwrap_or_default(),
+                sentence: summary.sentence,
+            })
+            .collect()
     }
 
     fn release_reader(&self, pane_id: &str, companion_id: &str) {

@@ -20,6 +20,7 @@
 //! - `host`: what the service needs from the app (`Host` trait); `live` implements it over the real
 //!   registry, outbox, attention list and session chat, and runs the thread `companion-keeper`
 //! - `service`: the tick over every companion; `manage`: create, edit, wake, sleep, memory, check-ins
+//! - `today`: `today.md`, the day's turns of the person's other agents (opt-in per companion)
 //! - `view`: `CompanionView` for the desktop (with the folder) and the phone (without)
 //!
 //! Only `live.rs` starts a thread or a process, and nothing here names an agent. A message to the agent
@@ -38,6 +39,7 @@ pub mod personas;
 pub mod schedule;
 pub mod service;
 pub mod store;
+pub mod today;
 pub mod view;
 
 pub use service::Service;
@@ -46,5 +48,7 @@ pub use service::Service;
 mod service_tests;
 #[cfg(test)]
 pub mod test_host;
+#[cfg(test)]
+mod today_tests;
 #[cfg(test)]
 mod tests;

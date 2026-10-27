@@ -13,7 +13,7 @@ use super::model::{
 };
 use super::service::{pane_id_of, Inner, OutKind, Outgoing, Service, Slot};
 use super::store::{self, Runtime};
-use super::{agents, files, memory, view};
+use super::{agents, brief, files, memory, view};
 
 /// `null` and "missing" are different in a patch: `Some(None)` clears the value.
 fn double_option<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
@@ -45,6 +45,8 @@ pub struct Draft {
     pub memory_review: Option<bool>,
     #[serde(default)]
     pub push_replies: Option<bool>,
+    #[serde(default)]
+    pub share_today: Option<bool>,
     /// Missing = 04:00; `null` = no nap.
     #[serde(default, deserialize_with = "double_option")]
     pub nap_at: Option<Option<HhMm>>,
@@ -67,6 +69,7 @@ pub struct Patch {
     pub auto_start: Option<bool>,
     pub memory_review: Option<bool>,
     pub push_replies: Option<bool>,
+    pub share_today: Option<bool>,
     #[serde(default, deserialize_with = "double_option")]
     pub nap_at: Option<Option<HhMm>>,
     pub checkins: Option<Vec<CheckIn>>,
@@ -145,6 +148,7 @@ impl Service {
             auto_start: draft.auto_start.unwrap_or(true),
             memory_review: draft.memory_review.unwrap_or(true),
             push_replies: draft.push_replies.unwrap_or(true),
+            share_today: draft.share_today.unwrap_or(false),
             nap_at: draft.nap_at.unwrap_or(Some(HhMm { h: 4, m: 0 })),
             checkins,
             created_ms: now,
@@ -202,6 +206,9 @@ impl Service {
         if let Some(push) = patch.push_replies {
             next.push_replies = push;
         }
+        if let Some(share) = patch.share_today {
+            next.share_today = share;
+        }
         if let Some(nap) = patch.nap_at {
             next.nap_at = nap;
         }
@@ -236,8 +243,24 @@ impl Service {
         }
         if launch_changed {
             self.restart_locked(&mut inner, index, now);
+        } else if next.share_today != before.share_today {
+            self.share_today_changed(&mut inner, index, now);
         }
         Ok(self.finish(&mut inner, id, now))
+    }
+
+    /// The day view was turned on or off. The brief is rewritten so the next start reads the right rule;
+    /// a running agent is told once through the outbox when it was turned on. Nothing is deleted.
+    fn share_today_changed(&self, inner: &mut Inner, index: usize, now: i64) {
+        let profile = inner.profiles[index].clone();
+        if let Err(reason) = self.write_brief(&profile) {
+            tracing::warn!(companion = %profile.id, %reason, "could not rewrite the brief after the day view changed");
+        }
+        let Some(slot) = inner.slots.get_mut(&profile.id) else { return };
+        slot.outgoing.retain(|o| o.kind != OutKind::Notice);
+        if profile.share_today {
+            slot.outgoing.push(Outgoing { kind: OutKind::Notice, text: brief::TODAY_NOTICE.to_string(), queued_ms: now });
+        }
     }
 
     /// Sleeps it, closes its pane and hides it. The home folder is never deleted.

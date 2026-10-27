@@ -298,4 +298,9 @@ impl Tracker {
     pub fn since(&self, since_ms: u64) -> Vec<TurnSummary> {
         self.store.lock().since(since_ms)
     }
+
+    /// `since`, each with the project folder of its pane (the companion's `today.md` shows its name).
+    pub fn since_with_project(&self, since_ms: u64) -> Vec<(TurnSummary, Option<PathBuf>)> {
+        self.store.lock().since_with_project(since_ms)
+    }
 }
