@@ -1,10 +1,15 @@
-//! Incremental reader for a file that another process appends to.
+//! Incremental reader for a file that another process appends to, and the reader for a finished
+//! `.zst` (compressed) file, which is read whole, once.
 
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
-use std::path::PathBuf;
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+use ruzstd::decoding::{FrameDecoder, StreamingDecoder};
 
 /// Tracks how far a file has been read. Only bytes after the last complete line are read again.
+/// A `.zst` file is finished: it is read once, whole, and not polled again.
 #[derive(Debug)]
 pub struct Tail {
     path: PathBuf,
@@ -14,6 +19,10 @@ pub struct Tail {
     partial: Vec<u8>,
     /// File length consumed by the last poll (`offset + partial.len()`).
     len_seen: u64,
+    /// A `.zst` file has been read whole.
+    done: bool,
+    /// The (length, modified time) of a `.zst` file that failed to decompress. It is not read again until one changes.
+    broken: Option<(u64, Option<SystemTime>)>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -22,16 +31,156 @@ pub enum Polled {
     Reset(Vec<(u64, String)>),
 }
 
+/// A file a finished session is kept in: `.zst` (zstd-compressed).
+fn is_zst(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("zst"))
+}
+
+/// The lines of a file as a reader: decompressed as they are read when the file ends in `.zst`.
+pub fn open_lines(path: &Path) -> io::Result<Box<dyn BufRead>> {
+    let file = File::open(path)?;
+    if is_zst(path) {
+        Ok(Box::new(BufReader::new(ZstFrames::new(file))))
+    } else {
+        Ok(Box::new(BufReader::new(file)))
+    }
+}
+
+/// The bytes of a file, with some of them read ahead and put back (`unread`).
+struct Source {
+    /// Bytes put back, read again before the file.
+    head: Vec<u8>,
+    /// Where the next put-back byte is in `head`.
+    from: usize,
+    file: BufReader<File>,
+}
+
+impl Source {
+    /// Puts `bytes` back in front of everything not read yet.
+    fn unread(&mut self, bytes: &[u8]) {
+        let mut head = bytes.to_vec();
+        head.extend_from_slice(&self.head[self.from..]);
+        self.head = head;
+        self.from = 0;
+    }
+
+    /// Fills `buf` as far as the file goes: fewer bytes than `buf` only at its end.
+    fn read_head(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let mut got = 0;
+        while got < buf.len() {
+            let read = self.read(&mut buf[got..])?;
+            if read == 0 {
+                break;
+            }
+            got += read;
+        }
+        Ok(got)
+    }
+}
+
+impl Read for Source {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.from < self.head.len() {
+            let pending = &self.head[self.from..];
+            let read = pending.len().min(buf.len());
+            buf[..read].copy_from_slice(&pending[..read]);
+            self.from += read;
+            return Ok(read);
+        }
+        self.file.read(buf)
+    }
+}
+
+/// Every zstd frame of a file, one after another. A skippable frame (magic `0x184D2A5?`) is skipped.
+/// A finished Codex session is one frame, but a file made by appending compressed parts has several.
+struct ZstFrames {
+    /// The file between frames; `None` while a frame is being decoded (the decoder owns it).
+    source: Option<Source>,
+    frame: Option<StreamingDecoder<Source, FrameDecoder>>,
+}
+
+impl ZstFrames {
+    fn new(file: File) -> Self {
+        let file = BufReader::new(file);
+        ZstFrames { source: Some(Source { head: Vec::new(), from: 0, file }), frame: None }
+    }
+}
+
+impl Read for ZstFrames {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            if let Some(frame) = self.frame.as_mut() {
+                let read = frame.read(buf)?;
+                if read > 0 {
+                    return Ok(read);
+                }
+                // The frame is complete; its reader comes back for the next one.
+                self.source = self.frame.take().map(StreamingDecoder::into_inner);
+            }
+            let Some(source) = self.source.as_mut() else {
+                return Ok(0);
+            };
+            let mut head = [0u8; 8];
+            let got = source.read_head(&mut head)?;
+            if got == 0 {
+                return Ok(0);
+            }
+            let magic = u32::from_le_bytes([head[0], head[1], head[2], head[3]]);
+            if got == 8 && magic & 0xFFFF_FFF0 == 0x184D_2A50 {
+                let size = u64::from(u32::from_le_bytes([head[4], head[5], head[6], head[7]]));
+                io::copy(&mut source.by_ref().take(size), &mut io::sink())?;
+                continue;
+            }
+            source.unread(&head[..got]);
+            let source = self.source.take().expect("the reader is here between frames");
+            let frame = StreamingDecoder::new(source)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
+            self.frame = Some(frame);
+        }
+    }
+}
+
+/// Every line of a file (decompressed when it ends in `.zst`), each with the byte offset where it starts in
+/// the text. Empty lines are skipped (their bytes still count) and a CRLF ending is trimmed, as in `Tail`.
+pub fn read_all_lines(path: &Path) -> io::Result<Vec<(u64, String)>> {
+    let mut reader = open_lines(path)?;
+    let mut lines = Vec::new();
+    let mut offset = 0u64;
+    let mut raw = Vec::new();
+    loop {
+        raw.clear();
+        let read = reader.read_until(b'\n', &mut raw)?;
+        if read == 0 {
+            break;
+        }
+        let text = raw.strip_suffix(b"\n").unwrap_or(&raw);
+        let text = text.strip_suffix(b"\r").unwrap_or(text);
+        if !text.is_empty() {
+            lines.push((offset, String::from_utf8_lossy(text).into_owned()));
+        }
+        offset += read as u64;
+    }
+    Ok(lines)
+}
+
 impl Tail {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Tail { path: path.into(), offset: 0, partial: Vec::new(), len_seen: 0 }
+        Tail { path: path.into(), offset: 0, partial: Vec::new(), len_seen: 0, done: false, broken: None }
     }
 
     /// Complete lines appended since the last poll, each with the byte offset where it starts.
     /// A last line without '\n' is kept back until it is complete. If the file got shorter
     /// (replaced or truncated), start again from 0 and return Reset with all lines.
-    /// A missing file gives Ok(Lines(vec![])).
+    /// A missing file gives Ok(Lines(vec![])). A `.zst` file gives all its lines on the first poll
+    /// that reads it, and nothing after that. A damaged `.zst` is an error once, then gives nothing until its
+    /// length or modified time changes.
     pub fn poll(&mut self) -> io::Result<Polled> {
+        if is_zst(&self.path) {
+            return self.poll_finished();
+        }
         let mut file = match File::open(&self.path) {
             Ok(file) => file,
             Err(err) if err.kind() == io::ErrorKind::NotFound => {
@@ -56,6 +205,34 @@ impl Tail {
             Ok(Polled::Reset(lines))
         } else {
             Ok(Polled::Lines(lines))
+        }
+    }
+
+    /// A finished `.zst` session: read whole on the first poll that finds it, never again after that.
+    /// A file that failed to decompress is skipped until its length or modified time changes.
+    fn poll_finished(&mut self) -> io::Result<Polled> {
+        if self.done {
+            return Ok(Polled::Lines(Vec::new()));
+        }
+        let stamp = match std::fs::metadata(&self.path) {
+            Ok(meta) => (meta.len(), meta.modified().ok()),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Polled::Lines(Vec::new())),
+            Err(err) => return Err(err),
+        };
+        if self.broken == Some(stamp) {
+            return Ok(Polled::Lines(Vec::new()));
+        }
+        match read_all_lines(&self.path) {
+            Ok(lines) => {
+                self.done = true;
+                self.broken = None;
+                Ok(Polled::Lines(lines))
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Polled::Lines(Vec::new())),
+            Err(err) => {
+                self.broken = Some(stamp);
+                Err(err)
+            }
         }
     }
 
@@ -276,5 +453,93 @@ mod tests {
 
         scratch.write(b"b\n");
         assert_eq!(tail.poll().unwrap(), Polled::Reset(owned(&[(0, "b")])));
+    }
+
+    /// A zstd frame with one raw (stored, not compressed) block. Payloads stay under 128 KiB, so one block is
+    /// enough. ruzstd has no encoder; this is the smallest frame it reads.
+    fn zst_frame(payload: &[u8]) -> Vec<u8> {
+        let mut frame = vec![0x28, 0xB5, 0x2F, 0xFD, 0xA0]; // magic, single segment, 4-byte content size
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        let block_header = ((payload.len() as u32) << 3) | 1; // size << 3, type 0 (raw), last block
+        frame.extend_from_slice(&block_header.to_le_bytes()[..3]);
+        frame.extend_from_slice(payload);
+        frame
+    }
+
+    #[test]
+    fn a_zst_file_gives_every_line_once_with_its_byte_offset() {
+        let scratch = Scratch::new("lines.jsonl.zst");
+        scratch.write(&zst_frame(b"one\r\ntwo\n\nthree"));
+        let want = owned(&[(0, "one"), (5, "two"), (10, "three")]);
+        assert_eq!(read_all_lines(scratch.path()).unwrap(), want);
+
+        let mut tail = Tail::new(scratch.path());
+        assert_eq!(tail.poll().unwrap(), Polled::Lines(want));
+        assert_eq!(tail.poll().unwrap(), Polled::Lines(owned(&[])));
+    }
+
+    #[test]
+    fn a_zst_file_is_read_once_and_not_polled_again() {
+        let scratch = Scratch::new("once.jsonl.zst");
+        let mut tail = Tail::new(scratch.path());
+        assert_eq!(tail.poll().unwrap(), Polled::Lines(vec![]));
+
+        scratch.write(&zst_frame(b"one\n"));
+        assert_eq!(lines(tail.poll().unwrap()), owned(&[(0, "one")]));
+
+        // Finished: a change to the file is not read.
+        scratch.write(b"not zstd at all");
+        assert_eq!(tail.poll().unwrap(), Polled::Lines(vec![]));
+    }
+
+    #[test]
+    fn a_damaged_zst_file_is_an_error_and_is_read_again_once_it_changes() {
+        let scratch = Scratch::new("damaged.jsonl.zst");
+        scratch.write(b"not zstd at all");
+        let mut tail = Tail::new(scratch.path());
+        assert!(tail.poll().is_err());
+
+        scratch.write(&zst_frame(b"two\n"));
+        assert_eq!(lines(tail.poll().unwrap()), owned(&[(0, "two")]));
+    }
+
+    /// A skippable zstd frame: the magic `0x184D2A5?`, a 4-byte size, then that many bytes of anything.
+    fn skippable_frame(payload: &[u8]) -> Vec<u8> {
+        let mut frame = vec![0x50, 0x2A, 0x4D, 0x18];
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(payload);
+        frame
+    }
+
+    #[test]
+    fn every_frame_of_a_zst_file_is_read_and_skippable_frames_give_nothing() {
+        let scratch = Scratch::new("frames.jsonl.zst");
+        let mut bytes = skippable_frame(b"not text at all");
+        bytes.extend(zst_frame(b"one\n"));
+        bytes.extend(zst_frame(b"two\n"));
+        bytes.extend(skippable_frame(b"x"));
+        bytes.extend(zst_frame(b"three"));
+        scratch.write(&bytes);
+        assert_eq!(read_all_lines(scratch.path()).unwrap(), owned(&[(0, "one"), (4, "two"), (8, "three")]));
+    }
+
+    #[test]
+    fn a_damaged_zst_file_is_skipped_until_its_length_or_time_changes() {
+        use std::time::{Duration, SystemTime};
+
+        let scratch = Scratch::new("skipped.jsonl.zst");
+        scratch.write(b"not zstd at all");
+        let mut tail = Tail::new(scratch.path());
+        assert!(tail.poll().is_err());
+        assert_eq!(tail.poll().unwrap(), Polled::Lines(vec![]), "same length and time: not decompressed again");
+
+        // Only the modified time changes: the file is tried again, and it still fails.
+        let later = SystemTime::now() + Duration::from_secs(60);
+        OpenOptions::new().write(true).open(scratch.path()).unwrap().set_modified(later).unwrap();
+        assert!(tail.poll().is_err());
+        assert_eq!(tail.poll().unwrap(), Polled::Lines(vec![]));
+
+        scratch.write(&zst_frame(b"two\n"));
+        assert_eq!(lines(tail.poll().unwrap()), owned(&[(0, "two")]));
     }
 }
