@@ -23,6 +23,12 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** The count of memory lines, shown when nothing else is: "3 lines". */
+function lineCount(text: string): string {
+  const n = text.split('\n').filter((line) => line.trim() !== '').length;
+  return n === 0 ? '' : `${n} ${n === 1 ? 'line' : 'lines'}`;
+}
+
 export function ProjectMemory({
   project,
   api = memoryApi,
@@ -134,7 +140,7 @@ export function ProjectMemory({
           Sync now
         </button>
         <span className="ck-memory-msg" role="status" aria-live="polite">
-          {error ? <span className="ck-memory-err">{error}</span> : (note ?? (dirty ? 'Unsaved changes' : ''))}
+          {error ? <span className="ck-memory-err">{error}</span> : (note ?? (dirty ? 'Unsaved changes' : view ? lineCount(view.memory) : ''))}
         </span>
       </div>
 

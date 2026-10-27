@@ -5,7 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AttentionSnapshot } from '../../lib/attention';
 import { COPY } from '../../lib/attention-copy';
 import type { BridgeClient } from '../../lib/bridge-types';
-import { dockFor } from '../../lib/needs-you-queue';
+import { helperItems } from '../../lib/helper-questions';
+import { PROMPT_KINDS, dockFor } from '../../lib/needs-you-queue';
 import { ApprovalCard } from './ApprovalCard';
 import '../../styles/mobile-approval.css';
 
@@ -18,6 +19,7 @@ export function DockedCard({
   onOpenItem,
   onRefresh,
   autoFocus = false,
+  helperPaneIds = [],
 }: {
   snapshot: AttentionSnapshot;
   paneId: string;
@@ -29,6 +31,8 @@ export function DockedCard({
   /** An answer came back stale: read the PC's list again. */
   onRefresh?: () => void;
   autoFocus?: boolean;
+  /** The chat of a pane that started helpers: the helpers that ask, whose cards sit under its own. */
+  helperPaneIds?: string[];
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [own, setOwn] = useState<ReadonlyMap<string, number>>(() => new Map());
@@ -38,8 +42,9 @@ export function DockedCard({
     return () => window.clearInterval(timer);
   }, []);
 
-  const { current, more, next } = dockFor(snapshot, paneId, own, now);
-  if (!current && more === 0) return null;
+  const helperCards = helperItems(snapshot.items, helperPaneIds, (item) => PROMPT_KINDS.includes(item.kind));
+  const { current, more, next } = dockFor(snapshot, paneId, own, now, new Set(helperCards.map((i) => i.id)));
+  if (!current && more === 0 && helperCards.length === 0) return null;
   const nextHeading = next?.pane?.heading ?? next?.title;
   return (
     <div className="ph-dock" data-testid="docked-card">
@@ -56,6 +61,17 @@ export function DockedCard({
           onRefresh={onRefresh}
         />
       )}
+      {helperCards.map((item) => (
+        <div key={item.id} className="ph-dock-helper" data-testid="helper-question">
+          <p className="ph-dock-helper-lead">{item.pane?.heading ?? 'A helper'} helper asks</p>
+          <ApprovalCard item={item} bridge={bridge} canAnswer={canAnswer} variant="docked" onOpenPane={onOpenPane} onRefresh={onRefresh} />
+          {item.pane && (
+            <button type="button" className="ph-btn ph-btn--plain" data-role="open-helper" onClick={() => onOpenPane(item.pane!.id)}>
+              Open helper
+            </button>
+          )}
+        </div>
+      ))}
       {more > 0 && next && (
         <p className="ph-queue-line">
           <span>{COPY.queue(more)}</span>

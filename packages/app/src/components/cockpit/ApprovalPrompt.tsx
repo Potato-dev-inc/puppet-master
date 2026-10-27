@@ -19,6 +19,8 @@ export function ApprovalPrompt({
   who,
   age,
   onOpen,
+  asks,
+  openLabel = 'Open terminal',
 }: {
   prompt: PanePrompt;
   /** `gesture` is the click that chose it (`lib/user-gesture.ts`); the backend needs it. */
@@ -32,6 +34,10 @@ export function ApprovalPrompt({
   age?: number | null;
   /** Card: the "Open terminal" button. */
   onOpen?: () => void;
+  /** Card: a helper's question shown in its parent's Chat: "Claude Code helper asks" leads the title. */
+  asks?: string;
+  /** Card: the open button's words. */
+  openLabel?: string;
 }) {
   const risk = prompt.risk;
   const [details, setDetails] = useState(false);
@@ -63,6 +69,7 @@ export function ApprovalPrompt({
   const furtherReasons = risk.reasons.slice(1);
   const hasDetails = command.length > 0 || furtherReasons.length > 0;
   const small = variant === 'bar';
+  const cardTitle = asksQuestion && prompt.summary ? prompt.summary : risk.headline;
 
   const button = (ch: PromptChoice) => {
     const w = words.get(ch.id) ?? { text: ch.label };
@@ -114,7 +121,7 @@ export function ApprovalPrompt({
           glyph={risk.level}
           risk={risk.level}
           guard={high}
-          title={asksQuestion && prompt.summary ? prompt.summary : risk.headline}
+          title={asks ? `${asks}: ${cardTitle}` : cardTitle}
           meta={who}
           status={asksQuestion ? null : LEVEL_WORD[risk.level]}
           age={age ?? null}
@@ -137,7 +144,7 @@ export function ApprovalPrompt({
               )}
               {onOpen && (
                 <CardButton tone="plain" role="open" onClick={onOpen}>
-                  Open terminal
+                  {openLabel}
                 </CardButton>
               )}
             </>
