@@ -18,7 +18,10 @@ import { ngrokRequestHeaders } from './lib/bridge-ngrok';
 import { mergeBridgeHeaders } from './lib/mobile-pairing-auth';
 import { LS_BRIDGE_URL, resolveBridgeBaseUrl } from './lib/bridge-url';
 import { fallbackListing, listingFromBody, type AgentRegistryListing, type LaunchEntry } from './lib/agentRegistry';
-import { ALL_TAB, orderPanes, phoneLaunchEntries, tabLabels } from './lib/mobile-agent-tabs';
+import { ALL_TAB, companionTab, isCompanionTab, orderPanes, phoneLaunchEntries, tabLabels } from './lib/mobile-agent-tabs';
+import { bridgeCompanionTransport, type CompanionView } from './lib/companion';
+import { useBridgeCompanions } from './hooks/useBridgeCompanions';
+import { CompanionHome } from './components/mobile/CompanionHome';
 import {
   PairInviteScreen,
   readPairingInviteCode,
@@ -147,6 +150,12 @@ export default function PwaApp() {
   const [sheetItem, setSheetItem] = useState<AttentionItem | null>(null);
   /** The card a push tap opened is docked: its focus choice takes the keyboard focus once. */
   const [deepLinked, setDeepLinked] = useState(false);
+  /** The latest `companion` event's list (the bridge stream sets it); null until one comes. */
+  const [companionPush, setCompanionPush] = useState<CompanionView[] | null>(null);
+  // The companions: read from the PC every 5 s while visible, and put in at once by a `companion` event.
+  const companionTransport = useMemo(() => (bridge ? bridgeCompanionTransport(bridge) : null), [bridge]);
+  const companionList = useBridgeCompanions(companionTransport, resyncKey, companionPush);
+  const companions = companionList.companions;
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
   const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
   /** Last grid measured on this phone: a pane spawned from here is created at this size. */
@@ -286,6 +295,7 @@ export default function PwaApp() {
       if (ev.type === 'questions') setQuestionsRev((n) => n + 1);
       if (ev.type === 'pane-outbox') publishBridgeOutbox(ev.paneId, ev.messages);
       if (ev.type === 'attention') setAttention((cur) => newerSnapshot(cur, ev.snapshot));
+      if (ev.type === 'companion') setCompanionPush(ev.companions);
       if (ev.type === 'resync') {
         registryRef.current.resetStreams();
         client.listPanes().then((list) => live && applyPanes(list)).catch(() => {});
@@ -315,8 +325,12 @@ export default function PwaApp() {
 
   // A closed agent's tab falls back to All (only once the real pane list has arrived).
   useEffect(() => {
-    if (panesLoaded && active !== ALL_TAB && !panes.some((p) => p.id === active)) setActive(ALL_TAB);
+    if (panesLoaded && active !== ALL_TAB && !isCompanionTab(active) && !panes.some((p) => p.id === active)) setActive(ALL_TAB);
   }, [active, panes, panesLoaded]);
+  // A companion that is gone (archived on the PC) falls back to All, once the list has been read.
+  useEffect(() => {
+    if (companionList.loaded && isCompanionTab(active) && !companions.some((c) => companionTab(c.id) === active)) setActive(ALL_TAB);
+  }, [active, companions, companionList.loaded]);
 
   useEffect(() => {
     try {
@@ -343,6 +357,15 @@ export default function PwaApp() {
   }, [bridge]);
   // What the PC's list says this phone may do wins over the pairing read (it comes with every list read).
   const canAnswer = attention?.device?.can_answer ?? abilities.canAnswer;
+  /** "Open card" on a companion: its card from the list, or the plain sentence when the card has left it. */
+  const openCompanionCard = useCallback(
+    (itemId: string) => {
+      const item = attention?.items.find((i) => i.id === itemId);
+      if (item) setSheetItem(item);
+      else setToast(COPY.dealtWith);
+    },
+    [attention],
+  );
 
   // A push tap on a card: read the list first (before the terminal stream is opened), then show it.
   useEffect(() => {
@@ -383,7 +406,8 @@ export default function PwaApp() {
   }, [intent, bridge]);
 
   const labels = useMemo(() => tabLabels(panes, agentListing), [panes, agentListing]);
-  const activePane = active === ALL_TAB ? undefined : registry.panes.get(active);
+  const activeCompanion = isCompanionTab(active) ? companions.find((c) => companionTab(c.id) === active) : undefined;
+  const activePane = active === ALL_TAB || isCompanionTab(active) ? undefined : registry.panes.get(active);
   const transport = useBridgePaneTransport(registry.makeTransport, activePane ? active : 'pane-placeholder');
   // The chat is for agents, not shells. In the chat the terminal stays mounted (hidden) and nothing there claims the
   // pane's size: no tap, return to the app or opening the tab does, only the terminal view does.
@@ -409,7 +433,7 @@ export default function PwaApp() {
   // to the front (and spawning, typing, touching the terminal below). Claimed once the tab's
   // fitting grid is known; the PC window takes it back on a click or focus there.
   useEffect(() => {
-    if (active !== ALL_TAB) claimOnOpenRef.current = active;
+    if (active !== ALL_TAB && !isCompanionTab(active)) claimOnOpenRef.current = active;
   }, [active]);
   // Nudge: after a phone action (not typing) redraw the open agent from the PC's current screen,
   // in place. Actions close together share one redraw; at most one per NUDGE_MIN_GAP_MS. A tap
@@ -450,7 +474,7 @@ export default function PwaApp() {
   const selectTab = useCallback(
     (id: string) => {
       setActive(id);
-      if (id !== ALL_TAB) requestNudge(false);
+      if (id !== ALL_TAB && !isCompanionTab(id)) requestNudge(false);
     },
     [requestNudge],
   );
@@ -468,7 +492,7 @@ export default function PwaApp() {
 
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState !== 'visible' || active === ALL_TAB || activeView === 'chat') return;
+      if (document.visibilityState !== 'visible' || active === ALL_TAB || isCompanionTab(active) || activeView === 'chat') return;
       requestNudge(false);
       claimOnOpenRef.current = active;
       if (fitGrid) {
@@ -637,6 +661,7 @@ export default function PwaApp() {
           onNew={openNewAgentSheet}
           onMenu={() => setSheet('menu')}
           needsYou={attention ? blockingCount(attention) : undefined}
+          companions={companions}
         />
         {activePane && chatAllowed && <PaneViewSwitch view={activeView} onChange={selectView} />}
         {active !== ALL_TAB && stuck.get(active) && <StuckNote signal={stuck.get(active)!} />}
@@ -663,6 +688,18 @@ export default function PwaApp() {
             />
           )}
           {activeView === 'terminal' && dockedCard}
+          {bridge && companionTransport && activeCompanion && (
+            <CompanionHome
+              key={activeCompanion.id}
+              companion={activeCompanion}
+              bridge={bridge}
+              transport={companionTransport}
+              abilities={{ ...abilities, canAnswer }}
+              chatAllowed={chatAllowedFor(agentListing, activeCompanion.agentType)}
+              onOpenCard={openCompanionCard}
+              onChanged={companionList.applyView}
+            />
+          )}
           {activePane && (
             // Hidden, never unmounted, in the chat: unmounting would break the terminal's grid. `invisible` keeps its size.
             <div className={`flex min-h-0 flex-1 flex-col${activeView === 'chat' ? ' invisible' : ''}`} aria-hidden={activeView === 'chat'}>
@@ -693,7 +730,7 @@ export default function PwaApp() {
               dock={dockedCard}
             />
           )}
-          {active !== ALL_TAB && !activePane && (
+          {active !== ALL_TAB && !isCompanionTab(active) && !activePane && (
             <div className="ph-loading">Loading agent…</div>
           )}
           {activePane && activeView === 'terminal' && abilities.typingNote && <TypingNote text={abilities.typingNote} />}
