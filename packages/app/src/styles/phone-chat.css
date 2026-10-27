@@ -409,3 +409,49 @@
 .ph .ph-chat .ck-chat-md-align-right {
   text-align: right;
 }
+
+/* The rows of a turn on the phone: a 44px touch area for every row, the activity line and the view switch. Text is
+   phone-sized; diffs and output scroll inside their own box, so the page never scrolls sideways. */
+.ph .ph-chat .ck-chat-tool {
+  min-height: 44px;
+  font-size: 14px;
+}
+.ph .ph-chat .ck-chat-activity {
+  min-height: 44px;
+  font-size: 14px;
+}
+.ph .ph-chat .ck-chat-activity-text {
+  font-size: 14px;
+}
+.ph .ph-chat .ck-chat-helper-row {
+  min-height: 44px;
+  font-size: 14px;
+}
+.ph .ph-chat .ck-chat-modes {
+  padding: 3px;
+}
+.ph .ph-chat .ck-chat-mode {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.ph .ph-chat .ck-chat-plan-item {
+  font-size: 14px;
+}
+.ph .ph-chat .ck-chat-plan-head {
+  font-size: 13px;
+}
+.ph .ph-chat .ck-chat-diff,
+.ph .ph-chat .ck-chat-output {
+  font-size: 12.5px;
+}
+.ph .ph-chat .ck-chat-detail-label {
+  font-size: 11px;
+}
+.ph .ph-chat .ck-chat-notice {
+  font-size: 12px;
+}
+.ph .ph-chat .ck-chat-chip {
+  font-size: 12.5px;
+}

@@ -127,9 +127,16 @@ describe('SessionChatView ready', () => {
     expect(agentText?.className).toContain('whitespace-pre-wrap');
   });
 
-  it('shows a tool call as one row and expands its output on click', () => {
+  it('folds the tool rows of a turn into one activity line; a click opens the rows, and a row opens its output', () => {
     render({ state: 'ready', turns: turnsFrom(SAMPLE) });
-    const row = host.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    const line = host.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    expect(line.textContent).toBe('Ran 1 command');
+    expect(text()).not.toContain('README.md');
+    expect(host.querySelector('.ck-chat-row')).toBeNull();
+
+    act(() => line.click());
+    expect(line.getAttribute('aria-expanded')).toBe('true');
+    const row = host.querySelector<HTMLButtonElement>('.ck-chat-row button')!;
     expect(row.textContent).toContain('Bash');
     expect(row.textContent).toContain('ls -la /work');
     expect(row.textContent).toContain('ok');
@@ -137,25 +144,29 @@ describe('SessionChatView ready', () => {
 
     act(() => row.click());
     expect(row.getAttribute('aria-expanded')).toBe('true');
-    const pre = host.querySelector('pre');
+    const pre = host.querySelector('[data-testid="tool-output"]');
     expect(pre?.textContent).toBe('README.md\nsrc');
     expect(pre?.className).toContain('max-h-48');
     expect(pre?.className).toContain('overflow-auto');
 
     act(() => row.click());
-    expect(host.querySelector('pre')).toBeNull();
+    expect(host.querySelector('[data-testid="tool-output"]')).toBeNull();
   });
 
-  it('shows a running tool with no output yet', () => {
+  it('shows a running tool as a live line with a spinner, and its row has no output yet', () => {
     const items: ChatItem[] = [
       { kind: 'user', id: '1:0', at: null, text: 'edit' },
       { kind: 'toolCall', id: '2:0', at: null, callId: 'c9', name: 'Edit', summary: 'src/a.ts' },
     ];
     render({ state: 'ready', turns: turnsFrom(items) });
-    const row = host.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    const line = host.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    expect(line.textContent).toBe('Working · Edit src/a.ts');
+    expect(host.querySelector('[aria-label="Working"]')).not.toBeNull();
+    act(() => line.click());
+    const row = host.querySelector<HTMLButtonElement>('.ck-chat-row button')!;
     expect(row.textContent).toContain('running');
     act(() => row.click());
-    expect(host.querySelector('pre')?.textContent).toBe('No output yet.');
+    expect(host.querySelector('[data-testid="tool-output"]')?.textContent).toBe('No output yet.');
   });
 
   it('shows the duration and an interrupted outcome at the turn end', () => {
@@ -164,7 +175,7 @@ describe('SessionChatView ready', () => {
       { kind: 'turnEnd', id: '2:0', at: null, outcome: 'interrupted', durationMs: 12_000 },
     ];
     render({ state: 'ready', turns: turnsFrom(items) });
-    expect(text()).toContain('interrupted · 12s');
+    expect(text()).toContain('interrupted · Worked for 12s');
   });
 
   it('shows the model and the CLI version in the header', () => {
@@ -211,9 +222,12 @@ describe('SessionChatView read from the screen', () => {
     expect(host.querySelector('[data-testid="session-chat-screen-note"]')).toBeNull();
   });
 
-  it('shows a tool row as just its text: no name, no running/ok label, and says output is not read', () => {
+  it('counts the rows of a screen chat in the activity line, and a row shows just its text and says output is not read', () => {
     render({ state: 'ready', source: 'screen', turns: turnsFrom(SCREEN) });
-    const row = host.querySelector('button[aria-expanded]') as HTMLButtonElement;
+    const line = host.querySelector('button[aria-expanded]') as HTMLButtonElement;
+    expect(line.textContent).toBe('Ran 1 command');
+    act(() => line.click());
+    const row = host.querySelector('.ck-chat-row button') as HTMLButtonElement;
     expect(row.textContent).toBe('$ ls -la');
     act(() => row.click());
     expect(text()).toContain('Tool output is not read from the screen.');
