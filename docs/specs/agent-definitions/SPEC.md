@@ -218,6 +218,10 @@ IDs are stable; tasks in PLAN.md cite them.
   `[500, idle_after_ms]`, matching `conformance.rs::idle_windows_are_sane_and_only_animated_tuis_shorten_them`.
 - TUI-5: `verifies_prompt_delivery` shall default to false; a definition may opt in only with
   `[tui.delivery] input_echo_regex` and `transcript_echo_regex`.
+- TUI-6: `transcript_echo_regex` also tells the Chat tab where the person's own message sits in the transcript
+  (`TuiProfile::user_message_row`). It is matched against one screen row; the message is the pattern's `text` group,
+  else the row from the match on without its leading decoration (a bar or a `>` marker), so `┃\s+\S` works as it
+  is. A definition with no `[tui.delivery]` has no message rows: the Chat tab then cuts turns by the pane's status.
 
 ### 5.6 Headless mode (HDL)
 

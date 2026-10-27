@@ -153,6 +153,7 @@ Tests that pin the model: `bridge/startup_gate_tests.rs` (Claude and Codex throu
 | Reply text polluted with banner / tool rows | `<tui>/chrome.rs` |
 | Follow-ups park on "the input box already holds text" while it shows a faint suggestion or hint | `<tui>/screen.rs` + `TuiProfile::input_screen` (leave the agent's own faint cells out; helper `tui/faint.rs`; Claude `without_suggestion`, Codex `without_placeholder`) |
 | Model name wrong | `detect_footer_model` / `default_model` |
+| The Chat tab of an agent with no session file shows the sidebar, the input box or tool output as text, or reads the person's message wrong | `transcript_text` (what is conversation), `user_message_row` (where the person's message sits), `is_tool_activity_line` / `is_chrome_line`; `session_chat/screen/` is the generic reader, `opencode/transcript.rs` an example |
 
 ## Known leftovers (still keyed by `AgentType`, not yet profile methods)
 

@@ -38,7 +38,7 @@ const STATUS_COLOR: Record<string, string> = {
 /** Terminal (the default) or the read-only chat over it. The terminal stays mounted either way. */
 type PaneView = 'terminal' | 'chat';
 
-/** A plain shell has no agent session file, so it gets no Chat toggle. */
+/** A plain shell has no agent conversation (no session file, nothing to read off the screen), so it gets no Chat toggle. */
 function isPlainShell(listing: AgentRegistryListing, agent: AgentType): boolean {
   return listing.agents.find((a) => a.id === agent)?.kind === 'shell';
 }

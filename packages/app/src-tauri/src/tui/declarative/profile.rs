@@ -663,6 +663,14 @@ impl TuiProfile for DeclarativeProfile {
         self.engine.as_ref().is_some_and(|engine| engine.is_summary_line(lower))
     }
 
+    fn user_message_row(&self, row: &str) -> Option<String> {
+        self.engine.as_ref()?.user_message_row(row)
+    }
+
+    fn reads_user_messages(&self) -> bool {
+        self.engine.as_ref().is_some_and(|engine| engine.reads_user_messages())
+    }
+
     fn capability_notes(&self, _has_pane: bool) -> Vec<String> {
         let note = self.def.features.read_only_note.trim();
         if note.is_empty() { Vec::new() } else { vec![note.to_string()] }

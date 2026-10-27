@@ -31,11 +31,16 @@ export type ToolResultItem = Extract<ChatItem, { kind: 'toolResult' }>;
 export type TurnEndItem = Extract<ChatItem, { kind: 'turnEnd' }>;
 export type UsageItem = Extract<ChatItem, { kind: 'usage' }>;
 
-/** `session_chat_open` answer: whether this pane has a session file we can read, and the items so far. */
+/** Where a pane's chat is read from: the agent's own session file, or the terminal's text (an agent with no file). */
+export type ChatSource = 'file' | 'screen';
+
+/** `session_chat_open` answer: whether this pane has a chat we can read, where from, and the items so far. */
 export interface SessionChatSnapshot {
   available: boolean;
   reason: string | null;
   items: ChatItem[];
+  /** Where the items come from; null while the chat is unavailable. Older backends send nothing (a file). */
+  source?: ChatSource | null;
   /** While there are no items: one short line saying what the reader is waiting for (where it looks). */
   waitingFor?: string | null;
 }
@@ -137,8 +142,9 @@ export function onSessionChatStatus(cb: (event: SessionChatStatusEvent) => void)
 }
 
 /**
- * Add `incoming` to `prev`, one entry per `id`. An item whose `id` is already there replaces it in place,
- * so the order is the order of first arrival. `reset` drops `prev` first (the file was replaced).
+ * Add `incoming` to `prev`, one entry per `id`. An item whose `id` is already there is replaced by the newest copy
+ * in place, so the order is the order of first arrival (a chat read from the screen sends a growing reply again
+ * under the same id). `reset` drops `prev` first (the file was replaced, or an item went away).
  * Only the latest `usage` item is kept: every agent message carries one and only the newest is shown.
  */
 export function mergeItems(prev: readonly ChatItem[], incoming: readonly ChatItem[], reset: boolean): ChatItem[] {

@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { groupTurns, type ChatItem } from '../../lib/sessionChat';
-import { formatDuration, SESSION_CHAT_NOTE, SessionChatView, type SessionChatViewProps } from './SessionChatView';
+import { formatDuration, SCREEN_CHAT_NOTE, SESSION_CHAT_NOTE, SessionChatView, type SessionChatViewProps } from './SessionChatView';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -159,5 +159,44 @@ describe('formatDuration', () => {
     expect(formatDuration(400)).toBe('<1s');
     expect(formatDuration(12_000)).toBe('12s');
     expect(formatDuration(125_000)).toBe('2m 5s');
+  });
+});
+
+describe('SessionChatView read from the screen', () => {
+  const SCREEN: ChatItem[] = [
+    { kind: 'user', id: 'screen:1:user', at: null, text: 'List the files' },
+    { kind: 'toolCall', id: 'screen:1:tool:0', at: null, callId: 'screen:1:tool:0', name: '', summary: '$ ls -la' },
+    { kind: 'assistant', id: 'screen:1:reply', at: null, text: 'Two entries.', model: null, finalAnswer: true },
+    { kind: 'turnEnd', id: 'screen:1:end', at: null, outcome: 'completed', durationMs: null },
+  ];
+
+  it('says the text is read from the screen, in a muted note under the read-only note', () => {
+    render({ state: 'ready', source: 'screen', turns: turnsFrom(SCREEN) });
+    const note = host.querySelector('[data-testid="session-chat-screen-note"]');
+    expect(note?.textContent).toBe(SCREEN_CHAT_NOTE);
+    expect(note?.textContent).toBe('Read from the screen: text may be cut or wrapped.');
+    expect(text()).toContain(SESSION_CHAT_NOTE);
+  });
+
+  it('shows no screen note for a chat read from a file, or when the source is not known', () => {
+    render({ state: 'ready', source: 'file', turns: turnsFrom(SAMPLE) });
+    expect(host.querySelector('[data-testid="session-chat-screen-note"]')).toBeNull();
+    render({ state: 'ready', turns: turnsFrom(SAMPLE) });
+    expect(host.querySelector('[data-testid="session-chat-screen-note"]')).toBeNull();
+  });
+
+  it('shows a tool row as just its text: no name, no running/ok label, and says output is not read', () => {
+    render({ state: 'ready', source: 'screen', turns: turnsFrom(SCREEN) });
+    const row = host.querySelector('button[aria-expanded]') as HTMLButtonElement;
+    expect(row.textContent).toBe('$ ls -la');
+    act(() => row.click());
+    expect(text()).toContain('Tool output is not read from the screen.');
+    expect(text()).not.toContain('No output yet.');
+  });
+
+  it('waits for a message on the terminal, not for a session file', () => {
+    render({ state: 'ready', source: 'screen', turns: [] });
+    expect(text()).toContain('Waiting for a message on the terminal');
+    expect(text()).not.toContain('session file');
   });
 });

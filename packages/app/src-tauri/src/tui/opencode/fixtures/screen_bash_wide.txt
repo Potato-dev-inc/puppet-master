@@ -1,0 +1,57 @@
+# capture: opencode 1.19.0, pane 158x56, a turn that ran a shell command: its output sits in a box with the same bar as a message, then the answer, 2026-10-27
+                                                                                                                 █
+  ┃                                                                                                              █    Checking Node.js version
+  ┃  Run the shell command: node -v   Then reply with only the version number.                                   █
+  ┃                                                                                                              █    Context
+                                                                                                                 █    14,162 tokens
+  ┃                                                                                                              █    1% used
+  ┃  $ node -v                                                                                                   █    $0.00 spent
+  ┃                                                                                                              █
+  ┃  v22.20.0                                                                                                    █    MCP
+  ┃                                                                                                              █    • pencil Connected
+                                                                                                                 █
+     v22.20.0                                                                                                    █    LSP
+                                                                                                                 █    LSPs are disabled
+     ▣  Build · DeepSeek V4.1 Flash · 21.8s                                                                      █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · DeepSeek V4.1 Flash OpenCode Go                                                                          /D:\pm-hunt\demo-a:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   D:\pm-hunt\demo-a                                                           14.2K (1%) · $0.00  ctrl+p commands    • OpenCode 1.19.0
+
