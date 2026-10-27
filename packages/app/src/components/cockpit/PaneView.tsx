@@ -13,7 +13,10 @@ import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
 import { dockItems, headerStateLine, DOCK_LABEL } from './pane-chrome';
-import { IconClose, IconGlobe, IconCopy, IconInfo, IconMore, IconReflow, IconRename, IconStop } from './Icons';
+import { IconClose, IconGlobe, IconCopy, IconInfo, IconMore, IconRail, IconReflow, IconRename, IconStop } from './Icons';
+import { SessionRail } from './rail/SessionRail';
+import { useRailLayout } from './rail/useRailLayout';
+import { helperRows } from './rail/helperRows';
 import { DockedCards } from './DockedCards';
 import { formatElapsed, promptSummary, spinnerStatus, stateText } from './model';
 import { ReceiptTab } from './ReceiptTab';
@@ -117,6 +120,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const lastTurn = useLastTurn(paneId);
   const worktree = usePaneWorktree(paneId, pane?.status ?? '');
   const { signals } = useLoopGuard();
+  const rail = useRailLayout();
   const [dockIx, setDockIx] = useState(0);
   const [details, setDetails] = useState(false);
   // A pane one of a mission's agents works in gets a Mission tab: the mission's Progress.
@@ -265,6 +269,18 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             <span>Preview</span>
           </button>
         )}
+        {rail.fits && (
+          <button
+            type="button"
+            className="ck-icon-btn"
+            aria-label={rail.open ? 'Hide session details' : 'Show session details'}
+            aria-pressed={rail.open}
+            title={`${rail.open ? 'Hide' : 'Show'} session details ( ] )`}
+            onClick={rail.toggle}
+          >
+            <IconRail />
+          </button>
+        )}
         <div className="ck-menu-wrap" ref={menuRef}>
           <button
             type="button"
@@ -386,87 +402,103 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         </button>
       )}
 
-      <div className="ck-pane-body">
-        {tab === 'mission' && mission && (
-          <div className="ck-scroll ck-fade-in" key="mission">
-            <MissionProgress mission={mission} onChanged={missions.reload} onOpenPane={(id) => c.select(id)} onNotify={c.notify} />
-          </div>
-        )}
-        {tab === 'terminal' && (
-          <div className="ck-term-wrap" key={paneId}>
-            {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={cycleDock} />}
-            <div className="ck-term-slot">
-              <TerminalViewport pane={pane} registry={c.registry} chrome={false}
-                redrawKey={reflowKey}
-                getSelectionRef={getSelectionRef}
+      <div className="ck-pane-row">
+        <div className="ck-pane-body">
+          {tab === 'mission' && mission && (
+            <div className="ck-scroll ck-fade-in" key="mission">
+              <MissionProgress mission={mission} onChanged={missions.reload} onOpenPane={(id) => c.select(id)} onNotify={c.notify} />
+            </div>
+          )}
+          {tab === 'terminal' && (
+            <div className="ck-term-wrap" key={paneId}>
+              {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={cycleDock} />}
+              <div className="ck-term-slot">
+                <TerminalViewport pane={pane} registry={c.registry} chrome={false}
+                  redrawKey={reflowKey}
+                  getSelectionRef={getSelectionRef}
+                />
+              </div>
+            </div>
+          )}
+          {tab === 'chat' && chatAllowed && (
+            <div className="ck-scroll ck-fade-in" key="chat">
+              <SessionChatPanel paneId={paneId} dock={chatDock} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} />
+            </div>
+          )}
+          {tab === 'changes' && worktree && (
+            <div className="ck-scroll ck-fade-in" key="changes">
+              <Changes
+                paneId={paneId}
+                status={pane?.status ?? ''}
+                secondOpinion={<SecondOpinion paneId={paneId} status={pane?.status ?? ''} />}
               />
             </div>
-          </div>
-        )}
-        {tab === 'chat' && chatAllowed && (
-          <div className="ck-scroll ck-fade-in" key="chat">
-            <SessionChatPanel paneId={paneId} dock={chatDock} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} />
-          </div>
-        )}
-        {tab === 'changes' && worktree && (
-          <div className="ck-scroll ck-fade-in" key="changes">
-            <Changes
+          )}
+          {tab === 'transcript' && (
+            <div className="ck-scroll ck-fade-in" key="transcript">
+              {run.error ? (
+                <Empty title="Transcript unavailable" body={run.error} />
+              ) : run.transcript === undefined ? (
+                <p className="ck-sub ck-pad">Loading…</p>
+              ) : run.transcript === null || run.transcript.chunks.length === 0 ? (
+                <Empty
+                  title="No transcript"
+                  body={
+                    run.info === null
+                      ? 'A transcript is kept for tasks that another agent handed to this one. What you typed here yourself is on the Terminal tab.'
+                      : 'The run has not produced any output yet.'
+                  }
+                />
+              ) : (
+                <div className="ck-transcript">
+                  {run.transcript.chunks.map((chunk, i) => (
+                    <div key={i} className={`ck-chunk${isProseStream(chunk.stream) ? ' ck-chunk--prose' : ''}`}>
+                      <span className="ck-chunk-stream">{transcriptSpeaker(chunk.stream, name)}</span>
+                      <pre>{chunk.text}</pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {tab === 'history' && (
+            <History
               paneId={paneId}
-              status={pane?.status ?? ''}
-              secondOpinion={<SecondOpinion paneId={paneId} status={pane?.status ?? ''} />}
+              status={pane.status}
+              now={c.now}
+              notify={c.notify}
+              agentName={name}
+              sharedWith={panesSharingFolder(c.registry.paneList, c.names, paneId)}
             />
-          </div>
-        )}
-        {tab === 'transcript' && (
-          <div className="ck-scroll ck-fade-in" key="transcript">
-            {run.error ? (
-              <Empty title="Transcript unavailable" body={run.error} />
-            ) : run.transcript === undefined ? (
-              <p className="ck-sub ck-pad">Loading…</p>
-            ) : run.transcript === null || run.transcript.chunks.length === 0 ? (
-              <Empty
-                title="No transcript"
-                body={
-                  run.info === null
-                    ? 'A transcript is kept for tasks that another agent handed to this one. What you typed here yourself is on the Terminal tab.'
-                    : 'The run has not produced any output yet.'
-                }
+          )}
+          {tab === 'receipt' && (
+            <div className="ck-scroll ck-fade-in" key="receipt">
+              <ReceiptTab
+                info={run.info}
+                error={run.error}
+                lastTurn={lastTurn}
+                now={c.now}
+                copy={copyTotals}
+                agentName={name}
+                // An isolated pane has its own Changes tab, which holds the second opinion.
+                secondOpinion={!worktree ? <SecondOpinion paneId={paneId} status={pane?.status ?? ''} /> : null}
               />
-            ) : (
-              <div className="ck-transcript">
-                {run.transcript.chunks.map((chunk, i) => (
-                  <div key={i} className={`ck-chunk${isProseStream(chunk.stream) ? ' ck-chunk--prose' : ''}`}>
-                    <span className="ck-chunk-stream">{transcriptSpeaker(chunk.stream, name)}</span>
-                    <pre>{chunk.text}</pre>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {tab === 'history' && (
-          <History
+            </div>
+          )}
+        </div>
+        {rail.visible && (
+          <SessionRail
             paneId={paneId}
             status={pane.status}
-            now={c.now}
-            notify={c.notify}
+            cwd={info.cwd}
             agentName={name}
-            sharedWith={panesSharingFolder(c.registry.paneList, c.names, paneId)}
+            accountLabel={info.account_label}
+            readsChat={chatAllowed}
+            helperOf={helperOf}
+            helpers={helperRows(c.registry.paneList, paneId, (p) => c.names.get(p.info.id) ?? p.info.agent_type)}
+            onOpenChanges={worktree ? () => setTab('changes') : undefined}
+            onOpenPane={(id) => c.select(id)}
           />
-        )}
-        {tab === 'receipt' && (
-          <div className="ck-scroll ck-fade-in" key="receipt">
-            <ReceiptTab
-              info={run.info}
-              error={run.error}
-              lastTurn={lastTurn}
-              now={c.now}
-              copy={copyTotals}
-              agentName={name}
-              // An isolated pane has its own Changes tab, which holds the second opinion.
-              secondOpinion={!worktree ? <SecondOpinion paneId={paneId} status={pane?.status ?? ''} /> : null}
-            />
-          </div>
         )}
       </div>
 

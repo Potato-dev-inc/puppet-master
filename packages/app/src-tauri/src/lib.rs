@@ -369,6 +369,7 @@ pub fn run() {
             commands::budget_for_pane,
             commands::budget_adjust,
             commands::pane_worktree,
+            commands::pane_git_branch,
             commands::worktree_list,
             commands::worktree_diff,
             commands::second_opinion_agents,
