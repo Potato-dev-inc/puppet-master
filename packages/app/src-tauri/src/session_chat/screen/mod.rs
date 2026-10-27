@@ -239,7 +239,7 @@ impl ScreenChat {
             }
             for (k, tool) in turn.tools.iter().enumerate() {
                 let id = format!("screen:{n}:tool:{k}");
-                items.push(ChatItem::ToolCall { id: id.clone(), at: None, call_id: id, name: String::new(), summary: tool.clone() });
+                items.push(ChatItem::ToolCall { id: id.clone(), at: None, call_id: id, name: String::new(), summary: tool.clone(), detail: Default::default() });
             }
             if let Some(reply) = &turn.reply {
                 items.push(ChatItem::Assistant {

@@ -8,6 +8,7 @@ use std::time::SystemTime;
 
 use serde_json::Value;
 
+use super::session_extra::{context_window, note_line, plan_call, plan_result, system_line, tool_detail};
 use crate::session_chat::{cut, ChatItem, SessionFormat, TurnOutcome};
 
 /// Longest first line of a tool call's input kept as its summary, in characters.
@@ -36,6 +37,8 @@ impl SessionFormat for ClaudeSessionFile {
         match kind(&value) {
             Some("user") => user_line(&value, &mut out),
             Some("assistant") => assistant_line(&value, &mut out),
+            Some("system") => system_line(&value, &mut out),
+            Some(note @ ("pr-link" | "custom-title" | "ai-title")) => note_line(note, &value, &mut out),
             _ => {}
         }
         out.items
@@ -43,14 +46,14 @@ impl SessionFormat for ClaudeSessionFile {
 }
 
 /// The items of one line. Ids are `<line offset>:<index within the line>`.
-struct Line {
+pub(super) struct Line {
     offset: u64,
     at: Option<String>,
     items: Vec<ChatItem>,
 }
 
 impl Line {
-    fn push(&mut self, make: impl FnOnce(String, Option<String>) -> ChatItem) {
+    pub(super) fn push(&mut self, make: impl FnOnce(String, Option<String>) -> ChatItem) {
         let id = format!("{}:{}", self.offset, self.items.len());
         self.items.push(make(id, self.at.clone()));
     }
@@ -70,15 +73,19 @@ fn user_line(value: &Value, out: &mut Line) {
         let cli_version = version.to_string();
         out.push(|id, at| ChatItem::Session { id, at, model: None, cli_version: Some(cli_version) });
     }
-    if flag(value, "isMeta") || flag(value, "isSidechain") {
+    // `isCompactSummary` is the summary the CLI writes as a user message after compacting: not what the person typed.
+    if flag(value, "isMeta") || flag(value, "isSidechain") || flag(value, "isCompactSummary") {
         return;
     }
     match value.pointer("/message/content") {
         Some(Value::String(text)) => user_text(text, out),
         Some(Value::Array(blocks)) => {
             user_text(&texts(blocks).join("\n"), out);
-            for block in blocks.iter().filter(|b| kind(b) == Some("tool_result")) {
-                tool_result(block, out);
+            // The result of a task-list tool is a plan item, not a tool row.
+            if !plan_result(value, blocks, out) {
+                for block in blocks.iter().filter(|b| kind(b) == Some("tool_result")) {
+                    tool_result(block, out);
+                }
             }
         }
         _ => {}
@@ -114,6 +121,8 @@ fn assistant_line(value: &Value, out: &mut Line) {
         return;
     };
     let model = message.get("model").and_then(Value::as_str).map(str::to_string);
+    // `requestedModel` is the name the session asked for, with a `[1m]` suffix when it uses the 1M window.
+    let requested = value.get("requestedModel").and_then(Value::as_str);
     let ended = message.get("stop_reason").and_then(Value::as_str) == Some("end_turn");
     if let Some(blocks) = message.get("content").and_then(Value::as_array) {
         for block in blocks {
@@ -140,7 +149,8 @@ fn assistant_line(value: &Value, out: &mut Line) {
             .saturating_add(number("cache_read_input_tokens"))
             .saturating_add(number("cache_creation_input_tokens"));
         let output_tokens = number("output_tokens");
-        out.push(|id, at| ChatItem::Usage { id, at, input_tokens, output_tokens, context_window: None });
+        let window = Some(context_window(&[model.as_deref(), requested], input_tokens));
+        out.push(|id, at| ChatItem::Usage { id, at, input_tokens, output_tokens, context_window: window });
     }
 }
 
@@ -150,8 +160,13 @@ fn tool_call(block: &Value, out: &mut Line) {
     };
     let call_id = call_id.to_string();
     let name = block.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-    let summary = summary(block.get("input"));
-    out.push(|id, at| ChatItem::ToolCall { id, at, call_id, name, summary });
+    let input = block.get("input");
+    if plan_call(&name, input, out) {
+        return;
+    }
+    let summary = summary(input);
+    let detail = tool_detail(&name, input);
+    out.push(|id, at| ChatItem::ToolCall { id, at, call_id, name, summary, detail });
 }
 
 /// The first input field that holds text, as its first line cut to `SUMMARY_CHARS`.

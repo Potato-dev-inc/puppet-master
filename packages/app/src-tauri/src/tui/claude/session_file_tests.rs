@@ -7,6 +7,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use crate::session_chat::model::MAX_OUTPUT_CHARS;
+use crate::session_chat::ToolDetail;
 
 /// Synthetic session: invented chat, `C:\Users\you\proj`, one broken line. See the fixtures folder.
 const FIXTURE: &str = include_str!("fixtures/session_basic.jsonl");
@@ -72,8 +73,12 @@ fn fixture_gives_the_exact_chat_sequence() {
             call_id: "toolu_01".into(),
             name: "Bash".into(),
             summary: "dir".into(),
+            detail: ToolDetail {
+                input: Some(json!({"command": "dir", "description": "List the folder"})),
+                ..ToolDetail::default()
+            },
         },
-        ChatItem::Usage { id: id(&o, 3, 2), at: ts(3), input_tokens: 1120, output_tokens: 42, context_window: None },
+        ChatItem::Usage { id: id(&o, 3, 2), at: ts(3), input_tokens: 1120, output_tokens: 42, context_window: Some(200_000) },
         session(&o, 4),
         ChatItem::ToolResult {
             id: id(&o, 4, 1),
@@ -88,8 +93,13 @@ fn fixture_gives_the_exact_chat_sequence() {
             call_id: "toolu_02".into(),
             name: "Read".into(),
             summary: r"C:\Users\you\proj\missing.md".into(),
+            detail: ToolDetail {
+                input: Some(json!({"file_path": r"C:\Users\you\proj\missing.md"})),
+                paths: vec![r"C:\Users\you\proj\missing.md".into()],
+                ..ToolDetail::default()
+            },
         },
-        ChatItem::Usage { id: id(&o, 5, 1), at: ts(5), input_tokens: 1450, output_tokens: 20, context_window: None },
+        ChatItem::Usage { id: id(&o, 5, 1), at: ts(5), input_tokens: 1450, output_tokens: 20, context_window: Some(200_000) },
         session(&o, 6),
         ChatItem::ToolResult {
             id: id(&o, 6, 1),
@@ -106,9 +116,11 @@ fn fixture_gives_the_exact_chat_sequence() {
             final_answer: true,
         },
         ChatItem::TurnEnd { id: id(&o, 7, 1), at: ts(7), outcome: TurnOutcome::Completed, duration_ms: None },
-        ChatItem::Usage { id: id(&o, 7, 2), at: ts(7), input_tokens: 1810, output_tokens: 64, context_window: None },
+        ChatItem::Usage { id: id(&o, 7, 2), at: ts(7), input_tokens: 1810, output_tokens: 64, context_window: Some(200_000) },
         session(&o, 8),
         ChatItem::TurnEnd { id: id(&o, 8, 1), at: ts(8), outcome: TurnOutcome::Interrupted, duration_ms: None },
+        // line 10: the `system` `turn_duration` line gives the turn's real length
+        ChatItem::TurnEnd { id: id(&o, 10, 0), at: ts(10), outcome: TurnOutcome::Completed, duration_ms: Some(7000) },
         session(&o, 12),
         ChatItem::User { id: id(&o, 12, 1), at: ts(12), text: "thanks, that is all".into() },
         session(&o, 13),
@@ -345,5 +357,7 @@ fn kind_name(item: &ChatItem) -> &'static str {
         ChatItem::TurnEnd { .. } => "TurnEnd",
         ChatItem::Usage { .. } => "Usage",
         ChatItem::Session { .. } => "Session",
+        ChatItem::Plan { .. } => "Plan",
+        ChatItem::Notice { .. } => "Notice",
     }
 }

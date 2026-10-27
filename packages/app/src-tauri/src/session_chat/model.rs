@@ -2,6 +2,8 @@
 
 use serde::Serialize;
 
+use super::detail::{cut_to, PlanItem, ToolDetail};
+
 /// Longest tool output kept in a `ToolResult`, in characters.
 pub const MAX_OUTPUT_CHARS: usize = 4000;
 
@@ -20,7 +22,16 @@ pub enum ChatItem {
         final_answer: bool,
     },
     /// A tool call. `summary` is one short line: the command, the file path, or the tool's main input.
-    ToolCall { id: String, at: Option<String>, call_id: String, name: String, summary: String },
+    /// `detail` (flattened into the JSON, each field only when set) holds the input, touched files and flags.
+    ToolCall {
+        id: String,
+        at: Option<String>,
+        call_id: String,
+        name: String,
+        summary: String,
+        #[serde(flatten)]
+        detail: ToolDetail,
+    },
     /// A tool result. `output` is cut to MAX_OUTPUT_CHARS (4000) with a trailing "…".
     ToolResult { id: String, at: Option<String>, call_id: String, ok: bool, output: String },
     TurnEnd { id: String, at: Option<String>, outcome: TurnOutcome, duration_ms: Option<u64> },
@@ -37,6 +48,20 @@ pub enum ChatItem {
         model: Option<String>,
         cli_version: Option<String>,
     },
+    /// The agent's task list changed. `replace`: `items` is the whole list (the view drops what it had). Otherwise
+    /// each item updates the task with its `task_id` (a new id adds a task; a `Deleted` status removes it). The view
+    /// folds these into the current list; a view that does not know the kind ignores it.
+    Plan { id: String, at: Option<String>, items: Vec<PlanItem>, replace: bool },
+    /// Something happened to the session that is not a message: `notice_kind` (the JSON `kind` is the item tag) is `compacted`, `error`, `pr` or `title`
+    /// (a view shows other kinds as plain notes). `url` is a link when there is one (the pull request).
+    Notice {
+        id: String,
+        at: Option<String>,
+        notice_kind: String,
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
 }
 
 impl ChatItem {
@@ -49,7 +74,9 @@ impl ChatItem {
             | ChatItem::ToolResult { id, .. }
             | ChatItem::TurnEnd { id, .. }
             | ChatItem::Usage { id, .. }
-            | ChatItem::Session { id, .. } => id,
+            | ChatItem::Session { id, .. }
+            | ChatItem::Plan { id, .. }
+            | ChatItem::Notice { id, .. } => id,
         }
     }
 }
@@ -70,10 +97,7 @@ pub trait SessionFormat: Send + Sync {
 
 /// Cuts `text` to `MAX_OUTPUT_CHARS` characters. A cut text ends with "…"; a short one is returned as is.
 pub fn cut(text: &str) -> String {
-    match text.char_indices().nth(MAX_OUTPUT_CHARS) {
-        None => text.to_string(),
-        Some((byte_end, _)) => format!("{}…", &text[..byte_end]),
-    }
+    cut_to(text, MAX_OUTPUT_CHARS)
 }
 
 #[cfg(test)]
@@ -89,6 +113,7 @@ mod tests {
             call_id: "call-1".into(),
             name: "shell".into(),
             summary: "git status".into(),
+            detail: ToolDetail::default(),
         };
         let value = serde_json::to_value(&item).unwrap();
         assert_eq!(
@@ -154,6 +179,60 @@ mod tests {
         let value = serde_json::to_value(&session).unwrap();
         assert_eq!(value["kind"], "session");
         assert_eq!(value["cliVersion"], "1.2.3");
+    }
+
+    #[test]
+    fn tool_call_detail_is_flattened_and_only_present_when_set() {
+        let item = ChatItem::ToolCall {
+            id: "10:0".into(),
+            at: None,
+            call_id: "call-1".into(),
+            name: "Edit".into(),
+            summary: "a.rs".into(),
+            detail: ToolDetail {
+                input: Some(json!({"old_string": "a", "new_string": "b"})),
+                paths: vec!["a.rs".into()],
+                writes: true,
+                helper: false,
+            },
+        };
+        let value = serde_json::to_value(&item).unwrap();
+        assert_eq!(value["input"], json!({"old_string": "a", "new_string": "b"}));
+        assert_eq!(value["paths"], json!(["a.rs"]));
+        assert_eq!(value["writes"], true);
+        assert!(value.get("helper").is_none());
+        assert!(value.get("detail").is_none());
+    }
+
+    #[test]
+    fn plan_and_notice_serialise_with_their_own_kinds() {
+        use super::super::detail::PlanStatus;
+        let plan = ChatItem::Plan {
+            id: "1:0".into(),
+            at: None,
+            items: vec![PlanItem { text: "Write tests".into(), status: Some(PlanStatus::InProgress), task_id: Some("2".into()) }],
+            replace: false,
+        };
+        assert_eq!(
+            serde_json::to_value(&plan).unwrap(),
+            json!({"kind": "plan", "id": "1:0", "at": null, "replace": false,
+                   "items": [{"text": "Write tests", "status": "in_progress", "taskId": "2"}]})
+        );
+        let notice = ChatItem::Notice {
+            id: "2:0".into(),
+            at: None,
+            notice_kind: "pr".into(),
+            text: "Pull request #1".into(),
+            url: Some("https://example.test/1".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&notice).unwrap(),
+            json!({"kind": "notice", "id": "2:0", "at": null, "noticeKind": "pr", "text": "Pull request #1", "url": "https://example.test/1"})
+        );
+        assert_eq!(plan.id(), "1:0");
+        assert_eq!(notice.id(), "2:0");
+        let no_url = ChatItem::Notice { id: "3:0".into(), at: None, notice_kind: "title".into(), text: "t".into(), url: None };
+        assert!(serde_json::to_value(&no_url).unwrap().get("url").is_none());
     }
 
     #[test]
