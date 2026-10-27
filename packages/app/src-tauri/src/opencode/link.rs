@@ -44,6 +44,11 @@ impl OpenCodeLink {
         Arc::clone(&self.serve_child)
     }
 
+    /// Process id of `opencode serve` while it runs: where the agent's MCP shim is started from.
+    pub fn serve_pid(&self) -> Option<u32> {
+        self.serve_child.lock().ok()?.as_ref().map(|child| child.id())
+    }
+
     pub fn reattaching(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.reattaching)
     }

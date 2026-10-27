@@ -10,8 +10,13 @@
 //! the blocks the next time a sync runs in that project.
 
 mod block;
+mod remember;
+#[cfg(test)]
+mod remember_tests;
 #[cfg(test)]
 mod tests;
+
+pub use remember::{forget_with, remember_with};
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

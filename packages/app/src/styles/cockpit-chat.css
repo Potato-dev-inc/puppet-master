@@ -340,3 +340,231 @@
 .cockpit .ck-chat-md-align-right {
   text-align: right;
 }
+
+/* The header's view switch (Summary | Normal | Verbose): a small segmented control, the pressed one lifted. */
+.cockpit .ck-chat-modes {
+  background: var(--fill);
+}
+.cockpit .ck-chat-mode {
+  min-height: 20px;
+  font-weight: 500;
+  color: var(--label-3);
+  transition: background 160ms var(--ease), color 160ms var(--ease);
+}
+.cockpit .ck-chat-mode:hover {
+  color: var(--label);
+}
+.cockpit .ck-chat-mode[aria-pressed='true'] {
+  background: var(--bg);
+  color: var(--label);
+  box-shadow: 0 0 0 1px var(--sep);
+}
+.cockpit .ck-chat-mode:focus-visible {
+  box-shadow: var(--focus);
+}
+.cockpit .ck-chat-mode-note {
+  margin-top: 2px;
+  color: var(--label-3);
+}
+
+/* The pinned task card: "Tasks 2/5" and one glyph per task. Monochrome: to do is a ring, in progress a ring with a
+   dot, done a filled disc whose text is dimmed. Not interactive. */
+.cockpit .ck-chat-plan {
+  background: var(--bg);
+}
+.cockpit .ck-chat-plan-head {
+  letter-spacing: 0.01em;
+}
+.cockpit .ck-chat-plan-item {
+  color: var(--label-2);
+  line-height: 1.4;
+}
+.cockpit .ck-chat-plan-item--completed {
+  color: var(--label-3);
+}
+.cockpit .ck-chat-plan-glyph {
+  border: 1px solid var(--label-3);
+}
+.cockpit .ck-chat-plan-glyph--in_progress {
+  border-color: var(--label);
+  background: linear-gradient(var(--label), var(--label)) center / 3px 3px no-repeat;
+}
+.cockpit .ck-chat-plan-glyph--completed {
+  background: var(--label-3);
+}
+
+/* The activity line of a turn: one row of counts and the time, a chevron that turns when open. */
+.cockpit .ck-chat-activity {
+  min-height: 28px;
+  font: 500 12px/1.4 var(--font-ui);
+  color: var(--label-2);
+  transition: background 160ms var(--ease);
+}
+.cockpit .ck-chat-activity:focus-visible {
+  box-shadow: var(--focus);
+}
+.cockpit .ck-chat-activity-text {
+  color: var(--label-2);
+}
+.cockpit .ck-chat-activity[data-live] .ck-chat-activity-text {
+  color: var(--label);
+}
+.cockpit .ck-chat-chevron {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 160ms var(--ease);
+}
+.cockpit .ck-chat-chevron--open {
+  transform: rotate(45deg);
+}
+.cockpit .ck-chat-activity-rows {
+  min-width: 0;
+}
+
+/* A tool row's detail: file chips, a diff or a command, the output. */
+.cockpit .ck-chat-detail {
+  padding: 0 4px;
+}
+.cockpit .ck-chat-detail-label {
+  margin: 6px 0 2px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--label-3);
+}
+.cockpit .ck-chat-chips {
+  margin: 2px 0 0;
+}
+.cockpit .ck-chat-chip {
+  max-width: 100%;
+  padding: 1px 8px;
+  border: 1px solid var(--sep);
+  border-radius: 999px;
+  color: var(--label-2);
+  background: var(--bg);
+}
+.cockpit .ck-chat-diff {
+  background: var(--bg-raised);
+  border-color: var(--sep);
+  color: var(--label-2);
+  line-height: 1.5;
+}
+.cockpit .ck-chat-diff-line {
+  padding: 0 4px;
+}
+.cockpit .ck-chat-diff-gutter {
+  color: var(--label-3);
+}
+/* Added lines: a subtle fill and a heavier weight. Removed lines: dimmed and struck through. Context: plain. */
+.cockpit .ck-chat-diff-line--add {
+  background: var(--fill);
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-chat-diff-line--del {
+  color: var(--label-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--label-3);
+  opacity: 0.8;
+}
+.cockpit .ck-chat-diff-line--head {
+  color: var(--label-3);
+  font-style: italic;
+}
+
+/* A helper agent's row: a thin indent line, its dot face at the start, its own text. */
+.cockpit .ck-chat-helper {
+  border-color: var(--sep);
+}
+.cockpit .ck-chat-helper-row {
+  font: 500 12px/1.4 var(--font-ui);
+}
+.cockpit .ck-chat-helper-text {
+  color: var(--label);
+}
+
+/* A notice of the session: a thin rule each side of its text. An error is heavier. */
+.cockpit .ck-chat-notice-text {
+  color: var(--label-3);
+}
+.cockpit .ck-chat-notice-text--error {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-chat-end-text {
+  white-space: nowrap;
+}
+
+/* The questions of a pane's helpers: the Inbox's own compact cards, one under the other, scrolling on their own. */
+.cockpit .ck-chat-dock .ck-helper-asks {
+  gap: 8px;
+}
+
+/* "Remember for all agents" (components/chat/RememberSelection.tsx): a small monochrome pill over selected text in a
+   message, and the toast under the conversation. Desktop only. */
+.ck-chat {
+  position: relative;
+}
+.ck-chat-remember {
+  position: fixed;
+  z-index: 70;
+  transform: translateX(-50%);
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--sep, rgba(128, 128, 128, 0.35));
+  background: var(--bg-float, rgba(40, 40, 44, 0.92));
+  color: var(--label, inherit);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: var(--float-shadow, 0 6px 18px rgba(0, 0, 0, 0.25));
+  cursor: pointer;
+}
+.ck-chat-remember:hover {
+  background: var(--fill-2, rgba(128, 128, 128, 0.18));
+}
+.ck-chat-remember:focus-visible,
+.ck-chat-remember-action:focus-visible {
+  outline: 2px solid var(--label-2, currentColor);
+  outline-offset: 1px;
+}
+.ck-chat-remember-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  z-index: 60;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--sep, rgba(128, 128, 128, 0.35));
+  background: var(--bg-float, rgba(40, 40, 44, 0.92));
+  color: var(--label, inherit);
+  box-shadow: var(--float-shadow, 0 6px 18px rgba(0, 0, 0, 0.25));
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ck-chat-remember-action {
+  border: 0;
+  background: transparent;
+  color: var(--label-1, inherit);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+.ck-chat-remember-action:hover {
+  background: var(--fill-2, rgba(128, 128, 128, 0.18));
+}

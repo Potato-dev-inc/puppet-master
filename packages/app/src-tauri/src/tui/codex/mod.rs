@@ -9,6 +9,7 @@
 mod headless;
 mod prompt;
 pub mod session_file;
+mod session_extra;
 pub mod session_source;
 mod screen;
 

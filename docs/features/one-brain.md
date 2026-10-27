@@ -27,6 +27,12 @@ Rust (`packages/app/src-tauri/src/one_brain/`):
   first block goes into an existing user file), `sync_on_spawn()`.
 - `commands/one_brain.rs`: Tauri commands `memory_get`, `memory_save`, `memory_sync`,
   `memory_set_project_enabled`, `memory_global_enabled`, `memory_set_global_enabled`.
+- `remember.rs` ("Remember for all agents"): a text selected in a pane's Chat tab becomes one `- ` line of the
+  project memory. Cleaned to one line, capped at 300 characters, refused when empty or when redaction changes it
+  (a secret), de-duplicated (case-insensitive). Commands `one_brain_remember(pane_id, text)` (returns the stored
+  line, whether it was new, and the memory view), `one_brain_forget(pane_id, text)` (the Undo: removes that line)
+  and `one_brain_set_project_enabled(pane_id, enabled)` (the toast's Turn on). The pane names the project folder.
+  UI: `components/chat/RememberSelection.tsx`, desktop Chat tab only.
 
 Declarations:
 

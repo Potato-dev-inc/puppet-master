@@ -242,6 +242,8 @@ export const cockpitApi = {
       projectPath: projectPath ?? null,
     }),
   paneWorktree: (paneId: string) => call<WorktreeItem | null>('pane_worktree', { paneId }),
+  /** The git branch of the folder the pane works in; null for a folder that is not a git work tree. */
+  paneGitBranch: (paneId: string) => call<string | null>('pane_git_branch', { paneId }),
   worktreeDiff: (projectPath: string | null, handle: string, path?: string) =>
     call<WorktreeDiff>('worktree_diff', { projectPath, handle, path: path ?? null }),
   worktreeMerge: (projectPath: string | null, handle: string) =>

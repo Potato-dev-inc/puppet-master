@@ -704,3 +704,11 @@ fn a_run_under_a_budget_names_itself_as_the_parent_of_the_helpers_it_starts() {
     inject_budget_parent(&mut explicit, Some("run-7".into()));
     assert_eq!(explicit["budget_parent"], "mine");
 }
+
+#[test]
+fn the_pane_header_is_the_launch_pane_id_cleaned_of_anything_that_could_split_a_header() {
+    assert_eq!(pane_header(Some("57c03490-a9bd-4e4e-bde8".to_string())).as_deref(), Some("57c03490-a9bd-4e4e-bde8"));
+    assert_eq!(pane_header(Some("p1\r\nX-Puppet-Master-Session: stolen".to_string())).as_deref(), Some("p1X-Puppet-Master-Sessionstolen"));
+    assert_eq!(pane_header(Some("  ".to_string())), None);
+    assert_eq!(pane_header(None), None);
+}

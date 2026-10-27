@@ -168,6 +168,7 @@ export function PhoneChatView({
         turns={grouped.turns}
         model={grouped.model}
         cliVersion={grouped.cliVersion}
+        paneId={paneId}
         dock={dock}
         pending={pending}
         composer={composer}

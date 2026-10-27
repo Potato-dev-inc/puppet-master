@@ -8,6 +8,7 @@
 //! - `access`: run-access checks and dead-connection detection
 //! - `leases`: release, takeover, transfer and token reattach
 //! - `lineage`: who started a pane or run, and whether a caller may treat it as its own
+//! - `pane_hint`: the pane each connection says its agent runs in (a display-only hint)
 //! - `authorize`: the route gate (mode + ownership)
 //! - `handles`: pane-id resolution and the denial/not-found errors
 
@@ -18,6 +19,7 @@ mod handles;
 mod identity;
 mod leases;
 mod lineage;
+mod pane_hint;
 mod persist;
 mod registration;
 mod state;
@@ -28,6 +30,7 @@ pub use handles::*;
 pub use identity::*;
 pub use leases::*;
 pub use lineage::*;
+pub use pane_hint::*;
 pub use state::PaneOrigin;
 pub use registration::*;
 

@@ -80,7 +80,9 @@ pub fn spawn_native_pane(
             &port.to_string(),
         ])
         .current_dir(&cwd)
-        .env("PATH", crate::shell_env::path_for_spawn());
+        .env("PATH", crate::shell_env::path_for_spawn())
+        // The MCP shim opencode starts reports this pane, so its helpers nest under it.
+        .env(crate::pty::PANE_ID_ENV, &pane_id);
     #[cfg(windows)]
     serve.env("Path", crate::shell_env::path_for_spawn());
     if args.read_only {
@@ -205,6 +207,7 @@ pub fn spawn_native_pane(
         account: None,
         account_label: None,
         title: None,
+        parent_pane_id: None,
     };
 
     let opencode = OpenCodeLink::new(

@@ -113,7 +113,7 @@ pub(crate) fn unknown_question(agent_type: &str, screen: &str, status: Option<&s
         "identity": identity,
         "summary": format!(
             "{} (recognised by shape, not by profile: {kind_word}; this agent's profile has no [[tui.prompt]] for it)",
-            question.last().map(String::as_str).unwrap_or("The agent is asking a question")
+            super::summary::clean(question.last().map(String::as_str).unwrap_or("The agent is asking a question"))
         ),
     }))
 }

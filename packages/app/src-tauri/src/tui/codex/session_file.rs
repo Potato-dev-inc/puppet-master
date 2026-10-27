@@ -2,8 +2,8 @@
 //! `<codex home>/sessions/YYYY/MM/DD/rollout-<local time>-<thread id>.jsonl`, one `{timestamp, type, payload}`
 //! object per line, written as each event completes.
 //!
-//! Only the events a chat view needs are read. `response_item` lines are skipped: they repeat the
-//! `event_msg` items and also hold injected context. Finished sessions are compressed to
+//! Only the events a chat view needs are read. `response_item` lines are skipped (they repeat the
+//! `event_msg` items and also hold injected context), except a call of the plan tool, which gives the task list. Finished sessions are compressed to
 //! `.jsonl.zst`; they are read the same way, decompressed by `session_chat::tail`.
 
 use std::collections::HashSet;
@@ -12,10 +12,11 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local};
-use serde_json::Value;
+use serde_json::{json, Value};
 
+use super::session_extra::{call_arguments, event_notice, file_change_detail, notice, plan_call, plan_items, todo_items};
 use crate::session_chat::tail::open_lines;
-use crate::session_chat::{cut, ChatItem, SessionFormat, TurnOutcome};
+use crate::session_chat::{bound_input, cut, ChatItem, PlanItem, SessionFormat, ToolDetail, TurnOutcome};
 
 /// The Codex rollout format, for `codex` panes.
 pub struct CodexRollout;
@@ -31,6 +32,11 @@ impl SessionFormat for CodexRollout {
             Some("session_meta") => session_meta(&mut out, payload),
             Some("turn_context") => turn_context(&mut out, payload),
             Some("event_msg") => event(&mut out, payload),
+            Some("response_item") => {
+                if let Some(items) = plan_call(payload) {
+                    plan(&mut out, items, true);
+                }
+            }
             _ => {}
         }
         out.items
@@ -138,8 +144,23 @@ fn event(out: &mut Emit, payload: &Value) {
         Some("task_complete") => turn_end(out, TurnOutcome::Completed, payload),
         Some("turn_aborted") => turn_end(out, TurnOutcome::Interrupted, payload),
         Some("token_count") => usage(out, payload),
+        // shape from docs/guess: {explanation?, plan: [{step, status}]}
+        Some("plan_update") => {
+            if let Some(items) = plan_items(payload) {
+                plan(out, items, true);
+            }
+        }
+        Some(kind @ ("context_compacted" | "error" | "thread_name_updated")) => {
+            if let Some((notice_kind, text)) = event_notice(kind, payload) {
+                out.push(|id, at| notice(id, at, notice_kind, text));
+            }
+        }
         _ => {} // task_started and the rest
     }
+}
+
+fn plan(out: &mut Emit, items: Vec<PlanItem>, replace: bool) {
+    out.push(|id, at| ChatItem::Plan { id, at, items, replace });
 }
 
 fn item_completed(out: &mut Emit, item: &Value) {
@@ -159,14 +180,23 @@ fn item_completed(out: &mut Emit, item: &Value) {
         Some("WebSearch") => {
             let call_id = call_id(item);
             let summary = str_field(item, "query").unwrap_or_default();
+            let detail = ToolDetail { input: bound_input(&json!({ "query": summary })), ..ToolDetail::default() };
             out.push(|id, at| ChatItem::ToolCall {
                 id,
                 at,
                 call_id,
                 name: "web_search".into(),
                 summary,
+                detail,
             });
         }
+        // shape from docs/guess: {items: [{text, completed}]} (the to-do list of `codex exec --json`)
+        Some("TodoList") => {
+            if let Some(items) = todo_items(item) {
+                plan(out, items, true);
+            }
+        }
+        Some("ContextCompaction") => out.push(|id, at| notice(id, at, "compacted", "Context compacted".to_string())),
         _ => {} // Reasoning and anything else
     }
 }
@@ -174,12 +204,18 @@ fn item_completed(out: &mut Emit, item: &Value) {
 fn command(out: &mut Emit, item: &Value) {
     let call_id = call_id(item);
     let summary = command_line(&item["command"]);
+    let mut input = json!({ "command": summary });
+    if let Some(cwd) = str_field(item, "cwd") {
+        input["cwd"] = Value::String(cwd);
+    }
+    let detail = ToolDetail { input: bound_input(&input), ..ToolDetail::default() };
     out.push(|id, at| ChatItem::ToolCall {
         id,
         at,
         call_id: call_id.clone(),
         name: "exec".into(),
         summary,
+        detail,
     });
     let output = str_field(item, "aggregated_output")
         .or_else(|| str_field(item, "aggregatedOutput"))
@@ -189,13 +225,16 @@ fn command(out: &mut Emit, item: &Value) {
 
 fn file_change(out: &mut Emit, item: &Value) {
     let call_id = call_id(item);
-    let summary = changed_paths(item).join(", ");
+    let keyed = changed_paths(item);
+    let summary = keyed.join(", ");
+    let detail = file_change_detail(item, keyed);
     out.push(|id, at| ChatItem::ToolCall {
         id,
         at,
         call_id: call_id.clone(),
         name: "apply_patch".into(),
         summary,
+        detail,
     });
     result(out, item, &call_id, String::new());
 }
@@ -206,12 +245,14 @@ fn mcp_tool(out: &mut Emit, item: &Value) {
         (Some(server), Some(tool)) => format!("{server}.{tool}"),
         _ => "mcp".to_string(),
     };
+    let detail = ToolDetail { input: call_arguments(item).as_ref().and_then(bound_input), ..ToolDetail::default() };
     out.push(|id, at| ChatItem::ToolCall {
         id,
         at,
         call_id: call_id.clone(),
         name,
         summary: String::new(),
+        detail,
     });
     result(out, item, &call_id, String::new());
 }
@@ -301,6 +342,16 @@ mod tests {
     use std::fs;
     use std::time::{Duration, UNIX_EPOCH};
 
+    /// The items without the extra tool detail (input, paths), which `session_extra_tests` covers.
+    fn plain(mut items: Vec<ChatItem>) -> Vec<ChatItem> {
+        for item in &mut items {
+            if let ChatItem::ToolCall { detail, .. } = item {
+                *detail = ToolDetail::default();
+            }
+        }
+        items
+    }
+
     /// The fixture as the reader sees it: LF endings (CRLF checkouts are normalised), each line with its byte offset.
     fn fixture_lines() -> Vec<(u64, String)> {
         let text = include_str!("fixtures/rollout_basic.jsonl").replace("\r\n", "\n");
@@ -337,6 +388,7 @@ mod tests {
                 call_id: "cmd-1".into(),
                 name: "exec".into(),
                 summary: "rg upload src".into(),
+                detail: ToolDetail::default(),
             },
             // completed: the call again, then its result
             ChatItem::ToolCall {
@@ -345,6 +397,7 @@ mod tests {
                 call_id: "cmd-1".into(),
                 name: "exec".into(),
                 summary: "rg upload src".into(),
+                detail: ToolDetail::default(),
             },
             ChatItem::ToolResult {
                 id: id(6, 1),
@@ -360,6 +413,7 @@ mod tests {
                 call_id: "cmd-2".into(),
                 name: "exec".into(),
                 summary: "cargo test".into(),
+                detail: ToolDetail::default(),
             },
             ChatItem::ToolResult {
                 id: id(7, 1),
@@ -374,6 +428,7 @@ mod tests {
                 call_id: "fc-1".into(),
                 name: "apply_patch".into(),
                 summary: "src\\retry.rs, src\\upload.rs".into(),
+                detail: ToolDetail::default(),
             },
             ChatItem::ToolResult {
                 id: id(8, 1),
@@ -407,7 +462,7 @@ mod tests {
             },
             // the half line at the end (line 15) gives nothing
         ];
-        assert_eq!(read_lines(&CodexRollout, &lines), expected);
+        assert_eq!(plain(read_lines(&CodexRollout, &lines)), expected);
     }
 
     #[test]
@@ -434,7 +489,7 @@ mod tests {
             "item": {"type": "CommandExecution", "id": "c-9", "command": "npm   test", "status": "completed",
                      "exitCode": 3, "aggregatedOutput": "boom"}}});
         assert_eq!(
-            CodexRollout.parse_line(&command.to_string(), 7),
+            plain(CodexRollout.parse_line(&command.to_string(), 7)),
             vec![
                 ChatItem::ToolCall {
                     id: "7:0".into(),
@@ -442,6 +497,7 @@ mod tests {
                     call_id: "c-9".into(),
                     name: "exec".into(),
                     summary: "npm test".into(),
+                    detail: ToolDetail::default(),
                 },
                 ChatItem::ToolResult {
                     id: "7:1".into(),
@@ -456,7 +512,7 @@ mod tests {
         let mcp = json!({"timestamp": "t", "type": "event_msg", "payload": {"type": "item_completed",
             "item": {"type": "McpToolCall", "id": "m-1", "server": "pencil", "tool": "get_screenshot",
                      "status": "completed"}}});
-        let items = CodexRollout.parse_line(&mcp.to_string(), 0);
+        let items = plain(CodexRollout.parse_line(&mcp.to_string(), 0));
         assert_eq!(
             items[0],
             ChatItem::ToolCall {
@@ -465,6 +521,7 @@ mod tests {
                 call_id: "m-1".into(),
                 name: "pencil.get_screenshot".into(),
                 summary: String::new(),
+                detail: ToolDetail::default(),
             }
         );
         assert!(matches!(items[1], ChatItem::ToolResult { ok: true, .. }));
@@ -478,13 +535,14 @@ mod tests {
         let search = json!({"type": "event_msg", "payload": {"type": "item_completed",
             "item": {"type": "WebSearch", "id": "w-1", "query": "rust chrono local time"}}});
         assert_eq!(
-            CodexRollout.parse_line(&search.to_string(), 3),
+            plain(CodexRollout.parse_line(&search.to_string(), 3)),
             vec![ChatItem::ToolCall {
                 id: "3:0".into(),
                 at: None,
                 call_id: "w-1".into(),
                 name: "web_search".into(),
                 summary: "rust chrono local time".into(),
+                detail: ToolDetail::default(),
             }]
         );
 
@@ -505,7 +563,7 @@ mod tests {
         let list = json!({"type": "event_msg", "payload": {"type": "item_completed",
             "item": {"type": "FileChange", "id": "f-1", "status": "failed",
                      "changes": [{"path": "b.rs"}, {"path": "a.rs"}]}}});
-        let items = CodexRollout.parse_line(&list.to_string(), 0);
+        let items = plain(CodexRollout.parse_line(&list.to_string(), 0));
         assert_eq!(
             items,
             vec![
@@ -515,6 +573,7 @@ mod tests {
                     call_id: "f-1".into(),
                     name: "apply_patch".into(),
                     summary: "a.rs, b.rs".into(),
+                    detail: ToolDetail::default(),
                 },
                 ChatItem::ToolResult {
                     id: "0:1".into(),
@@ -710,6 +769,8 @@ mod tests {
             ChatItem::TurnEnd { .. } => "TurnEnd",
             ChatItem::Usage { .. } => "Usage",
             ChatItem::Session { .. } => "Session",
+            ChatItem::Plan { .. } => "Plan",
+            ChatItem::Notice { .. } => "Notice",
         }
     }
 

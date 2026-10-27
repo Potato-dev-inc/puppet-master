@@ -19,6 +19,8 @@ export type PaneInfo = {
   account_label?: string | null;
   /** Human title (user name, else derived from the first task); absent until the pane has one. */
   title?: string | null;
+  /** The pane of the agent that started this one over MCP (a helper); display-only, absent for the person's own panes. */
+  parent_pane_id?: string | null;
 };
 
 export type TerminalSnapshotEvent = { pane_id: string; snapshot: string };

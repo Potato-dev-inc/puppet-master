@@ -36,6 +36,7 @@ import './styles/phone.css';
 import type { PreviewUrl } from './lib/pane-preview';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
 import { DockedCard } from './components/mobile/DockedCard';
+import { helpersAskingFor } from './lib/helper-questions';
 import { CardSheet } from './components/mobile/CardSheet';
 import { usePushIntents } from './hooks/usePushIntents';
 import { usePhoneAbilities } from './hooks/usePhoneAbilities';
@@ -598,12 +599,18 @@ export default function PwaApp() {
     }
   }, [bridge, active, applyPanes]);
 
-  // The open agent's own card: floats over its terminal, or sits under its chat.
-  const dockedCard =
+  // The open agent's own card: floats over its terminal, or sits under its chat. In the chat, the questions its helpers ask sit under it too.
+  const helperAskers = useMemo(() => {
+    if (!attention || active === ALL_TAB) return [];
+    const open = new Set(attention.items.filter((i) => i.state === 'open' && PROMPT_KINDS.includes(i.kind)).map((i) => i.pane?.id));
+    return helpersAskingFor(registry.paneList, active, (id) => open.has(id));
+  }, [attention, active, registry.paneList]);
+  const dockCard = (helperPaneIds: string[]) =>
     bridge && activePane && attention ? (
       <DockedCard
         snapshot={attention}
         paneId={active}
+        helperPaneIds={helperPaneIds}
         bridge={bridge}
         canAnswer={canAnswer}
         autoFocus={deepLinked}
@@ -615,6 +622,7 @@ export default function PwaApp() {
         }}
       />
     ) : null;
+  const dockedCard = dockCard([]);
 
   if (inviteCode) {
     return (
@@ -727,7 +735,7 @@ export default function PwaApp() {
               canWatch={abilities.canWatch}
               canType={abilities.canType}
               sendBlock={composerBlock(activePane, activePane?.info.agent_type === 'shell')}
-              dock={dockedCard}
+              dock={dockCard(helperAskers)}
             />
           )}
           {active !== ALL_TAB && !isCompanionTab(active) && !activePane && (

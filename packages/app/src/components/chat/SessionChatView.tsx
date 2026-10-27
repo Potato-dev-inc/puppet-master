@@ -1,10 +1,24 @@
-// Read-only chat of a terminal pane's agent session: the person's messages, the agent's text, each tool
-// call as one row (click to see its output) and a divider where a turn ended. The agent's text is Markdown when it
-// comes from the session file; text read off the terminal is shown as it is.
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { ChatSource, ChatTurn, SessionChatState, ToolStep, TurnStep } from '../../lib/sessionChatModel';
+// Read-only chat of a terminal pane's agent session: the person's messages, the agent's text, and each turn's tool
+// calls folded into one activity line (click to open the rows and their detail). A pinned task card sits at the top
+// when the agent has a plan, a thin line marks a notice, and a turn ends with how long it worked. The view mode
+// (Summary, Normal, Verbose) is in the header. The agent's text is Markdown when it comes from the session file;
+// text read off the terminal is shown as it is.
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import type { ChatSource, ChatTurn, SessionChatState, TurnStep } from '../../lib/sessionChatModel';
 import '../../styles/cockpit-chat.css';
+import { ActivityLine } from './ActivityLine';
+import { segmentSteps } from './chatActivity';
+import { formatDuration } from './chatFormat';
+import { useChatViewMode, type ChatViewMode } from './chatViewMode';
 import { ChatMarkdown } from './ChatMarkdown';
+import { HelperRow } from './HelperRow';
+import { NoticeLine } from './NoticeLine';
+import { RememberSelection } from './RememberSelection';
+import { currentPlan, PlanCard } from './PlanCard';
+import { ToolRow } from './ToolRow';
+import { ViewModeToggle } from './ViewModeToggle';
+
+export { formatDuration };
 
 export const SESSION_CHAT_NOTE = 'Messages wait until the agent is free. Answer its questions in the card at the bottom.';
 /** Under the note when the chat is read off the terminal's text: a reading, not the agent's own record. */
@@ -29,57 +43,17 @@ export interface SessionChatViewProps {
   pending?: ReactNode;
   /** The message box, under the dock. Without it the chat is read-only. */
   composer?: ReactNode;
+  /** The pane the chat belongs to: its view mode is remembered under it. Without one the mode is Normal and not kept. */
+  paneId?: string | null;
+  /** Offer "Remember for all agents" on selected text (desktop Chat tab only). Needs `paneId`. */
+  remember?: boolean;
 }
 
-/** "800ms" is "<1s"; "12s"; "2m 5s". */
-export function formatDuration(ms: number): string {
-  if (ms < 1000) return '<1s';
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-}
+const SUMMARY_NOTE = 'Summary: your messages, final answers and activity lines.';
 
-const STATUS_LABEL: Record<ToolStep['status'], string> = {
-  running: 'running',
-  ok: 'ok',
-  error: 'error',
-};
-
-function ToolRow({ step, fromScreen }: { step: ToolStep; fromScreen: boolean }) {
-  const [open, setOpen] = useState(false);
-  const { call, result, status } = step;
-  // A tool row read off the screen is just the row: no name, no result and no status to report.
-  const label = fromScreen ? null : STATUS_LABEL[status];
-  return (
-    <div>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left hover:bg-pm-raised ck-chat-tool"
-      >
-        {call.name && <span className="shrink-0 font-mono text-pm-text ck-chat-tool-name">{call.name}</span>}
-        <span className="min-w-0 flex-1 truncate font-mono text-pm-muted ck-chat-tool-summary" title={call.summary}>
-          {call.summary}
-        </span>
-        {label && (
-          <span className={`shrink-0 text-[10px] ${status === 'error' ? 'text-pm-err' : 'text-pm-muted'} ck-chat-tool-status${status === 'error' ? ' ck-chat-tool-status--error' : ''}`}>
-            {label}
-          </span>
-        )}
-      </button>
-      {open && (
-        <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-pm-border bg-pm-panel p-1.5 font-mono text-[11px] text-pm-muted ck-chat-output">
-          {result ? result.output : fromScreen ? 'Tool output is not read from the screen.' : 'No output yet.'}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-/** `markdown`: the text is the agent's own session file, so its Markdown is formatted; anything else is shown as is. */
-function Step({ step, fromScreen, markdown }: { step: TurnStep; fromScreen: boolean; markdown: boolean }) {
-  if (step.kind === 'tool') return <ToolRow step={step} fromScreen={fromScreen} />;
+function TextStep({ step, markdown, mode }: { step: Extract<TurnStep, { kind: 'text' }>; markdown: boolean; mode: ChatViewMode }) {
+  // Summary keeps only the agent's final answers; the rest of its talk is folded away with the rows.
+  if (mode === 'summary' && !step.item.finalAnswer) return null;
   if (markdown) return <ChatMarkdown text={step.item.text} />;
   return <div className="whitespace-pre-wrap break-words ck-chat-text">{step.item.text}</div>;
 }
@@ -87,17 +61,20 @@ function Step({ step, fromScreen, markdown }: { step: TurnStep; fromScreen: bool
 function TurnEndDivider({ turn }: { turn: ChatTurn }) {
   const parts: string[] = [];
   if (turn.outcome === 'interrupted' || turn.outcome === 'failed') parts.push(turn.outcome);
-  if (turn.durationMs !== null) parts.push(formatDuration(turn.durationMs));
+  if (turn.durationMs !== null) parts.push(`Worked for ${formatDuration(turn.durationMs)}`);
   return (
     <div className="flex items-center gap-2 py-0.5 text-[10px] text-pm-muted ck-chat-end">
       <span className="h-px flex-1 bg-pm-border ck-chat-rule" />
-      {parts.length > 0 && <span>{parts.join(' · ')}</span>}
+      {parts.length > 0 && <span className="ck-chat-end-text">{parts.join(' · ')}</span>}
       <span className="h-px flex-1 bg-pm-border ck-chat-rule" />
     </div>
   );
 }
 
-function TurnView({ turn, fromScreen, markdown }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean }) {
+function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean; mode: ChatViewMode }) {
+  const verbose = mode === 'verbose';
+  // A turn with no end yet is still running: its rows without a result are live.
+  const live = turn.end === null;
   return (
     <section className="space-y-1.5 ck-chat-turn">
       {turn.user && (
@@ -107,18 +84,34 @@ function TurnView({ turn, fromScreen, markdown }: { turn: ChatTurn; fromScreen: 
           </div>
         </div>
       )}
-      {turn.steps.map((step) => (
-        <Step key={step.id} step={step} fromScreen={fromScreen} markdown={markdown} />
-      ))}
+      {segmentSteps(turn.steps).map((segment) => {
+        if (segment.kind === 'activity') {
+          return <ActivityLine key={segment.id} steps={segment.steps} live={live} fromScreen={fromScreen} verbose={verbose} />;
+        }
+        const step = segment.step;
+        if (step.kind === 'tool') {
+          return step.call.helper ? (
+            <HelperRow key={step.id} step={step} fromScreen={fromScreen} defaultOpen={verbose} />
+          ) : (
+            <ToolRow key={step.id} step={step} fromScreen={fromScreen} defaultOpen={verbose} />
+          );
+        }
+        if (step.kind === 'notice') {
+          return mode === 'summary' ? null : <NoticeLine key={step.id} text={step.item.text} kind={step.item.noticeKind} url={step.item.url} />;
+        }
+        return <TextStep key={step.id} step={step} markdown={markdown} mode={mode} />;
+      })}
       {turn.end && <TurnEndDivider turn={turn} />}
     </section>
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for the agent's session file; an unknown source keeps the text as it is.
   const markdown = source === 'file';
+  const [mode, setMode] = useChatViewMode(paneId);
+  const plan = useMemo(() => currentPlan(turns), [turns]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
 
@@ -146,10 +139,11 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-pm-bg text-xs text-pm-text ck-chat" data-testid="session-chat">
-      <header className="flex min-w-0 items-baseline gap-2 border-b border-pm-border bg-pm-panel px-2 py-1 ck-chat-head">
+    <div className="flex h-full min-h-0 flex-col bg-pm-bg text-xs text-pm-text ck-chat" data-testid="session-chat" data-view={mode}>
+      <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-pm-border bg-pm-panel px-2 py-1 ck-chat-head">
         <span className="min-w-0 truncate ck-chat-model">{model ?? 'Model not known yet'}</span>
         {cliVersion && <span className="shrink-0 text-pm-muted ck-chat-cli">CLI {cliVersion}</span>}
+        <ViewModeToggle mode={mode} onChange={setMode} />
       </header>
       <p className="border-b border-pm-border px-2 py-1 text-[11px] text-pm-muted ck-chat-note">
         {SESSION_CHAT_NOTE}
@@ -158,7 +152,9 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
             {SCREEN_CHAT_NOTE}
           </span>
         )}
+        {mode === 'summary' && <span className="block ck-chat-mode-note">{SUMMARY_NOTE}</span>}
       </p>
+      <PlanCard items={plan} />
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2 ck-chat-body">
         {state === 'unavailable' && (
           <div className="ck-empty ck-chat-empty">
@@ -176,9 +172,11 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
             )}
           </div>
         )}
-        {state !== 'unavailable' && turns.map((turn) => <TurnView key={turn.id} turn={turn} fromScreen={fromScreen} markdown={markdown} />)}
+        {state !== 'unavailable' &&
+          turns.map((turn) => <TurnView key={`${mode}:${turn.id}`} turn={turn} fromScreen={fromScreen} markdown={markdown} mode={mode} />)}
         {state !== 'unavailable' && pending}
       </div>
+      {remember && paneId && <RememberSelection paneId={paneId} root={scrollRef} />}
       {dock && <div className="ck-chat-dock">{dock}</div>}
       {state !== 'unavailable' && composer}
     </div>

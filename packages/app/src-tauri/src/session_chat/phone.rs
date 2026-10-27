@@ -41,6 +41,15 @@ fn unavailable(reason: &str) -> Reply {
     Reply { available: false, reason: Some(reason.to_string()), source: None, waiting_for: None, rev: 0, reset: false, items: Vec::new() }
 }
 
+/// The phone does not draw diffs, so a tool call's input (up to 8000 characters each) stays on the desktop.
+/// The touched files and flags stay.
+fn lean(mut item: ChatItem) -> ChatItem {
+    if let ChatItem::ToolCall { detail, .. } = &mut item {
+        detail.input = None;
+    }
+    item
+}
+
 /// The answer for one request. `opening`: how the pane is read (`None`: it has no agent). `since`: the revision the
 /// phone saw last. The result is redacted JSON, ready to send.
 pub fn read(watchers: &Watchers, pane_id: &str, opening: Option<&Opening>, since: Option<u64>) -> Value {
@@ -61,7 +70,7 @@ fn read_with(watchers: &Watchers, pane_id: &str, opening: Option<&Opening>, sinc
                     waiting_for: watchers.waiting_for(pane_id).map(|_| WAITING.to_string()),
                     rev: delta.rev,
                     reset: delta.reset,
-                    items: delta.items,
+                    items: delta.items.into_iter().map(lean).collect(),
                 },
             }
         }

@@ -159,6 +159,8 @@ pub fn spawn_pane(
     let hooks = crate::agent_hooks::prepare_spawn(profile.id(), &pane_id, &cwd, &user_args);
     let mut account_env = account_env;
     account_env.set.extend(hooks.env);
+    // Names the pane to any MCP shim the agent starts, so a helper it starts can be nested under it.
+    account_env.set.push((crate::pty::PANE_ID_ENV.to_string(), pane_id.clone()));
     let extra_args: Vec<String> = user_args.into_iter().chain(hooks.extra_args).collect();
     let cmd = launch_command(
         profile.as_ref(),
@@ -210,6 +212,7 @@ pub fn spawn_pane(
         account: args.account.as_deref().map(str::trim).filter(|a| !a.is_empty()).map(str::to_string),
         account_label,
         title: None,
+        parent_pane_id: None,
     };
 
     let pane = PaneState {
@@ -370,7 +373,8 @@ pub fn spawn_pane(
                             // waiting_input and whenever the detected prompt changes.
                             let waiting = *status.lock() == PaneStatus::WaitingInput;
                             if let Some(prompt) = crate::pane_prompt::next_prompt_event(&mut prompt_track, waiting, || {
-                                crate::pane_prompt::detect_in_screen(&agent_type, &last_snapshot, false)
+                                // The pane is waiting: a menu no profile describes still gets its card by shape.
+                                crate::pane_prompt::detect_in_screen_with_status(&agent_type, &last_snapshot, false, Some("waiting_input"))
                                     .and_then(|p| crate::pane_prompt::PanePrompt::from_detected(&p))
                             }) {
                                 crate::attention::on_prompt(&pane_id, waiting, prompt.as_ref());

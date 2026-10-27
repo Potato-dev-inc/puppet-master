@@ -15,6 +15,8 @@ export function PaneApprovalCard({
   paneId,
   autoFocus,
   onOpen,
+  asks,
+  openLabel,
 }: {
   c: CockpitApi;
   paneId: string;
@@ -22,6 +24,10 @@ export function PaneApprovalCard({
   autoFocus?: boolean;
   /** The "Open terminal" button. Absent in the pane itself, where the terminal is already open. */
   onOpen?: () => void;
+  /** A helper's question shown in its parent's Chat: "Claude Code helper asks" leads the title. */
+  asks?: string;
+  /** The open button's words (default "Open terminal"). */
+  openLabel?: string;
 }) {
   const pane = c.registry.panes.get(paneId);
   const prompt = c.prompts[paneId];
@@ -30,6 +36,7 @@ export function PaneApprovalCard({
   const agent = c.names.get(paneId) ?? pane?.info.agent_type ?? 'Agent';
   const heading = pane ? paneHeading(pane.info, agent) : { primary: agent, secondary: null };
   const who = [heading.primary, heading.secondary, pane ? projectWithCopy(pane.info.cwd) : undefined].filter(Boolean).join(' · ');
+  const plainTitle = (prompt && promptSummary(prompt)) || 'Waiting for your answer';
   const hasChoices = !!prompt && prompt.choices.length > 0;
 
   if (prompt?.risk && hasChoices) {
@@ -41,6 +48,8 @@ export function PaneApprovalCard({
         age={age}
         autoFocus={autoFocus}
         onOpen={onOpen}
+        asks={asks}
+        openLabel={openLabel}
         onAnswer={(ch, gesture) => void c.answer(paneId, prompt.promptId, ch.id, ch.label, gesture)}
       />
     );
@@ -49,7 +58,7 @@ export function PaneApprovalCard({
     <InboxCard
       kind="approval"
       glyph="needs"
-      title={prompt ? promptSummary(prompt) || 'Waiting for your answer' : 'Waiting for your answer'}
+      title={asks ? `${asks}: ${plainTitle}` : plainTitle}
       meta={who}
       age={age}
       actions={
@@ -66,7 +75,7 @@ export function PaneApprovalCard({
       more={
         onOpen ? (
           <CardButton tone="plain" role="open" onClick={onOpen}>
-            Open terminal
+            {openLabel ?? 'Open terminal'}
           </CardButton>
         ) : null
       }

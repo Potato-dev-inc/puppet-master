@@ -105,6 +105,13 @@ pub fn classify_agent_observation(agent_type: &str, screen: &str, _recent: &str)
         return status;
     }
 
+    // One rule for "the pane is asking" (`tui::menu_shape`): the profile's own prompt tables match, or a menu with a
+    // cursor row and a hint footer is the last thing on screen. Without it a question nobody's `classify_screen` knew
+    // (a wizard-added agent's trust screen, an agent's option menu) read `running`, then `idle`, and nothing needed you.
+    if profile.declares_prompt(&visible_tail) || crate::tui::menu_shape::asks(profile.as_ref(), &visible_tail) {
+        return PaneStatus::WaitingInput;
+    }
+
     if looks_like_prompt(&visible_tail) {
         PaneStatus::WaitingInput
     } else {
