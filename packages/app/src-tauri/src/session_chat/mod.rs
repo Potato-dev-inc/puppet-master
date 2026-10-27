@@ -1,9 +1,11 @@
 //! A read-only chat view of a terminal pane, built from the session file the agent CLI writes, or, for an agent
 //! that writes none Puppet Master can read, from the pane's own text (`screen`).
-//! Approvals are not in those files; they stay with the screen reader.
+//! Approvals are not in those files; they stay with the screen reader. An agent that serves its session over a
+//! local HTTP API is read from there (`api`), and from its screen while the API cannot be reached.
 //! `tail` follows the file as it grows, `items` turns its lines into `ChatItem`s, `source` finds a pane's
 //! file, `screen` reads the chat off the screen and `watch` keeps one reader per open pane and sends what it reads.
 
+pub mod api;
 pub mod detail;
 pub mod items;
 pub mod model;
@@ -15,6 +17,7 @@ pub mod store;
 pub mod tail;
 pub mod watch;
 
+pub use api::{ApiEndpoint, ChatFrom, SessionApi};
 pub use detail::{bound_input, cut_to, paths_from_input, PlanItem, PlanStatus, ToolDetail};
 pub use opening::Opening;
 pub use model::{cut, ChatItem, SessionFormat, TurnOutcome};

@@ -112,8 +112,8 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
 
 export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, headerExtra, overlay }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
-  // Markdown only for the agent's session file; an unknown source keeps the text as it is.
-  const markdown = source === 'file';
+  // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
+  const markdown = source === 'file' || source === 'api';
   const [mode, setMode] = useChatViewMode(paneId);
   const plan = useMemo(() => currentPlan(turns), [turns]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -170,7 +170,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
         {state !== 'unavailable' && turns.length === 0 && (
           <div className="ck-chat-waiting">
             <p className="ck-sub text-pm-muted">
-              {fromScreen ? 'Waiting for a message on the terminal…' : "Waiting for the agent's session file…"}
+              {fromScreen ? 'Waiting for a message on the terminal…' : source === 'api' ? "Waiting for the agent's session…" : "Waiting for the agent's session file…"}
             </p>
             {waitingFor && (
               <p className="mt-0.5 break-words text-[11px] text-pm-muted opacity-70 ck-chat-waiting-for">{waitingFor}</p>

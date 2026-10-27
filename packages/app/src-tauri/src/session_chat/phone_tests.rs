@@ -78,7 +78,7 @@ impl Rig {
         let dir = std::env::temp_dir().join(format!("pm-phone-chat-{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::SeqCst)));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let tuning = Tuning { poll: Duration::from_millis(10), screen_poll: Duration::from_millis(10), relocate: Duration::from_millis(10), max_items: 3000 };
+        let tuning = Tuning { poll: Duration::from_millis(10), screen_poll: Duration::from_millis(10), api_poll: Duration::from_millis(10), relocate: Duration::from_millis(10), max_items: 3000 };
         let source: &'static Source = Box::leak(Box::new(Source { located: Mutex::new(located) }));
         Rig { watchers: Watchers::with_tuning(Arc::new(Quiet), Arc::new(Pane), tuning), source, opening: Opening::File(source), dir }
     }

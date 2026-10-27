@@ -10,7 +10,7 @@ mod follow;
 mod parse;
 mod registry;
 #[cfg(test)]
-mod tests;
+pub(in crate::session_chat) mod tests;
 #[cfg(test)]
 mod watch_tests;
 
@@ -117,7 +117,6 @@ impl ScreenChat {
     }
 
     /// The items the viewer has been sent so far.
-    #[cfg(test)]
     pub fn shown(&self) -> &[ChatItem] {
         &self.shown
     }
@@ -300,7 +299,7 @@ fn grow(known: &mut Parsed, more: Parsed) {
 
 /// What to send so the viewer's `shown` becomes `next`: nothing, the items that changed or were added (same ids
 /// replace in place), or everything when an item went away or the order changed.
-fn diff(shown: &mut Vec<ChatItem>, next: Vec<ChatItem>) -> Change {
+pub(in crate::session_chat) fn diff(shown: &mut Vec<ChatItem>, next: Vec<ChatItem>) -> Change {
     if *shown == next {
         return Change::Nothing;
     }

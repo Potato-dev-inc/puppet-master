@@ -1,6 +1,7 @@
 //! How a pane's chat is read: from the session file its agent writes, or off its screen. One answer for the
 //! desktop command and the phone route, so both treat a pane the same way.
 
+use super::api::SessionApi;
 use super::model::ChatItem;
 use super::source::SessionSource;
 use super::watch::{Hold, Watchers};
@@ -12,6 +13,8 @@ pub enum Opening {
     File(&'static dyn SessionSource),
     /// The terminal's text, for an agent whose file Puppet Master cannot read. Holds the agent type.
     Screen(String),
+    /// The agent's local session API, and the terminal's text while the API does not answer. Holds the agent type.
+    Api(&'static dyn SessionApi, String),
 }
 
 impl Opening {
@@ -20,17 +23,27 @@ impl Opening {
         let profile = crate::tui::profile_for(agent_type);
         match profile.session_chat() {
             Some(source) => Some(Opening::File(source)),
+            None if profile.session_api().is_some() && profile.screen_chat() => {
+                profile.session_api().map(|api| Opening::Api(api, agent_type.to_string()))
+            }
             None if profile.screen_chat() => Some(Opening::Screen(agent_type.to_string())),
             None => None,
         }
     }
 
-    /// `"file"` or `"screen"`: where the items come from.
+    /// `"file"`, `"screen"` or `"api"`: where the items come from. For `Api` this is what it starts as; the
+    /// pane's reader knows what it reads from now (`Watchers::source_of`).
     pub fn source_name(&self) -> &'static str {
         match self {
             Opening::File(_) => "file",
             Opening::Screen(_) => "screen",
+            Opening::Api(..) => "api",
         }
+    }
+
+    /// Where the open pane's items come from now (an API chat falls back to the screen and back).
+    pub fn source_now(&self, watchers: &Watchers, pane_id: &str) -> &'static str {
+        watchers.source_of(pane_id).unwrap_or_else(|| self.source_name())
     }
 
     /// Starts the pane's reader (or joins it) as `hold`; the items so far.
@@ -38,6 +51,7 @@ impl Opening {
         match self {
             Opening::File(source) => watchers.open(pane_id, hold, *source),
             Opening::Screen(agent_type) => watchers.open_screen(pane_id, hold, agent_type),
+            Opening::Api(api, agent_type) => watchers.open_api(pane_id, hold, *api, agent_type),
         }
     }
 }

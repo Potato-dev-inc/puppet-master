@@ -120,7 +120,7 @@ impl Rig {
         std::fs::create_dir_all(&dir).unwrap();
         let sink = Arc::new(FakeSink::default());
         let panes = Arc::new(FakePanes { facts: Mutex::new(Some(facts())) });
-        let tuning = Tuning { poll: Duration::from_millis(10), screen_poll: Duration::from_millis(10), relocate: Duration::from_millis(10), max_items };
+        let tuning = Tuning { poll: Duration::from_millis(10), screen_poll: Duration::from_millis(10), api_poll: Duration::from_millis(10), relocate: Duration::from_millis(10), max_items };
         let watchers = Watchers::with_tuning(sink.clone(), panes.clone(), tuning);
         Rig { watchers, sink, panes, dir }
     }

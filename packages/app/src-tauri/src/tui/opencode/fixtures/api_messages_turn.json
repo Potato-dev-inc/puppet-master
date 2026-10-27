@@ -1,0 +1,522 @@
+[
+  {
+    "info": {
+      "id": "msg_17e9113f7001jcVNnDfLmELxGh",
+      "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+      "role": "user",
+      "time": {
+        "created": 1793124799480
+      },
+      "summary": {
+        "diffs": [
+          {
+            "file": "oc-n28.txt",
+            "patch": "Index: oc-n28.txt\n===================================================================\n--- oc-n28.txt\t\n+++ oc-n28.txt\t\n@@ -0,0 +1,1 @@\n+hi\n\\ No newline at end of file\n",
+            "additions": 1,
+            "deletions": 0,
+            "status": "added"
+          }
+        ]
+      },
+      "agent": "build",
+      "model": {
+        "providerID": "opencode-go",
+        "modelID": "deepseek-v4.1-flash"
+      }
+    },
+    "parts": [
+      {
+        "id": "prt_17e91140a001fQdrvsLgFkffXZ",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e9113f7001jcVNnDfLmELxGh",
+        "type": "text",
+        "text": "Create oc-n28.txt containing hi, then read it back. Use a todo list with todowrite first."
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_17e91143b001SHEckgYxAvJt1R",
+      "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+      "role": "assistant",
+      "time": {
+        "created": 1793124799547,
+        "completed": 1793124823018
+      },
+      "parentID": "msg_17e9113f7001jcVNnDfLmELxGh",
+      "modelID": "deepseek-v4.1-flash",
+      "providerID": "opencode-go",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "C:\\Users\\you\\proj",
+        "root": "C:\\Users\\you\\proj"
+      },
+      "cost": 0.001931376,
+      "tokens": {
+        "total": 14239,
+        "input": 12316,
+        "output": 91,
+        "reasoning": 40,
+        "cache": {
+          "read": 1792,
+          "write": 0
+        }
+      },
+      "finish": "tool-calls"
+    },
+    "parts": [
+      {
+        "id": "prt_17e915e16001pi6ERzMTsSq8fB",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91143b001SHEckgYxAvJt1R",
+        "type": "step-start",
+        "snapshot": "3fb576575d08c16c23120a22924d41e09bf7379b"
+      },
+      {
+        "id": "prt_17e915e1c001EpVFtkdX4UWVUH",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91143b001SHEckgYxAvJt1R",
+        "type": "reasoning",
+        "text": "The user wants me to create a todo list with todowrite first, then create oc-n28.txt containing \"hi\", then read it back.\n\nSimple task but they explicitly asked for todo list.",
+        "time": {
+          "start": 1793124818460,
+          "end": 1793124818689
+        }
+      },
+      {
+        "id": "prt_17e915f09001gR5YbDj28kriii",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91143b001SHEckgYxAvJt1R",
+        "type": "tool",
+        "callID": "call_c2a082d4bfc44567ad500d8c",
+        "tool": "todowrite",
+        "state": {
+          "status": "completed",
+          "input": {
+            "todos": [
+              {
+                "content": "Create oc-n28.txt containing hi",
+                "status": "in_progress",
+                "priority": "high"
+              },
+              {
+                "content": "Read oc-n28.txt back",
+                "status": "pending",
+                "priority": "high"
+              }
+            ]
+          },
+          "output": "[\n  {\n    \"content\": \"Create oc-n28.txt containing hi\",\n    \"status\": \"in_progress\",\n    \"priority\": \"high\"\n  },\n  {\n    \"content\": \"Read oc-n28.txt back\",\n    \"status\": \"pending\",\n    \"priority\": \"high\"\n  }\n]",
+          "title": "2 todos",
+          "metadata": {
+            "todos": [
+              {
+                "content": "Create oc-n28.txt containing hi",
+                "status": "in_progress",
+                "priority": "high"
+              },
+              {
+                "content": "Read oc-n28.txt back",
+                "status": "pending",
+                "priority": "high"
+              }
+            ],
+            "truncated": false
+          },
+          "time": {
+            "start": 1793124819065,
+            "end": 1793124819073
+          }
+        }
+      },
+      {
+        "id": "prt_17e916641001UDuZ6Jy8KtcaeN",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91143b001SHEckgYxAvJt1R",
+        "type": "step-finish",
+        "reason": "tool-calls",
+        "snapshot": "3fb576575d08c16c23120a22924d41e09bf7379b",
+        "cost": 0.001931376,
+        "tokens": {
+          "total": 14239,
+          "input": 12316,
+          "output": 91,
+          "reasoning": 40,
+          "cache": {
+            "read": 1792,
+            "write": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_17e916ff2001uV5Bt7KhLXP9PT",
+      "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+      "role": "assistant",
+      "time": {
+        "created": 1793124823026,
+        "completed": 1793124835941
+      },
+      "parentID": "msg_17e9113f7001jcVNnDfLmELxGh",
+      "modelID": "deepseek-v4.1-flash",
+      "providerID": "opencode-go",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "C:\\Users\\you\\proj",
+        "root": "C:\\Users\\you\\proj"
+      },
+      "cost": 0.00011769,
+      "tokens": {
+        "total": 14382,
+        "input": 235,
+        "output": 67,
+        "reasoning": 0,
+        "cache": {
+          "read": 14080,
+          "write": 0
+        }
+      },
+      "finish": "tool-calls"
+    },
+    "parts": [
+      {
+        "id": "prt_17e91898d0016qNw7bcmUvERDR",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e916ff2001uV5Bt7KhLXP9PT",
+        "type": "step-start",
+        "snapshot": "3fb576575d08c16c23120a22924d41e09bf7379b"
+      },
+      {
+        "id": "prt_17e918a51001LuErckKS7mMWIM",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e916ff2001uV5Bt7KhLXP9PT",
+        "type": "tool",
+        "callID": "call_c539199adfa949ffa86b2a43",
+        "tool": "write",
+        "state": {
+          "status": "completed",
+          "input": {
+            "content": "hi",
+            "filePath": "C:\\Users\\you\\proj\\oc-n28.txt"
+          },
+          "output": "Wrote file successfully.",
+          "title": "oc-n28.txt",
+          "metadata": {
+            "diagnostics": {},
+            "filepath": "C:\\Users\\you\\proj\\oc-n28.txt",
+            "exists": false,
+            "truncated": false
+          },
+          "time": {
+            "start": 1793124830068,
+            "end": 1793124830117
+          }
+        }
+      },
+      {
+        "id": "prt_17e9194c4001Z6dGPgfm4I63VS",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e916ff2001uV5Bt7KhLXP9PT",
+        "type": "step-finish",
+        "reason": "tool-calls",
+        "snapshot": "0d14ca13944d6900bb07db3ac5160736b20a29ad",
+        "cost": 0.00011769,
+        "tokens": {
+          "total": 14382,
+          "input": 235,
+          "output": 67,
+          "reasoning": 0,
+          "cache": {
+            "read": 14080,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "prt_17e91a2610016D9nFU5FhG9Vbu",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e916ff2001uV5Bt7KhLXP9PT",
+        "type": "patch",
+        "hash": "3fb576575d08c16c23120a22924d41e09bf7379b",
+        "files": [
+          "C:/Users/you/proj/oc-n28.txt"
+        ]
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_17e91a26b001Nu93iGux4MGSb4",
+      "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+      "role": "assistant",
+      "time": {
+        "created": 1793124835947,
+        "completed": 1793124846085
+      },
+      "parentID": "msg_17e9113f7001jcVNnDfLmELxGh",
+      "modelID": "deepseek-v4.1-flash",
+      "providerID": "opencode-go",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "C:\\Users\\you\\proj",
+        "root": "C:\\Users\\you\\proj"
+      },
+      "cost": 0.000101574,
+      "tokens": {
+        "total": 14448,
+        "input": 189,
+        "output": 51,
+        "reasoning": 0,
+        "cache": {
+          "read": 14208,
+          "write": 0
+        }
+      },
+      "finish": "tool-calls"
+    },
+    "parts": [
+      {
+        "id": "prt_17e91b469001gG5C5MthcMz6Cb",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91a26b001Nu93iGux4MGSb4",
+        "type": "step-start",
+        "snapshot": "0d14ca13944d6900bb07db3ac5160736b20a29ad"
+      },
+      {
+        "id": "prt_17e91b46f001WejdUqYeMmKTZQ",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91a26b001Nu93iGux4MGSb4",
+        "type": "tool",
+        "callID": "call_86bfdc21c0c64cb8ab691ad3",
+        "tool": "read",
+        "state": {
+          "status": "completed",
+          "input": {
+            "filePath": "C:\\Users\\you\\proj\\oc-n28.txt"
+          },
+          "output": "<path>C:\\Users\\you\\proj\\oc-n28.txt</path>\n<type>file</type>\n<content>\n1: hi\n\n(End of file - total 1 lines)\n</content>",
+          "title": "oc-n28.txt",
+          "metadata": {
+            "preview": "hi",
+            "truncated": false,
+            "loaded": [],
+            "display": {
+              "type": "file",
+              "path": "C:\\Users\\you\\proj\\oc-n28.txt",
+              "text": "hi",
+              "lineStart": 1,
+              "lineEnd": 1,
+              "totalLines": 1,
+              "truncated": false
+            }
+          },
+          "time": {
+            "start": 1793124840856,
+            "end": 1793124842205
+          }
+        }
+      },
+      {
+        "id": "prt_17e91c211001EJgtZ9JgAkH7Oa",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91a26b001Nu93iGux4MGSb4",
+        "type": "step-finish",
+        "reason": "tool-calls",
+        "snapshot": "0d14ca13944d6900bb07db3ac5160736b20a29ad",
+        "cost": 0.000101574,
+        "tokens": {
+          "total": 14448,
+          "input": 189,
+          "output": 51,
+          "reasoning": 0,
+          "cache": {
+            "read": 14208,
+            "write": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_17e91ca0d001PUVn18pTZ4GcYN",
+      "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+      "role": "assistant",
+      "time": {
+        "created": 1793124846093,
+        "completed": 1793124852742
+      },
+      "parentID": "msg_17e9113f7001jcVNnDfLmELxGh",
+      "modelID": "deepseek-v4.1-flash",
+      "providerID": "opencode-go",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "C:\\Users\\you\\proj",
+        "root": "C:\\Users\\you\\proj"
+      },
+      "cost": 0.000121458,
+      "tokens": {
+        "total": 14592,
+        "input": 167,
+        "output": 89,
+        "reasoning": 0,
+        "cache": {
+          "read": 14336,
+          "write": 0
+        }
+      },
+      "finish": "tool-calls"
+    },
+    "parts": [
+      {
+        "id": "prt_17e91d740001Kyla0xp73mHvph",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91ca0d001PUVn18pTZ4GcYN",
+        "type": "step-start",
+        "snapshot": "0d14ca13944d6900bb07db3ac5160736b20a29ad"
+      },
+      {
+        "id": "prt_17e91d745001ccyiT3TGcDgAKJ",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91ca0d001PUVn18pTZ4GcYN",
+        "type": "tool",
+        "callID": "call_f0249555eb8a413a99252ddb",
+        "tool": "todowrite",
+        "state": {
+          "status": "completed",
+          "input": {
+            "todos": [
+              {
+                "content": "Create oc-n28.txt containing hi",
+                "priority": "high",
+                "status": "completed"
+              },
+              {
+                "content": "Read oc-n28.txt back",
+                "priority": "high",
+                "status": "completed"
+              }
+            ]
+          },
+          "output": "[\n  {\n    \"content\": \"Create oc-n28.txt containing hi\",\n    \"status\": \"completed\",\n    \"priority\": \"high\"\n  },\n  {\n    \"content\": \"Read oc-n28.txt back\",\n    \"status\": \"completed\",\n    \"priority\": \"high\"\n  }\n]",
+          "title": "0 todos",
+          "metadata": {
+            "todos": [
+              {
+                "content": "Create oc-n28.txt containing hi",
+                "status": "completed",
+                "priority": "high"
+              },
+              {
+                "content": "Read oc-n28.txt back",
+                "status": "completed",
+                "priority": "high"
+              }
+            ],
+            "truncated": false
+          },
+          "time": {
+            "start": 1793124849844,
+            "end": 1793124849848
+          }
+        }
+      },
+      {
+        "id": "prt_17e91de3a001TfzwvMlraXz96z",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91ca0d001PUVn18pTZ4GcYN",
+        "type": "step-finish",
+        "reason": "tool-calls",
+        "snapshot": "0d14ca13944d6900bb07db3ac5160736b20a29ad",
+        "cost": 0.000121458,
+        "tokens": {
+          "total": 14592,
+          "input": 167,
+          "output": 89,
+          "reasoning": 0,
+          "cache": {
+            "read": 14336,
+            "write": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_17e91e40a001viSZyDnJHWeW2H",
+      "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+      "role": "assistant",
+      "time": {
+        "created": 1793124852746,
+        "completed": 1793124859687
+      },
+      "parentID": "msg_17e9113f7001jcVNnDfLmELxGh",
+      "modelID": "deepseek-v4.1-flash",
+      "providerID": "opencode-go",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "C:\\Users\\you\\proj",
+        "root": "C:\\Users\\you\\proj"
+      },
+      "cost": 0.000082092,
+      "tokens": {
+        "total": 14680,
+        "input": 202,
+        "output": 14,
+        "reasoning": 0,
+        "cache": {
+          "read": 14464,
+          "write": 0
+        }
+      },
+      "finish": "stop"
+    },
+    "parts": [
+      {
+        "id": "prt_17e91eeb2001i0NKXDb4eQwVhw",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91e40a001viSZyDnJHWeW2H",
+        "type": "step-start",
+        "snapshot": "0d14ca13944d6900bb07db3ac5160736b20a29ad"
+      },
+      {
+        "id": "prt_17e91eeb500182Z6ROa67yRCd1",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91e40a001viSZyDnJHWeW2H",
+        "type": "text",
+        "text": "Done. `oc-n28.txt` contains `hi`.",
+        "time": {
+          "start": 1793124855477,
+          "end": 1793124855546
+        }
+      },
+      {
+        "id": "prt_17e91fb13001wyElr5XT9hD1Ul",
+        "sessionID": "ses_e816f0263ffevBisz6dnFVnD4Y",
+        "messageID": "msg_17e91e40a001viSZyDnJHWeW2H",
+        "type": "step-finish",
+        "reason": "stop",
+        "snapshot": "0d14ca13944d6900bb07db3ac5160736b20a29ad",
+        "cost": 0.000082092,
+        "tokens": {
+          "total": 14680,
+          "input": 202,
+          "output": 14,
+          "reasoning": 0,
+          "cache": {
+            "read": 14464,
+            "write": 0
+          }
+        }
+      }
+    ]
+  }
+]

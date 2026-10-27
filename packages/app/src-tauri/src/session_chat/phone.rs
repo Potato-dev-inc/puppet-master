@@ -66,7 +66,7 @@ fn read_with(watchers: &Watchers, pane_id: &str, opening: Option<&Opening>, sinc
                 Some(delta) => Reply {
                     available: true,
                     reason: None,
-                    source: Some(opening.source_name()),
+                    source: Some(opening.source_now(watchers, pane_id)),
                     waiting_for: watchers.waiting_for(pane_id).map(|_| WAITING.to_string()),
                     rev: delta.rev,
                     reset: delta.reset,

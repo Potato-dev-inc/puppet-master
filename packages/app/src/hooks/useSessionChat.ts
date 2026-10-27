@@ -6,6 +6,7 @@ import {
   groupTurns,
   mergeItems,
   onSessionChatItems,
+  onSessionChatSource,
   onSessionChatStatus,
   openSessionChat,
   type ChatItem,
@@ -59,6 +60,7 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
     let live = true;
     let unlisten: (() => void) | null = null;
     let unlistenStatus: (() => void) | null = null;
+    let unlistenSource: (() => void) | null = null;
     setItems([]);
     setStatus(LOADING);
 
@@ -79,6 +81,16 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
     })
       .then((off) => {
         if (live) unlistenStatus = off;
+        else off();
+      })
+      .catch(() => undefined);
+
+    void onSessionChatSource((event) => {
+      if (!live || event.paneId !== paneId) return;
+      setStatus((prev) => (prev.state === 'ready' ? { ...prev, source: event.source } : prev));
+    })
+      .then((off) => {
+        if (live) unlistenSource = off;
         else off();
       })
       .catch(() => undefined);
@@ -107,6 +119,7 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
       live = false;
       unlisten?.();
       unlistenStatus?.();
+      unlistenSource?.();
       void closeSessionChat(paneId, surface).catch(() => undefined);
     };
   }, [paneId, enabled, surface]);
