@@ -39,9 +39,6 @@ export function isValidName(name: string): boolean {
 /** The state to read on the card: the backend's sentence, or the plain word when it sent none. */
 export const stateLineOf = (view: Pick<CompanionView, 'stateLine' | 'state'>, fallback: string): string => view.stateLine || fallback;
 
-/** The check-in list is only on the view once the backend sends it (SPEC section 2.1 does not yet). */
-export type CompanionWithCheckIns = CompanionView & { checkins?: CheckIn[] };
-
 /** The check-in presets in the add sheet, in order. */
 export type WhenKind = 'daily' | 'weekdays' | 'weekly' | 'every' | 'once';
 

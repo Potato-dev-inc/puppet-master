@@ -13,7 +13,7 @@ import { Sheet } from '../Sheet';
 import { CheckInsCard } from './CheckInsCard';
 import { MemoryCard } from './MemoryCard';
 import { PendingCard } from './PendingCard';
-import { isValidName, stateLineOf, type CompanionWithCheckIns } from './model';
+import { isValidName, stateLineOf } from './model';
 import '../../../styles/cockpit-companion.css';
 
 export interface CompanionPageProps {
@@ -44,7 +44,8 @@ export function CompanionPage(props: CompanionPageProps) {
   const sleeping = companion.state === 'sleeping';
   const name = companion.name;
   const folder = companion.folder ?? companion.folderName;
-  const checkins = (companion as CompanionWithCheckIns).checkins;
+  // The desktop view carries the list; without it (an older backend) the card offers no editor.
+  const checkins = companion.checkins;
 
   // One command at a time; a failure becomes a sentence, never a thrown error.
   const run = async (command: () => Promise<unknown>, failed: string) => {

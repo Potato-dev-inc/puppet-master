@@ -85,6 +85,17 @@ describe('CompanionPage', () => {
     expect(host.querySelector('[data-testid="chat"]')?.textContent).toBe('companion-mochi');
   });
 
+  it('turns the check-in editor on when the view carries the list, and keeps what it cannot see off', async () => {
+    await render(view({ checkins: [{ id: 'a1b2c3d4', label: 'Morning', text: 'Say hi', when: { kind: 'daily', at: { h: 8, m: 0 } }, enabled: true }] }));
+    expect(host.textContent).toContain('Morning');
+    expect(button('Add a check-in')).toBeTruthy();
+  });
+
+  it('offers no editor while the view has no check-in list (a save would replace check-ins it cannot see)', async () => {
+    await render(view());
+    expect(button('Add a check-in')).toBeUndefined();
+  });
+
   it('Sleep sends the sleep command', async () => {
     const { transport, props } = await render(view());
     await act(async () => button('Sleep')!.click());

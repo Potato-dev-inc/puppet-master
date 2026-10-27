@@ -380,7 +380,7 @@ export function fakeCompanionTransport(seed: FakeCompanionSeed = {}): FakeCompan
         return { ...memory };
       }),
     tidyUp: (id) => log('tidyUp', [id], () => undefined),
-    setCheckIns: (id, checkins) => log('setCheckIns', [id, checkins], () => put({ ...find(id), nextCheckin: null })),
+    setCheckIns: (id, checkins) => log('setCheckIns', [id, checkins], () => put({ ...find(id), checkins, nextCheckin: null })),
     openFolder: (id) => log('openFolder', [id], () => undefined),
   };
 }

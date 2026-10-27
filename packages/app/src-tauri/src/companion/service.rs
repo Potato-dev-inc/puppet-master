@@ -44,6 +44,11 @@ pub fn pane_id_of(id: &str) -> String {
     format!("companion-{id}")
 }
 
+/// Whether a pane id is a companion's (the person opens it from the sidebar; it never gets a window by itself).
+pub fn is_pane_id(pane_id: &str) -> bool {
+    pane_id.starts_with("companion-")
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum OutKind {
     /// First message after a start for an agent that has no instruction file of its own.

@@ -103,6 +103,11 @@ pub fn open_primary_window(app: &AppHandle) {
     }
 }
 
+/// The switch to Individual opens a pop-out for each live pane except a background one (a companion).
+fn gets_window_on_switch(pane_id: &str) -> bool {
+    !crate::companion::service::is_pane_id(pane_id)
+}
+
 /// Switch mode: persist it, announce `ui://mode-changed`, then move the windows.
 /// Individual: a pop-out for every live pane, then hide the cockpit. Orchestration: destroy every
 /// pop-out (without killing panes) and show the cockpit.
@@ -122,7 +127,7 @@ pub fn set_mode(app: &AppHandle, mode: UiMode) -> Result<(), String> {
     std::thread::spawn(move || match mode {
         UiMode::Individual => {
             let panes = app.state::<crate::AppState>().registry.lock().list();
-            for pane in panes {
+            for pane in panes.into_iter().filter(|p| gets_window_on_switch(&p.id)) {
                 crate::app_windows::open_pane_window(&app, &pane.id, &pane.agent_type, pane.cols, pane.rows, false);
             }
             crate::app_windows::hide_cockpit_window(&app);
@@ -159,6 +164,13 @@ mod tests {
         assert_eq!(placement(UiMode::Orchestration, Origin::Agent), Placement::Nothing);
         assert_eq!(placement(UiMode::Orchestration, Origin::Tray), Placement::ShowCockpit);
         assert_eq!(placement(UiMode::Orchestration, Origin::CockpitUi), Placement::SelectOnly);
+    }
+
+    #[test]
+    fn the_switch_to_individual_skips_a_companions_pane() {
+        assert!(!gets_window_on_switch("companion-mochi"));
+        assert!(gets_window_on_switch("pane-1"));
+        assert!(gets_window_on_switch("a1b2c3"));
     }
 
     #[test]
