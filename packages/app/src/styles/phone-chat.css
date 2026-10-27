@@ -436,6 +436,17 @@
   padding: 0 10px;
   font-size: 13px;
 }
+/* Narrow phone: the one-pill switch keeps a 36px touch height; each menu row is a 44px touch target. */
+.ph .ph-chat .ck-chat-mode-pill {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.ph .ph-chat .ck-chat-mode-item {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 14px;
+}
 .ph .ph-chat .ck-chat-plan-item {
   font-size: 14px;
 }

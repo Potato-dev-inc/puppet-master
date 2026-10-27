@@ -92,6 +92,23 @@ describe('CompanionSetupSheet', () => {
     expect(onCreated).toHaveBeenCalledTimes(1);
   });
 
+  it('does not list plain shells, but keeps other unusable agents greyed with their reason', async () => {
+    await render([
+      { id: 'claude', label: 'Claude Code', ok: true, reason: null },
+      { id: 'codex', label: 'Codex', ok: false, reason: "Chat can't send messages to this agent yet." },
+      { id: 'powershell', label: 'PowerShell', ok: false, reason: "Chat can't send messages to this agent yet." },
+      { id: 'bash', label: 'Bash', ok: false, reason: "Chat can't send messages to this agent yet." },
+    ]);
+    expect(host.textContent).not.toContain('PowerShell');
+    expect(host.textContent).not.toContain('Bash');
+    expect(button('Codex').disabled).toBe(true);
+  });
+
+  it('draws each face about 40 px wide', async () => {
+    await render();
+    expect(host.querySelector('button[title="Bit"] svg')?.getAttribute('width')).toBe('40');
+  });
+
   it('will not make a companion with an empty name', async () => {
     await render();
     setValue(nameInput(), '   ');

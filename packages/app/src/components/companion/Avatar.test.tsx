@@ -137,6 +137,30 @@ describe('Avatar overlays', () => {
   });
 });
 
+describe('Avatar eyes', () => {
+  it('draws an open hole eye as a ring in its own cell, not as a solid dot', () => {
+    const svg = render({ id: 'mochi', state: 'idle' });
+    const rings = Array.from(svg.querySelectorAll<SVGCircleElement>('.ca-eye-ring'));
+    expect(rings).toHaveLength(cellCount('mochi', 'e'));
+    expect(rings.every((ring) => ring.getAttribute('r') === '0.3' && !ring.classList.contains('ca-dot'))).toBe(true);
+    // Mochi's first eye is in column 3, row 5.
+    expect(rings[0]!.getAttribute('cx')).toBe('3.5');
+    expect(rings[0]!.getAttribute('cy')).toBe('5.5');
+  });
+
+  it('draws no ring while the eyes are closed, and the closed eyes stay dim dots', () => {
+    expect(count(render({ id: 'mochi', state: 'sleeping' }), '.ca-eye-ring')).toBe(0);
+  });
+
+  it('draws no ring on a dot-eyed face, whose open eyes are full dots', () => {
+    expect(count(render({ id: 'bit', state: 'idle' }), '.ca-eye-ring')).toBe(0);
+  });
+
+  it('starts the eye rings with their row when the face starts', () => {
+    expect(count(render({ id: 'mochi', state: 'starting' }), '.ca-eye-ring.ca-move-row')).toBe(cellCount('mochi', 'e'));
+  });
+});
+
 describe('Avatar small size', () => {
   it('draws dim dots solid at half opacity below the small size', () => {
     const svg = render({ id: 'mochi', size: SMALL_PX - 4, state: 'idle' });

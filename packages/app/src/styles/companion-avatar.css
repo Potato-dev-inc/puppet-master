@@ -12,6 +12,12 @@
 .ca-dim {
   opacity: 0.35;
 }
+/* An open eye of a hole face: an outlined ring in its cell, so the eye shows on a dense body (no fill). */
+.ca-eye-ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.16;
+}
 .ca-body-sleep {
   opacity: 0.7;
 }

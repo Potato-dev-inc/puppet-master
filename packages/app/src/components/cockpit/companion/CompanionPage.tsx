@@ -2,7 +2,7 @@
 // buttons on top; the companion's own chat in the middle; a 280 px rail on the right with the memory, the pending
 // notes, the check-ins and the setup. The chat is the Chat tab's panel for the companion's pane, so its composer
 // is the same one.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CompanionTransport, CompanionView } from '../../../lib/companion';
 import { stateWord } from '../../../lib/companion';
 import { useCompanionMemory } from '../../../hooks/useCompanions';
@@ -40,6 +40,23 @@ export function CompanionPage(props: CompanionPageProps) {
   const [renaming, setRenaming] = useState(false);
   const [draftName, setDraftName] = useState(companion.name);
   const { memory, setMemory } = useCompanionMemory(transport, companion.id, `${companion.state}|${companion.pendingMemory}`);
+  // A companion that slept or napped has a sleep entry in its feed. Its next session starts empty, so the empty chat
+  // says why. (A brand-new companion has no sleep entry yet, so it gets no such line.)
+  const [sleptBefore, setSleptBefore] = useState(false);
+  useEffect(() => {
+    let live = true;
+    transport
+      .feed(companion.id)
+      .then((items) => {
+        if (live) setSleptBefore(items.some((item) => item.kind === 'slept' || item.kind === 'napped'));
+      })
+      .catch(() => {
+        if (live) setSleptBefore(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [transport, companion.id, companion.state]);
 
   const sleeping = companion.state === 'sleeping';
   const name = companion.name;
@@ -155,7 +172,19 @@ export function CompanionPage(props: CompanionPageProps) {
           </div>
         ) : companion.paneId ? (
           <div className="ck-scroll ck-fade-in ck-companion-chat" key={companion.paneId}>
-            <SessionChatPanel paneId={companion.paneId} reply={{ blockedReason: null }} />
+            <SessionChatPanel
+              paneId={companion.paneId}
+              reply={{ blockedReason: null }}
+              emptyNote={
+                sleptBefore ? (
+                  <div className="ck-companion-divider" role="note">
+                    <span className="ck-companion-divider-rule" aria-hidden="true" />
+                    <span>New session after a nap or wake-up</span>
+                    <span className="ck-companion-divider-rule" aria-hidden="true" />
+                  </div>
+                ) : undefined
+              }
+            />
           </div>
         ) : (
           <p className="ck-sub ck-companion-wait">Waking up…</p>
