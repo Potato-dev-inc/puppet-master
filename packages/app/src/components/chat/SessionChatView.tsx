@@ -1,11 +1,11 @@
 // Read-only chat of a terminal pane's agent session: the person's messages, the agent's text, each tool
 // call as one row (click to see its output) and a divider where a turn ended. Text is plain (no markdown).
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { SessionChatState } from '../../hooks/useSessionChat';
 import type { ChatSource, ChatTurn, ToolStep, TurnStep } from '../../lib/sessionChat';
 import '../../styles/cockpit-chat.css';
 
-export const SESSION_CHAT_NOTE = 'Read-only. Approvals and questions still appear in the terminal.';
+export const SESSION_CHAT_NOTE = "Read-only. You can answer the agent's questions in the card at the bottom.";
 /** Under the note when the chat is read off the terminal's text: a reading, not the agent's own record. */
 export const SCREEN_CHAT_NOTE = 'Read from the screen: text may be cut or wrapped.';
 
@@ -22,6 +22,8 @@ export interface SessionChatViewProps {
   turns: ChatTurn[];
   model: string | null;
   cliVersion: string | null;
+  /** What waits on the person (a question card, a bar): shown under the conversation, outside its scroll. */
+  dock?: ReactNode;
 }
 
 /** "800ms" is "<1s"; "12s"; "2m 5s". */
@@ -106,7 +108,7 @@ function TurnView({ turn, fromScreen }: { turn: ChatTurn; fromScreen: boolean })
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -116,6 +118,18 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
     const el = scrollRef.current;
     if (el && atBottom.current) el.scrollTop = el.scrollHeight;
   }, [turns]);
+
+  // A docked card takes height from the conversation when it appears or goes: a reader at the end stays at the
+  // end; a reader scrolled up keeps the same place.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (atBottom.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -155,6 +169,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
         )}
         {state !== 'unavailable' && turns.map((turn) => <TurnView key={turn.id} turn={turn} fromScreen={fromScreen} />)}
       </div>
+      {dock && <div className="ck-chat-dock">{dock}</div>}
     </div>
   );
 }
