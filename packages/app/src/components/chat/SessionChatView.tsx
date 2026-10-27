@@ -1,8 +1,10 @@
 // Read-only chat of a terminal pane's agent session: the person's messages, the agent's text, each tool
-// call as one row (click to see its output) and a divider where a turn ended. Text is plain (no markdown).
+// call as one row (click to see its output) and a divider where a turn ended. The agent's text is Markdown when it
+// comes from the session file; text read off the terminal is shown as it is.
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ChatSource, ChatTurn, SessionChatState, ToolStep, TurnStep } from '../../lib/sessionChatModel';
 import '../../styles/cockpit-chat.css';
+import { ChatMarkdown } from './ChatMarkdown';
 
 export const SESSION_CHAT_NOTE = 'Messages wait until the agent is free. Answer its questions in the card at the bottom.';
 /** Under the note when the chat is read off the terminal's text: a reading, not the agent's own record. */
@@ -75,8 +77,10 @@ function ToolRow({ step, fromScreen }: { step: ToolStep; fromScreen: boolean }) 
   );
 }
 
-function Step({ step, fromScreen }: { step: TurnStep; fromScreen: boolean }) {
+/** `markdown`: the text is the agent's own session file, so its Markdown is formatted; anything else is shown as is. */
+function Step({ step, fromScreen, markdown }: { step: TurnStep; fromScreen: boolean; markdown: boolean }) {
   if (step.kind === 'tool') return <ToolRow step={step} fromScreen={fromScreen} />;
+  if (markdown) return <ChatMarkdown text={step.item.text} />;
   return <div className="whitespace-pre-wrap break-words ck-chat-text">{step.item.text}</div>;
 }
 
@@ -93,7 +97,7 @@ function TurnEndDivider({ turn }: { turn: ChatTurn }) {
   );
 }
 
-function TurnView({ turn, fromScreen }: { turn: ChatTurn; fromScreen: boolean }) {
+function TurnView({ turn, fromScreen, markdown }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean }) {
   return (
     <section className="space-y-1.5 ck-chat-turn">
       {turn.user && (
@@ -104,7 +108,7 @@ function TurnView({ turn, fromScreen }: { turn: ChatTurn; fromScreen: boolean })
         </div>
       )}
       {turn.steps.map((step) => (
-        <Step key={step.id} step={step} fromScreen={fromScreen} />
+        <Step key={step.id} step={step} fromScreen={fromScreen} markdown={markdown} />
       ))}
       {turn.end && <TurnEndDivider turn={turn} />}
     </section>
@@ -113,6 +117,8 @@ function TurnView({ turn, fromScreen }: { turn: ChatTurn; fromScreen: boolean })
 
 export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
+  // Markdown only for the agent's session file; an unknown source keeps the text as it is.
+  const markdown = source === 'file';
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
 
@@ -170,7 +176,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
             )}
           </div>
         )}
-        {state !== 'unavailable' && turns.map((turn) => <TurnView key={turn.id} turn={turn} fromScreen={fromScreen} />)}
+        {state !== 'unavailable' && turns.map((turn) => <TurnView key={turn.id} turn={turn} fromScreen={fromScreen} markdown={markdown} />)}
         {state !== 'unavailable' && pending}
       </div>
       {dock && <div className="ck-chat-dock">{dock}</div>}
