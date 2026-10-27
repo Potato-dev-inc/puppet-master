@@ -251,4 +251,9 @@ impl Host for LiveHost {
             let _ = self.app.emit("companion://changed", views);
         }
     }
+
+    fn reply_pushed(&self, companion_id: &str, name: &str, text: &str, enabled: bool) {
+        // The push layer returns at once: it sends from its own thread, never from the keeper's.
+        crate::push::notify_companion_reply(companion_id, name, text, enabled);
+    }
 }

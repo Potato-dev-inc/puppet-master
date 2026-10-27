@@ -43,6 +43,8 @@ pub struct FakeHost {
     pub spawn_error: Mutex<Option<String>>,
     pub send_error: Mutex<Option<String>>,
     pub files: Mutex<Vec<InstructionFile>>,
+    /// `reply_pushed` calls: (companion id, name, text, enabled).
+    pub pushed: Mutex<Vec<(String, String, String, bool)>>,
 }
 
 impl FakeHost {
@@ -68,6 +70,7 @@ impl FakeHost {
             spawn_error: Mutex::new(None),
             send_error: Mutex::new(None),
             files: Mutex::new(Vec::new()),
+            pushed: Mutex::new(Vec::new()),
         })
     }
 
@@ -184,6 +187,10 @@ impl Host for FakeHost {
 
     fn publish(&self, views: &[CompanionView]) {
         self.published.lock().push(views.to_vec());
+    }
+
+    fn reply_pushed(&self, companion_id: &str, name: &str, text: &str, enabled: bool) {
+        self.pushed.lock().push((companion_id.into(), name.into(), text.into(), enabled));
     }
 }
 

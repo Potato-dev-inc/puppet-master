@@ -78,4 +78,8 @@ pub trait Host: Send + Sync + 'static {
 
     /// Something changed: `companion://changed` (with folders) and the phone event (without).
     fn publish(&self, views: &[CompanionView]);
+
+    /// A reply went into the feed. The push layer decides who hears it (phones with `watch`, the
+    /// once-a-minute window) and does nothing when `enabled` is false. Must not block the keeper.
+    fn reply_pushed(&self, companion_id: &str, name: &str, text: &str, enabled: bool);
 }

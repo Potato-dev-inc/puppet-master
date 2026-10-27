@@ -482,6 +482,10 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return { path: String(a.path ?? ''), files: 6, bytes: 9_120 };
         case 'plugin:dialog|save':
           return 'C:\\Users\\dev\\Desktop\\puppet-master-diagnostic.zip';
+        case 'autostart_get':
+          return false;
+        case 'autostart_set':
+          return Boolean(a.enabled);
         case 'get_app_install_info':
           return {
             version: '0.9.0',

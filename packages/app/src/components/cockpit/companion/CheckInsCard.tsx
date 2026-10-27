@@ -14,6 +14,7 @@ export function CheckInsCard({
   companionId,
   checkins,
   nextCheckin,
+  pushReplies,
   transport,
   onChanged,
 }: {
@@ -21,11 +22,15 @@ export function CheckInsCard({
   /** `undefined`: the view does not carry the list yet. */
   checkins: CheckIn[] | undefined;
   nextCheckin: NextCheckIn | null;
+  /** The companion's "Tell me on my phone" setting. `undefined` (an older view) counts as on. */
+  pushReplies?: boolean;
   transport: CompanionTransport;
   onChanged: (next: CompanionView) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pushOn = pushReplies ?? true;
 
   const save = async (next: CheckIn) => {
     setError(null);
@@ -37,11 +42,41 @@ export function CheckInsCard({
     }
   };
 
+  const togglePush = async () => {
+    if (busy) return;
+    setError(null);
+    setBusy(true);
+    try {
+      onChanged(await transport.update(companionId, { pushReplies: !pushOn }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the setting.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="ck-companion-card" aria-labelledby="ck-companion-checkins-title">
       <h2 className="ck-companion-card-title" id="ck-companion-checkins-title">
         Check-ins
       </h2>
+      <div className="ck-companion-push">
+        <span className="ck-companion-push-text">
+          <span>Tell me on my phone</span>
+          <span className="ck-sub">A push when it replies.</span>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={pushOn}
+          aria-label="Tell me on my phone"
+          className="ck-switch"
+          disabled={busy}
+          onClick={() => void togglePush()}
+        >
+          <span className="ck-switch-knob" />
+        </button>
+      </div>
       {checkins === undefined ? (
         nextCheckin ? (
           <p className="ck-sub">Next: {nextCheckin.label}</p>

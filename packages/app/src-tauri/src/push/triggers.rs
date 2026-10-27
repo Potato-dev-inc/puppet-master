@@ -40,6 +40,8 @@ pub enum Kind {
     Budget,
     /// An agent ran out of usage.
     Limit,
+    /// A companion replied (`push/companion_replies.rs`). Built there, never by `copy_for_view`.
+    CompanionReply,
 }
 
 impl Kind {
@@ -54,6 +56,7 @@ impl Kind {
             Self::Consent => "consent",
             Self::Budget => "budget",
             Self::Limit => "limit",
+            Self::CompanionReply => "companion_reply",
         }
     }
 
@@ -66,7 +69,7 @@ impl Kind {
     /// Kinds that wake a phone at once and may be held back by the rate limit (a finished run is
     /// neither).
     pub fn is_urgent(self) -> bool {
-        !matches!(self, Self::RunFinished | Self::RunFailed)
+        !matches!(self, Self::RunFinished | Self::RunFailed | Self::CompanionReply)
     }
 }
 
@@ -372,6 +375,8 @@ pub fn copy_for_view(kind: Kind, label: &str, heading: Option<&str>, prompt: Opt
             Words { title: needs_you, body: format!("{first}\n{label}") }
         }
         Kind::Error => Words { title: needs_you, body: format!("Hit an error · {label}") },
+        // Companion replies are worded by `companion_replies::Message`; this arm only keeps the match whole.
+        Kind::CompanionReply => Words { title: label.clone(), body: "New reply".to_string() },
         Kind::RunFinished => Words { title: format!("{who} · Done"), body: format!("{label} finished") },
         Kind::RunFailed => Words { title: needs_you, body: format!("Run failed · {label}") },
         Kind::Question => {

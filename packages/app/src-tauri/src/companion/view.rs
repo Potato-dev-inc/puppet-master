@@ -51,6 +51,7 @@ pub fn build(profile: &CompanionProfile, live: &Live) -> CompanionView {
         checkins: Some(profile.checkins.clone()),
         restarts: live.restarts,
         auto_start: profile.auto_start,
+        push_replies: profile.push_replies,
     }
 }
 
@@ -93,6 +94,7 @@ mod tests {
             folder: "C:\\Users\\you\\PuppetMaster\\companions\\mochi".into(),
             auto_start: true,
             memory_review: true,
+            push_replies: true,
             nap_at: None,
             checkins: vec![],
             created_ms: 1,
