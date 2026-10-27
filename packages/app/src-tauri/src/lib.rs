@@ -14,6 +14,7 @@ mod agent_health;
 mod agent_install;
 pub mod agent_hooks;
 mod app_lifecycle;
+mod autostart;
 mod app_paths;
 mod bridge;
 mod budgets;
@@ -141,6 +142,8 @@ pub fn run() {
             // a pop-out pane (no Settings) through the same code path as the tray's "New pane" menu.
             match tray::second_launch_action(args.as_slice()) {
                 tray::SecondLaunch::Settings => cockpit::open_primary_window(app),
+                // A sign-in start while the app runs: no window, no focus.
+                tray::SecondLaunch::Quiet => tracing::info!("sign-in start while running: nothing shown"),
                 tray::SecondLaunch::NewPane(agent) => {
                     let app = app.clone();
                     std::thread::spawn(move || match tray::new_pane(&app, &agent) {
@@ -150,6 +153,7 @@ pub fn run() {
                 }
             }
         }))
+        .plugin(autostart::plugin())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -317,6 +321,8 @@ pub fn run() {
             app_lifecycle::get_app_install_info,
             app_lifecycle::open_external_url,
             app_lifecycle::launch_uninstall,
+            app_lifecycle::autostart_get,
+            app_lifecycle::autostart_set,
             commands::get_worker_launch,
             commands::exit_app,
             commands::get_opencode_key_status,
@@ -572,6 +578,11 @@ pub fn run() {
             }
             if let Err(e) = tray::init(app.handle()) {
                 tracing::warn!(error = %e, "tray icon failed to start");
+            }
+            // A sign-in start opens no window (none is opened at startup in any mode); it only
+            // leaves the tray and the companion keeper running.
+            if autostart::is_background_start(&std::env::args().collect::<Vec<_>>()) {
+                tracing::info!("started at sign-in: tray only, no window");
             }
             ambient::init(app.handle());
             standby::init(registry_for_panes.clone(), app.handle().clone());

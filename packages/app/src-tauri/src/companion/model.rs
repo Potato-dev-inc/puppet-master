@@ -75,6 +75,9 @@ pub struct CompanionProfile {
     /// false = pending items are kept automatically (flagged ones still wait).
     #[serde(default = "yes")]
     pub memory_review: bool,
+    /// Push the phones that may watch (`watch` cap) when the companion replies. Default on.
+    #[serde(default = "yes")]
+    pub push_replies: bool,
     #[serde(default = "default_nap")]
     pub nap_at: Option<HhMm>,
     #[serde(default)]
@@ -164,6 +167,8 @@ pub struct CompanionView {
     /// Restarts in the last 15 minutes.
     pub restarts: u32,
     pub auto_start: bool,
+    /// Whether a reply pushes the phones (`CompanionProfile::push_replies`).
+    pub push_replies: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]

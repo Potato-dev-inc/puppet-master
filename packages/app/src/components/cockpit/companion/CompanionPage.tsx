@@ -13,6 +13,7 @@ import { Sheet } from '../Sheet';
 import { CheckInsCard } from './CheckInsCard';
 import { MemoryCard } from './MemoryCard';
 import { PendingCard } from './PendingCard';
+import { StartAtSignInHint } from './StartAtSignInHint';
 import { isValidName, stateLineOf } from './model';
 import '../../../styles/cockpit-companion.css';
 
@@ -218,7 +219,14 @@ export function CompanionPage(props: CompanionPageProps) {
               }}
             />
           )}
-          <CheckInsCard companionId={companion.id} checkins={checkins} nextCheckin={companion.nextCheckin} transport={transport} onChanged={() => onChanged()} />
+          <CheckInsCard
+            companionId={companion.id}
+            checkins={checkins}
+            nextCheckin={companion.nextCheckin}
+            pushReplies={companion.pushReplies}
+            transport={transport}
+            onChanged={() => onChanged()}
+          />
           <section className="ck-companion-card" aria-labelledby="ck-companion-setup-card">
             <h2 className="ck-companion-card-title" id="ck-companion-setup-card">
               Setup
@@ -234,6 +242,7 @@ export function CompanionPage(props: CompanionPageProps) {
                 Open folder
               </button>
             </div>
+            <StartAtSignInHint />
             <p className="ck-sub ck-companion-privacy">Its files stay on this computer, in {folder}. It never posts anything in public.</p>
           </section>
         </aside>

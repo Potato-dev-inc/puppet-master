@@ -21,6 +21,7 @@ const SCRIPT: &str = r#"
 agent = "nimbus"
 boot_ms = 200
 inline = true
+transcript = "session.jsonl"
 summary_row = "▸ Thought for {secs}s, 298 tokens"
 
 [[startup]]
@@ -228,6 +229,9 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     assert_eq!(status_of("long_reply"), Some(json!("passed")), "{}", test["checks"]);
     let long_note = test["checks"].as_array().unwrap().iter().find(|c| c["name"] == "long_reply").unwrap()["note"].as_str().unwrap().to_string();
     assert!(long_note.contains("read whole"), "{long_note}");
+    // The fake kept the conversation in `session.jsonl` in its folder, as a real CLI would: the test turn is in it, and the
+    // wizard found it, inferred the fields and checked them with the real reader.
+    assert_eq!(test["transcript"], json!({"found": true, "dir": "{cwd}", "tool_lines": false}), "{}", test["transcript"]);
     let prompts_after: Vec<String> = events_named(&session, "prompt").iter().skip(prompts_before).filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
     assert_eq!(prompts_after.len(), 5, "{prompts_after:?}");
     assert_eq!(prompts_after[0], format!("Reply with exactly the word: {two}"));
@@ -246,6 +250,15 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     assert_eq!(done["state"], "needs_approval");
     assert_eq!(done["fixtures"], json!({"passed": 8, "total": 8}));
     let file = rig.agents_dir().join("nimbus.toml");
+    // The definition carries the table the wizard found, with the comment that tells the person to check it. The wizard
+    // does not approve it.
+    let written = std::fs::read_to_string(&file).unwrap();
+    assert!(written.contains("# found by the wizard: check before approving
+[session_chat]"), "{written}");
+    assert!(written.contains("dir = \"{cwd}\"") && written.contains("role = \"/role\"") && written.contains("text = \"/content\""), "{written}");
+    assert!(!written.contains(&two), "no word of the test is in the table");
+    let provenance: Value = serde_json::from_str(&std::fs::read_to_string(rig.agents_dir().join("nimbus.wizard.json")).unwrap()).unwrap();
+    assert_eq!(provenance["transcript"]["added"], true, "{provenance}");
     let report = rig.check_definition(&file);
     assert_eq!(report["status"], "ran", "{report}");
     let results = report["results"].as_array().unwrap();

@@ -84,6 +84,13 @@ pub struct Script {
     /// `PM_FAKE_TUI_LOG` wins.
     #[serde(default)]
     pub log: Option<String>,
+    /// Append the conversation as JSONL to this file, relative to the working folder (`PM_FAKE_TUI_TRANSCRIPT` wins). See
+    /// `transcript.rs`.
+    #[serde(default)]
+    pub transcript: Option<String>,
+    /// `"flat"` (default) or `"nested"`: the shape of the transcript lines (`PM_FAKE_TUI_TRANSCRIPT_SHAPE` wins).
+    #[serde(default)]
+    pub transcript_shape: Option<String>,
     /// Nimbus only: this many filler rows of an "earlier session" sit under the banner from the start, so the
     /// banner scrolls off the top and a long conversation overflows the screen.
     #[serde(default)]

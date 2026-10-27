@@ -67,9 +67,14 @@ pub enum SecondLaunch {
     Settings,
     /// `--new-pane <agent>`: open just that pane, no Settings window.
     NewPane(String),
+    /// A sign-in start (`--background`) while the app already runs: show nothing and take no focus.
+    Quiet,
 }
 
 pub fn second_launch_action(args: &[String]) -> SecondLaunch {
+    if crate::autostart::is_background_start(args) {
+        return SecondLaunch::Quiet;
+    }
     args.iter()
         .position(|a| a == "--new-pane")
         .and_then(|i| args.get(i + 1))
@@ -532,6 +537,17 @@ mod tests {
         assert_eq!(
             second_launch_action(&a(&["app.exe", "--new-pane", "--other"])),
             SecondLaunch::Settings
+        );
+    }
+
+    #[test]
+    fn a_sign_in_second_launch_is_quiet_and_never_opens_settings() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(second_launch_action(&a(&["app.exe", "--background"])), SecondLaunch::Quiet);
+        // Quiet wins over a pane request, so a sign-in start never raises a window.
+        assert_eq!(
+            second_launch_action(&a(&["app.exe", "--new-pane", "claude", "--background"])),
+            SecondLaunch::Quiet
         );
     }
 

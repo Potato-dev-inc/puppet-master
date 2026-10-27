@@ -697,3 +697,51 @@ fn memory_edits_keep_the_caps_and_the_phone_view_hides_outside_changes() {
     assert!(kept.outside_changes.is_empty());
     assert!(!std::fs::read_to_string(root.join("mochi").join("SOUL.md")).unwrap().contains("someone else"), "Undo wrote the approved copy back");
 }
+
+// ---- replies and push ----------------------------------------------------------------------------
+
+/// One reply, the way the live host hands it over: the keeper's turn ends and the agent's words are read.
+fn finish_turn(service: &Service, host: &FakeHost, id: &str, text: &str) {
+    host.set_pane(PANE, Pane::Alive(Status::Running));
+    tick_after(service, host, 1_000);
+    *host.reply.lock() = Some(Reply { id: id.into(), text: text.into() });
+    host.set_pane(PANE, Pane::Alive(Status::Idle));
+    tick_after(service, host, 1_000);
+    tick_after(service, host, 2_000);
+}
+
+#[test]
+fn a_reply_is_handed_to_the_push_layer_with_the_companions_toggle() {
+    let (service, host, _root) = service_with_one();
+    boot(&service, &host);
+    // The primer's answer is not a reply: it is never pushed or kept.
+    finish_turn(&service, &host, "1:0", "ready");
+    assert!(host.pushed.lock().is_empty(), "the primer is not pushed");
+    finish_turn(&service, &host, "2:0", "Hello there, friend");
+    {
+        let pushed = host.pushed.lock();
+        assert_eq!(pushed.len(), 1, "one reply, one hand-over");
+        assert_eq!(pushed[0].0, "mochi");
+        assert_eq!(pushed[0].1, "Mochi");
+        assert_eq!(pushed[0].2, "Hello there, friend");
+        assert!(pushed[0].3, "on by default");
+    }
+    service.update("mochi", Patch { push_replies: Some(false), ..Patch::default() }).unwrap();
+    assert!(!mochi(&service).push_replies);
+    finish_turn(&service, &host, "3:0", "Second, quieter one.");
+    let pushed = host.pushed.lock();
+    assert_eq!(pushed.len(), 2);
+    assert!(!pushed[1].3, "the toggle is off: the push layer is told not to send");
+}
+
+#[test]
+fn a_reply_handed_over_has_the_home_folder_taken_out() {
+    let (service, host, root) = service_with_one();
+    boot(&service, &host);
+    let folder = root.join("mochi").display().to_string();
+    finish_turn(&service, &host, "1:0", "ready");
+    finish_turn(&service, &host, "2:0", &format!("Saved notes in {folder}/notes.md"));
+    let pushed = host.pushed.lock();
+    assert!(!pushed[0].2.contains(&folder), "{}", pushed[0].2);
+    assert!(pushed[0].2.contains("its folder"), "{}", pushed[0].2);
+}
