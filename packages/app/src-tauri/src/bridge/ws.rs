@@ -28,6 +28,7 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Error as WsError, Message, WebSocket};
 
 use super::errors::{enrich_handle_error, operation_http_error};
+use super::routes::panes::{raw_keys_gate_for, typed_text_keys};
 use crate::pty::PaneRegistry;
 use crate::settings_store;
 
@@ -119,17 +120,12 @@ pub(super) fn serve(
     }
     let _ = stream.set_nodelay(true);
 
-    let mut snapshot = String::new();
-    if let Ok(json) = serde_json::to_string(&registry.lock().list()) {
-        snapshot.push_str(&format!("event: panes\ndata: {json}\n\n"));
-    }
+    // The first frames, cut for this viewer like every pushed event (see `sse::first_frames`).
     let settings = settings_store::read_public_settings(app);
-    if let Ok(json) = serde_json::to_string(&settings) {
-        snapshot.push_str(&format!("event: settings\ndata: {json}\n\n"));
-    }
+    let snapshot = super::sse::first_frames(&viewer, &registry.lock().list(), &settings);
 
     let mut ws = WebSocket::from_raw_socket(stream, Role::Server, None);
-    if ws.send(Message::Text(snapshot)).is_err() {
+    if !snapshot.is_empty() && ws.send(Message::Text(snapshot)).is_err() {
         return;
     }
     if ws.get_ref().set_nonblocking(true).is_err() {
@@ -285,18 +281,14 @@ fn write_input(
 ) -> Result<(), Value> {
     let paired_phone_typing = ctx.session.is_none()
         && crate::mobile_pairing::requires_pairing_token(ctx.headers, ctx.peer_loopback);
-    if !paired_phone_typing {
-        let route_path = format!("/panes/{pane_id}/input");
-        crate::mcp_sessions::authorize(ctx.session, "POST", &route_path, message)
-            .map_err(|error| {
-                super::typing_refusals::note_refused(pane_id, super::typing_refusals::Channel::Socket, &error.message);
-                enrich_handle_error(error, ctx.registry)
-            })
-            .map_err(|error| {
-                let (_, value) = operation_http_error(error);
-                value.get("error").cloned().unwrap_or(value)
-            })?;
-    }
+    check_socket_input(
+        ctx.session,
+        paired_phone_typing,
+        ctx.registry,
+        pane_id,
+        &typed_text_keys(text, append_newline),
+        message,
+    )?;
     // A paired phone is a person typing; any other caller here is an authorised API session.
     let origin = if paired_phone_typing { crate::pty::WriteOrigin::User } else { crate::pty::WriteOrigin::Api };
     // The flight recorder also wants which caller (an agent's session, a phone, the local app).
@@ -305,6 +297,35 @@ fn write_input(
         crate::pty::registry_write_input(ctx.registry, ctx.app, pane_id, text, append_newline, false, None, origin)
     })
     .map_err(|err| Value::String(err))
+}
+
+/// The checks a socket input must pass before the write, the same ones `POST /panes/{id}/input`
+/// makes: the MCP session must be allowed to type into the pane. A paired phone skips them (its
+/// `type` cap is checked by the caller).
+fn check_socket_input(
+    session: Option<&str>,
+    paired_phone_typing: bool,
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    keys: &str,
+    message: &Value,
+) -> Result<(), Value> {
+    if paired_phone_typing {
+        return Ok(());
+    }
+    let route_path = format!("/panes/{pane_id}/input");
+    crate::mcp_sessions::authorize(session, "POST", &route_path, message)
+        .map_err(|error| {
+            super::typing_refusals::note_refused(pane_id, super::typing_refusals::Channel::Socket, &error.message);
+            enrich_handle_error(error, registry)
+        })
+        .map_err(|error| {
+            let (_, value) = operation_http_error(error);
+            value.get("error").cloned().unwrap_or(value)
+        })?;
+    // A session's raw keys into a pane showing a dialog: the same answer gate as the HTTP route.
+    raw_keys_gate_for(session, registry, pane_id, keys)
+        .map_err(|(_, value)| value.get("error").cloned().unwrap_or(value))
 }
 
 /// Queue a message and push what can be written now. WouldBlock is fine: the rest goes out on
@@ -403,6 +424,53 @@ mod tests {
         assert_eq!(pong, json!({"type": "pong", "t": 12.5}));
         let bare: Value = serde_json::from_str(r#"{"type":"ping"}"#).unwrap();
         assert_eq!(serde_json::from_str::<Value>(&pong_reply(&bare)).unwrap(), json!({"type": "pong", "t": null}));
+    }
+
+    /// A pane whose screen shows a real Claude bash approval dialog.
+    fn claude_pane_showing_a_dialog(id: &str) -> Arc<Mutex<PaneRegistry>> {
+        const DIALOG: &str = include_str!("../tui/claude/fixtures/bash_simple_4_options_2_1_299.txt");
+        let mut registry = PaneRegistry::new();
+        let mut pane = PaneRegistry::test_pane_stub(id);
+        pane.info.agent_type = "claude".into();
+        pane.screen = Arc::new(Mutex::new(vt100::Parser::new(40, 120, 0)));
+        let mut bytes = b"\x1b[2J\x1b[H".to_vec();
+        // The capture asks about `npm test` (low risk); the same dialog for a deleting command outside the project is higher.
+        bytes.extend(DIALOG.replace("npm test", "rm -rf ~/Documents").replace('\n', "\r\n").as_bytes());
+        pane.screen.lock().process(&bytes);
+        registry.panes.insert(id.into(), pane);
+        Arc::new(Mutex::new(registry))
+    }
+
+    /// An MCP session that took a pane over types a key into that pane while it shows a dialog. The
+    /// HTTP route holds the keys for a person (`raw_keys_gate_for`); the socket's `input` frame must
+    /// hold them too. The socket write itself needs an `AppHandle`, which unit tests cannot build,
+    /// so this checks the gate every socket write passes before it.
+    #[test]
+    fn a_socket_input_from_a_session_into_a_dialog_is_held_like_the_http_route() {
+        use crate::agent_authority::config::{with_config, Config};
+        const TODAY: Config = Config { ask_before_agent_control: false, agents_may_merge: true };
+        const ASKING: Config = Config { ask_before_agent_control: true, agents_may_merge: true };
+        let session = uuid::Uuid::new_v4().to_string();
+        let pane = format!("socket-dialog-{}", uuid::Uuid::new_v4());
+        let registry = claude_pane_showing_a_dialog(&pane);
+        // The session took the pane over before the person's "ask first" setting was on.
+        with_config(TODAY, || crate::mcp_sessions::take_over_pane(&session, &pane, true).unwrap());
+        crate::mcp_sessions::set_mode(&session, "shell").unwrap();
+        let message = json!({"type": "input", "pane_id": pane, "text": "1", "append_newline": false});
+        let keys = typed_text_keys("1", false);
+        with_config(ASKING, || {
+            let (_, http) = crate::bridge::routes::panes::raw_keys_gate_for(Some(&session), &registry, &pane, &keys)
+                .expect_err("HTTP holds the session's keys into a dialog");
+            assert_eq!(http["code"], "CONSENT_PENDING", "{http}");
+            // The socket's error text is the HTTP error text (the socket sends `error` only).
+            let socket = check_socket_input(Some(&session), false, &registry, &pane, &keys, &message)
+                .expect_err("the socket must hold the same keys");
+            assert_eq!(socket, http["error"], "the socket refuses as HTTP does");
+        });
+        // A paired phone is a person: never gated here.
+        with_config(ASKING, || {
+            check_socket_input(None, true, &registry, &pane, &keys, &message).expect("a phone");
+        });
     }
 
     #[test]
