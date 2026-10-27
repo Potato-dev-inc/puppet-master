@@ -49,6 +49,10 @@ export interface SessionChatViewProps {
   remember?: boolean;
   /** Shown at the top of the chat while it has no turns yet (a companion's "new session" line). */
   emptyNote?: ReactNode;
+  /** A control next to the view mode switch in the header (the side question button). */
+  headerExtra?: ReactNode;
+  /** Something laid over the chat, inside it (the side question box). */
+  overlay?: ReactNode;
 }
 
 const SUMMARY_NOTE = 'Summary: your messages, final answers and activity lines.';
@@ -108,7 +112,7 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, overlay }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for the agent's session file; an unknown source keeps the text as it is.
   const markdown = source === 'file';
@@ -141,10 +145,11 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-pm-bg text-xs text-pm-text ck-chat" data-testid="session-chat" data-view={mode}>
+    <div className="relative flex h-full min-h-0 flex-col bg-pm-bg text-xs text-pm-text ck-chat" data-testid="session-chat" data-view={mode}>
       <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-pm-border bg-pm-panel px-2 py-1 ck-chat-head">
         <span className="min-w-0 truncate ck-chat-model">{model ?? 'Model not known yet'}</span>
         {cliVersion && <span className="shrink-0 text-pm-muted ck-chat-cli">CLI {cliVersion}</span>}
+        {headerExtra && <span className="ml-auto flex shrink-0 items-center ck-chat-head-extra">{headerExtra}</span>}
         <ViewModeToggle mode={mode} onChange={setMode} />
       </header>
       <p className="border-b border-pm-border px-2 py-1 text-[11px] text-pm-muted ck-chat-note">
@@ -182,6 +187,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
       {remember && paneId && <RememberSelection paneId={paneId} root={scrollRef} />}
       {dock && <div className="ck-chat-dock">{dock}</div>}
       {state !== 'unavailable' && composer}
+      {overlay}
     </div>
   );
 }

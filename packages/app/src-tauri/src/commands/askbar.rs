@@ -45,7 +45,7 @@ pub fn askbar_resize(app: AppHandle, expanded: bool) {
     glue::resize(&app, expanded);
 }
 
-fn label_for(agent: &str) -> String {
+pub(super) fn label_for(agent: &str) -> String {
     crate::tui::descriptors()
         .into_iter()
         .find(|d| d.id.eq_ignore_ascii_case(agent))
