@@ -126,7 +126,9 @@ impl PaneLookup for RegistryPanes {
     }
 
     fn other_sessions(&self, pane_id: &str) -> Vec<String> {
-        crate::agent_hooks::ledger::pinned_sessions_except(pane_id)
+        let mut ids = crate::agent_hooks::ledger::pinned_sessions_except(pane_id);
+        ids.extend(crate::pty::launch_session::all_except(pane_id));
+        ids
     }
 
     fn api(&self, pane_id: &str) -> Option<ApiEndpoint> {

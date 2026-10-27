@@ -25,6 +25,11 @@ pub fn get(pane_id: &str) -> Option<String> {
     IDS.lock().get(pane_id).cloned()
 }
 
+/// The launch session ids of every pane but `pane_id`.
+pub fn all_except(pane_id: &str) -> Vec<String> {
+    IDS.lock().iter().filter(|(id, _)| id.as_str() != pane_id).map(|(_, session)| session.clone()).collect()
+}
+
 /// The pane is gone.
 pub fn forget(pane_id: &str) {
     IDS.lock().remove(pane_id);
@@ -38,6 +43,10 @@ mod tests {
     fn an_id_is_kept_until_the_pane_is_forgotten() {
         set("launch-session-test", Some("abc".into()));
         assert_eq!(get("launch-session-test").as_deref(), Some("abc"));
+        set("launch-session-other", Some("xyz".into()));
+        assert!(all_except("launch-session-test").contains(&"xyz".to_string()));
+        assert!(!all_except("launch-session-other").contains(&"xyz".to_string()));
+        forget("launch-session-other");
         set("launch-session-test", None);
         assert_eq!(get("launch-session-test"), None);
         set("launch-session-test", Some("def".into()));
