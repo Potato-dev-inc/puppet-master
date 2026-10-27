@@ -9,6 +9,7 @@ import type { BridgeEvent, LoopSignalInfo, OpenCodeWorkerEvent } from './bridge-
 import type { PreviewUrl } from './pane-preview';
 import type { AttentionSnapshot } from './attention';
 import type { OutboxMessage } from './paneOutbox';
+import type { CompanionView } from './companion';
 
 /** Decode a base64 terminal chunk into raw bytes. */
 export function decodeBase64(text: string): Uint8Array {
@@ -69,6 +70,10 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'pane-outbox') {
     const payload = parsed as { paneId: string; messages?: OutboxMessage[] };
     onEvent({ type: 'pane-outbox', paneId: payload.paneId, messages: Array.isArray(payload.messages) ? payload.messages : [] });
+  } else if (eventName === 'companion') {
+    // `{ v: 1, companions }` (SPEC-1028 section 11): every companion, without folders.
+    const payload = parsed as { companions?: CompanionView[] };
+    onEvent({ type: 'companion', companions: Array.isArray(payload.companions) ? payload.companions : [] });
   } else if (eventName === 'orchestrator-viewport') {
     const payload = parsed as { width: number; height: number; active: boolean };
     onEvent({
@@ -235,6 +240,7 @@ const BRIDGE_EVENT_NAMES = [
   'questions',
   'attention',
   'pane-outbox',
+  'companion',
 ] as const;
 
 function shouldUseFetchBridgeSse(baseUrl: string): boolean {

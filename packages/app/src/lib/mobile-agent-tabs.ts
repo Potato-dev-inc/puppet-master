@@ -6,6 +6,22 @@ import { agentLabel, fallbackListing, type AgentRegistryListing, type LaunchEntr
 
 export const ALL_TAB = 'all';
 
+const COMPANION_TAB_PREFIX = 'companion:';
+/** A companion's pane id on the PC (`companion-<id>`, SPEC-1028 section 4). Its own tab is never shown. */
+const COMPANION_PANE_PREFIX = 'companion-';
+
+/** The phone tab of one companion: `companion:<id>`. */
+export const companionTab = (id: string): string => `${COMPANION_TAB_PREFIX}${id}`;
+
+/** True for a companion's tab (not an agent pane's tab). */
+export const isCompanionTab = (tab: string): boolean => tab.startsWith(COMPANION_TAB_PREFIX);
+
+/** The companion id behind a companion tab, or null for any other tab. */
+export const companionIdOf = (tab: string): string | null => (isCompanionTab(tab) ? tab.slice(COMPANION_TAB_PREFIX.length) : null);
+
+/** True for the pane that a companion keeps alive. The tab bar shows the companion's own tab instead. */
+export const isCompanionPane = (paneId: string): boolean => paneId.startsWith(COMPANION_PANE_PREFIX);
+
 export interface StatusMeta {
   label: string;
   dot: string;

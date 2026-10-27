@@ -543,3 +543,14 @@ fn since_follows_the_items_of_an_open_pane() {
     assert_eq!(texts(&next.items), strings(&["two"]));
     assert!(!next.reset && next.rev > first.rev);
 }
+
+#[test]
+fn a_folder_under_home_is_written_with_a_tilde() {
+    let home = Path::new("home").join("you");
+    let other = Path::new("elsewhere").join("p");
+    let sep = std::path::MAIN_SEPARATOR;
+    assert_eq!(tilde(&home.join("projects").join("p"), Some(&home)), format!("~{sep}projects{sep}p"));
+    assert_eq!(tilde(&home, Some(&home)), "~");
+    assert_eq!(tilde(&other, Some(&home)), other.display().to_string());
+    assert_eq!(tilde(&home.join("x"), None), home.join("x").display().to_string());
+}

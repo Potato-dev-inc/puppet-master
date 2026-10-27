@@ -1,0 +1,187 @@
+/* Companion home on the phone (components/mobile/CompanionHome.tsx). Scoped under the phone shell (.ph) and
+   built on its tokens (phone.css): grayscale only, every tap target at least 44 px, and it fits a 375 px width. */
+
+.ph-comp {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* Face, feed and notes scroll above the chat, so the chat keeps room at the bottom. */
+.ph-comp-top {
+  flex: none;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.ph-comp-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 16px 6px;
+  text-align: center;
+}
+.ph-comp-face {
+  margin-bottom: 4px;
+}
+.ph-comp-name {
+  margin: 0;
+  font: 600 17px/1.2 var(--font-ui);
+  color: var(--label);
+}
+.ph-comp-state {
+  margin: 0;
+  font: 400 13px/1.35 var(--font-ui);
+  color: var(--label-3);
+}
+.ph-comp-wide {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.ph-comp-block {
+  margin-top: 14px;
+}
+.ph-comp-title {
+  margin: 0 0 6px;
+  padding: 0 32px;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--label-2);
+}
+
+.ph-comp-feed-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  padding: 11px 14px;
+}
+.ph-comp-time {
+  flex: none;
+  min-width: 52px;
+  white-space: nowrap;
+  font: 400 13px/1.45 var(--font-mono);
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.ph-comp-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font: 400 15px/1.35 var(--font-ui);
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.ph-comp-more {
+  display: block;
+  min-height: 44px;
+  margin: 0 16px;
+  padding: 0 4px;
+  font: 500 15px/1 var(--font-ui);
+  color: var(--label-2);
+}
+.ph-comp-more:active {
+  color: var(--label);
+}
+
+.ph-comp-pending {
+  min-height: 44px;
+  padding: 11px 14px;
+}
+.ph-comp-pending .ph-comp-text {
+  font-size: 15px;
+}
+.ph-comp-flag {
+  margin: 2px 0 0;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--label-3);
+}
+.ph-comp-pending-btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.ph-comp-pending-btns .ph-btn {
+  flex: 1;
+}
+
+.ph-comp-error {
+  margin: 10px 16px 0;
+  font: 400 13px/1.35 var(--font-ui);
+  color: var(--label-2);
+}
+
+/* The chat fills what is left under the top block. */
+.ph-comp-chat {
+  /* The chat view is absolutely placed (phone-chat.css): without this it covers the whole home. */
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  border-top: 1px solid var(--sep);
+}
+.ph-comp-chat > * {
+  min-height: 0;
+}
+.ph-comp-asleep {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+.ph-comp-asleep .ph-btn {
+  width: 100%;
+}
+.ph-comp-note {
+  margin: 0;
+  padding: 16px;
+  font: 400 14px/1.4 var(--font-ui);
+  color: var(--label-3);
+}
+
+/* Footer: the Sleep chip and the next check-in. */
+.ph-comp-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 4px 16px calc(4px + var(--safe-b));
+  border-top: 1px solid var(--sep);
+}
+.ph-comp-chip {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 22px;
+  background: var(--fill-hover);
+  font: 600 15px/1 var(--font-ui);
+  color: var(--label);
+}
+.ph-comp-chip:active {
+  background: var(--fill-active);
+}
+.ph-comp-chip:disabled {
+  opacity: 0.35;
+}
+.ph-comp-next {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--label-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ph-comp-more,
+  .ph-comp-chip {
+    transition: none;
+  }
+}

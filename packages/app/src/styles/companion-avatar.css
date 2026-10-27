@@ -1,0 +1,92 @@
+/* Companion face (components/companion/Avatar.tsx). Monochrome: every dot is currentColor, and every state is shown
+   with opacity and a half-cell lift. Motion classes start with ca-move- so reduced motion can switch them all off. */
+.ca-avatar {
+  display: inline-block;
+  flex: none;
+  overflow: visible;
+  vertical-align: middle;
+}
+.ca-dot {
+  fill: currentColor;
+}
+.ca-dim {
+  opacity: 0.35;
+}
+.ca-body-sleep {
+  opacity: 0.7;
+}
+.ca-stopped {
+  opacity: 0.35;
+}
+.ca-ripple {
+  opacity: 0.6;
+}
+.ca-z {
+  opacity: 0.6;
+}
+
+/* Working: the three dots ripple, 900 ms loop, the same timing as DotSpinner. The delay per dot is set inline. */
+.ca-move-ripple {
+  animation: ca-ripple 900ms ease-in-out infinite;
+}
+@keyframes ca-ripple {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Needs you: the body lifts half a cell and drops back twice, then rests for about 3 s. */
+.ca-move-hop {
+  animation: ca-hop 4s ease-in-out infinite;
+}
+@keyframes ca-hop {
+  0%,
+  20%,
+  100% {
+    transform: translateY(0);
+  }
+  5%,
+  15% {
+    transform: translateY(-0.5px);
+  }
+}
+
+/* Sleeping: the z fades in and out over 2.4 s. */
+.ca-move-z {
+  animation: ca-z 2400ms ease-in-out infinite;
+}
+@keyframes ca-z {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* Starting: each row appears once, bottom to top, 40 ms apart (the delay per row is set inline). */
+.ca-move-row {
+  animation: ca-row-in 40ms steps(1, end) both;
+}
+@keyframes ca-row-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ca-move-ripple,
+  .ca-move-hop,
+  .ca-move-z,
+  .ca-move-row {
+    animation: none;
+  }
+}

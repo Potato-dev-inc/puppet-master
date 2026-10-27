@@ -9,6 +9,7 @@ import { mergeBridgeHeaders } from './mobile-pairing-auth';
 import { localSecretHeaders } from './bridge-local-secret';
 import type { PreviewUrl } from './pane-preview';
 import type { OutboxMessage } from './paneOutbox';
+import type { CompanionView, FeedItem, MemoryView } from './companion';
 import { AttentionAnswerError, type AttentionAnswerOutcome, type AttentionSnapshot } from './attention';
 
 export type * from './bridge-types';
@@ -218,6 +219,15 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       ).message,
     listPaneMessages: async (paneId) =>
       (await call<{ messages: OutboxMessage[] | null }>('GET', `/panes/${encodeURIComponent(paneId)}/messages`)).messages ?? [],
+    companionList: async () => (await call<{ companions: CompanionView[] }>('GET', '/companions')).companions ?? [],
+    companionGet: (id) => call('GET', `/companions/${encodeURIComponent(id)}`),
+    companionFeed: async (id, sinceMs) =>
+      (await call<{ items: FeedItem[] }>('GET', `/companions/${encodeURIComponent(id)}/feed?since=${sinceMs}`)).items ?? [],
+    companionMemory: (id) => call('GET', `/companions/${encodeURIComponent(id)}/memory`),
+    companionDecidePending: (id, itemId, decision) =>
+      call('POST', `/companions/${encodeURIComponent(id)}/memory/pending/${encodeURIComponent(itemId)}`, { decision }),
+    companionWake: (id) => call('POST', `/companions/${encodeURIComponent(id)}/wake`, {}),
+    companionSleep: (id) => call('POST', `/companions/${encodeURIComponent(id)}/sleep`, {}),
     patchSettings: (patch) => call('PATCH', '/settings', patch),
     postOrchestratorMessage: (text, messageId) =>
       call('POST', '/orchestrator/message', { text, message_id: messageId }),

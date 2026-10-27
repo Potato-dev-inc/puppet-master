@@ -21,6 +21,8 @@ import { handleInboxKey, isEditable } from './inbox-keys';
 import { TeamSection } from './team/TeamSection';
 import { MissionsSection } from './mission/MissionCards';
 import { useMissions } from '../../lib/missions';
+import type { CompanionView } from '../../lib/companion';
+import { CompanionStoppedCard } from './companion/StoppedCard';
 
 /** One card in the Inbox's single list: where it sorts, and how to draw it. */
 interface Entry extends InboxEntry {
@@ -33,8 +35,14 @@ export function Inbox({
   c,
   onOpenDoctor,
   onSetUp,
+  companions,
+  onRestartCompanion,
 }: {
   c: CockpitApi;
+  /** The companions, so a stopped one gets its card (absent: none). */
+  companions?: CompanionView[] | null;
+  /** The card's "Try again": the desktop calls `companion_restart`. */
+  onRestartCompanion?: (id: string) => Promise<unknown> | void;
   onOpenDoctor?: () => void;
   /**
    * "Set up your agents" on the empty Inbox. The cockpit sends the first-run welcome here while it was
@@ -145,6 +153,15 @@ export function Inbox({
 
     for (const id of stuckIds) {
       out.push({ key: `stuck:${id}`, kind: 'stuck', quick: true, render: () => <PaneStuckCard c={c} paneId={id} dock={false} /> });
+    }
+    for (const x of companions ?? []) {
+      if (x.state !== 'stopped' || !onRestartCompanion) continue;
+      out.push({
+        key: `companion:${x.id}`,
+        kind: 'companion',
+        quick: true,
+        render: () => <CompanionStoppedCard companion={x} onTryAgain={onRestartCompanion} onOpenPane={open(x.paneId ?? undefined)} />,
+      });
     }
     return sortInbox(out);
   })();

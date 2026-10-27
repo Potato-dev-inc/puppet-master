@@ -176,6 +176,11 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         ("POST", ["panes", _, "messages"]) | ("DELETE", ["panes", _, "messages", _]) => Need::Cap(Type),
         ("GET", ["panes", _, "messages"]) => Need::Cap(Watch),
 
+        // A companion (`companion/`): reading it (list, one, feed, memory) is the default `watch` of a GET;
+        // keeping or dropping what it proposes to remember is an answer; wake and sleep act (`control`, the
+        // default of a POST). Listed exactly: a later companion route falls through to watch or control.
+        ("POST", ["companions", _, "memory", "pending", _]) => Need::Cap(Answer),
+
         // Team cards (`team::phone`): dismissing is an answer; pull, queue, apply, discard act.
         ("POST", ["team", "cards", _, "dismiss"]) => Need::AnyOf(Answer, Control),
 
@@ -378,6 +383,38 @@ data: {\"paneId\":\"p1\",\"messages\":[]}
         assert!(!may_receive(Caps::none().with(Cap::Answer, true), frame));
         assert!(!may_receive(Caps::none().with(Cap::Type, true), frame));
         assert!(may_receive(Caps::none().with(Cap::Watch, true), frame));
+    }
+
+    #[test]
+    fn companion_routes_read_with_watch_answer_for_memory_and_act_with_control() {
+        use Cap::*;
+        for path in [&["companions"][..], &["companions", "mochi"], &["companions", "mochi", "feed"], &["companions", "mochi", "memory"]] {
+            assert_eq!(route_need("GET", path), Need::Cap(Watch), "{path:?}");
+        }
+        assert_eq!(route_need("POST", &["companions", "mochi", "memory", "pending", "ab12cd34ef56"]), Need::Cap(Answer));
+        assert_eq!(route_need("POST", &["companions", "mochi", "wake"]), Need::Cap(Control));
+        assert_eq!(route_need("POST", &["companions", "mochi", "sleep"]), Need::Cap(Control));
+        // Nothing else opens up: creating, editing and deleting are not phone routes and stay control.
+        assert_eq!(route_need("POST", &["companions"]), Need::Cap(Control));
+        assert_eq!(route_need("DELETE", &["companions", "mochi"]), Need::Cap(Control));
+        assert_eq!(route_need("POST", &["companions", "mochi", "memory"]), Need::Cap(Control));
+        // A device that can only answer cannot read the feed, the list or the memory text.
+        let answer_only = Caps::none().with(Answer, true);
+        assert!(!answer_only.satisfies(route_need("GET", &["companions"])));
+        assert!(!answer_only.satisfies(route_need("GET", &["companions", "mochi", "memory"])));
+        assert!(answer_only.satisfies(route_need("POST", &["companions", "mochi", "memory", "pending", "x"])));
+    }
+
+    #[test]
+    fn the_companion_event_goes_only_to_a_device_that_can_watch() {
+        let frame = "event: companion
+data: {\"v\":1,\"companions\":[]}
+
+";
+        assert!(may_receive(Caps::none().with(Cap::Watch, true), frame));
+        assert!(!may_receive(Caps::none().with(Cap::Answer, true), frame));
+        assert!(!may_receive(Caps::none().with(Cap::Type, true).with(Cap::Control, true), frame));
+        assert!(!may_receive(Caps::none(), frame));
     }
 
     #[test]

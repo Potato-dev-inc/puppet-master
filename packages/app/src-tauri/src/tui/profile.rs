@@ -410,6 +410,14 @@ pub trait TuiProfile: Send + Sync {
         false
     }
 
+    /// Lowercase fragments of the image name or command line of processes the agent starts for
+    /// itself and keeps alive (its own helpers and tool servers). The "Background" card
+    /// (`pane_jobs`) leaves such a process, and everything under it, out of the list of jobs the
+    /// agent left running. Default: none.
+    fn helper_processes(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// Labelled "experimental" in every surface (GEN-3): generic zero-config agents.
     fn experimental(&self) -> bool {
         false
