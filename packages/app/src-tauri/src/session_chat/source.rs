@@ -38,6 +38,12 @@ pub trait SessionSource: Send + Sync {
     fn looking_in(&self, _pane: &PaneFacts) -> Option<PathBuf> {
         None
     }
+    /// Whether a pane of this agent is read off its screen until its file has something to show. A source that
+    /// someone else wrote (a definition) may point at a folder the agent never writes to; the chat must not stay
+    /// empty then. Default `false`: the file is the chat, and the view waits for it.
+    fn screen_until_found(&self) -> bool {
+        false
+    }
     /// Most bytes of the file to read in one poll (`None`: all that was added). A format whose files come from a
     /// definition someone wrote caps it, so a huge or runaway file costs a few polls, not one huge read.
     fn max_read_per_poll(&self) -> Option<u64> {

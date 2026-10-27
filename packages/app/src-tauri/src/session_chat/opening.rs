@@ -11,6 +11,9 @@ use super::watch::{Hold, Watchers};
 pub enum Opening {
     /// The agent's own session file.
     File(&'static dyn SessionSource),
+    /// The agent's session file once it has something to show, and the terminal's text until then (a file that may
+    /// never be found). Holds the agent type.
+    FileOrScreen(&'static dyn SessionSource, String),
     /// The terminal's text, for an agent whose file Puppet Master cannot read. Holds the agent type.
     Screen(String),
     /// The agent's local session API, and the terminal's text while the API does not answer. Holds the agent type.
@@ -22,6 +25,7 @@ impl Opening {
     pub fn for_agent(agent_type: &str) -> Option<Opening> {
         let profile = crate::tui::profile_for(agent_type);
         match profile.session_chat() {
+            Some(source) if source.screen_until_found() && profile.screen_chat() => Some(Opening::FileOrScreen(source, agent_type.to_string())),
             Some(source) => Some(Opening::File(source)),
             None if profile.session_api().is_some() && profile.screen_chat() => {
                 profile.session_api().map(|api| Opening::Api(api, agent_type.to_string()))
@@ -31,11 +35,12 @@ impl Opening {
         }
     }
 
-    /// `"file"`, `"screen"` or `"api"`: where the items come from. For `Api` this is what it starts as; the
+    /// `"file"`, `"screen"` or `"api"`: where the items come from. For `Api` and `FileOrScreen` this is what it starts as; the
     /// pane's reader knows what it reads from now (`Watchers::source_of`).
     pub fn source_name(&self) -> &'static str {
         match self {
             Opening::File(_) => "file",
+            Opening::FileOrScreen(..) => "screen",
             Opening::Screen(_) => "screen",
             Opening::Api(..) => "api",
         }
@@ -50,6 +55,7 @@ impl Opening {
     pub fn open(&self, watchers: &Watchers, pane_id: &str, hold: Hold) -> Vec<ChatItem> {
         match self {
             Opening::File(source) => watchers.open(pane_id, hold, *source),
+            Opening::FileOrScreen(source, agent_type) => watchers.open_screen_first(pane_id, hold, *source, agent_type),
             Opening::Screen(agent_type) => watchers.open_screen(pane_id, hold, agent_type),
             Opening::Api(api, agent_type) => watchers.open_api(pane_id, hold, *api, agent_type),
         }

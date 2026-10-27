@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use parking_lot::Mutex;
 
-use crate::session_chat::{ChatItem, PaneFacts, PaneLookup, SessionFormat, Sink, TurnOutcome, Watchers};
+use crate::session_chat::{ChatItem, PaneFacts, PaneLookup, SessionFormat, SessionSource, Sink, TurnOutcome, Watchers};
 use crate::tui::declarative::{build_for_test, parse_definition, validate, DefError, Source, ValidationContext};
 use crate::tui::TuiProfile;
 
@@ -54,6 +54,8 @@ fn the_acme_example_validates_and_declares_a_chat_source() {
     let profile = acme_profile();
     assert!(profile.session_chat().is_some());
     assert!(profile.session_api().is_none());
+    // A wrong folder in a definition must not leave the Chat tab empty: the screen is read until the file has items.
+    assert!(profile.session_chat().unwrap().screen_until_found());
     // A definition without the table keeps reading the screen.
     let plain = build_for_test(include_str!("../fixtures/definitions/minimal-tui.toml")).unwrap();
     assert!(plain.session_chat().is_none() && plain.screen_chat());

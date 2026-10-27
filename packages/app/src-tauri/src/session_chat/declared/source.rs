@@ -125,6 +125,10 @@ impl SessionSource for DeclaredSource {
         checked_dir(&dir, &allowed_roots(&names)).map(|real| PathBuf::from(crate::session_chat::plain_path(&real.to_string_lossy())))
     }
 
+    fn screen_until_found(&self) -> bool {
+        true
+    }
+
     fn max_read_per_poll(&self) -> Option<u64> {
         Some(MAX_READ_PER_POLL)
     }
