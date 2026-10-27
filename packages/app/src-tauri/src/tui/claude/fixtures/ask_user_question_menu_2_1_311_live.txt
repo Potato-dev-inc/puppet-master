@@ -1,0 +1,20 @@
+ ▐▛███▛█   Claude Code v2.1.311
+▝▜██████▀  Sonnet 5.5 · Claude Max
+ ▝▝   ▝▝   C:\Users\you\project
+
+⚠ Your login expires in 1 day · run /login to renew
+
+❯ Say one short sentence, then use the AskUserQuestion tool to ask me: Pick a colour, with options Red and Blue. Do nothing else.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── ☐ Colour
+
+Pick a colour
+
+❯ 1. Red
+     Red
+  2. Blue
+     Blue
+  3. Type something.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

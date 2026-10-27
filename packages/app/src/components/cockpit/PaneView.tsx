@@ -8,6 +8,7 @@ import { activityText } from '../../lib/pane-activity';
 import '../../styles/pane-activity.css';
 import '../../styles/live-preview.css';
 import '../../styles/pane-chrome.css';
+import '../../styles/cockpit-helpers.css';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
@@ -26,6 +27,7 @@ import { useLastTurn } from './away-context';
 import { SegTabs } from './SegTabs';
 import { Sheet } from './Sheet';
 import { paneHeading } from './titles';
+import { helperOfLabel } from '../../lib/pane-helpers';
 import { isProseStream, transcriptSpeaker } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
 import { BudgetChip } from './BudgetChip';
@@ -183,6 +185,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const name = c.names.get(paneId) ?? info.agent_type;
   const heading = paneHeading(info, name);
   const projectLine = [heading.secondary, projectWithCopy(info.cwd)].filter(Boolean).join(' · ');
+  // A pane an agent started through Puppet Master: names its parent and opens it.
+  const helperOf = helperOfLabel(c.registry.paneList, paneId, (p) => paneHeading(p.info, c.names.get(p.info.id) ?? p.info.agent_type).primary);
   const waiting = pane.status === 'waiting_input';
   const elapsed = waiting && since ? formatElapsed(c.now - since) : null;
   const stateLine = waiting && elapsed ? `Needs you · ${elapsed}` : stateText(pane.status);
@@ -236,6 +240,11 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             {projectLine}
           </span>
           {info.account_label && <span className="ck-sub-inline" data-testid="pane-account">{info.account_label}</span>}
+          {helperOf && (
+            <button type="button" className="ck-helper-of" onClick={() => c.select(helperOf.parentId)} title="Open the pane that started this one">
+              {helperOf.text}
+            </button>
+          )}
         </div>
         <UntestedChip agent={info.agent_type} />
         <BudgetChip paneId={paneId} refreshKey={pane.status} onNotify={c.notify} />

@@ -38,7 +38,9 @@ export function ApprovalPrompt({
   const [more, setMore] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const layout = layoutChoices(prompt);
-  const words = isStartupGate(prompt.kind) ? new Map<string, { text: string; code?: string }>() : choiceWords(prompt.choices);
+  // A startup gate and the agent's own question keep the agent's words ("Red", "Trust this folder"): "Allow once" would be wrong.
+  const asksQuestion = prompt.kind === 'question';
+  const words = isStartupGate(prompt.kind) || asksQuestion ? new Map<string, { text: string; code?: string }>() : choiceWords(prompt.choices);
   const high = risk?.level === 'high';
 
   // High risk: keyboard focus starts on Deny (or the details button), never on Allow, so a reflex
@@ -112,9 +114,9 @@ export function ApprovalPrompt({
           glyph={risk.level}
           risk={risk.level}
           guard={high}
-          title={risk.headline}
+          title={asksQuestion && prompt.summary ? prompt.summary : risk.headline}
           meta={who}
-          status={LEVEL_WORD[risk.level]}
+          status={asksQuestion ? null : LEVEL_WORD[risk.level]}
           age={age ?? null}
           reason={firstReason(risk) || null}
           caution={high ? CAUTION : null}
