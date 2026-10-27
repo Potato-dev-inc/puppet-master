@@ -62,6 +62,8 @@ export interface CompanionView {
   needs: NeedsRef | null;
   pendingMemory: number;
   nextCheckin: NextCheckIn | null;
+  /** Desktop only: the full check-in list for the editor. The phone copy has none. */
+  checkins?: CheckIn[];
   restarts: number;
   autoStart: boolean;
 }

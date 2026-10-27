@@ -17,6 +17,8 @@ pub enum Origin {
     Tray,
     /// The cockpit's own "new pane" button: the cockpit is already on screen.
     CockpitUi,
+    /// A companion's pane (always on, kept by Puppet Master): never a window, never focus, in either mode.
+    Background,
 }
 
 /// What presenting a pane has to do.
@@ -34,6 +36,7 @@ pub enum Placement {
 
 pub fn placement(mode: UiMode, origin: Origin) -> Placement {
     match (mode, origin) {
+        (_, Origin::Background) => Placement::Nothing,
         (UiMode::Individual, Origin::Agent) => Placement::PopOut { focus: false },
         (UiMode::Individual, _) => Placement::PopOut { focus: true },
         (UiMode::Orchestration, Origin::Agent) => Placement::Nothing,
@@ -163,5 +166,11 @@ mod tests {
         assert_eq!(placement(UiMode::Individual, Origin::Agent), Placement::PopOut { focus: false });
         assert_eq!(placement(UiMode::Individual, Origin::Tray), Placement::PopOut { focus: true });
         assert_eq!(placement(UiMode::Individual, Origin::CockpitUi), Placement::PopOut { focus: true });
+    }
+
+    #[test]
+    fn a_companion_pane_never_opens_a_window_or_takes_focus_in_either_mode() {
+        assert_eq!(placement(UiMode::Orchestration, Origin::Background), Placement::Nothing);
+        assert_eq!(placement(UiMode::Individual, Origin::Background), Placement::Nothing);
     }
 }

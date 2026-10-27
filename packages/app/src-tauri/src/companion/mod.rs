@@ -12,18 +12,39 @@
 //! - `agents`: which agents can be a companion, and the launch-arg check
 //! - `personas`: the four SOUL templates
 //!
-//! Nothing here starts a process or a thread, and nothing here names an agent.
-
-// P1 is the data and file side only. The keeper, the routes and the commands (P2) call these; until
-// then most items are unused in the library build. P2 removes this allow.
-#![allow(dead_code)]
+//! The runtime side (piece P2):
+//!
+//! - `keeper`: the pure state machine of one companion (keep one pane alive, restart with a growing
+//!   wait, sleeping when the person closes the pane, the state table, the nap rule)
+//! - `schedule`: check-ins (due, next, the 2 h rule, the daily cap), with the clock passed in
+//! - `host`: what the service needs from the app (`Host` trait); `live` implements it over the real
+//!   registry, outbox, attention list and session chat, and runs the thread `companion-keeper`
+//! - `service`: the tick over every companion; `manage`: create, edit, wake, sleep, memory, check-ins
+//! - `view`: `CompanionView` for the desktop (with the folder) and the phone (without)
+//!
+//! Only `live.rs` starts a thread or a process, and nothing here names an agent. A message to the agent
+//! goes through `pane_outbox` only: the companion never types into a pane or answers its dialogs.
 
 pub mod agents;
 pub mod brief;
 pub mod files;
+pub mod host;
+pub mod keeper;
+pub mod live;
+pub mod manage;
 pub mod memory;
 pub mod model;
 pub mod personas;
+pub mod schedule;
+pub mod service;
 pub mod store;
+pub mod view;
+
+pub use service::Service;
+
+#[cfg(test)]
+mod service_tests;
+#[cfg(test)]
+pub mod test_host;
 #[cfg(test)]
 mod tests;

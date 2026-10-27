@@ -158,6 +158,9 @@ pub struct CompanionView {
     pub needs: Option<NeedsRef>,
     pub pending_memory: u32,
     pub next_checkin: Option<NextCheckIn>,
+    /// Desktop only: the full check-in list, for the editor. The phone copy has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkins: Option<Vec<CheckIn>>,
     /// Restarts in the last 15 minutes.
     pub restarts: u32,
     pub auto_start: bool,
