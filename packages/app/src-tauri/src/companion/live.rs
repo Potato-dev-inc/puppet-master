@@ -217,7 +217,8 @@ impl Host for LiveHost {
             kind: Kind::Setup,
             pane_id: None,
             title: format!("{name} stopped 3 times. Open the terminal to see why."),
-            sentence: None,
+            // The phone draws a note, not the button: restarting is a computer action.
+            sentence: Some("Open on the computer to try again.".to_string()),
             expires_at_ms: None,
             actions: vec![Action { id: "restart".into(), label: "Try again".into(), style: "primary".into(), needs: "control".into() }],
         });

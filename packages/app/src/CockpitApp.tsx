@@ -119,7 +119,7 @@ export default function CockpitApp() {
   const { onClickCapture } = useNudgeOnAction();
   // Mission cards (Labs) count once in the one list, as they do in the Rust snapshot (tray, phone).
   const missionList = useMissions();
-  const needsYou = useNeedsYouSource(c, loop.signals, undefined, missionList.missions);
+  const needsYou = useNeedsYouSource(c, loop.signals, undefined, missionList.missions, companions.companions ?? undefined);
   // Simple mode (Settings > General) swaps the whole face; off by default, so this line does nothing then.
   const simple = useSimpleMode();
   // While the welcome is open the normal face stays, so its sign-in and install windows are visible.
@@ -183,7 +183,13 @@ export default function CockpitApp() {
         ) : view === 'pane' && c.selectedId ? (
           <PaneView c={c} paneId={c.selectedId} key={c.selectedId} />
         ) : (
-          <Inbox c={nav} onOpenDoctor={() => setView('doctor')} onSetUp={welcomeSetUp} />
+          <Inbox
+            c={nav}
+            onOpenDoctor={() => setView('doctor')}
+            onSetUp={welcomeSetUp}
+            companions={companions.companions}
+            onRestartCompanion={(id) => tauriCompanionTransport.restart(id).finally(companions.refresh)}
+          />
         )}
         {away.digest && c.mode !== 'individual' && (
           <AwayDigest
