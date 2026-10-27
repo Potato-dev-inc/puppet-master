@@ -39,6 +39,9 @@ import { usePhoneAbilities } from './hooks/usePhoneAbilities';
 import { inputRefusalNote } from './lib/input-refusal';
 import { InputRefusedNote } from './components/mobile/InputRefusedNote';
 import { TypingNote } from './components/mobile/TypingNote';
+import { PaneViewSwitch } from './components/mobile/PaneViewSwitch';
+import { PhoneChatView } from './components/mobile/PhoneChatView';
+import { chatAllowedFor, keepViewsOf, readPaneViews, writePaneViews, type PaneView } from './lib/mobile-pane-view';
 import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
 
@@ -121,6 +124,8 @@ export default function PwaApp() {
   const [toast, setToast] = useState<string | null>(null);
   const [settings, setSettings] = useState<PublicSettings>(DEFAULT_PUBLIC_SETTINGS);
   const [active, setActive] = useState<string>(readActiveTab);
+  /** Per agent tab: its terminal (the default) or its read-only chat. Only chats are remembered. */
+  const [paneViews, setPaneViews] = useState<Record<string, PaneView>>(readPaneViews);
   const [editingUrl, setEditingUrl] = useState(false);
   const [sheet, setSheet] = useState<'menu' | 'new' | null>(null);
   const [spawning, setSpawning] = useState(false);
@@ -318,6 +323,16 @@ export default function PwaApp() {
     }
   }, [active]);
 
+  useEffect(() => writePaneViews(paneViews), [paneViews]);
+  // A closed agent's view choice is forgotten (only once the real pane list has arrived).
+  useEffect(() => {
+    if (!panesLoaded) return;
+    setPaneViews((cur) => {
+      const kept = keepViewsOf(cur, panes.map((p) => p.id));
+      return Object.keys(kept).length === Object.keys(cur).length ? cur : kept;
+    });
+  }, [panes, panesLoaded]);
+
   const abilities = usePhoneAbilities(bridge, resyncKey);
   /** Read the PC's list now (an answer came back stale), instead of waiting for the next poll. */
   const refreshAttentionNow = useCallback(() => {
@@ -367,6 +382,10 @@ export default function PwaApp() {
   const labels = useMemo(() => tabLabels(panes, agentListing), [panes, agentListing]);
   const activePane = active === ALL_TAB ? undefined : registry.panes.get(active);
   const transport = useBridgePaneTransport(registry.makeTransport, activePane ? active : 'pane-placeholder');
+  // The chat is for agents, not shells. In the chat the terminal stays mounted (hidden) and nothing there claims the
+  // pane's size: no tap, return to the app or opening the tab does, only the terminal view does.
+  const chatAllowed = !!activePane && chatAllowedFor(agentListing, activePane.info.agent_type);
+  const activeView: PaneView = chatAllowed && paneViews[active] === 'chat' ? 'chat' : 'terminal';
   // Only the open agent's terminal is streamed; the All overview reads previews by polling.
   const watchedPane = activePane ? active : null;
   useEffect(() => {
@@ -432,10 +451,21 @@ export default function PwaApp() {
     },
     [requestNudge],
   );
+  const selectView = useCallback(
+    (view: PaneView) => {
+      setPaneViews((cur) => ({ ...cur, [active]: view }));
+      // Back to the terminal is like opening the tab: redraw it and take the size once it is fitted.
+      if (view === 'terminal' && active !== ALL_TAB) {
+        requestNudge(false);
+        claimOnOpenRef.current = active;
+      }
+    },
+    [active, requestNudge],
+  );
 
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState !== 'visible' || active === ALL_TAB) return;
+      if (document.visibilityState !== 'visible' || active === ALL_TAB || activeView === 'chat') return;
       requestNudge(false);
       claimOnOpenRef.current = active;
       if (fitGrid) {
@@ -445,12 +475,12 @@ export default function PwaApp() {
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [active, fitGrid, claimPaneSize, requestNudge]);
+  }, [active, activeView, fitGrid, claimPaneSize, requestNudge]);
   useEffect(() => {
-    if (!fitGrid || !activePane || claimOnOpenRef.current !== active) return;
+    if (!fitGrid || !activePane || activeView === 'chat' || claimOnOpenRef.current !== active) return;
     claimOnOpenRef.current = null;
     claimPaneSize(true);
-  }, [fitGrid, activePane, active, claimPaneSize]);
+  }, [fitGrid, activePane, activeView, active, claimPaneSize]);
   const leasedTransport = useMemo<TerminalTransport>(
     () => ({
       ...transport,
@@ -541,6 +571,24 @@ export default function PwaApp() {
     }
   }, [bridge, active, applyPanes]);
 
+  // The open agent's own card: floats over its terminal, or sits under its chat.
+  const dockedCard =
+    bridge && activePane && attention ? (
+      <DockedCard
+        snapshot={attention}
+        paneId={active}
+        bridge={bridge}
+        canAnswer={canAnswer}
+        autoFocus={deepLinked}
+        onRefresh={refreshAttentionNow}
+        onOpenPane={setActive}
+        onOpenItem={(id) => {
+          const next = attention.items.find((i) => i.id === id);
+          if (next) setSheetItem(next);
+        }}
+      />
+    ) : null;
+
   if (inviteCode) {
     return (
       <div className="pwa-shell ph bg-pm-bg text-zinc-100">
@@ -587,13 +635,14 @@ export default function PwaApp() {
           onMenu={() => setSheet('menu')}
           needsYou={attention ? blockingCount(attention) : undefined}
         />
+        {activePane && chatAllowed && <PaneViewSwitch view={activeView} onChange={selectView} />}
         {active !== ALL_TAB && stuck.get(active) && <StuckNote signal={stuck.get(active)!} />}
         {active !== ALL_TAB && previews[active]?.[0] && <PreviewNote preview={previews[active][0]} />}
         <main
           className="ph-main relative flex min-h-0 flex-1 flex-col"
           aria-label="Agent"
-          onPointerDownCapture={activePane ? onAgentPointerDown : undefined}
-          onPointerUpCapture={activePane ? onAgentPointerUp : undefined}
+          onPointerDownCapture={activePane && activeView === 'terminal' ? onAgentPointerDown : undefined}
+          onPointerUpCapture={activePane && activeView === 'terminal' ? onAgentPointerUp : undefined}
         >
           {bridge && active === ALL_TAB && (
             <AgentsOverview
@@ -610,22 +659,10 @@ export default function PwaApp() {
               onRefreshAttention={refreshAttentionNow}
             />
           )}
-          {bridge && activePane && attention && (
-            <DockedCard
-              snapshot={attention}
-              paneId={active}
-              bridge={bridge}
-              canAnswer={canAnswer}
-              autoFocus={deepLinked}
-              onRefresh={refreshAttentionNow}
-              onOpenPane={setActive}
-              onOpenItem={(id) => {
-                const next = attention.items.find((i) => i.id === id);
-                if (next) setSheetItem(next);
-              }}
-            />
-          )}
+          {activeView === 'terminal' && dockedCard}
           {activePane && (
+            // Hidden, never unmounted, in the chat: unmounting would break the terminal's grid. `invisible` keeps its size.
+            <div className={`flex min-h-0 flex-1 flex-col${activeView === 'chat' ? ' invisible' : ''}`} aria-hidden={activeView === 'chat'}>
             <BridgePaneTerminal
               key={`${active}:${resyncKey}`}
               pane={activePane.info}
@@ -640,12 +677,18 @@ export default function PwaApp() {
               refreshSignal={refreshSignal}
               keyboardResizesAgent={settings.mobile_keyboard_resizes_agent ?? false}
             />
+            </div>
+          )}
+          {activePane && activeView === 'chat' && (
+            <PhoneChatView key={active} bridge={bridge} paneId={active} canWatch={abilities.canWatch} dock={dockedCard} />
           )}
           {active !== ALL_TAB && !activePane && (
             <div className="ph-loading">Loading agent…</div>
           )}
-          {activePane && abilities.typingNote && <TypingNote text={abilities.typingNote} />}
-          {activePane && inputRefused && inputRefused.paneId === active && <InputRefusedNote text={inputRefused.text} />}
+          {activePane && activeView === 'terminal' && abilities.typingNote && <TypingNote text={abilities.typingNote} />}
+          {activePane && activeView === 'terminal' && inputRefused && inputRefused.paneId === active && (
+            <InputRefusedNote text={inputRefused.text} />
+          )}
         </main>
       </div>
       {sheet === 'new' && (

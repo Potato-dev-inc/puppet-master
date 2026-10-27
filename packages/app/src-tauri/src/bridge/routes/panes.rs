@@ -110,6 +110,7 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
         ("POST", ["model", ..]) => switch_model(cx, pane_id),
         ("GET", ["model", ..]) => inspect_model(cx, pane_id),
         ("GET", ["agent-context", ..]) => agent_context(cx, pane_id),
+        ("GET", ["chat"]) => super::chat::get(cx, pane_id),
         _ => return None,
     })
 }

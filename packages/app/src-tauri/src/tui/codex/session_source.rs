@@ -293,7 +293,7 @@ mod tests {
         facts.home = Some(home.0.clone());
         let source = crate::tui::profile_for("codex").session_chat().expect("codex has a session source");
         let watchers = Watchers::new(Arc::new(Quiet), Arc::new(Pane(facts)));
-        let items = watchers.open("pane-1", source);
+        let items = watchers.open("pane-1", "w", source);
         watchers.close_all();
 
         assert!(!items.is_empty());

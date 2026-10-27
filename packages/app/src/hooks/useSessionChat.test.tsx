@@ -97,6 +97,45 @@ describe('useSessionChat under StrictMode', () => {
   });
 });
 
+describe('useSessionChat surfaces', () => {
+  it('two views of one pane name themselves apart, and each closes only its own hold', async () => {
+    const calls: Array<{ cmd: string; surface: unknown }> = [];
+    invoke.mockImplementation(async (cmd: string, args?: { surface?: unknown }) => {
+      calls.push({ cmd, surface: args?.surface });
+      return cmd === 'session_chat_open' ? { available: true, reason: null, items: [] } : undefined;
+    });
+    function Two({ second }: { second: boolean }) {
+      useSessionChat('p1', true);
+      return second ? <Second /> : null;
+    }
+    function Second() {
+      useSessionChat('p1', true);
+      return null;
+    }
+    act(() => root.render(<Two second />));
+    await flush();
+    const opens = calls.filter((c) => c.cmd === 'session_chat_open');
+    expect(opens).toHaveLength(2);
+    expect(typeof opens[0]!.surface).toBe('string');
+    expect(opens[0]!.surface).not.toBe(opens[1]!.surface);
+
+    // One view goes away: it closes under its own name, the other keeps its hold.
+    act(() => root.render(<Two second={false} />));
+    await flush();
+    const closes = calls.filter((c) => c.cmd === 'session_chat_close');
+    expect(closes).toHaveLength(1);
+    const surfaces = opens.map((c) => c.surface);
+    expect(surfaces).toContain(closes[0]!.surface);
+
+    // The other view closes under its own name when it goes.
+    act(() => root.render(<div />));
+    await flush();
+    const all = calls.filter((c) => c.cmd === 'session_chat_close').map((c) => c.surface);
+    expect(all).toHaveLength(2);
+    expect(new Set(all)).toEqual(new Set(surfaces));
+  });
+});
+
 describe('useSessionChat source', () => {
   it('tells a chat read from the screen from one read from a file, and treats a missing source as a file', async () => {
     invoke.mockImplementation(async (cmd: string) =>

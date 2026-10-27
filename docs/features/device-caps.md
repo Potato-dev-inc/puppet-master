@@ -29,7 +29,7 @@ Agent-agnostic: nothing here knows about any agent. It is all bridge routing and
 | Class | Routes (examples) |
 |---|---|
 | any paired device | `GET /`, `/panes`, `/settings`, `/agents/types`, `/pair/me`, the three event streams, `/push/*` (own subscription) |
-| watch | every other `GET` (screens, buffers, transcripts, operations, events/recent, ...), `POST /panes/{id}/viewport`, `/orchestrator/viewport`, long-poll waits (`/agents/wait`, `/operations/{id}/wait`, `/panes/wait*`) |
+| watch | every other `GET` (screens, buffers, transcripts, operations, events/recent, ...; `GET /panes/{id}/chat?since=<rev>` is listed exactly, and its text is redacted), `POST /panes/{id}/viewport`, `/orchestrator/viewport`, long-poll waits (`/agents/wait`, `/operations/{id}/wait`, `/panes/wait*`) |
 | watch or answer | `GET /questions` |
 | answer | `POST /questions/{id}/answer|dismiss`, `/agents/answer`, OpenCode permission and question replies, the push Allow/Deny tap |
 | type | `POST /panes/{id}/input|key|resize`, WebSocket `input` frames |

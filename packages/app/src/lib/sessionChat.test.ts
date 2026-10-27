@@ -226,6 +226,22 @@ describe('Tauri wrappers', () => {
     expect(invoke).toHaveBeenLastCalledWith('session_chat_close', { paneId: 'p1' });
   });
 
+  it('each view names itself to the backend, so closing one leaves the other\'s reader', async () => {
+    setTauri(true);
+    invoke.mockResolvedValueOnce({ available: true, reason: null, items: [] });
+    await openSessionChat('p9', 's-cockpit');
+    expect(invoke).toHaveBeenLastCalledWith('session_chat_open', { paneId: 'p9', surface: 's-cockpit' });
+    invoke.mockResolvedValueOnce(undefined);
+    await closeSessionChat('p9', 's-pane');
+    expect(invoke).toHaveBeenLastCalledWith('session_chat_close', { paneId: 'p9', surface: 's-pane' });
+  });
+
+  it('re-exports the model helpers the desktop imports', async () => {
+    const model = await import('./sessionChatModel');
+    expect(groupTurns).toBe(model.groupTurns);
+    expect(mergeItems).toBe(model.mergeItems);
+  });
+
   it('keeps the waiting line the backend sends', async () => {
     setTauri(true);
     const snapshot = { available: true, reason: null, items: [], waitingFor: 'Looking in C:\\x for a file written after 05:03:05.' };

@@ -5,7 +5,7 @@
 
 use super::AppState;
 use crate::pty::PaneRegistry;
-use crate::session_chat::{ChatItem, PaneFacts, PaneLookup, ScreenRead, Sink, Watchers};
+use crate::session_chat::{ChatItem, Opening, PaneFacts, PaneLookup, ScreenRead, Sink, Watchers};
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -23,6 +23,13 @@ pub struct SessionChatState {
 }
 
 impl SessionChatState {
+    /// The readers shared by the desktop windows and the phone route (built on first use).
+    pub fn watchers(&self, app: &AppHandle, registry: &Arc<Mutex<PaneRegistry>>) -> Arc<Watchers> {
+        self.watchers
+            .get_or_init(|| Arc::new(Watchers::new(Arc::new(EventSink(app.clone())), Arc::new(RegistryPanes(registry.clone())))))
+            .clone()
+    }
+
     /// Stops every reader (the app is exiting).
     pub fn shutdown(&self) {
         if let Some(watchers) = self.watchers.get() {
@@ -99,7 +106,9 @@ pub async fn session_chat_open(
     app: AppHandle,
     state: State<'_, AppState>,
     chat: State<'_, SessionChatState>,
+    window: tauri::Window,
     pane_id: String,
+    surface: Option<String>,
 ) -> Result<SessionChatOpened, String> {
     let agent_type = state
         .registry
@@ -107,36 +116,40 @@ pub async fn session_chat_open(
         .get(&pane_id)
         .map(|pane| pane.info.agent_type.clone())
         .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
-    let profile = crate::tui::profile_for(&agent_type);
-    let source = profile.session_chat();
     // An agent with no session file Puppet Master can read is read off its screen, unless it is a plain shell.
-    if source.is_none() && !profile.screen_chat() {
+    let Some(opening) = Opening::for_agent(&agent_type) else {
         return Ok(SessionChatOpened { available: false, reason: Some(NO_SOURCE.into()), items: Vec::new(), waiting_for: None, source: None });
-    }
-    let registry = state.registry.clone();
-    let watchers = chat
-        .watchers
-        .get_or_init(|| Arc::new(Watchers::new(Arc::new(EventSink(app)), Arc::new(RegistryPanes(registry)))))
-        .clone();
+    };
+    let watchers = chat.watchers(&app, &state.registry);
+    let holder = holder_id(window.label(), surface.as_deref());
+    let source = opening.source_name();
     // The first read of a long session file happens in this call.
     let (items, waiting_for) = tauri::async_runtime::spawn_blocking(move || {
-        let items = match source {
-            Some(source) => watchers.open(&pane_id, source),
-            None => watchers.open_screen(&pane_id, &agent_type),
-        };
+        let items = opening.open(&watchers, &pane_id, holder.as_str().into());
         (items, watchers.waiting_for(&pane_id))
     })
     .await
     .map_err(|e| format!("INTERNAL: {e}"))?;
-    let source = if source.is_some() { "file" } else { "screen" };
     Ok(SessionChatOpened { available: true, reason: None, items, waiting_for, source: Some(source) })
 }
 
-/// Stop following the pane's session file or screen.
+/// One holder per chat surface: two views of one pane in a window (the cockpit and a pane view) each hold the
+/// reader, and it stops when the last lets go. `surface` is the view's own id.
+fn holder_id(window: &str, surface: Option<&str>) -> String {
+    format!("{window}#{}", surface.unwrap_or_default())
+}
+
+/// This surface stops following the pane's session file or screen; the reader stops when no other surface (or
+/// phone) is following it.
 #[tauri::command]
-pub async fn session_chat_close(chat: State<'_, SessionChatState>, pane_id: String) -> Result<(), String> {
+pub async fn session_chat_close(
+    chat: State<'_, SessionChatState>,
+    window: tauri::Window,
+    pane_id: String,
+    surface: Option<String>,
+) -> Result<(), String> {
     if let Some(watchers) = chat.watchers.get() {
-        watchers.close(&pane_id);
+        watchers.close(&pane_id, &holder_id(window.label(), surface.as_deref()));
     }
     Ok(())
 }

@@ -131,6 +131,8 @@ const ROUTES: &[(&str, &str, &str)] = &[
     // watch
     ("GET", "/panes/p1/screen", "watch"),
     ("GET", "/panes/p1/buffer?lines=50", "watch"),
+    ("GET", "/panes/p1/chat", "watch"),
+    ("GET", "/panes/p1/chat?since=5", "watch"),
     ("GET", "/agents/h1/transcript", "watch"),
     ("GET", "/operations/op1", "watch"),
     ("GET", "/events/recent", "watch"),

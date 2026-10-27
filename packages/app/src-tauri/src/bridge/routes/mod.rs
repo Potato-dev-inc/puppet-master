@@ -6,6 +6,7 @@ mod accounts;
 mod attention;
 pub(super) mod definitions;
 pub(super) mod health;
+mod chat;
 mod checkpoints;
 mod digest;
 mod flight;

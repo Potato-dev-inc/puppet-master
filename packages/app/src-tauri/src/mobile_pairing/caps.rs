@@ -156,6 +156,9 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
             Need::Device
         }
 
+        // A pane's chat (what the agent said and did) is pane text like a screen: it needs `watch`.
+        ("GET", ["panes", _, "chat"]) => Need::Cap(Watch),
+
         ("GET", ["questions"]) => Need::AnyOf(Watch, Answer),
         // The attention list (what needs the person): sentences, not terminal bytes.
         ("GET", ["attention"]) => Need::AnyOf(Watch, Answer),
@@ -375,6 +378,15 @@ data: {\"paneId\":\"p1\",\"messages\":[]}
         assert!(!may_receive(Caps::none().with(Cap::Answer, true), frame));
         assert!(!may_receive(Caps::none().with(Cap::Type, true), frame));
         assert!(may_receive(Caps::none().with(Cap::Watch, true), frame));
+    }
+
+    #[test]
+    fn a_panes_chat_needs_watch_and_no_other_cap_reads_it() {
+        assert_eq!(route_need("GET", &["panes", "p1", "chat"]), Need::Cap(Cap::Watch));
+        assert!(!Caps::watch_and_answer().with(Cap::Watch, false).satisfies(route_need("GET", &["panes", "p1", "chat"])));
+        assert!(Caps::none().with(Cap::Watch, true).satisfies(route_need("GET", &["panes", "p1", "chat"])));
+        // Nothing else under a pane named chat opens up: the route is one exact path.
+        assert_eq!(route_need("POST", &["panes", "p1", "chat"]), Need::Cap(Cap::Control));
     }
 
     #[test]
