@@ -207,6 +207,12 @@ pub enum TrustStyle {
     ArrowNoFirst,
     /// An arrow menu whose only yes is `Yes, always trust this folder`.
     Always,
+    /// Codex only: the 0.162.1 dialog as the live pane draws it (`Folder access`, the folder, `Trust this folder? ...`,
+    /// `1. Trust and continue` / `2. Quit`, footer `enter continue · esc quit`).
+    FolderAccess,
+    /// Codex only: the same dialog when Codex was started from its Agent Command Center: row 2 is
+    /// `Back to Agent Command Center` and the footer says `esc back` (live, 0.162.1).
+    FolderAccessBack,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -234,7 +240,7 @@ pub struct Gate {
     /// answers in 400 ms all found the dialog still drawn).
     #[serde(default)]
     pub linger_ms: u64,
-    /// Nimbus only: how the trust question looks.
+    /// Nimbus and Codex only: how the trust question looks.
     #[serde(default)]
     pub style: TrustStyle,
     /// Nimbus only: the screen keeps redrawing while it waits (a spinner row with a seconds counter under the

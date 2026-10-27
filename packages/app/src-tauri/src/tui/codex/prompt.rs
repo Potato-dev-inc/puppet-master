@@ -2,9 +2,12 @@
 //! Cursor's. Without it the dialog was only a startup gate (`pane_prompt::gate_prompt`): a card with
 //! no choices, so the person had to open the terminal to answer it (live r15, Codex 0.162.1).
 //!
-//! Two wordings are read:
+//! Three wordings are read:
 //! - 0.162+: `Trust this folder? ... › 1. Trust and continue  2. Quit`, footer `enter continue · esc quit`
-//!   (real capture `fixtures/trust_folder_live.txt`)
+//!   (real capture `fixtures/trust_folder_live.txt`, `trust_folder_glued_live.txt`)
+//! - 0.162+ started from the Agent Command Center: `2. Back to Agent Command Center`, footer
+//!   `enter continue · esc back` (`fixtures/trust_folder_back_live.txt`; with this wording the card had no
+//!   choices at all, live 2026-10-27)
 //! - older: `Do you trust the files in this folder? › 1. Yes, continue  2. No, quit`, footer
 //!   `Press enter to continue`
 //!
@@ -25,9 +28,10 @@ const ARROW_DOWN: &str = "\u{1b}[B";
 const ARROW_UP: &str = "\u{1b}[A";
 /// Only the end of the screen is read: a dialog is always the last thing drawn.
 const SCAN_CHARS: usize = 8_000;
-/// What Codex prints under the menu. Anything else after the last row means the dialog is gone
-/// (Codex drew its own screen below it).
-const FOOTER_MARKERS: [&str; 5] = ["press enter to continue", "enter continue", "esc quit", "enter to confirm", "esc to cancel"];
+/// What a line under the menu starts with when it is Codex's key hints (`enter continue · esc quit`,
+/// `enter continue · esc back`, `press enter to continue`). The wording of the second half changes with
+/// how the dialog was reached (quit, back, cancel, skip), so the hints are told by their keys.
+const FOOTER_STARTS: [&str; 5] = ["enter ", "esc ", "press enter", "press esc", "ctrl+"];
 
 /// A numbered row: `1. Trust and continue`. Rows can be glued onto one line (Codex fills a row to the
 /// last column and the emulator joins it to the next), so rows are found by their markers.
@@ -52,12 +56,22 @@ fn tail(text: &str) -> &str {
     &text[cut..]
 }
 
-/// `trust` for the row that trusts the folder, `deny` for the one that quits.
+/// A trimmed, lowercased row of key hints under the menu.
+fn is_footer(row: &str) -> bool {
+    FOOTER_STARTS.iter().any(|start| row.starts_with(start))
+}
+
+/// `trust` for the row that trusts the folder, `deny` for the one that leaves without trusting it
+/// (`Quit`, `No, quit`, `Back to Agent Command Center`). Other rows (`Open restricted`, ...) are no answer
+/// the card offers.
 fn classify(label: &str) -> Option<&'static str> {
     let lower = label.to_ascii_lowercase();
     if lower.starts_with("yes") || lower.starts_with("trust") {
         Some("trust")
-    } else if lower.starts_with("no") || lower.starts_with("quit") {
+    } else if matches!(
+        lower.split_whitespace().next().map(|word| word.trim_end_matches([',', '.'])),
+        Some("no" | "quit" | "exit" | "back" | "cancel" | "don't")
+    ) {
         Some("deny")
     } else {
         None
@@ -110,8 +124,7 @@ pub(super) fn trust_prompt(agent_type: &str, screen: &str) -> Option<Value> {
         return None;
     }
     // A live dialog ends with its footer; once answered, Codex draws its own screen over it.
-    let rest = FOOTER_MARKERS.iter().fold(lower[last_end..].to_string(), |acc, marker| acc.replace(marker, ""));
-    if rest.chars().any(|ch| ch.is_alphanumeric()) {
+    if !lower[last_end..].lines().map(str::trim).filter(|row| !row.is_empty()).all(is_footer) {
         return None;
     }
     let selected = options.iter().find(|o| o.pointed).map(|o| o.n).unwrap_or(1);
@@ -178,6 +191,58 @@ mod tests {
         assert_eq!(prompt_reply(&prompt, "trust", false).unwrap(), Reply::key(""));
         assert_eq!(prompt_reply(&prompt, "deny", false).unwrap(), Reply::key(ARROW_DOWN));
         assert!(prompt_reply(&prompt, "allow_all", true).is_err());
+    }
+
+    /// A capture of the standard 0.162.1 dialog as the pane buffer returns it: the question's rows run
+    /// together (`Folder settings       can run code`) and every row is padded to the pane width.
+    const GLUED_LIVE: &str = include_str!("fixtures/trust_folder_glued_live.txt");
+    /// The same dialog when Codex was started from its Agent Command Center (0.162.1, read off a live
+    /// pane): row 2 is `Back to Agent Command Center` and the footer says `esc back`, not `Quit` / `esc quit`.
+    const BACK_LIVE: &str = include_str!("fixtures/trust_folder_back_live.txt");
+
+    fn lf(text: &str) -> String {
+        text.replace("\r\n", "\n")
+    }
+
+    #[test]
+    fn the_back_wording_is_a_card_with_trust_and_dont_trust() {
+        // Live (chat-tab verify, 2026-10-27): the header said "Needs you · Trust this folder" but the pane drew
+        // no card, because `esc back` was not a footer and `Back to ...` was not a way out: no choices.
+        let prompt = trust_prompt("codex", &lf(BACK_LIVE)).expect("the back wording is read");
+        assert_eq!(prompt["kind"], "workspace_trust");
+        assert_eq!(prompt["choices"], json!(["trust", "deny"]));
+        assert_eq!(prompt["menu"]["options"][0]["label"], "Trust and continue");
+        assert_eq!(prompt["menu"]["options"][1]["label"], "Back to Agent Command Center");
+        assert_eq!(prompt["menu"]["options"][1]["choice"], "deny");
+        assert_eq!(prompt["summary"], "Codex asks to trust C:\\Users\\you\\repo-1");
+        assert_eq!(prompt_reply(&prompt, "trust", false).unwrap(), Reply::key(""));
+        assert_eq!(prompt_reply(&prompt, "deny", false).unwrap(), Reply::key(ARROW_DOWN));
+    }
+
+    #[test]
+    fn the_glued_live_capture_is_a_card_too() {
+        let prompt = trust_prompt("codex", &lf(GLUED_LIVE)).expect("the buffer as captured");
+        assert_eq!(prompt["choices"], json!(["trust", "deny"]));
+        assert_eq!(prompt["menu"]["options"][1]["label"], "Quit");
+    }
+
+    #[test]
+    fn whatever_footer_codex_hangs_under_the_menu_the_dialog_is_still_up() {
+        for footer in ["enter continue \u{b7} esc back", "enter continue \u{b7} esc cancel", "enter select \u{b7} esc skip", "press enter to continue"] {
+            let screen = lf(BACK_LIVE).replace("enter continue \u{b7} esc back", footer);
+            assert!(trust_prompt("codex", &screen).is_some(), "footer {footer:?}");
+        }
+        // Text that is not a key hint under the menu means Codex drew something else over it.
+        let drawn_over = format!("{}\n\u{2022} Working (3s)\n", lf(BACK_LIVE).trim_end());
+        assert!(trust_prompt("codex", &drawn_over).is_none());
+    }
+
+    #[test]
+    fn a_card_from_the_screen_reaches_the_dock_with_its_choices() {
+        // Through `pane_prompt`, the way the cockpit reads it: the profile's card, not the choice-less startup gate.
+        let card = crate::pane_prompt::detect_in_screen("codex", &lf(BACK_LIVE), false).expect("a card");
+        assert_eq!(card["choices"], json!(["trust", "deny"]));
+        assert!(card.get("startup_gate").is_none(), "{card}");
     }
 
     #[test]

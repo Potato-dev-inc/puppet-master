@@ -313,7 +313,11 @@ impl Engine {
             Key::Up => *selected = selected.saturating_sub(1),
             Key::Down => *selected = (*selected + 1).min(options - 1),
             Key::Enter => confirm = Some(*selected),
-            Key::Char(c) if gate.gate == GateKind::UpdateMenu || (self.layout != Layout::Claude && gate.style == crate::script::TrustStyle::Numbered) => {
+            Key::Char(c)
+                if gate.gate == GateKind::UpdateMenu
+                    || (self.layout != Layout::Claude
+                        && matches!(gate.style, crate::script::TrustStyle::Numbered | crate::script::TrustStyle::FolderAccess | crate::script::TrustStyle::FolderAccessBack)) =>
+            {
                 if let Some(n) = c.to_digit(10).filter(|n| (1..=options as u32).contains(n)) {
                     confirm = Some(n as usize - 1);
                 }
@@ -992,6 +996,26 @@ mod tests {
         yes.on_key(Key::Enter, 10);
         assert_eq!(yes.exit_code(), None);
         assert!(yes.plain(20).contains("\u{276f}\u{a0}"), "{}", yes.plain(20));
+    }
+
+    /// The 0.162.1 trust dialog as the live pane draws it, and the same dialog reached from Codex's Agent Command
+    /// Center (second row `Back to ...`, footer `esc back`).
+    #[test]
+    fn codex_folder_access_draws_the_live_dialog_and_the_back_row_declines() {
+        let mut e = engine("agent = \"codex\"\n[[startup]]\ngate = \"trust\"\nstyle = \"folder_access\"");
+        e.tick(0);
+        let s = e.plain(0);
+        assert!(s.contains("Folder access") && s.contains("Trust this folder?") && s.contains("1. Trust and continue") && s.contains("2. Quit") && s.contains("enter continue \u{b7} esc quit"), "{s}");
+        e.on_key(Key::Enter, 10);
+        assert_eq!(e.exit_code(), None, "Enter on the pointed row trusts");
+
+        let mut back = engine("agent = \"codex\"\n[[startup]]\ngate = \"trust\"\nstyle = \"folder_access_back\"");
+        back.tick(0);
+        let s = back.plain(0);
+        assert!(s.contains("2. Back to Agent Command Center") && s.contains("enter continue \u{b7} esc back") && !s.contains("Quit"), "{s}");
+        back.on_key(Key::Down, 10);
+        back.on_key(Key::Enter, 20);
+        assert_eq!(back.exit_code(), Some(1), "the Back row declines");
     }
 
     /// A CLI update that redraws the input box: only the glyph that starts the composer row changes.
