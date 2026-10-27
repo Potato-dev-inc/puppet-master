@@ -1,0 +1,73 @@
+/* Helper panes: nested under the pane of the agent that started them. Grayscale only. */
+
+/* The helpers of a row: behind a thin guide line, one step in from the row's status dot. */
+.cockpit .ck-helpers {
+  margin: 0 0 2px 15px;
+  padding-left: 5px;
+  border-left: 1px solid var(--sep);
+}
+.cockpit .ck-helpers .ck-row {
+  min-height: 30px;
+}
+
+/* "2 helpers" with a caret: folds and unfolds the list. */
+.cockpit .ck-helper-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  margin: 2px 0 1px 3px;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: var(--label-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color 160ms var(--ease),
+    color 160ms var(--ease);
+}
+.cockpit .ck-helper-chip:hover {
+  background: var(--fill);
+  color: var(--label-2);
+}
+.cockpit .ck-helper-caret {
+  width: 5px;
+  height: 5px;
+  border-right: 1.25px solid currentColor;
+  border-bottom: 1.25px solid currentColor;
+  transform: translateY(-1px) rotate(-45deg);
+  transition: transform 160ms var(--ease);
+}
+.cockpit .ck-helper-caret.is-open {
+  transform: translateY(-2px) rotate(45deg);
+}
+
+/* Pane header: "Helper of <parent>", a link to the parent's pane. */
+.cockpit .ck-helper-of {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 220px;
+  align-self: center;
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--label-2);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 160ms var(--ease);
+}
+.cockpit .ck-helper-of:hover {
+  color: var(--label);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-helper-chip,
+  .cockpit .ck-helper-caret {
+    transition: none;
+  }
+}

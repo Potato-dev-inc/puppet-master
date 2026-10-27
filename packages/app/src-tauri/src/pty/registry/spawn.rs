@@ -159,6 +159,8 @@ pub fn spawn_pane(
     let hooks = crate::agent_hooks::prepare_spawn(profile.id(), &pane_id, &cwd, &user_args);
     let mut account_env = account_env;
     account_env.set.extend(hooks.env);
+    // Names the pane to any MCP shim the agent starts, so a helper it starts can be nested under it.
+    account_env.set.push((crate::pty::PANE_ID_ENV.to_string(), pane_id.clone()));
     let extra_args: Vec<String> = user_args.into_iter().chain(hooks.extra_args).collect();
     let cmd = launch_command(
         profile.as_ref(),
@@ -210,6 +212,7 @@ pub fn spawn_pane(
         account: args.account.as_deref().map(str::trim).filter(|a| !a.is_empty()).map(str::to_string),
         account_label,
         title: None,
+        parent_pane_id: None,
     };
 
     let pane = PaneState {

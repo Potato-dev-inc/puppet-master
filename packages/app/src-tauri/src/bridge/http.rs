@@ -461,6 +461,14 @@ pub(super) fn request_session(headers: &str) -> Option<&str> {
     if let Some(client) = client {
         crate::mcp_sessions::note_session_client(session, client);
     }
+    // The pane the agent runs in, only ever a hint for nesting helper panes in the sidebar.
+    let pane = headers.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.eq_ignore_ascii_case("x-puppet-master-pane").then(|| value.trim())
+    });
+    if let Some(pane) = pane {
+        crate::mcp_sessions::note_session_pane(session, pane);
+    }
     Some(session)
 }
 
