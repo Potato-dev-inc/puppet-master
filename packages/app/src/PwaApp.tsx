@@ -18,7 +18,7 @@ import { ngrokRequestHeaders } from './lib/bridge-ngrok';
 import { mergeBridgeHeaders } from './lib/mobile-pairing-auth';
 import { LS_BRIDGE_URL, resolveBridgeBaseUrl } from './lib/bridge-url';
 import { fallbackListing, listingFromBody, type AgentRegistryListing, type LaunchEntry } from './lib/agentRegistry';
-import { ALL_TAB, companionTab, isCompanionTab, orderPanes, phoneLaunchEntries, tabLabels } from './lib/mobile-agent-tabs';
+import { ALL_TAB, companionTab, isCompanionPane, isCompanionTab, orderPanes, phoneLaunchEntries, tabLabels } from './lib/mobile-agent-tabs';
 import { bridgeCompanionTransport, type CompanionView } from './lib/companion';
 import { useBridgeCompanions } from './hooks/useBridgeCompanions';
 import { CompanionHome } from './components/mobile/CompanionHome';
@@ -407,6 +407,8 @@ export default function PwaApp() {
   }, [intent, bridge]);
 
   const labels = useMemo(() => tabLabels(panes, agentListing), [panes, agentListing]);
+  // A companion has its own tab and home; its pane is not listed a second time under All.
+  const overviewPanes = useMemo(() => panes.filter((p) => !isCompanionPane(p.id)), [panes]);
   const activeCompanion = isCompanionTab(active) ? companions.find((c) => companionTab(c.id) === active) : undefined;
   const activePane = active === ALL_TAB || isCompanionTab(active) ? undefined : registry.panes.get(active);
   const transport = useBridgePaneTransport(registry.makeTransport, activePane ? active : 'pane-placeholder');
@@ -684,7 +686,7 @@ export default function PwaApp() {
             <AgentsOverview
               bridge={bridge}
               bridgeReady={bridgeReady}
-              panes={panes}
+              panes={overviewPanes}
               labels={labels}
               onOpen={setActive}
               onNew={openNewAgentSheet}

@@ -116,6 +116,8 @@
 
 /* The chat fills what is left under the top block. */
 .ph-comp-chat {
+  /* The chat view is absolutely placed (phone-chat.css): without this it covers the whole home. */
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
