@@ -256,6 +256,17 @@ mod tests {
         assert_eq!(SOURCE.locate(&facts), Located::Found(mine));
     }
 
+    #[test]
+    fn a_finished_zst_rollout_is_found_like_a_plain_one() {
+        let home = Home::new();
+        let local = DateTime::<Local>::from(ago(25));
+        let dir = home.0.join("sessions").join(local.format("%Y/%m/%d").to_string());
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rollout-2026-10-27T09-00-00-0198a000.jsonl.zst");
+        std::fs::write(&path, include_bytes!("fixtures/rollout_basic.jsonl.zst")).unwrap();
+        assert_eq!(locate_in(&home.0, &pane(ago(30), None)), Located::Found(path));
+    }
+
     /// The whole path for a pane: the profile hands out the source, the watcher finds the rollout under the
     /// pane's Codex home and reads the fixture through the rollout format.
     #[test]

@@ -60,6 +60,8 @@ keyring = "3.6"
 # Diagnostic file: deflate and checksums for the zip writer in flight/zip.rs (both MIT OR Apache-2.0, already built for ureq).
 flate2 = "1"
 crc32fast = "1"
+# Finished Codex sessions are zstd-compressed (`rollout-*.jsonl.zst`). Pure-Rust decoder (MIT, no C code); needs rustc 1.87.
+ruzstd = "0.9"
 # Version ranges for tested-version pins (MIT OR Apache-2.0).
 semver = "1"
 # Usage-limit reset times ("resets 5pm", "try again at 9:45 PM") read in the machine's own zone
