@@ -586,6 +586,12 @@ impl Session {
         let _ = registry_kill_pane(&self.world.registry, pane_id);
     }
 
+    /// A pane outbox over this world's registry and app: the message box under the Chat tab.
+    pub fn outbox(&self) -> crate::pane_outbox::Outbox {
+        let host = crate::pane_outbox::LiveHost::new(self.world.registry.clone(), self.world.app.clone());
+        crate::pane_outbox::Outbox::new(Arc::new(host))
+    }
+
     /// The Chat tab of a pane, read off its screen (what the app does for an agent with no session file).
     pub fn open_screen_chat(&self, pane_id: &str, agent_type: &str) -> super::ChatProbe {
         super::ChatProbe::open(self.world.registry.clone(), pane_id, agent_type)

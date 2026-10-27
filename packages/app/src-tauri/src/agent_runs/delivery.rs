@@ -938,6 +938,18 @@ pub fn type_unverified(
     }
 }
 
+/// Types `text` into a pane and submits it, under the typing permit: a verified delivery for a profile that can
+/// read its input box (`deliver_prompt_traced`), a plain typed submit for the others (`type_unverified`). The
+/// operation-free core of a task delivery; `clear` is the sequence that empties the box first (`None`: the box
+/// is left as it is, for a message that must never wipe what a person typed).
+pub fn deliver_text(io: &mut dyn DeliveryIo, profile: &dyn TuiProfile, clear: Option<&str>, text: &str, trace: &mut Vec<String>) -> Delivery {
+    if profile.verifies_prompt_delivery() {
+        deliver_prompt_traced(io, clear, text, trace)
+    } else {
+        type_unverified(io, clear, text, trace)
+    }
+}
+
 /// One look at a live pane: its uncropped screen with the output position it was read at, and what
 /// the process tree says about the agent (`pty::agent_proc`). A pane that exited reads `Exited`.
 pub fn observe_pane(registry: &std::sync::Arc<parking_lot::Mutex<crate::pty::PaneRegistry>>, pane_id: &str) -> Observation {

@@ -97,6 +97,9 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
         ("GET", ["raw", ..]) => raw(cx, pane_id),
         ("GET", ["snapshot", ..]) => snapshot(cx, pane_id),
         ("POST", ["input", ..]) => input(cx, pane_id),
+        ("POST", ["messages"]) => message_send(cx, pane_id),
+        ("GET", ["messages"]) => messages_list(cx, pane_id),
+        ("DELETE", ["messages", message_id]) => message_cancel(cx, pane_id, message_id),
         ("POST", ["key", ..]) => key(cx, pane_id),
         ("POST", ["detach", ..]) => detach(cx, pane_id),
         ("POST", ["role", ..]) => session::set_pane_role(cx, pane_id),
@@ -315,6 +318,38 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
             crate::mcp_hints::suggested_wait_after_write(pane_id),
         ),
     ))
+}
+
+/// `POST /panes/{id}/messages` `{ text }`: a message for the pane's agent, sent when the agent is ready (the pane
+/// outbox, `pane_outbox`). The text in every reply is redacted: this route is the phone's.
+fn message_send(cx: &Ctx, pane_id: &str) -> RouteResult {
+    #[derive(Deserialize)]
+    struct Body {
+        text: String,
+    }
+    let req: Body = parse_json(cx.body)?;
+    let message = crate::pane_outbox::global(cx.registry, cx.app)
+        .send(pane_id, &req.text)
+        .map_err(|error| (400, json!({ "error": error, "code": "MESSAGE_REFUSED" })))?;
+    Ok((200, json!({ "message": crate::pane_outbox::redacted(&message) })))
+}
+
+/// `GET /panes/{id}/messages`: the pane's waiting messages and those that finished in the last two minutes.
+fn messages_list(cx: &Ctx, pane_id: &str) -> RouteResult {
+    let messages: Vec<_> = crate::pane_outbox::global(cx.registry, cx.app)
+        .list(pane_id)
+        .iter()
+        .map(crate::pane_outbox::redacted)
+        .collect();
+    Ok((200, json!({ "messages": messages })))
+}
+
+/// `DELETE /panes/{id}/messages/{messageId}`: cancels a message that has not started to be typed.
+fn message_cancel(cx: &Ctx, pane_id: &str, message_id: &str) -> RouteResult {
+    let message = crate::pane_outbox::global(cx.registry, cx.app)
+        .cancel(pane_id, message_id)
+        .map_err(|error| (409, json!({ "error": error, "code": "MESSAGE_NOT_CANCELLABLE" })))?;
+    Ok((200, json!({ "message": crate::pane_outbox::redacted(&message) })))
 }
 
 /// An agent's raw keys into a pane that shows a dialog answer it: the answer gate and an audit

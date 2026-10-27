@@ -33,6 +33,7 @@ import { MissionProgress } from './mission/MissionProgress';
 import { missionOfPane, useMissions } from '../../lib/missions';
 import { useAgentRegistry } from '../../lib/agentRegistry';
 import { SessionChatPanel } from '../chat/SessionChatPanel';
+import { composerBlock } from '../../lib/paneOutbox';
 
 type Tab = 'mission' | 'terminal' | 'chat' | 'changes' | 'transcript' | 'receipt' | 'history';
 
@@ -395,7 +396,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         )}
         {tab === 'chat' && chatAllowed && (
           <div className="ck-scroll ck-fade-in" key="chat">
-            <SessionChatPanel paneId={paneId} dock={chatDock} />
+            <SessionChatPanel paneId={paneId} dock={chatDock} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} />
           </div>
         )}
         {tab === 'changes' && worktree && (

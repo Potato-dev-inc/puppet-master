@@ -168,6 +168,10 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         ("POST", [_, _, "opencode", "question", "reply"]) => Need::Cap(Answer),
 
         ("POST", ["panes", _, "input" | "key" | "resize"]) => Need::Cap(Type),
+        // The Chat tab's message box (`pane_outbox`): writing or cancelling a message is typing; the list
+        // of a pane's messages is a read of the conversation.
+        ("POST", ["panes", _, "messages"]) | ("DELETE", ["panes", _, "messages", _]) => Need::Cap(Type),
+        ("GET", ["panes", _, "messages"]) => Need::Cap(Watch),
 
         // Team cards (`team::phone`): dismissing is an answer; pull, queue, apply, discard act.
         ("POST", ["team", "cards", _, "dismiss"]) => Need::AnyOf(Answer, Control),
@@ -353,6 +357,24 @@ mod tests {
     #[test]
     fn the_attention_list_is_open_to_a_phone_that_can_watch_or_answer() {
         assert_eq!(route_need("GET", &["attention"]), Need::AnyOf(Cap::Watch, Cap::Answer));
+    }
+
+    #[test]
+    fn the_message_box_routes_and_event_need_type_and_watch() {
+        assert_eq!(route_need("POST", &["panes", "p1", "messages"]), Need::Cap(Cap::Type));
+        assert_eq!(route_need("DELETE", &["panes", "p1", "messages", "m1"]), Need::Cap(Cap::Type));
+        assert_eq!(route_need("GET", &["panes", "p1", "messages"]), Need::Cap(Cap::Watch));
+        // Not a route of the box: a delete of the pane itself, or of a longer path, stays control.
+        assert_eq!(route_need("DELETE", &["panes", "p1"]), Need::Cap(Cap::Control));
+        assert_eq!(route_need("DELETE", &["panes", "p1", "messages"]), Need::Cap(Cap::Control));
+        // The event carries the people's own words: watch only (a device without it gets nothing).
+        let frame = "event: pane-outbox
+data: {\"paneId\":\"p1\",\"messages\":[]}
+
+";
+        assert!(!may_receive(Caps::none().with(Cap::Answer, true), frame));
+        assert!(!may_receive(Caps::none().with(Cap::Type, true), frame));
+        assert!(may_receive(Caps::none().with(Cap::Watch, true), frame));
     }
 
     #[test]
