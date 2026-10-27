@@ -1198,3 +1198,8 @@ mod canary;
 
 #[path = "fake_tui_chat_reply.rs"]
 mod chat_reply;
+
+// ---- the safety net: trust dialogs, two panes in one folder, two helpers (zero tokens) --------------------------------
+
+#[path = "fake_tui_safety_net.rs"]
+mod safety_net;

@@ -268,6 +268,10 @@ impl Engine {
         // Typed characters are not logged one by one (the `prompt` event carries the submitted text).
         if !matches!(key, Key::Char(_) | Key::Paste(_)) {
             self.log(now, "key", json!({ "key": format!("{key:?}") }));
+        } else if matches!(self.phase, Phase::Gate { .. } | Phase::BeforeGate { .. } | Phase::Hold) {
+            // Text typed at a startup screen or a question nothing knows: tests that say "nothing was typed
+            // into the dialog" read this (the characters are not otherwise logged).
+            self.log(now, "typed_at_gate", json!({ "chars": match &key { Key::Char(_) => 1, Key::Paste(text) => text.chars().count(), _ => 0 } }));
         }
         if let Phase::Warming { held, .. } = &mut self.phase {
             held.push(key);

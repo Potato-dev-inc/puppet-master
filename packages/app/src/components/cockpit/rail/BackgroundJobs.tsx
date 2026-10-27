@@ -18,13 +18,13 @@ function useClock(ms: number): number {
 
 const portUrl = (port: number): string => `http://localhost:${port}/`;
 
-function JobRow({ job, now, onStop }: { job: PaneJob; now: number; onStop: (pid: number) => Promise<void> }) {
+function JobRow({ job, now, onStop }: { job: PaneJob; now: number; onStop: (pid: number, startedAtMs: number) => Promise<void> }) {
   const [phase, setPhase] = useState<'idle' | 'asking' | 'stopping'>('idle');
   const [error, setError] = useState<string | null>(null);
   const stop = () => {
     setPhase('stopping');
     setError(null);
-    onStop(job.pid)
+    onStop(job.pid, job.startedAtMs)
       .catch((e: unknown) => {
         setError(typeof e === 'string' ? e : e instanceof Error ? e.message : 'Could not stop this job.');
         setPhase('idle');
@@ -74,7 +74,7 @@ function JobRow({ job, now, onStop }: { job: PaneJob; now: number; onStop: (pid:
   );
 }
 
-export function BackgroundJobs({ jobs, onStop }: { jobs: readonly PaneJob[]; onStop: (pid: number) => Promise<void> }) {
+export function BackgroundJobs({ jobs, onStop }: { jobs: readonly PaneJob[]; onStop: (pid: number, startedAtMs: number) => Promise<void> }) {
   const now = useClock(10_000);
   return (
     <ul className="ck-jobs">

@@ -7,7 +7,7 @@
 
 mod map;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -22,6 +22,9 @@ use crate::session_chat::{plain_path, ApiEndpoint, ChatItem, PaneFacts, SessionA
 const TIMEOUT: Duration = Duration::from_secs(3);
 /// The model list is large (every provider): it is read once and the answer kept this long.
 const LIMITS_FRESH: Duration = Duration::from_secs(300);
+/// How long another pane's server is asked what it works on, and how long one that did not answer is left alone.
+const NEIGHBOUR_TIMEOUT: Duration = Duration::from_millis(600);
+const SILENT_FOR: Duration = Duration::from_secs(15);
 /// Sessions of a folder that were not touched since the pane started are not this pane's.
 const SESSION_SLACK_MS: u64 = 2_000;
 
@@ -105,6 +108,12 @@ fn resolve_session(base: &str, directory: &str, pane: &PaneFacts) -> Result<Stri
         .filter(|(_, updated)| *updated >= started)
         .collect();
     candidates.sort_by_key(|(_, updated)| std::cmp::Reverse(*updated));
+    if !candidates.is_empty() {
+        // The folder's sessions are shared by every OpenCode pane in it: one another pane's server works on, or
+        // showed before, is that pane's. (A pane that has not sent anything has no session yet, and says so.)
+        let elsewhere = held_elsewhere(base, directory);
+        candidates.retain(|(id, _)| !elsewhere.contains(*id));
+    }
     let busy = get_json(&with_directory_query(&format!("{base}/session/status"), Some(directory))).ok();
     let working = |id: &str| busy.as_ref().and_then(|map| map.get(id)).is_some_and(|entry| entry["type"] != "idle");
     let mut known = known_sessions().lock();
@@ -117,6 +126,35 @@ fn resolve_session(base: &str, directory: &str, pane: &PaneFacts) -> Result<Stri
         .ok_or("opencode api: this pane has no session yet")?;
     known.insert(base.to_string(), chosen.clone());
     Ok(chosen)
+}
+
+/// Sessions another pane of this app holds: those the other panes' servers (still answering) work on right now,
+/// and the one each showed last.
+fn held_elsewhere(base: &str, directory: &str) -> HashSet<String> {
+    let others: Vec<String> = ports().lock().values().map(|port| normalize_base_url(&format!("http://127.0.0.1:{port}"))).filter(|other| other != base).collect();
+    let mut held = HashSet::new();
+    for other in others {
+        if silent().lock().get(&other).is_some_and(|since| since.elapsed() < SILENT_FOR) {
+            continue;
+        }
+        let url = with_directory_query(&format!("{other}/session/status"), Some(directory));
+        let status = ureq::get(&url).timeout(NEIGHBOUR_TIMEOUT).call().ok().and_then(|response| response.into_json::<Value>().ok());
+        let Some(status) = status else {
+            // A server that does not answer belongs to a pane that is gone (or not up yet): it holds nothing, and it is
+            // not asked again for a while (a closed port can take seconds to refuse on Windows).
+            silent().lock().insert(other, Instant::now());
+            continue;
+        };
+        held.extend(status.as_object().into_iter().flatten().filter(|(_, entry)| entry["type"] != "idle").map(|(id, _)| id.clone()));
+        held.extend(known_sessions().lock().get(&other).cloned());
+    }
+    held
+}
+
+/// Servers of other panes that did not answer, and when.
+fn silent() -> &'static Mutex<HashMap<String, Instant>> {
+    static SILENT: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    SILENT.get_or_init(Mutex::default)
 }
 
 /// The session each server's pane showed last.

@@ -106,6 +106,10 @@ impl PaneLookup for RegistryPanes {
         })
     }
 
+    fn other_sessions(&self, pane_id: &str) -> Vec<String> {
+        crate::agent_hooks::ledger::pinned_sessions_except(pane_id)
+    }
+
     fn api(&self, pane_id: &str) -> Option<ApiEndpoint> {
         let registry = self.0.lock();
         let pane = registry.get(pane_id)?;

@@ -26,12 +26,13 @@ const inTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNA
 
 export interface JobsApi {
   all: () => Promise<JobsMap>;
-  stop: (paneId: string, pid: number) => Promise<void>;
+  /** `startedAtMs` is the job's own start time: the backend stops the pid only while it is still that process. */
+  stop: (paneId: string, pid: number, startedAtMs: number) => Promise<void>;
 }
 
 export const tauriJobsApi: JobsApi = {
   all: async () => (inTauri() ? invoke<JobsMap>('pane_jobs_all') : {}),
-  stop: (paneId, pid) => invoke<void>('pane_job_stop', { paneId, pid }),
+  stop: (paneId, pid, startedAtMs) => invoke<void>('pane_job_stop', { paneId, pid, startedAtMs }),
 };
 
 /** "12m", "3h 5m": how long a job has run. */

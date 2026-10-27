@@ -298,4 +298,87 @@ mod tests {
         assert!(items.iter().any(|item| matches!(item, ChatItem::ToolCall { name, .. } if name == "Bash")));
         assert!(items.iter().any(|item| matches!(item, ChatItem::ToolResult { .. })));
     }
+
+    // ---- two Claude panes in one folder (safety net) ----
+
+    const ID_A: &str = "aaaaaaaa-0000-4000-8000-000000000001";
+    const ID_B: &str = "bbbbbbbb-0000-4000-8000-000000000002";
+
+    #[test]
+    fn two_panes_with_their_own_session_ids_each_find_their_own_file_whichever_is_newer() {
+        let config = Config::new();
+        let a = config.session(FOLDER, &format!("{ID_A}.jsonl"), ago(5));
+        let b = config.session(FOLDER, &format!("{ID_B}.jsonl"), ago(1));
+        let started = ago(60);
+        assert_eq!(locate_in(&[config.0.clone()], &pane(started, Some(ID_A))), Located::Found(a), "A has the older file and keeps it");
+        assert_eq!(locate_in(&[config.0.clone()], &pane(started, Some(ID_B))), Located::Found(b));
+    }
+
+    /// The pick that falls back to "the newest file" (a pinned session whose file is not written yet) is the pane
+    /// next to it in a shared folder: the watcher refuses a file that carries another pane's session id, so the
+    /// fresh pane shows nothing until its own file comes, and the other pane's chat never shows in it.
+    #[test]
+    fn a_fresh_pane_next_to_a_busy_one_does_not_show_its_conversation_while_its_own_file_is_not_written() {
+        use crate::session_chat::{ChatItem, PaneLookup, Sink, Watchers};
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        struct InConfig(Vec<PathBuf>);
+        impl SessionSource for InConfig {
+            fn format(&self) -> &dyn SessionFormat {
+                &ClaudeSessionFile
+            }
+            fn locate(&self, pane: &PaneFacts) -> Located {
+                locate_in(&self.0, pane)
+            }
+        }
+        struct Quiet;
+        impl Sink for Quiet {
+            fn send(&self, _pane_id: &str, _items: Vec<ChatItem>, _reset: bool) {}
+        }
+        struct Two(HashMap<&'static str, PaneFacts>);
+        impl PaneLookup for Two {
+            fn facts(&self, pane_id: &str) -> Option<PaneFacts> {
+                self.0.get(pane_id).cloned()
+            }
+            fn other_sessions(&self, pane_id: &str) -> Vec<String> {
+                self.0.iter().filter(|(id, _)| **id != pane_id).filter_map(|(_, facts)| facts.provider_session_id.clone()).collect()
+            }
+        }
+        let user_texts = |watchers: &Watchers, pane: &str| -> Vec<String> {
+            watchers
+                .since(pane, None, 100)
+                .map(|delta| delta.items)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|item| if let ChatItem::User { text, .. } = item { Some(text) } else { None })
+                .collect()
+        };
+
+        let config = Config::new();
+        let dir = config.0.join("projects").join(FOLDER);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fixture: String = include_str!("fixtures/session_basic.jsonl").lines().collect::<Vec<_>>().join("\n");
+        std::fs::write(dir.join(format!("{ID_A}.jsonl")), &fixture).unwrap();
+
+        let panes = Two(HashMap::from([("a", pane(ago(60), Some(ID_A))), ("b", pane(ago(30), Some(ID_B)))]));
+        let source: &'static InConfig = Box::leak(Box::new(InConfig(vec![config.0.clone()])));
+        let fast = Duration::from_millis(10);
+        let tuning = crate::session_chat::watch::Tuning { poll: fast, screen_poll: fast, api_poll: fast, relocate: fast, ..Default::default() };
+        let watchers = Watchers::with_tuning(Arc::new(Quiet), Arc::new(panes), tuning);
+        let a_items = watchers.open("a", "w", source);
+        assert!(a_items.iter().any(|item| matches!(item, ChatItem::User { text, .. } if text == "list the files")), "A shows its own conversation");
+        let b_items = watchers.open("b", "w", source);
+        std::thread::sleep(Duration::from_millis(200)); // B looked again several times
+        assert!(b_items.is_empty(), "B showed A's conversation: {b_items:?}");
+        assert!(user_texts(&watchers, "b").is_empty(), "B showed A's conversation");
+        assert!(watchers.waiting_for("b").is_some(), "B says it waits for its file");
+
+        // B's agent writes its file: B shows it, A is unchanged.
+        std::fs::write(dir.join(format!("{ID_B}.jsonl")), fixture.replace("list the files", "say bravo")).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(user_texts(&watchers, "b"), ["say bravo", "thanks, that is all"]);
+        assert_eq!(user_texts(&watchers, "a"), ["list the files", "thanks, that is all"]);
+        watchers.close_all();
+    }
 }
