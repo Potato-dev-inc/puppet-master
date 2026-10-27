@@ -281,31 +281,51 @@
   text-underline-offset: 2px;
 }
 
+
 /* Agent text as Markdown on the phone (ChatMarkdown): the same shapes as the desktop, at phone text sizes. Code
-   blocks and tables scroll inside their own box; the page never scrolls sideways at 390 px. */
+   blocks and tables scroll inside their own box; the page never scrolls sideways at 390 px. Spacing order as on
+   the desktop: reset, sibling gap, headings, rules, then the first and last block. */
 .ph .ph-chat .ck-chat-md {
   overflow-wrap: anywhere;
 }
-.ph .ph-chat .ck-chat-md > * + * {
+.ph .ph-chat .ck-chat-md-list {
+  padding-left: 20px;
+}
+.ph .ph-chat .ck-chat-md :where(p, h1, h2, h3, ul, ol, blockquote, pre, hr) {
+  margin: 0;
+}
+.ph .ph-chat .ck-chat-md > * + *,
+.ph .ph-chat .ck-chat-md-quote > * + * {
   margin-top: 8px;
 }
-.ph .ph-chat .ck-chat-md-p {
-  margin: 0;
+.ph .ph-chat .ck-chat-md .ck-chat-md-h + * {
+  margin-top: 2px;
+}
+.ph .ph-chat .ck-chat-md .ck-chat-md-h {
+  margin: 10px 0 2px;
+}
+.ph .ph-chat .ck-chat-md .ck-chat-md-rule {
+  margin: 6px 0;
+}
+.ph .ph-chat .ck-chat-md > :first-child {
+  margin-top: 0;
+}
+.ph .ph-chat .ck-chat-md > :last-child {
+  margin-bottom: 0;
 }
 .ph .ph-chat .ck-chat-md-h {
-  margin: 0;
   font-weight: 600;
   line-height: 1.35;
   color: var(--label);
 }
 .ph .ph-chat .ck-chat-md-h1 {
-  font-size: 17px;
+  font-size: 18px;
 }
 .ph .ph-chat .ck-chat-md-h2 {
-  font-size: 16px;
+  font-size: 17px;
 }
 .ph .ph-chat .ck-chat-md-h3 {
-  font-size: 15px;
+  font-size: 16px;
   color: var(--label-2);
 }
 .ph .ph-chat .ck-chat-md strong {
@@ -319,7 +339,6 @@
   color: var(--label-2);
 }
 .ph .ph-chat .ck-chat-md-pre {
-  margin: 0;
   max-width: 100%;
   overflow-x: auto;
   padding: 8px 10px;
@@ -332,10 +351,6 @@
 .ph .ph-chat .ck-chat-md-pre code {
   font: inherit;
 }
-.ph .ph-chat .ck-chat-md-list {
-  margin: 0;
-  padding-left: 20px;
-}
 .ph .ph-chat .ck-chat-md-ul {
   list-style: disc;
 }
@@ -346,16 +361,14 @@
   margin-top: 3px;
 }
 .ph .ph-chat .ck-chat-md-list .ck-chat-md-list {
-  margin-top: 3px;
+  margin-top: 2px;
 }
 .ph .ph-chat .ck-chat-md-quote {
-  margin: 0;
   padding: 0 0 0 12px;
   border-left: 2px solid var(--sep);
   color: var(--label-2);
 }
 .ph .ph-chat .ck-chat-md-rule {
-  margin: 0;
   border: 0;
   border-top: 1px solid var(--sep);
 }

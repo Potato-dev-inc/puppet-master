@@ -213,30 +213,50 @@
 }
 
 /* Agent text as Markdown (ChatMarkdown): compact and grayscale. Code blocks and tables scroll inside their own
-   box, so the page never scrolls sideways. Code and borders use the pm- tokens, like the tool output above. */
+   box, so the page never scrolls sideways. Code and borders use the pm- tokens, like the tool output above.
+   Spacing order matters (equal specificity, the later rule wins): reset every block, then the gap between
+   siblings, then headings, rules and the first and last block, which add no outer space. */
 .cockpit .ck-chat-md {
   overflow-wrap: anywhere;
 }
-.cockpit .ck-chat-md > * + * {
+.cockpit .ck-chat-md-list {
+  padding-left: 18px;
+}
+.cockpit .ck-chat-md :where(p, h1, h2, h3, ul, ol, blockquote, pre, hr) {
+  margin: 0;
+}
+.cockpit .ck-chat-md > * + *,
+.cockpit .ck-chat-md-quote > * + * {
   margin-top: 6px;
 }
-.cockpit .ck-chat-md-p {
-  margin: 0;
+.cockpit .ck-chat-md .ck-chat-md-h + * {
+  margin-top: 2px;
+}
+.cockpit .ck-chat-md .ck-chat-md-h {
+  margin: 10px 0 2px;
+}
+.cockpit .ck-chat-md .ck-chat-md-rule {
+  margin: 6px 0;
+}
+.cockpit .ck-chat-md > :first-child {
+  margin-top: 0;
+}
+.cockpit .ck-chat-md > :last-child {
+  margin-bottom: 0;
 }
 .cockpit .ck-chat-md-h {
-  margin: 0;
   font-weight: 600;
   line-height: 1.35;
   color: var(--label);
 }
 .cockpit .ck-chat-md-h1 {
-  font-size: 14px;
+  font-size: 15px;
 }
 .cockpit .ck-chat-md-h2 {
-  font-size: 13px;
+  font-size: 14px;
 }
 .cockpit .ck-chat-md-h3 {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--label-2);
 }
 .cockpit .ck-chat-md strong {
@@ -253,7 +273,6 @@
   color: var(--label-2);
 }
 .cockpit .ck-chat-md-pre {
-  margin: 0;
   max-width: 100%;
   overflow-x: auto;
   padding: 6px 8px;
@@ -263,10 +282,6 @@
 }
 .cockpit .ck-chat-md-pre code {
   font: inherit;
-}
-.cockpit .ck-chat-md-list {
-  margin: 0;
-  padding-left: 18px;
 }
 .cockpit .ck-chat-md-ul {
   list-style: disc;
@@ -281,13 +296,11 @@
   margin-top: 2px;
 }
 .cockpit .ck-chat-md-quote {
-  margin: 0;
   padding: 0 0 0 10px;
   border-left: 2px solid var(--sep);
   color: var(--label-2);
 }
 .cockpit .ck-chat-md-rule {
-  margin: 0;
   border: 0;
   border-top: 1px solid var(--sep);
 }
