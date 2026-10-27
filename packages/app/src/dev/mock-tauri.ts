@@ -388,6 +388,12 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return memoryView(typeof a.text === 'string' ? a.text : undefined);
         case 'memory_global_enabled':
           return true;
+        case 'one_brain_remember':
+          return { added: true, text: typeof a.text === 'string' ? a.text : '', view: memoryView() };
+        case 'one_brain_forget':
+          return memoryView();
+        case 'one_brain_set_project_enabled':
+          return memoryView();
         case 'askbar_settings_get':
           return { enabled: true, shortcut: 'Ctrl+Alt+Space', default_agent: 'claude', last_agent: null, attach_clipboard_default: false };
         case 'askbar_settings_set':

@@ -13,6 +13,7 @@ import { useChatViewMode, type ChatViewMode } from './chatViewMode';
 import { ChatMarkdown } from './ChatMarkdown';
 import { HelperRow } from './HelperRow';
 import { NoticeLine } from './NoticeLine';
+import { RememberSelection } from './RememberSelection';
 import { currentPlan, PlanCard } from './PlanCard';
 import { ToolRow } from './ToolRow';
 import { ViewModeToggle } from './ViewModeToggle';
@@ -44,6 +45,8 @@ export interface SessionChatViewProps {
   composer?: ReactNode;
   /** The pane the chat belongs to: its view mode is remembered under it. Without one the mode is Normal and not kept. */
   paneId?: string | null;
+  /** Offer "Remember for all agents" on selected text (desktop Chat tab only). Needs `paneId`. */
+  remember?: boolean;
 }
 
 const SUMMARY_NOTE = 'Summary: your messages, final answers and activity lines.';
@@ -103,7 +106,7 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for the agent's session file; an unknown source keeps the text as it is.
   const markdown = source === 'file';
@@ -173,6 +176,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
           turns.map((turn) => <TurnView key={`${mode}:${turn.id}`} turn={turn} fromScreen={fromScreen} markdown={markdown} mode={mode} />)}
         {state !== 'unavailable' && pending}
       </div>
+      {remember && paneId && <RememberSelection paneId={paneId} root={scrollRef} />}
       {dock && <div className="ck-chat-dock">{dock}</div>}
       {state !== 'unavailable' && composer}
     </div>
