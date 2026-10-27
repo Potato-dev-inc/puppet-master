@@ -87,6 +87,7 @@ pub(super) fn wait_for_startup_permission_resolution(
             agent_type,
             &registry_read_snapshot(registry, pane_id).unwrap_or_default(),
         ) {
+            crate::pane_prompt::note_gate_seen(pane_id);
             gate = Some(seen);
         }
         let operation = crate::operations::get_operation(project, operation_id)?;

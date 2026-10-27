@@ -29,12 +29,17 @@ pub struct FakePane {
     pub cwd: PathBuf,
     /// The spawn asked for a pop-out window.
     pub window: bool,
-    /// A status the test forces (otherwise: `running` for a moment after the screen changed, like a pane).
+    /// A status the test forces (otherwise: `running` for a few looks after the screen changed, like a pane).
     pub forced_status: Option<String>,
     /// Rows that scrolled off the top (the viewer's history above the screen).
     pub scrollback: Vec<String>,
-    changed_at: std::time::Instant,
+    /// Looks at the pane since its screen last changed. Counted in looks, not in time, so a loaded machine
+    /// sees the same sequence of pictures as an idle one.
+    looks_since_change: u32,
 }
+
+/// How many looks after a change the pane still reports `running` (what a pane does while it draws).
+const RUNNING_LOOKS: u32 = 4;
 
 #[derive(Default)]
 struct State {
@@ -43,10 +48,15 @@ struct State {
     delivered: Vec<(String, String)>,
     killed: Vec<String>,
     spawn_error: Option<String>,
+    /// The first screen the next pane shows (default: the banner). A test sets it to a dialog it needs in place from
+    /// the first look, rather than racing the wizard's first look at a banner.
+    next_spawn_screen: Option<String>,
     shown: Vec<String>,
     counter: u64,
     /// Every key press the wizard made: (pane, keys).
     pressed: Vec<(String, Vec<AnswerKey>)>,
+    /// The scripted agent's next screens per pane: `(looks, screen)`, see `FakeHost::schedule`.
+    scripts: HashMap<String, std::collections::VecDeque<(u32, Step)>>,
 }
 
 type Hook = Box<dyn Fn(&FakeHost, &str, &str) -> Delivered + Send + Sync>;
@@ -131,6 +141,11 @@ impl FakeHost {
         self.state.lock().pressed.iter().flat_map(|(_, k)| k.clone()).collect()
     }
 
+    /// The first screen the next pane spawned shows.
+    pub fn set_next_spawn_screen(&self, text: &str) {
+        self.state.lock().next_spawn_screen = Some(text.to_string());
+    }
+
     pub fn fail_spawn(&self, message: &str) {
         self.state.lock().spawn_error = Some(message.to_string());
     }
@@ -154,8 +169,26 @@ impl FakeHost {
         if let Some(p) = st.panes.get_mut(pane) {
             p.screen = text.to_string();
             p.watch = None;
-            p.changed_at = std::time::Instant::now();
+            p.looks_since_change = 0;
         }
+    }
+
+    /// The scripted agent's next pictures for `pane`: each `(looks, screen)` shows `screen` after the wizard has
+    /// looked at the pane `looks` more times. The wizard's own polling is the clock, so the order of the pictures
+    /// never depends on how fast a test thread runs under load.
+    pub fn schedule(&self, pane: &str, steps: &[(u32, String)]) {
+        for (looks, screen) in steps {
+            let screen = screen.clone();
+            self.then(pane, *looks, move |h, p| h.set_screen_of(p, &screen));
+        }
+    }
+
+    /// The scripted agent's next action on `pane`: `step` runs after `looks` more looks at the pane (it may change
+    /// the screen, push scrollback, anything a pane does on its own). It runs on the wizard's thread, outside the
+    /// host's lock.
+    pub fn then(&self, pane: &str, looks: u32, step: impl FnOnce(&FakeHost, &str) + Send + 'static) {
+        let mut st = self.state.lock();
+        st.scripts.entry(pane.to_string()).or_default().push_back((looks, Box::new(step) as Step));
     }
 
     pub fn set_status(&self, status: &str) {
@@ -209,10 +242,12 @@ impl PaneHost for FakeHost {
         }
         st.counter += 1;
         let id = format!("fake-pane-{}", st.counter);
+        let first_screen = st.next_spawn_screen.take().unwrap_or_else(|| screens::BANNER.to_string());
         st.panes.insert(
             id.clone(),
             FakePane {
-                screen: String::new(),
+                // the agent has drawn its banner by the time the pane exists (the start check reads a screen)
+                screen: first_screen,
                 watch: None,
                 status: "idle".into(),
                 alive: true,
@@ -224,7 +259,7 @@ impl PaneHost for FakeHost {
                 window: spec.window,
                 forced_status: None,
                 scrollback: Vec::new(),
-                changed_at: std::time::Instant::now(),
+                looks_since_change: 0,
             },
         );
         st.order.push(id.clone());
@@ -232,17 +267,29 @@ impl PaneHost for FakeHost {
     }
 
     fn look(&self, pane: &str) -> Option<Look> {
-        let st = self.state.lock();
-        let p = st.panes.get(pane)?;
+        let due = take_due(&mut self.state.lock(), pane);
+        if let Some(step) = due {
+            step(self, pane);
+        }
+        let mut st = self.state.lock();
+        let output_pos = Some(st.counter);
+        // a pane that still has pictures to show is working (the agent is busy until its reply is up)
+        let working = st.scripts.get(pane).is_some_and(|q| !q.is_empty());
+        let p = st.panes.get_mut(pane)?;
+        p.looks_since_change = p.looks_since_change.saturating_add(1);
+        let p = &*p;
         Some(Look {
             screen: p.screen.clone(),
             watch: p.watch.clone().unwrap_or_else(|| p.screen.clone()),
-            status: p
-                .forced_status
-                .clone()
-                .unwrap_or_else(|| if p.alive && p.changed_at.elapsed() < Duration::from_millis(250) { "running".into() } else { p.status.clone() }),
+            status: p.forced_status.clone().unwrap_or_else(|| {
+                if p.alive && (working || p.looks_since_change <= RUNNING_LOOKS) {
+                    "running".into()
+                } else {
+                    p.status.clone()
+                }
+            }),
             alive: p.alive,
-            output_pos: Some(st.counter),
+            output_pos,
             hello_written: false,
             grid: Some((p.cols, p.rows)),
             history: String::new(),
@@ -335,7 +382,23 @@ impl PaneHost for FakeHost {
     }
 }
 
-/// Short limits for tests that run the real threads.
+/// One scripted action of the fake agent (see `FakeHost::then`).
+type Step = Box<dyn FnOnce(&FakeHost, &str) + Send>;
+
+/// Counts one look at `pane` against its next scripted action and takes the action out when its looks are up.
+fn take_due(st: &mut State, pane: &str) -> Option<Step> {
+    let queue = st.scripts.get_mut(pane)?;
+    let front = queue.front_mut()?;
+    front.0 = front.0.saturating_sub(1);
+    if front.0 == 0 {
+        return queue.pop_front().map(|(_, step)| step);
+    }
+    None
+}
+
+/// Limits for tests that run the real threads. The fake agent moves on the wizard's own looks (see `schedule`), so
+/// these only bound a wait that is meant to end in failure. A success path gets a long bound: a wall-clock limit of
+/// a few hundred milliseconds breaks under load, and that is not what these tests check.
 pub fn quick_cfg() -> RunnerCfg {
     RunnerCfg {
         capture: Config {
@@ -354,12 +417,12 @@ pub fn quick_cfg() -> RunnerCfg {
         },
         test: TestLimits {
             start: Duration::from_millis(80),
-            ready: Duration::from_secs(5),
-            person: Duration::from_secs(5),
+            ready: Duration::from_secs(20),
+            person: Duration::from_secs(30),
             step: Duration::from_secs(2),
-            busy: Duration::from_secs(3),
-            done: Duration::from_secs(5),
-            permission: Duration::from_secs(3),
+            busy: Duration::from_secs(20),
+            done: Duration::from_secs(20),
+            permission: Duration::from_secs(6),
             tick: Duration::from_millis(5),
         },
         tick: Duration::from_millis(5),
@@ -399,6 +462,7 @@ pub fn env_with(host: Arc<FakeHost>, base: WizardEnv) -> WizardEnv {
 /// The screens of the made-up agent used by the visible-path tests (the same words the fake TUI's
 /// `nimbus` layout draws, so one recorded draft reads both).
 pub mod screens {
+    pub const BANNER: &str = "NIMBUS 0.4\n";
     pub const IDLE: &str = "NIMBUS 0.4 ready\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n";
     pub const TRUST: &str = "NIMBUS\n\nDo you trust the files in this folder?\n\n  1. Yes, trust this folder\n  2. No, exit\n";
     pub const PERMISSION: &str = "NIMBUS\n\nAllow nimbus to create hello.txt? [y/n]\n";
@@ -417,7 +481,6 @@ pub mod screens {
 /// The made-up agent: typing a task makes it work and then answer; the hello.txt task asks permission
 /// (and the pane shows an approval card). `answer` is what it says (empty: the word it was asked for).
 pub fn script_agent(host: &Arc<FakeHost>, answer: &'static str) {
-    let for_thread = host.clone();
     host.on_deliver(move |h, pane, text| {
         if text.contains("hello.txt") {
             h.set_screen_of(pane, screens::PERMISSION);
@@ -426,16 +489,15 @@ pub fn script_agent(host: &Arc<FakeHost>, answer: &'static str) {
         }
         let word = text.rsplit(' ').next().unwrap_or("").to_string();
         h.set_screen_of(pane, &screens::working(&word, 0));
-        let (host, pane) = (for_thread.clone(), pane.to_string());
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(120));
-            host.set_screen_of(&pane, &screens::working(&word, 1));
-            std::thread::sleep(Duration::from_millis(120));
-            let said = if answer.is_empty() { word.clone() } else { answer.to_string() };
-            host.set_screen_of(&pane, &screens::reply(&said));
-        });
+        let said = if answer.is_empty() { word.clone() } else { answer.to_string() };
+        h.schedule(pane, &working_then_reply(&word, &said));
         Delivered::Submitted
     });
+}
+
+/// The pictures of a plain turn: the work goes on for a few looks, then the reply is up (see `FakeHost::schedule`).
+pub fn working_then_reply(word: &str, said: &str) -> Vec<(u32, String)> {
+    vec![(3, screens::working(word, 1)), (3, screens::reply(said))]
 }
 
 /// Run the visible test of the session's verified draft on a thread, show the idle screen once the pane
