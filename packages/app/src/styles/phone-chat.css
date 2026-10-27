@@ -280,3 +280,119 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* Agent text as Markdown on the phone (ChatMarkdown): the same shapes as the desktop, at phone text sizes. Code
+   blocks and tables scroll inside their own box; the page never scrolls sideways at 390 px. */
+.ph .ph-chat .ck-chat-md {
+  overflow-wrap: anywhere;
+}
+.ph .ph-chat .ck-chat-md > * + * {
+  margin-top: 8px;
+}
+.ph .ph-chat .ck-chat-md-p {
+  margin: 0;
+}
+.ph .ph-chat .ck-chat-md-h {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--label);
+}
+.ph .ph-chat .ck-chat-md-h1 {
+  font-size: 17px;
+}
+.ph .ph-chat .ck-chat-md-h2 {
+  font-size: 16px;
+}
+.ph .ph-chat .ck-chat-md-h3 {
+  font-size: 15px;
+  color: var(--label-2);
+}
+.ph .ph-chat .ck-chat-md strong {
+  font-weight: 600;
+  color: var(--label);
+}
+.ph .ph-chat .ck-chat-md-code {
+  padding: 0 4px;
+  border-radius: 5px;
+  font: 0.9em/1.4 var(--font-mono);
+  color: var(--label-2);
+}
+.ph .ph-chat .ck-chat-md-pre {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font: 13px/1.45 var(--font-mono);
+  color: var(--label-2);
+  white-space: pre;
+  -webkit-overflow-scrolling: touch;
+}
+.ph .ph-chat .ck-chat-md-pre code {
+  font: inherit;
+}
+.ph .ph-chat .ck-chat-md-list {
+  margin: 0;
+  padding-left: 20px;
+}
+.ph .ph-chat .ck-chat-md-ul {
+  list-style: disc;
+}
+.ph .ph-chat .ck-chat-md-ol {
+  list-style: decimal;
+}
+.ph .ph-chat .ck-chat-md-list li + li {
+  margin-top: 3px;
+}
+.ph .ph-chat .ck-chat-md-list .ck-chat-md-list {
+  margin-top: 3px;
+}
+.ph .ph-chat .ck-chat-md-quote {
+  margin: 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--sep);
+  color: var(--label-2);
+}
+.ph .ph-chat .ck-chat-md-rule {
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--sep);
+}
+.ph .ph-chat .ck-chat-md-link {
+  color: var(--label-2);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.ph .ph-chat .ck-chat-md-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+.ph .ph-chat .ck-chat-md-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.ph .ph-chat .ck-chat-md-table th,
+.ph .ph-chat .ck-chat-md-table td {
+  max-width: 28ch;
+  padding: 5px 8px;
+  border: 1px solid var(--sep);
+  vertical-align: top;
+  text-align: left;
+}
+.ph .ph-chat .ck-chat-md-table th {
+  font-weight: 600;
+  color: var(--label);
+  background: var(--bg-raised);
+}
+.ph .ph-chat .ck-chat-md-align-center {
+  text-align: center;
+}
+.ph .ph-chat .ck-chat-md-align-right {
+  text-align: right;
+}
