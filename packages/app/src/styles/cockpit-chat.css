@@ -93,6 +93,24 @@
   max-width: none;
   padding: 32px 8px;
 }
+/* What waits on the person, under the conversation: the bottom row of the chat, outside the scrolling
+   conversation, so it stays in view while the conversation scrolls above it. The docked card keeps its place
+   in the flow here (the Terminal tab floats it over the terminal instead). */
+.cockpit .ck-chat-dock {
+  flex: none;
+  background: var(--bg);
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-chat-dock .ck-dock {
+  position: relative;
+  top: auto;
+  max-height: 40vh;
+  border-bottom: 0;
+  box-shadow: none;
+}
+.cockpit .ck-chat-dock .ck-dock-bar {
+  margin: 8px 20px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .cockpit .ck-chat-tool {

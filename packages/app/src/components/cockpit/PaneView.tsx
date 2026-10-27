@@ -8,14 +8,13 @@ import { activityText } from '../../lib/pane-activity';
 import '../../styles/pane-activity.css';
 import '../../styles/live-preview.css';
 import '../../styles/pane-chrome.css';
-import { PaneStuckCard } from './StuckCard';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
 import { dockItems, headerStateLine, DOCK_LABEL } from './pane-chrome';
 import { IconClose, IconGlobe, IconCopy, IconInfo, IconMore, IconReflow, IconRename, IconStop } from './Icons';
-import { PaneApprovalCard } from './PaneApprovalCard';
-import { formatElapsed, spinnerStatus, stateText } from './model';
+import { DockedCards } from './DockedCards';
+import { formatElapsed, promptSummary, spinnerStatus, stateText } from './model';
 import { ReceiptTab } from './ReceiptTab';
 import { Changes } from './Changes';
 import { changesTabLabel, usePaneWorktree } from './usePaneWorktree';
@@ -200,6 +199,24 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const dock = dockItems(asking, !!signals[paneId]);
   const dockNow = dock.length > 0 ? dock[dockIx % dock.length] : null;
   const dockHeadline = asking ? (prompt?.risk?.headline ?? 'Question') : 'Looks stuck';
+  const cycleDock = () => setDockIx((i) => i + 1);
+  // A question with no choices (a login or onboarding gate) has no card to answer on: the Chat tab keeps a bar to the terminal.
+  const gateNow = waiting && !!prompt && prompt.choices.length === 0;
+  const gateHeadline = prompt?.risk?.headline ?? (promptSummary(prompt) || 'Waiting for your answer');
+  // The Chat tab shows the same docked cards as the Terminal tab, under the conversation.
+  const chatDock =
+    dockNow || gateNow ? (
+      <>
+        {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={cycleDock} />}
+        {gateNow && (
+          <button type="button" className="ck-dock-bar" onClick={() => setTab('terminal')} aria-label={`Needs you: ${gateHeadline}. Open the terminal to answer.`}>
+            <span className="ck-dock-bar-dot" aria-hidden="true" />
+            <span className="ck-dock-bar-text">Needs you · {gateHeadline}</span>
+            <span className="ck-dock-bar-go">Open terminal ›</span>
+          </button>
+        )}
+      </>
+    ) : null;
 
   const copyTotals = worktree?.summary ?? null;
 
@@ -351,7 +368,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         />
       </div>
 
-      {dockNow && tab !== 'terminal' && (
+      {dockNow && tab !== 'terminal' && tab !== 'chat' && (
         <button type="button" className="ck-dock-bar" onClick={() => setTab('terminal')} aria-label={`Needs you: ${dockHeadline}. Open the terminal to answer.`}>
           <span className="ck-dock-bar-dot" aria-hidden="true" />
           <span className="ck-dock-bar-text">Needs you · {dockHeadline}</span>
@@ -367,22 +384,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         )}
         {tab === 'terminal' && (
           <div className="ck-term-wrap" key={paneId}>
-            {dockNow && (
-              <div className="ck-dock">
-                {dockNow === 'stuck' && <PaneStuckCard c={c} paneId={paneId} />}
-                {dockNow === 'ask' && prompt && (
-                  // The Inbox's card, docked: same words, same order, same keyboard rules; no "Open terminal" here.
-                  <div className="ib-dock" role="group" aria-label="Agent question">
-                    <PaneApprovalCard c={c} paneId={paneId} />
-                  </div>
-                )}
-                {dock.length > 1 && (
-                  <button type="button" className="ck-dock-more" onClick={() => setDockIx((i) => i + 1)}>
-                    {dock.length - 1} more ›
-                  </button>
-                )}
-              </div>
-            )}
+            {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={cycleDock} />}
             <div className="ck-term-slot">
               <TerminalViewport pane={pane} registry={c.registry} chrome={false}
                 redrawKey={reflowKey}
@@ -393,7 +395,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         )}
         {tab === 'chat' && chatAllowed && (
           <div className="ck-scroll ck-fade-in" key="chat">
-            <SessionChatPanel paneId={paneId} />
+            <SessionChatPanel paneId={paneId} dock={chatDock} />
           </div>
         )}
         {tab === 'changes' && worktree && (

@@ -200,3 +200,48 @@ describe('SessionChatView read from the screen', () => {
     expect(text()).not.toContain('session file');
   });
 });
+
+describe('the docked card under the conversation', () => {
+  it('is outside the scrolling conversation, so it stays in view', () => {
+    render({ state: 'ready', turns: turnsFrom(SAMPLE), dock: <p>Needs you · Run tests</p> });
+    const body = host.querySelector('.ck-chat-body')!;
+    const dock = host.querySelector('.ck-chat-dock')!;
+    expect(dock.textContent).toContain('Needs you · Run tests');
+    expect(body.contains(dock)).toBe(false);
+  });
+
+  it('keeps a reader at the end at the end when the card takes height, and a reader above keeps the place', () => {
+    // jsdom has no layout: pin the sizes and the scroll position, and capture the resize observer's callback.
+    let resized: (() => void) | null = null;
+    const saved = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+      constructor(cb: () => void) {
+        resized = cb;
+      }
+      observe() {}
+      disconnect() {}
+    };
+    try {
+      render({ state: 'ready', turns: turnsFrom(SAMPLE) });
+      const el = host.querySelector<HTMLElement>('.ck-chat-body')!;
+      let top = 0;
+      Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 500 });
+      Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 200 });
+      Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => (top = v) });
+      el.scrollTop = 500;
+      el.dispatchEvent(new Event('scroll'));
+
+      // a card appears under the chat: the reader at the end is still at the end
+      act(() => resized?.());
+      expect(top).toBe(500);
+
+      // a reader who scrolled up keeps the place when the card takes height
+      top = 100;
+      el.dispatchEvent(new Event('scroll'));
+      act(() => resized?.());
+      expect(top).toBe(100);
+    } finally {
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = saved;
+    }
+  });
+});
