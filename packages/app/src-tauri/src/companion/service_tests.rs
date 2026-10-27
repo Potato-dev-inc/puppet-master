@@ -334,6 +334,101 @@ fn a_check_in_that_is_still_waiting_blocks_the_next_one_with_a_missed_line() {
     assert_eq!(host.sent_texts().iter().filter(|t| t.starts_with("[Check-in:")).count(), 2);
 }
 
+// ---- a check-in never types into a screen only the person may pass (safety net) ---------------------
+
+fn checkins_sent(host: &FakeHost) -> usize {
+    host.sent_texts().iter().filter(|t| t.starts_with("[Check-in:")).count()
+}
+
+/// A trust question is open for the companion's pane when a check-in comes due: the check-in waits (zero
+/// messages reach the outbox), the face says it needs the person, and the one card is the person's to answer.
+/// Once the person answered it, the same check-in goes in, once.
+#[test]
+fn a_check_in_that_comes_due_while_a_trust_card_is_open_waits_and_goes_in_after_the_answer() {
+    let (service, host, root) = service_with_one();
+    boot(&service, &host);
+    service.checkins_set("mochi", vec![checkin("0a0a0a0a", "Morning brief", When::Daily { at: at(8, 30) })]).unwrap();
+    *host.blocking.lock() = Some(Blocking { item_id: "item-trust".into(), title: "Trust this folder?".into() });
+    host.set_pane(PANE, Pane::Alive(Status::WaitingInput));
+    tick_after(&service, &host, 1_000);
+
+    let before = host.sent.lock().len();
+    tick_after(&service, &host, 30 * MIN); // the check-in is due now
+    for _ in 0..5 {
+        tick_after(&service, &host, 1_000);
+    }
+    let after = host.sent.lock().len();
+    assert_eq!(after, before, "nothing at all reached the pane's outbox: {:?}", host.sent_texts());
+    assert_eq!(checkins_sent(&host), 0);
+    let view = mochi(&service);
+    assert_eq!((view.state, view.state_line.as_str()), (CompanionState::NeedsYou, "Needs you: Trust this folder?"));
+    assert_eq!(view.needs.as_ref().map(|n| n.item_id.as_str()), Some("item-trust"), "the card is raised for the person");
+    assert!(texts(&root, FeedKind::Checkin).is_empty(), "no `Asked` line for a message that was not sent");
+    assert!(host.raised.lock().is_empty(), "the companion did not answer anything for itself");
+
+    *host.blocking.lock() = None;
+    host.set_pane(PANE, Pane::Alive(Status::Idle));
+    tick_after(&service, &host, 1_000);
+    tick_after(&service, &host, 1_000);
+    assert_eq!(checkins_sent(&host), 1, "the waiting check-in goes in once, after the person answered");
+    assert_eq!(texts(&root, FeedKind::Checkin), vec!["Asked \"Morning brief\""]);
+}
+
+/// Sign-in has no card of its own: the pane reads as a sign-in screen and the check-in waits the same way, whether
+/// the pane reads idle, waiting, or is still in its first minute (`Running`, not yet awake).
+#[test]
+fn a_check_in_that_comes_due_on_a_sign_in_screen_waits_even_when_the_pane_reads_idle_or_is_still_starting() {
+    for status in [Status::Idle, Status::WaitingInput, Status::Running] {
+        let (service, host, _root) = service_with_one();
+        // `Running` is the pane that has not read idle yet (a start-up screen); the others booted before.
+        let (when, step_ms, steps) = if status == Status::Running {
+            (When::Once { at_ms: start_ms() + 5_000 }, 5_000, 4)
+        } else {
+            boot(&service, &host);
+            (When::Every { minutes: 30 }, 30 * MIN, 4)
+        };
+        service.checkins_set("mochi", vec![checkin("0a0a0a0a", "Morning brief", when)]).unwrap();
+        host.sign_in.store(true, std::sync::atomic::Ordering::SeqCst);
+        host.set_pane(PANE, Pane::Alive(status));
+        let before = host.sent.lock().len();
+        for _ in 0..steps {
+            tick_after(&service, &host, step_ms);
+        }
+        let after = host.sent.lock().len();
+        assert_eq!(after, before, "{status:?}: a sign-in screen got a message: {:?}", host.sent_texts());
+        let view = mochi(&service);
+        assert_eq!((view.state, view.state_line.as_str()), (CompanionState::NeedsYou, "Sign in to Agent claude on the computer"), "{status:?}");
+
+        host.sign_in.store(false, std::sync::atomic::Ordering::SeqCst);
+        host.set_pane(PANE, Pane::Alive(Status::Idle));
+        tick_after(&service, &host, 1_000);
+        tick_after(&service, &host, 1_000);
+        assert_eq!(checkins_sent(&host), 1, "{status:?}: after sign-in the check-in goes in, once");
+    }
+}
+
+/// A check-in that waited on a screen for two hours is dropped with a line, and is not typed much later (a
+/// stale "good morning" must not appear when the person finally signs in).
+#[test]
+fn a_check_in_that_waited_two_hours_on_a_gate_is_dropped_with_a_line_and_never_sent_late() {
+    let (service, host, root) = service_with_one();
+    boot(&service, &host);
+    service.checkins_set("mochi", vec![checkin("0a0a0a0a", "Morning brief", When::Once { at_ms: start_ms() + 10 * MIN })]).unwrap();
+    *host.blocking.lock() = Some(Blocking { item_id: "item-trust".into(), title: "Trust this folder?".into() });
+    host.set_pane(PANE, Pane::Alive(Status::WaitingInput));
+    tick_after(&service, &host, 11 * MIN);
+    assert_eq!(checkins_sent(&host), 0);
+    tick_after(&service, &host, 2 * HOUR + MIN);
+    assert_eq!(texts(&root, FeedKind::Missed), vec!["Skipped \"Morning brief\": Mochi could not take it."]);
+
+    *host.blocking.lock() = None;
+    host.set_pane(PANE, Pane::Alive(Status::Idle));
+    for _ in 0..3 {
+        tick_after(&service, &host, 1_000);
+    }
+    assert_eq!(checkins_sent(&host), 0, "the dropped check-in is gone");
+}
+
 #[test]
 fn the_daily_cap_of_24_stops_scheduled_messages_for_that_day() {
     let (service, host, root) = service_with_one();

@@ -10,7 +10,8 @@
 //! of them is old enough to count. No watcher thread, no child process.
 //!
 //! Stopping is by pid and re-checked at the moment of the stop: the pid must be below that pane's
-//! process now (`select::authorize_stop`). Never by image name, never by port.
+//! process now and must have the start time the job was listed with, so a reused pid is refused
+//! (`select::authorize_stop`). Never by image name, never by port.
 
 mod select;
 mod sys;
@@ -70,11 +71,14 @@ fn row_of(entry: &ProcEntry, details: sys::Details) -> Row {
 }
 
 /// Stop the job `pid` of `pane` and everything under it, after checking that it is still below
-/// that pane's process.
-pub fn stop_job(pane: &PaneRef, pid: u32) -> Result<(), String> {
+/// that pane's process and still the process the person saw: `started_at_ms` is the start time
+/// the job was listed with (`Job::started_at_ms`), and a pid the system gave to a new process
+/// since has another one.
+pub fn stop_job(pane: &PaneRef, pid: u32, started_at_ms: u64) -> Result<(), String> {
     let procs = snapshot().ok_or("Jobs cannot be listed on this system.")?;
     let agent = agent_pid_in(&pane.id, pane.pid, &procs);
-    authorize_stop(&procs, pane.pid, agent, pid).map_err(|why| why.message().to_string())?;
+    let started_now = sys::details(pid).started_ms;
+    authorize_stop(&procs, pane.pid, agent, pid, started_at_ms, started_now).map_err(|why| why.message().to_string())?;
     crate::pty::proc_tree::kill_process_tree(pid);
     Ok(())
 }

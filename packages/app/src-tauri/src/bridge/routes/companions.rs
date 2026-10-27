@@ -169,6 +169,96 @@ mod tests {
         drop(dir);
     }
 
+    // ---- no secret reaches the phone (safety net) ----
+
+    // Made at run time so the secret scanners of this repository see no key-shaped literal.
+    fn fake_anthropic_key() -> String {
+        format!("sk-ant-api03-{}", "Zq9Xv3LmN7pRt2YhB5cWd8KfJ4sG6aUe1oIxTn0V")
+    }
+    fn fake_github_token() -> String {
+        format!("ghp_{}", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8")
+    }
+    fn fake_github_pat() -> String {
+        format!("github_pat_{}", "11ABCDEFG0aBcDeFgHiJkL_mNoPqRsTuVwXyZ0123456789")
+    }
+
+    /// One finished turn on the fake host: the agent works, then says `text`, then reads idle.
+    fn agent_says(service: &Service, host: &crate::companion::test_host::FakeHost, text: &str) {
+        use crate::companion::host::Reply;
+        use crate::companion::keeper::{Pane, Status};
+        let tick = |ms: i64| {
+            host.advance_ms(ms);
+            service.tick();
+        };
+        host.set_pane("companion-mochi", Pane::Alive(Status::Idle));
+        tick(1_000);
+        host.set_pane("companion-mochi", Pane::Alive(Status::Running));
+        tick(1_000);
+        let id = format!("{}:0", host.reply.lock().as_ref().map_or(1, |r| r.id.len() + 1));
+        *host.reply.lock() = Some(Reply { id, text: text.into() });
+        host.set_pane("companion-mochi", Pane::Alive(Status::Idle));
+        tick(1_000);
+        tick(2_000);
+        tick(1_000);
+    }
+
+    #[test]
+    fn a_key_in_the_agents_reply_or_in_pending_memory_reaches_the_phone_masked() {
+        let (service, host, _dir) = service_with_one();
+        let (anthropic, github, pat) = (fake_anthropic_key(), fake_github_token(), fake_github_pat());
+        // The first answer after a start belongs to the brief ("ready") and gets no line.
+        agent_says(&service, &host, "ready");
+        // The agent repeats a key it found in a file (the worst case for a feed line) ...
+        agent_says(&service, &host, &format!("Found the key {anthropic} in .env, and a token {github}."));
+        // ... and proposes to remember keys (a note and a user line) in the file only it may write.
+        let home = std::path::PathBuf::from(service.folder_of("mochi").unwrap());
+        std::fs::write(
+            home.join("memory").join("pending.md"),
+            format!("- note: The deploy key is {anthropic} for later.
+- user: Uses the token {pat} at work.
+- note: Likes tea.
+"),
+        )
+        .unwrap();
+
+        let (status, feed) = get(&service, "/companions/mochi/feed?since=0", None).unwrap();
+        assert_eq!(status, 200);
+        let lines = feed["items"].as_array().expect("feed items");
+        let reply = lines.iter().find(|i| i["kind"] == "reply").unwrap_or_else(|| panic!("the reply is in the feed: {feed}"));
+        assert!(reply["text"].as_str().unwrap().contains("[REDACTED]"), "the reply keeps its words around a mask: {reply}");
+
+        let (_, memory) = get(&service, "/companions/mochi/memory", None).unwrap();
+        let pending = memory["pending"].as_array().expect("pending items");
+        assert_eq!(pending.len(), 3, "{memory}");
+        assert!(pending.iter().any(|p| p["text"] == "Likes tea."), "an ordinary note is not touched: {memory}");
+
+        for (what, body) in [("feed", feed.to_string()), ("memory", memory.to_string())] {
+            for secret in [&anthropic, &github, &pat] {
+                assert!(!body.contains(secret.as_str()), "{what} carries {secret}: {body}");
+            }
+            // Not even the long tail of the key (a mask that kept half a key would still leak it).
+            assert!(!body.contains("Zq9Xv3LmN7pRt2Yh") && !body.contains("A1b2C3d4E5f6") && !body.contains("11ABCDEFG0aBcDe"), "{what}: {body}");
+        }
+    }
+
+    #[test]
+    fn a_key_in_the_approved_memory_files_reaches_the_phone_masked_too() {
+        let (service, _host, _dir) = service_with_one();
+        let home = std::path::PathBuf::from(service.folder_of("mochi").unwrap());
+        let github = fake_github_token();
+        for name in ["MEMORY.md", "USER.md", "SOUL.md"] {
+            let path = home.join(name);
+            let old = std::fs::read_to_string(&path).unwrap_or_default();
+            std::fs::write(&path, format!("{old}
+A stray token {github} somebody pasted.
+")).unwrap();
+        }
+        let (_, memory) = get(&service, "/companions/mochi/memory", None).unwrap();
+        let body = memory.to_string();
+        assert!(!body.contains(&github) && !body.contains("A1b2C3d4E5f6"), "{body}");
+        assert!(body.contains("[REDACTED]"), "{body}");
+    }
+
     #[test]
     fn keeping_a_memory_needs_a_decision_word_and_a_known_item() {
         let (service, _host, _dir) = service_with_one();

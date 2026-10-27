@@ -30,6 +30,7 @@ impl ScreenFirstFollower {
     /// One look at the pane. `None` when the pane is gone.
     pub fn step(&mut self, panes: &dyn PaneLookup, pane_id: &str, now: Instant, relocate: Duration) -> Option<Change> {
         let facts = panes.facts(pane_id)?;
+        self.file.set_others(panes.other_sessions(pane_id));
         let change = self.file.step(&facts, now, relocate);
         if self.on_file {
             return Some(change);

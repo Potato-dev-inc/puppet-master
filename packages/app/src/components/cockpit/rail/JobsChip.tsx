@@ -43,7 +43,7 @@ export function JobsSheet({ jobs, names, onOpenPane, onClose, api = tauriJobsApi
                 Open
               </button>
             </div>
-            <BackgroundJobs jobs={list} onStop={(pid) => stopJob(api, paneId, pid)} />
+            <BackgroundJobs jobs={list} onStop={(pid, startedAtMs) => stopJob(api, paneId, pid, startedAtMs)} />
           </section>
         ))}
       </div>

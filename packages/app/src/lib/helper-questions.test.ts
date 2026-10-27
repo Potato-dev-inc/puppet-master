@@ -64,3 +64,54 @@ describe('helperItems', () => {
     expect(helperItems(items, ['leaf'], () => true).map((i) => i.id)).toEqual(['b']);
   });
 });
+
+// ---- two helpers under one parent: a card is never mapped to the other helper (safety net) ----
+
+describe('two helpers under one parent', () => {
+  // parent > a, parent > b (siblings); nothing else.
+  const team = [pane('parent'), pane('a', 'parent'), pane('b', 'parent')];
+  type Item = { id: string; state: string; pane: { id: string } | null; prompt?: string };
+  const item = (id: string, helper: string | null, state = 'open', prompt = 'npm test'): Item => ({ id, state, pane: helper ? { id: helper } : null, prompt });
+  const isCard = (i: Item) => i.prompt !== undefined;
+
+  it('shows both questions in the parent, each in its own helper slot', () => {
+    expect(helpersAskingFor(team, 'parent', (id) => id === 'a' || id === 'b')).toEqual(['a', 'b']);
+    // The helpers do not see each other's questions.
+    expect(helpersAskingFor(team, 'a', () => true)).toEqual([]);
+    expect(helpersAskingFor(team, 'b', () => true)).toEqual([]);
+  });
+
+  it('gives each helper only the card of its own pane, even when both ask the same words', () => {
+    const items = [item('card-a', 'a'), item('card-b', 'b')];
+    expect(helperItems(items, ['a', 'b'], isCard).map((i) => i.id)).toEqual(['card-a', 'card-b']);
+    expect(helperItems(items, ['a'], isCard).map((i) => i.id)).toEqual(['card-a']);
+    expect(helperItems(items, ['b'], isCard).map((i) => i.id)).toEqual(['card-b']);
+  });
+
+  it('after A moved on, A shows its new card and never the old one, and B keeps its own', () => {
+    // A's first card was answered (resolved); A asks something else; B still asks the first question.
+    const items = [item('card-a1', 'a', 'resolved'), item('card-a2', 'a', 'open', 'npm run build'), item('card-b1', 'b')];
+    const shown = helperItems(items, ['a', 'b'], isCard);
+    expect(shown.map((i) => i.id)).toEqual(['card-a2', 'card-b1']);
+    expect(shown.find((i) => i.id === 'card-a1')).toBeUndefined();
+    // The card an answer would go to is the one found for that helper: B never receives A's.
+    expect(helperItems(items, ['b'], isCard).map((i) => i.id)).toEqual(['card-b1']);
+  });
+
+  it('shows nothing for A while it has no open card, and still shows B', () => {
+    const items = [item('card-a1', 'a', 'resolved'), item('card-b1', 'b')];
+    expect(helperItems(items, ['a', 'b'], isCard).map((i) => i.id)).toEqual(['card-b1']);
+    expect(helperItems(items, ['a'], isCard)).toEqual([]);
+  });
+
+  it('never takes a card that belongs to no pane or to a pane that is not asking', () => {
+    const items = [item('loose', null), item('card-other', 'other'), item('card-a', 'a')];
+    expect(helperItems(items, ['a', 'b'], isCard).map((i) => i.id)).toEqual(['card-a']);
+  });
+
+  it('a helper that closed drops out of the parent and its card goes with it', () => {
+    const gone = team.filter((p) => p.info.id !== 'a');
+    const asking = (id: string) => id === 'a' || id === 'b';
+    expect(helpersAskingFor(gone, 'parent', asking)).toEqual(['b']);
+  });
+});
