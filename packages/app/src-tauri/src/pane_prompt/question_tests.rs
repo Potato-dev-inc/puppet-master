@@ -228,3 +228,28 @@ fn a_declared_trust_prompt_is_a_startup_gate_only_the_person_passes() {
     assert!(crate::tui::profile_for("agyprobe").startup_gate(AGY_COMMAND).is_none());
     assert!(crate::tui::profile_for("agyprobe").startup_gate("> \n? for shortcuts\n").is_none());
 }
+
+// ---- no field of a card carries an email ---------------------------------------------------------------------------------
+
+#[test]
+fn no_field_of_a_card_carries_a_banner_email() {
+    register();
+    // A declarative prompt carries the whole screen as `text`: the banner's account must not ride along.
+    let card = detect_in_screen("agyprobe", AGY_COMMAND, false).expect("a card");
+    assert!(card["text"].as_str().unwrap().contains("Allow this command to run?"), "the text is still the screen: {card}");
+    assert!(!card.to_string().contains("someone@example.com"), "{card}");
+    let action = required_action_from_prompt(card);
+    assert!(!action.to_string().contains("someone@example.com"), "{action}");
+    // Claude's question card: an email in the banner above the menu, in the question and in an option.
+    let screen = CLAUDE_QUESTION
+        .replace("Claude Max", "someone@example.com")
+        .replace("Pick a colour", "Pick a colour for someone@example.com")
+        .replace("2. Blue", "2. Blue (someone@example.com)");
+    let card = detect_in_screen_with_status("claude", &screen, false, Some("waiting_input")).expect("a card");
+    assert_eq!(card["kind"], "question");
+    assert!(!card.to_string().contains("someone@example.com"), "{card}");
+    // The menu shape card of an agent no profile knows.
+    let menu = "Signed in as someone@example.com\n\nWhich database?\n\n\u{276f} 1. SQLite\n  2. Postgres\n\nEnter to select \u{b7} Esc to cancel\n";
+    let card = detect_in_screen_with_status("some-unregistered-agent", menu, false, Some("waiting_input")).expect("a card");
+    assert!(!card.to_string().contains("someone@example.com"), "{card}");
+}

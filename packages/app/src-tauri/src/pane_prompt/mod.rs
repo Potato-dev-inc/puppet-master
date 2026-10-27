@@ -129,6 +129,7 @@ pub(crate) fn detect_in_screen_with_status(agent_type: &str, screen: &str, allow
     let id = prompt_id_for(&card)?;
     card["prompt_id"] = Value::String(id);
     attach_risk(&mut card, None);
+    summary::redact_card(&mut card);
     Some(card)
 }
 
@@ -183,6 +184,7 @@ pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool
     let id = prompt_id_for(&prompt)?;
     prompt["prompt_id"] = Value::String(id);
     attach_risk(&mut prompt, None);
+    summary::redact_card(&mut prompt);
     Some(prompt)
 }
 
