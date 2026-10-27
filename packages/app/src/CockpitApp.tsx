@@ -27,7 +27,8 @@ import { useFirstRun } from './components/firstrun/useFirstRun';
 import { useSimpleMode } from './lib/simple-mode';
 import { projectOfCwd } from './lib/ship-model';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
-import { homeView, viewAfterSelect, type MainView } from './components/cockpit/main-view';
+import { homeView, isSplitShortcut, splitAfterSelect, splitFits, splitPartner, splitStillOn, viewAfterSelect, type MainView, type SplitSide } from './components/cockpit/main-view';
+import { SplitView, useWindowWidth } from './components/cockpit/SplitView';
 import { useCompanions } from './hooks/useCompanions';
 import { tauriCompanionTransport } from './lib/companion';
 import { CompanionPage } from './components/cockpit/companion/CompanionPage';
@@ -48,6 +49,14 @@ export default function CockpitApp() {
     setSeen({ spawn: c.spawn, selectedId: c.selectedId });
     setView(homeView(c.spawn !== null, c.selectedId));
   }
+  // The split view (main-view.ts): the pane on the right, and which side has focus. The left side is the selected pane.
+  const [split, setSplit] = useState<string | null>(null);
+  const [side, setSide] = useState<SplitSide>('left');
+  const width = useWindowWidth();
+  const paneIds = c.registry.paneList.map((p) => p.info.id);
+  const splitOn = splitStillOn(split, { selectedId: c.selectedId, width, hasPane: (id) => c.registry.panes.has(id) });
+  // The split turns off by itself when its pane closes, the selection goes away, or the window gets narrow.
+  if (split !== null && !splitOn) setSplit(null);
   const closeOverlay = () => setView(homeView(c.spawn !== null, c.selectedId));
   // Settings is a main view in Orchestration mode; in Individual mode `open` asks for the Settings window.
   const settings = useInlineSettings<MainView>({ mode: c.mode, view, setView, home: homeView(c.spawn !== null, c.selectedId), openWindow: c.openSettings });
@@ -91,8 +100,46 @@ export default function CockpitApp() {
     openSettings: async (tab) => settings.open(tab),
     select: (id) => {
       setView(viewAfterSelect(c.spawn, id));
+      setSplit((s) => splitAfterSelect(s, c.selectedId, id));
+      setSide('left');
       c.select(id);
     },
+  };
+  // Ctrl+\: split with the pane above (or below) the selected one; again closes it.
+  const toggleSplit = () => {
+    if (split !== null) {
+      setSplit(null);
+      setSide('left');
+      return;
+    }
+    if (!splitFits(width)) return;
+    if (c.selectedId === null) {
+      c.notify('Pick an agent first to split the view');
+      return;
+    }
+    const partner = splitPartner(paneIds, c.selectedId);
+    if (partner === null) {
+      c.notify('Open a second agent to split the view');
+      return;
+    }
+    setView('pane');
+    setSplit(partner);
+    setSide('left');
+  };
+  // "Open to the side" in a pane row's menu: the row's pane goes on the right, the selected one stays left.
+  const openToSide = (id: string) => {
+    if (!splitFits(width)) {
+      c.notify('The window is too narrow for two chats');
+      return;
+    }
+    if (c.selectedId === null) {
+      nav.select(id);
+      return;
+    }
+    if (id === c.selectedId) return;
+    setView('pane');
+    setSplit(id);
+    setSide('left');
   };
   useEffect(() => {
     if (c.registry.paneList.length > 0) markSpawned();
@@ -115,6 +162,19 @@ export default function CockpitApp() {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
+
+  // Ctrl+\ (see toggleSplit). Re-listens each render so it always sees the current selection and split.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isSplitShortcut(e) || e.isComposing) return;
+      // Ctrl+\ is the terminal's quit key (SIGQUIT): the split takes it, so the pane does not get it too.
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSplit();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
 
   const { onClickCapture } = useNudgeOnAction();
   // Mission cards (Labs) count once in the one list, as they do in the Rust snapshot (tray, phone).
@@ -139,6 +199,7 @@ export default function CockpitApp() {
         openCompanionId={view === 'companion' ? companionId : null}
         onOpenCompanion={openCompanion}
         onNewCompanion={() => setSetupOpen(true)}
+        onOpenToSide={openToSide}
       />
       <main className="ck-main">
         {c.mode === 'individual' ? (
@@ -180,6 +241,8 @@ export default function CockpitApp() {
               nav.select(null);
             }}
           />
+        ) : view === 'pane' && c.selectedId && splitOn && split ? (
+          <SplitView c={nav} leftId={c.selectedId} rightId={split} focus={side} onFocus={setSide} onClose={toggleSplit} />
         ) : view === 'pane' && c.selectedId ? (
           <PaneView c={c} paneId={c.selectedId} key={c.selectedId} />
         ) : (
