@@ -129,6 +129,9 @@ pub fn passed_checks(s: &Session, fixtures: (usize, usize)) -> Result<Vec<String
         "The shared conformance rules hold".to_string(),
         format!("All {} saved samples and screens pass", fixtures.1),
     ];
+    if s.visible.transcript.lock().as_ref().is_some_and(|f| f.draft_sha256 == draft.sha256 && f.result.is_ok()) {
+        checks.push("The chat transcript table the wizard found reads the test turn".to_string());
+    }
     if s.visible.has_captures() {
         let v = s.visible_tested.as_ref().filter(|v| v.draft_sha256 == draft.sha256).ok_or("the visible test has not passed")?;
         if v.total == 0 || v.passed != v.total {
@@ -220,6 +223,27 @@ fn provenance_json(session: &Session, id: &str, p: &Provenance, sha: &str, passe
     body
 }
 
+/// The draft's text with the `[session_chat]` table the visible test found for exactly this draft added at the end
+/// (never over a table the drafter wrote), and the record of the search for `<id>.wizard.json`: `None` when the
+/// visible test did not run a search.
+fn with_found_transcript(session: &Session, draft: &super::session::Draft) -> (String, Option<Value>) {
+    let finding = session.visible.transcript.lock().clone().filter(|f| f.draft_sha256 == draft.sha256);
+    let Some(finding) = finding else { return (draft.text.clone(), None) };
+    let mut record = finding.to_json();
+    if let Ok(found) = &finding.result {
+        match super::transcript::add_to_draft(&draft.text, found) {
+            Some(text) => {
+                record["added"] = json!(true);
+                return (text, Some(record));
+            }
+            None => {
+                record = json!({"found": false, "why": "the draft already declares a [session_chat] table (the wizard never replaces one), or the table did not fit the draft"});
+            }
+        }
+    }
+    (draft.text.clone(), Some(record))
+}
+
 /// Removes what `finish` created if it does not reach `commit`.
 struct Created<'a> {
     files: Vec<&'a Path>,
@@ -261,7 +285,9 @@ pub fn write_session_with(session: &Session, agents_dir: &Path, provenance: &Pro
             "the draft was not tested; run the live test (one-task mode) and the visible test (visible pane) that apply to it first",
         ));
     }
-    let def = parse_definition(&draft.text).map_err(|e| WizardError::new(409, "AGENT_DEF_INVALID", e.to_string()))?;
+    // The transcript table the visible test found (and checked with the real reader) is added to the written file only.
+    let (text, transcript_record) = with_found_transcript(session, draft);
+    let def = parse_definition(&text).map_err(|e| WizardError::new(409, "AGENT_DEF_INVALID", e.to_string()))?;
     let id = def.agent.id.clone();
     let has_headless = def.headless.as_ref().is_some_and(|h| h.output.is_some());
     let format = def.headless.as_ref().and_then(|h| h.output.as_ref()).map_or(OutputFormat::JsonLines, |o| o.format);
@@ -331,7 +357,10 @@ pub fn write_session_with(session: &Session, agents_dir: &Path, provenance: &Pro
     created.dir = Some(&fixtures_dir);
     fixtures::write_all(&fixtures_dir, &files).map_err(|e| WizardError::new(500, "WIZARD_IO", e))?;
 
-    let prov = provenance_json(session, &id, provenance, &draft.sha256, passed, total, build, auto);
+    let mut prov = provenance_json(session, &id, provenance, &draft.sha256, passed, total, build, auto);
+    if let Some(record) = transcript_record {
+        prov["transcript"] = record;
+    }
     // the record may carry screens, decisions and AI looks: no email address is kept in it (SPEC 11.21)
     let prov_text = super::exec::mask_private(&serde_json::to_string_pretty(&prov).unwrap_or_default());
     create_new(&provenance_path, prov_text.as_bytes()).map_err(|e| match e.kind() {
@@ -341,7 +370,7 @@ pub fn write_session_with(session: &Session, agents_dir: &Path, provenance: &Pro
         _ => io("the provenance file", e),
     })?;
     created.files.push(&provenance_path);
-    create_new(&toml_path, draft.text.as_bytes()).map_err(|e| match e.kind() {
+    create_new(&toml_path, text.as_bytes()).map_err(|e| match e.kind() {
         std::io::ErrorKind::AlreadyExists => WizardError::new(
             409,
             "AGENT_DEF_DUPLICATE_ID",

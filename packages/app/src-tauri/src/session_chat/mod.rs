@@ -20,7 +20,7 @@ pub mod tail;
 pub mod watch;
 
 pub use api::{ApiEndpoint, ChatFrom, SessionApi};
-pub use declared::{validate_session_chat, DeclaredSource, SessionChatTable};
+pub use declared::{cwd_placeholders, validate_session_chat, DeclaredSource, Names, SessionChatTable};
 pub use detail::{bound_input, cut_to, paths_from_input, PlanItem, PlanStatus, ToolDetail};
 pub use opening::Opening;
 pub use model::{cut, ChatItem, SessionFormat, TurnOutcome};

@@ -8,6 +8,7 @@ mod path;
 mod source;
 mod table;
 
+pub use path::{cwd_placeholders, Names};
 pub use source::DeclaredSource;
 pub use table::{validate_session_chat, SessionChatTable};
 

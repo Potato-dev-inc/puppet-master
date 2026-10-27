@@ -26,6 +26,7 @@ pub mod locate;
 pub mod probe;
 pub mod report;
 pub mod session;
+pub mod transcript;
 pub mod verify;
 pub mod visible;
 
