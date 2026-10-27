@@ -1,0 +1,78 @@
+/* Split view (two chats side by side). Grayscale only: the dim is an opacity, never a colour. */
+
+.cockpit {
+  --ck-split-dim: 0.55;
+}
+
+.cockpit .ck-split {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.cockpit .ck-split-cols {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.cockpit .ck-split-side {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  transition: opacity 160ms var(--ease);
+}
+.cockpit .ck-split-side.is-dim {
+  opacity: var(--ck-split-dim);
+}
+.cockpit .ck-split-divider {
+  flex: none;
+  width: 1px;
+  background: var(--sep);
+}
+.cockpit .ck-split-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-split-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-split-state {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--label-3);
+}
+.cockpit .ck-split-body {
+  flex: 1;
+  min-height: 0;
+}
+.cockpit .ck-menu--fixed {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 60;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-split-side {
+    transition: none;
+  }
+}
