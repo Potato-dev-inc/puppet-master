@@ -148,6 +148,13 @@ export function installTauriMock(scenario: HarnessScenario): void {
               { url: 'http://localhost:3000', port: 3000 },
             ],
           };
+        case 'pane_jobs_all':
+          return {
+            [PANE_CODEX]: [
+              { pid: 4120, parentPid: 3900, name: 'node', command: 'node node_modules/vite/bin/vite.js', startedAtMs: Date.now() - 12 * 60_000, ports: [5173] },
+              { pid: 4188, parentPid: 3900, name: 'python', command: 'python -m pytest --watch', startedAtMs: Date.now() - 95_000, ports: [] },
+            ],
+          };
         case 'loop_signals':
           return scenario.name === 'loop-stuck'
             ? [

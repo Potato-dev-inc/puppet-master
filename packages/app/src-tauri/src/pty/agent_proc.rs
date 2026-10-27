@@ -52,10 +52,10 @@ pub struct ProcEntry {
 }
 
 /// Image names of the shells a pane's agent can be hosted by. Shells, not agents: generic.
-const HOST_SHELLS: [&str; 3] = ["powershell.exe", "pwsh.exe", "cmd.exe"];
+pub(crate) const HOST_SHELLS: [&str; 3] = ["powershell.exe", "pwsh.exe", "cmd.exe"];
 /// Helper processes a console host or a shell profile starts that are not the agent: the console
 /// host itself, and prompt/profile tools a PowerShell profile commonly runs. Tools, not agents.
-const NOT_AGENTS: [&str; 9] = [
+pub(crate) const NOT_AGENTS: [&str; 9] = [
     "conhost.exe",
     "openconsole.exe",
     "oh-my-posh.exe",
@@ -101,6 +101,25 @@ pub fn state(pane_id: &str, root_pid: u32) -> AgentProcess {
 /// permits only): the child that is alive now is the agent, confirmed without waiting [`CONFIRM_MS`].
 pub fn state_at_input(pane_id: &str, root_pid: u32) -> AgentProcess {
     look(pane_id, root_pid, true)
+}
+
+/// The pid of the agent process in `pane_id` as far as it is known, judged on `procs` (one snapshot
+/// the caller already took): the root itself when it is not a host shell, else the host shell's
+/// confirmed child, else the child still being confirmed. `None` while nothing has started. May be a
+/// pid that has exited since (the caller checks).
+pub(crate) fn agent_pid_in(pane_id: &str, root_pid: u32, procs: &[ProcEntry]) -> Option<u32> {
+    let root = procs.iter().find(|p| p.pid == root_pid)?;
+    if !HOST_SHELLS.contains(&root.image.as_str()) {
+        return Some(root_pid);
+    }
+    let now = now_ms();
+    let mut seen = SEEN.lock();
+    let entry = seen.entry(pane_id.to_string()).or_default();
+    if entry.root != root_pid {
+        *entry = Seen { root: root_pid, track: Track::default() };
+    }
+    classify(procs, root_pid, &mut entry.track, now);
+    entry.track.agent.or(entry.track.candidate.map(|(pid, _)| pid))
 }
 
 fn look(pane_id: &str, root_pid: u32, input: bool) -> AgentProcess {

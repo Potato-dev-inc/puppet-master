@@ -1,0 +1,134 @@
+/* Background jobs: the rail card, the footer chip and the sheet. Grayscale tokens only. */
+
+.cockpit .ck-jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-job {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.cockpit .ck-job + .ck-job {
+  padding-top: 8px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-job-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.cockpit .ck-job-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--label);
+}
+.cockpit .ck-job-time {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-job-port {
+  flex: none;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--label-2);
+  font: 11px var(--font-mono);
+  transition:
+    background-color 160ms var(--ease),
+    color 160ms var(--ease);
+}
+.cockpit .ck-job-port:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.cockpit .ck-job-stop {
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label-2);
+  font-size: 11px;
+  transition:
+    background-color 160ms var(--ease),
+    color 160ms var(--ease),
+    transform 160ms var(--ease);
+}
+.cockpit .ck-job-stop:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.cockpit .ck-job-stop:active {
+  transform: scale(0.97);
+}
+.cockpit .ck-job-stop.is-danger {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+.cockpit .ck-job-cmd {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px var(--font-mono);
+  color: var(--label-3);
+}
+.cockpit .ck-job-ask {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-job-ask span {
+  margin-right: auto;
+}
+.cockpit .ck-job-error {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--label-2);
+}
+
+/* Footer chip and sheet. */
+.cockpit .ck-jobs-chip {
+  justify-content: flex-start;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-sheet--jobs {
+  width: 460px;
+}
+.cockpit .ck-jobs-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: min(60vh, 420px);
+  margin-top: 6px;
+  overflow-y: auto;
+}
+.cockpit .ck-jobs-group-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--label-2);
+}
