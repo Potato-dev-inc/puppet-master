@@ -19,6 +19,9 @@ import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
 import { projectWithCopy } from './shell-labels';
+import type { CompanionView } from '../../lib/companion';
+import { CompanionRow, MakeCompanionRow } from './companion/CompanionRow';
+import { isCompanionPaneId } from './companion/model';
 import { JobsChip } from './rail/JobsChip';
 
 /** `localhost:5173`: where the preview is, without the scheme. */
@@ -31,19 +34,31 @@ export function Sidebar({
   onOpenPalette,
   onOpenDoctor,
   onOpenMemory,
+  companions,
+  openCompanionId = null,
+  onOpenCompanion,
+  onNewCompanion,
   ship = shipApi,
 }: {
   c: CockpitApi;
   onOpenPalette: () => void;
   onOpenDoctor?: () => void;
   onOpenMemory?: () => void;
+  /** The companions, above Inbox. Absent or null: no companion rows (no backend, or not read yet). */
+  companions?: CompanionView[] | null;
+  /** The companion whose page is open, if any: its row is the active one. */
+  openCompanionId?: string | null;
+  onOpenCompanion?: (id: string) => void;
+  onNewCompanion?: () => void;
   ship?: ShipApi;
 }) {
   const list = c.registry.paneList;
+  // A companion's pane has its own row above the Inbox, so it is not listed in these groups (SPEC section 8).
+  const panes = list.filter((p) => !isCompanionPaneId(p.info.id));
   // The same list the Inbox badge and the Doto counter use, so the three numbers always agree.
   const needs = useNeedsYou(c);
   const questionPanes = needsYouPaneIds(needs);
-  const groups = groupHelperTree(list, questionPanes);
+  const groups = groupHelperTree(panes, questionPanes);
   // Parents whose helpers the person folded away (the helpers that need you stay listed in Needs you).
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const toggleFolded = (id: string) =>
@@ -140,7 +155,7 @@ export function Sidebar({
   const row = (p: Pane, awayFrom?: Pane) => {
     const id = p.info.id;
     const since = c.statusSince.get(id);
-    const active = c.selectedId === id && !c.spawn;
+    const active = c.selectedId === id && !c.spawn && !openCompanionId;
     const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
     const detail =
       activityText(p.status, c.activities?.[id]) ??
@@ -276,9 +291,20 @@ export function Sidebar({
       </div>
 
       <nav className="ck-side-scroll">
+        {companions &&
+          (companions.length === 0
+            ? onNewCompanion && <MakeCompanionRow onMake={onNewCompanion} />
+            : companions.map((companion) => (
+                <CompanionRow
+                  key={companion.id}
+                  companion={companion}
+                  active={openCompanionId === companion.id}
+                  onOpen={() => onOpenCompanion?.(companion.id)}
+                />
+              )))}
         <button
           type="button"
-          className={`ck-row ck-row--flat${c.selectedId === null && !c.spawn ? ' is-active' : ''}`}
+          className={`ck-row ck-row--flat${c.selectedId === null && !c.spawn && !openCompanionId ? ' is-active' : ''}`}
           onClick={() => c.select(null)}
         >
           <span className="ck-row-glyph ck-row-glyph--icon">

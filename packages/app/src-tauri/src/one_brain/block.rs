@@ -32,24 +32,42 @@ pub enum BlockState {
 
 /// Reports whether the managed block is absent, present, or malformed.
 pub fn block_state(existing: &[u8]) -> BlockState {
-    match locate(strip_bom(existing).1) {
+    block_state_between(existing, START, END)
+}
+
+/// `block_state` for any pair of marker lines (the companion brief uses its own pair).
+pub fn block_state_between(existing: &[u8], start: &str, end: &str) -> BlockState {
+    match locate(strip_bom(existing).1, start, end) {
         Ok(Some(_)) => BlockState::Present,
         Ok(None) => BlockState::Absent,
         Err(_) => BlockState::Malformed,
     }
 }
 
-/// Computes the new file bytes for `memory` inside the managed block.
+/// Computes the new file bytes for `memory` inside the one-brain managed block.
 ///
 /// `existing` is None when the file does not exist yet. `header` is only used
 /// when a new file is created. An empty `memory` removes the block.
 pub fn render(existing: Option<&[u8]>, header: Option<&str>, memory: &str) -> Result<Outcome, BlockError> {
+    render_between(existing, START, END, NOTE, header, memory)
+}
+
+/// `render` for any pair of marker lines. `note` is the line written under the start marker.
+/// Only the span between the markers changes; everything else in the file stays byte for byte.
+pub fn render_between(
+    existing: Option<&[u8]>,
+    start: &str,
+    end: &str,
+    note: &str,
+    header: Option<&str>,
+    memory: &str,
+) -> Result<Outcome, BlockError> {
     let (bom, body): (bool, &[u8]) = match existing {
         Some(bytes) => strip_bom(bytes),
         None => (false, &[]),
     };
     let eol = if existing.map_or(false, |b| contains(b, CRLF)) { "\r\n" } else { "\n" };
-    let span = locate(body)?;
+    let span = locate(body, start, end)?;
 
     if memory.trim().is_empty() {
         return Ok(match span {
@@ -59,7 +77,7 @@ pub fn render(existing: Option<&[u8]>, header: Option<&str>, memory: &str) -> Re
     }
 
     let memory_trim = trim_memory(&normalize(memory, eol));
-    let block = build_block(eol, &memory_trim);
+    let block = build_block(start, end, note, eol, &memory_trim);
     let eol_b = eol.as_bytes();
     let header_text = header
         .map(|h| normalize(h, eol).trim_end().to_string())
@@ -131,19 +149,19 @@ fn remove_block(body: &[u8], s: usize, e: usize, bom: bool, eol: &str, header: O
 
 /// Finds the managed block. Ok(Some((start, end_exclusive))) when present,
 /// Ok(None) when absent, Err when malformed.
-fn locate(body: &[u8]) -> Result<Option<(usize, usize)>, BlockError> {
-    match find_from(body, START.as_bytes(), 0) {
-        Some(s) => match find_from(body, END.as_bytes(), s + START.len()) {
-            Some(e) => Ok(Some((s, e + END.len()))),
+fn locate(body: &[u8], start: &str, end: &str) -> Result<Option<(usize, usize)>, BlockError> {
+    match find_from(body, start.as_bytes(), 0) {
+        Some(s) => match find_from(body, end.as_bytes(), s + start.len()) {
+            Some(e) => Ok(Some((s, e + end.len()))),
             None => Err(BlockError::Malformed),
         },
-        None if find_from(body, END.as_bytes(), 0).is_some() => Err(BlockError::Malformed),
+        None if find_from(body, end.as_bytes(), 0).is_some() => Err(BlockError::Malformed),
         None => Ok(None),
     }
 }
 
-fn build_block(eol: &str, memory_trim: &str) -> Vec<u8> {
-    [START, eol, NOTE, eol, memory_trim, eol, END].concat().into_bytes()
+fn build_block(start: &str, end: &str, note: &str, eol: &str, memory_trim: &str) -> Vec<u8> {
+    [start, eol, note, eol, memory_trim, eol, end].concat().into_bytes()
 }
 
 /// Splits off a leading UTF-8 BOM, reporting whether it was present.

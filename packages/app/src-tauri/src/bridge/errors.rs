@@ -14,7 +14,7 @@ pub(super) fn operation_http_error(
 ) -> (u16, serde_json::Value) {
     let status = match error.code.as_str() {
         "OPERATION_NOT_FOUND" | "AGENT_NOT_FOUND" | "PANE_NOT_FOUND" => 404,
-        "AUTHORIZATION_DENIED" => 403,
+        "AUTHORIZATION_DENIED" | "COMPANION_LOCAL_ONLY" => 403,
         "MODE_MISMATCH"
         | "BUDGET_EXHAUSTED"
         | "AGENT_DEF_APPROVAL_STALE"

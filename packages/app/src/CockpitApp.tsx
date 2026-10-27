@@ -28,6 +28,10 @@ import { useSimpleMode } from './lib/simple-mode';
 import { projectOfCwd } from './lib/ship-model';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
 import { homeView, viewAfterSelect, type MainView } from './components/cockpit/main-view';
+import { useCompanions } from './hooks/useCompanions';
+import { tauriCompanionTransport } from './lib/companion';
+import { CompanionPage } from './components/cockpit/companion/CompanionPage';
+import { CompanionSetupSheet } from './components/cockpit/companion/CompanionSetupSheet';
 import './styles/cockpit.css';
 
 export type { MainView } from './components/cockpit/main-view';
@@ -50,6 +54,16 @@ export default function CockpitApp() {
   // Pane whose last turn the person is being asked to undo (opened from the palette).
   const [undoPane, setUndoPane] = useState<string | null>(null);
   const loop = useLoopSignals();
+  // Companions (SPEC section 8): the sidebar rows, the page that opens from one, and the setup sheet. Without a
+  // companion backend the list is null and the palette and sidebar show no companion entries.
+  const companions = useCompanions();
+  const [companionId, setCompanionId] = useState<string | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const companion = companions.companions?.find((x) => x.id === companionId) ?? null;
+  const openCompanion = (id: string) => {
+    setCompanionId(id);
+    setView('companion');
+  };
   const [stopReport, setStopReport] = useState<StopReport | null>(null);
   const stopAll = () => {
     tauriLoopApi
@@ -105,7 +119,7 @@ export default function CockpitApp() {
   const { onClickCapture } = useNudgeOnAction();
   // Mission cards (Labs) count once in the one list, as they do in the Rust snapshot (tray, phone).
   const missionList = useMissions();
-  const needsYou = useNeedsYouSource(c, loop.signals, undefined, missionList.missions);
+  const needsYou = useNeedsYouSource(c, loop.signals, undefined, missionList.missions, companions.companions ?? undefined);
   // Simple mode (Settings > General) swaps the whole face; off by default, so this line does nothing then.
   const simple = useSimpleMode();
   // While the welcome is open the normal face stays, so its sign-in and install windows are visible.
@@ -121,6 +135,10 @@ export default function CockpitApp() {
         onOpenPalette={() => setPaletteOpen(true)}
         onOpenDoctor={() => setView('doctor')}
         onOpenMemory={() => setView('memory')}
+        companions={companions.companions}
+        openCompanionId={view === 'companion' ? companionId : null}
+        onOpenCompanion={openCompanion}
+        onNewCompanion={() => setSetupOpen(true)}
       />
       <main className="ck-main">
         {c.mode === 'individual' ? (
@@ -148,10 +166,30 @@ export default function CockpitApp() {
           <SettingsView key={settings.viewKey} {...settings.viewProps} />
         ) : view === 'spawn' && c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
+        ) : view === 'companion' && companion ? (
+          <CompanionPage
+            key={companion.id}
+            companion={companion}
+            transport={tauriCompanionTransport}
+            onShowTerminal={(paneId) => nav.select(paneId)}
+            onOpenCard={() => nav.select(null)}
+            onNotify={c.notify}
+            onChanged={companions.refresh}
+            onArchived={() => {
+              setCompanionId(null);
+              nav.select(null);
+            }}
+          />
         ) : view === 'pane' && c.selectedId ? (
           <PaneView c={c} paneId={c.selectedId} key={c.selectedId} />
         ) : (
-          <Inbox c={nav} onOpenDoctor={() => setView('doctor')} onSetUp={welcomeSetUp} />
+          <Inbox
+            c={nav}
+            onOpenDoctor={() => setView('doctor')}
+            onSetUp={welcomeSetUp}
+            companions={companions.companions}
+            onRestartCompanion={(id) => tauriCompanionTransport.restart(id).finally(companions.refresh)}
+          />
         )}
         {away.digest && c.mode !== 'individual' && (
           <AwayDigest
@@ -178,6 +216,20 @@ export default function CockpitApp() {
           onOpenMemory={() => setView('memory')}
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}
+          companions={companions.companions}
+          onOpenCompanion={openCompanion}
+          onNewCompanion={companions.companions ? () => setSetupOpen(true) : undefined}
+        />
+      )}
+      {setupOpen && (
+        <CompanionSetupSheet
+          transport={tauriCompanionTransport}
+          onClose={() => setSetupOpen(false)}
+          onCreated={(created) => {
+            setSetupOpen(false);
+            companions.refresh();
+            openCompanion(created.id);
+          }}
         />
       )}
       {undoPane && (

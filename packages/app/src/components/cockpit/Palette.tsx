@@ -9,6 +9,10 @@ import { settingsShortcuts } from './palette-shortcuts';
 import { useMissionsEnabled } from '../../lib/missions';
 import { projectWithCopy } from './shell-labels';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
+import type { CompanionView } from '../../lib/companion';
+import { stateWord } from '../../lib/companion';
+import { Avatar } from '../companion/Avatar';
+import { isCompanionPaneId } from './companion/model';
 
 interface Item {
   id: string;
@@ -30,6 +34,9 @@ export function Palette({
   onOpenMemory,
   onUndoLastTurn,
   onOpenWelcome,
+  companions,
+  onOpenCompanion,
+  onNewCompanion,
 }: {
   c: CockpitApi;
   onClose: () => void;
@@ -40,6 +47,10 @@ export function Palette({
   onUndoLastTurn?: (paneId: string) => void;
   /** Shows the first-run welcome again. */
   onOpenWelcome?: () => void;
+  /** The companions (null: no companion backend). Each one gets an "Open {name}" row. */
+  companions?: CompanionView[] | null;
+  onOpenCompanion?: (id: string) => void;
+  onNewCompanion?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -49,8 +60,21 @@ export function Palette({
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     const multiLogin = multiLoginAgents(c.registry.paneList.map((p) => p.info));
+    for (const companion of companions ?? []) {
+      out.push({
+        id: `companion:${companion.id}`,
+        group: 'Panes',
+        title: `Open ${companion.name}`,
+        desc: `Companion · ${stateWord(companion.state)}`,
+        keywords: 'companion',
+        icon: <Avatar id={companion.avatar} size={16} state={companion.state} name={companion.name} />,
+        run: () => onOpenCompanion?.(companion.id),
+      });
+    }
     for (const p of c.registry.paneList) {
       const id = p.info.id;
+      // A companion's pane is opened through its "Open {name}" row above, not as a second pane.
+      if (isCompanionPaneId(id)) continue;
       const agentName = c.names.get(id) ?? p.info.agent_type;
       const heading = paneHeading(p.info, agentName);
       out.push({
@@ -72,6 +96,17 @@ export function Palette({
         icon: <IconPlus />,
         hint: c.readyAgents.has(e.type) ? 'ready' : undefined,
         run: () => void c.newAgent(e.type),
+      });
+    }
+    if (onNewCompanion) {
+      out.push({
+        id: 'new:companion',
+        group: 'New agent',
+        title: 'New companion',
+        desc: 'An always-on helper that runs on your agent',
+        keywords: 'companion helper',
+        icon: <IconPlus />,
+        run: onNewCompanion,
       });
     }
     if (c.selectedId && c.registry.panes.has(c.selectedId)) {
@@ -185,7 +220,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn, onOpenWelcome, missionsOn]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn, onOpenWelcome, missionsOn, companions, onOpenCompanion, onNewCompanion]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

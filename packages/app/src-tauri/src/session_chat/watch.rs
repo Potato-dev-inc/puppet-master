@@ -120,6 +120,16 @@ impl Follower {
     }
 }
 
+/// A folder as the person reads it: the home folder is written `~`, so a sentence on the screen (or in a shared
+/// screenshot) does not carry the Windows user name.
+fn tilde(path: &std::path::Path, home: Option<&std::path::Path>) -> String {
+    match home.and_then(|h| path.strip_prefix(h).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
 impl Follower {
     /// In words, what a pane with nothing to show is waiting for. For the person, one short sentence.
     fn waiting(&self, facts: &PaneFacts) -> String {
@@ -128,7 +138,7 @@ impl Follower {
         match &self.file {
             None if self.ambiguous => "Several files could be this pane's; waiting for one to stand out.".to_string(),
             None => match self.source.looking_in(facts) {
-                Some(place) => format!("Looking in {} for a file written after {since}.", place.display()),
+                Some(place) => format!("Looking in {} for a file written after {since}.", tilde(&place, crate::project_path::home_dir().as_deref())),
                 None => format!("Looking for a file written after {since}."),
             },
             Some(path) => {

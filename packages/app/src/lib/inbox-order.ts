@@ -2,7 +2,7 @@
 // approvals, questions, then pauses and stops; ties go to the oldest. This is the Rust rule
 // (src-tauri/src/attention/model.rs `rank_of`), so the desktop list, the phone list and a push agree.
 
-export type InboxKind = 'consent' | 'approval' | 'question' | 'budget' | 'limit' | 'error' | 'stuck';
+export type InboxKind = 'consent' | 'approval' | 'question' | 'budget' | 'limit' | 'error' | 'stuck' | 'companion';
 export type InboxRisk = 'low' | 'medium' | 'high' | undefined;
 
 /** Lower comes first. */
@@ -16,6 +16,7 @@ export function inboxRank(kind: InboxKind, risk?: InboxRisk): number {
       return 2;
     case 'budget':
     case 'limit':
+    case 'companion':
       return 3;
     case 'error':
     case 'stuck':

@@ -127,6 +127,10 @@ pub fn authorize(
     if clean_path == "/agents/definitions" || clean_path.starts_with("/agents/definitions/") {
         return Err(denied("agent definitions are managed by the app session, not MCP sessions"));
     }
+    // Companions are the person's own: their memory and their schedule stay off the MCP surface in v1.
+    if clean_path == "/companions" || clean_path.starts_with("/companions/") {
+        return Err(OperationError::new("COMPANION_LOCAL_ONLY", "companions can only be used from the app and the paired phone, not MCP sessions", false));
+    }
     // The agent wizard runs programs and writes definitions: app session only, like definitions.
     if clean_path == "/agents/wizard" || clean_path.starts_with("/agents/wizard/") {
         return Err(denied("the agent wizard belongs to the app session, not MCP sessions"));

@@ -14,7 +14,7 @@ type CockpitState = Pick<CockpitApi, 'registry' | 'prompts' | 'asked' | 'statusS
 
 type MissionFacts = AttentionInput['missions'];
 
-function derive(c: CockpitState, stuckPaneIds: string[], notices: { id: string; at_ms?: number }[], missions?: MissionFacts): NeedsYouItem[] {
+function derive(c: CockpitState, stuckPaneIds: string[], notices: { id: string; at_ms?: number }[], missions?: MissionFacts, companions?: AttentionInput['companions']): NeedsYouItem[] {
   return deriveNeedsYou({
     panes: c.registry.paneList.map((p) => ({ id: p.info.id, status: p.status })),
     prompts: c.prompts,
@@ -23,6 +23,7 @@ function derive(c: CockpitState, stuckPaneIds: string[], notices: { id: string; 
     notices,
     statusSince: c.statusSince,
     missions,
+    companions,
   });
 }
 
@@ -33,9 +34,11 @@ export function useNeedsYouSource(
   askbar: AskbarApi = tauriAskbarApi,
   /** The missions list (`useMissions`): a mission card counts once, like in the Rust snapshot. */
   missions?: MissionFacts,
+  /** The companions list: one that stopped for good counts once, like its Rust card. */
+  companions?: AttentionInput['companions'],
 ): NeedsYouItem[] {
   const { notices } = useAskNotices(askbar);
-  const items = useMemo(() => derive(c, Object.keys(signals), notices, missions), [c.registry.paneList, c.prompts, c.asked.questions, c.statusSince, signals, notices, missions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const items = useMemo(() => derive(c, Object.keys(signals), notices, missions, companions), [c.registry.paneList, c.prompts, c.asked.questions, c.statusSince, signals, notices, missions, companions]); // eslint-disable-line react-hooks/exhaustive-deps
   useShadowCheck(items);
   return items;
 }
