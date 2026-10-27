@@ -163,3 +163,142 @@ fn a_long_prompt_cleared_from_the_box_after_enter_is_a_started_turn() {
     let now = "? for shortcuts\nComposer 2.5 · 3%\nworking";
     assert!(turn_started(&before, now, &prompt, false));
 }
+
+/// An 8-row pane: the given rows at the bottom, blank rows above (what a short pane shows).
+fn screen8(rows: &[&str]) -> String {
+    let mut all: Vec<&str> = vec![""; 8usize.saturating_sub(rows.len())];
+    all.extend_from_slice(rows);
+    all.join("\n")
+}
+
+const PROMPT_150: &str = "Ignore this sentence about a quiet garden with tall roses, a mossy wall and a stone bench. Please reply with exactly the word THETA7 and nothing else.";
+const PROMPT_196: &str = "Ignore this sentence about a quiet garden with tall roses, a mossy wall, a stone bench and a small pond where frogs sing in the evening. Please reply with exactly the word THETA1 and nothing else.";
+
+/// The real 68x8 frame of the 150-character prompt: the box shows two rows, its start.
+fn frame_150_typed() -> String {
+    screen8(&[
+        "✻ Baked for 3s · done 18:33                                       Ctrl+Y to paste deleted text",
+        "─❯ Ignore this sentence about a quiet garden with tall roses, a",
+        "  mossy wall and a stone bench. Please reply with exactly the word",
+    ])
+}
+
+/// The real 68x8 frame of the 196-character prompt: the box shows two rows from its middle.
+fn frame_196_typed() -> String {
+    screen8(&[
+        "● ETA3B",
+        "✻ Baked for 3s · done 18:33",
+        "─❯ mossy wall, a stone bench and a small pond where frogs sing in",
+        "  the evening. Please reply with exactly the word THETA1 and",
+    ])
+}
+
+/// The same pane before anything was typed: the box is empty.
+fn pane_before_typing() -> String {
+    screen8(&["● ETA3B", "✻ Baked for 3s · done 18:33", "─❯"])
+}
+
+#[test]
+fn a_real_68_by_8_frame_showing_only_the_start_of_a_long_prompt_is_typed() {
+    assert_eq!(PROMPT_150.chars().count(), 150);
+    let now = frame_150_typed();
+    assert!(
+        !prompt_visible_in_input(&now, PROMPT_150),
+        "the old check cannot see the start alone:\n{now}"
+    );
+    assert!(
+        prompt_typed_in_input(Some(&pane_before_typing()), &now, PROMPT_150),
+        "{now}"
+    );
+}
+
+#[test]
+fn a_real_68_by_8_frame_showing_only_the_middle_of_a_long_prompt_is_typed() {
+    assert_eq!(PROMPT_196.chars().count(), 196);
+    let now = frame_196_typed();
+    assert!(
+        !prompt_visible_in_input(&now, PROMPT_196),
+        "the old check cannot see the middle alone:\n{now}"
+    );
+    assert!(
+        prompt_typed_in_input(Some(&pane_before_typing()), &now, PROMPT_196),
+        "{now}"
+    );
+}
+
+#[test]
+fn a_follow_up_sharing_the_opening_is_not_typed_while_the_previous_prompt_is_in_the_transcript() {
+    // The previous prompt ends `ZETA77`, is still on the screen, and the new one is not typed:
+    // the box is empty, so the shared opening on screen is the transcript's, not the new text.
+    let previous = PROMPT_150.replace("THETA7", "ZETA77");
+    assert_eq!(previous.chars().count(), 150);
+    let screen = screen8(&[
+        "> Ignore this sentence about a quiet garden with tall roses, a",
+        "  mossy wall and a stone bench. Please reply with exactly the",
+        "  word ZETA77 and nothing else.",
+        "✻ Baked for 3s · done 18:33                                       Ctrl+Y to paste deleted text",
+        "─❯",
+    ]);
+    assert!(prompt_visible_in_input(&screen, &previous), "{screen}");
+    assert!(
+        !prompt_typed_in_input(Some(&screen), &screen, PROMPT_150),
+        "{screen}"
+    );
+}
+
+#[test]
+fn a_follow_up_sharing_the_opening_that_is_typed_is_visible() {
+    let previous = PROMPT_150.replace("THETA7", "ZETA77");
+    let before = screen8(&[
+        "> Ignore this sentence about a quiet garden with tall roses, a",
+        "  mossy wall and a stone bench. Please reply with exactly the",
+        "  word ZETA77 and nothing else.",
+        "─❯",
+    ]);
+    assert!(prompt_visible_in_input(&before, &previous));
+    let now = screen8(&[
+        "> Ignore this sentence about a quiet garden with tall roses, a",
+        "  mossy wall and a stone bench. Please reply with exactly the",
+        "  word ZETA77 and nothing else.",
+        "─❯ Ignore this sentence about a quiet garden with tall roses, a",
+        "  mossy wall and a stone bench. Please reply with exactly the word",
+    ]);
+    assert!(
+        prompt_typed_in_input(Some(&before), &now, PROMPT_150),
+        "{now}"
+    );
+}
+
+#[test]
+fn a_repeat_of_an_earlier_prompt_that_is_typed_again_is_visible() {
+    let before = screen8(&[
+        "> Ignore this sentence about a quiet garden with tall roses, a",
+        "  mossy wall and a stone bench. Please reply with exactly the word",
+        "─❯",
+    ]);
+    let now = screen8(&[
+        "> Ignore this sentence about a quiet garden with tall roses, a",
+        "  mossy wall and a stone bench. Please reply with exactly the word",
+        "─❯ Ignore this sentence about a quiet garden with tall roses, a",
+        "  mossy wall and a stone bench. Please reply with exactly the word",
+    ]);
+    assert!(
+        prompt_typed_in_input(Some(&before), &now, PROMPT_150),
+        "{now}"
+    );
+}
+
+#[test]
+fn a_box_showing_only_a_window_that_still_holds_the_text_after_enter_is_not_a_started_turn() {
+    let before = frame_196_typed();
+    let now = before.replace("18:33", "18:34");
+    assert_ne!(before, now);
+    assert!(!turn_started(&before, &now, PROMPT_196, false), "{now}");
+}
+
+#[test]
+fn a_box_emptied_after_enter_while_the_screen_moves_is_a_started_turn() {
+    let before = frame_196_typed();
+    let now = screen8(&["● ETA3B", "✻ Baked for 3s · done 18:34", "─❯"]);
+    assert!(turn_started(&before, &now, PROMPT_196, false), "{now}");
+}

@@ -35,6 +35,11 @@ const TAIL_CHECK_MAX: usize = 300;
 const LARGE_PROMPT_CHARS: usize = 200;
 /// Shortest prefix that is distinctive enough to trust.
 const MIN_HEAD_CHARS: usize = 8;
+/// Letters of a long prompt that must show together in the input box to count as the prompt. A
+/// 45-column box holds about 35 letters a row, so two rows (the least a box shows of a long text)
+/// hold 48; a stray phrase of this length is unlikely, and a follow-up is kept out by the
+/// before-typing count in [`prompt_typed_in_input`]. Shorter prompts must show whole.
+const WINDOW_CHARS: usize = 48;
 /// Bottom screen rows that count as "the input area" (box, hint row, footer).
 const INPUT_AREA_ROWS: usize = 16;
 
@@ -290,6 +295,47 @@ fn occurrences(haystack: &str, needle: &str) -> usize {
     haystack.matches(needle).count()
 }
 
+/// The runs of the prompt's letters (`WINDOW_CHARS` of them, or the whole prompt when shorter) that
+/// the input area shows. A run is cut from the area's letters, so a window the box shows in its
+/// middle counts as well as its start or end.
+fn runs_shown(area: &str, prompt: &str) -> Vec<String> {
+    let prompt: Vec<char> = squeezed(prompt).chars().collect();
+    let width = prompt.len().min(WINDOW_CHARS);
+    if width < MIN_HEAD_CHARS {
+        return Vec::new();
+    }
+    let area: Vec<char> = squeezed(area).chars().collect();
+    let known: std::collections::HashSet<&[char]> = prompt.windows(width).collect();
+    area.windows(width)
+        .filter(|run| known.contains(run))
+        .map(|run| run.iter().collect())
+        .collect()
+}
+
+/// Whether the input box shows the prompt, a window of it included. For a box that already holds
+/// the text (the text is still there), where no screen from before typing is needed.
+fn prompt_in_box(screen: &str, prompt: &str) -> bool {
+    prompt_visible_in_input(screen, prompt)
+        || !runs_shown(&bottom_rows(screen, INPUT_AREA_ROWS), prompt).is_empty()
+}
+
+/// Whether the prompt is newly in the input box after it was typed. It is when the plain check
+/// passes ([`prompt_visible_in_input`]), or when a run of the prompt that the box shows occurs more
+/// often on the screen now than before typing. That count keeps a follow-up out: a previous prompt
+/// still in the transcript shares its opening, but its run was already on the screen before, so
+/// it does not count again. A repeat of an earlier prompt does count, because the box adds a copy.
+/// Without a screen from before typing only the plain check applies.
+pub fn prompt_typed_in_input(before: Option<&str>, screen: &str, prompt: &str) -> bool {
+    if prompt_visible_in_input(screen, prompt) {
+        return true;
+    }
+    let Some(before) = before else { return false };
+    let (now, was) = (squeezed(screen), squeezed(before));
+    runs_shown(&bottom_rows(screen, INPUT_AREA_ROWS), prompt)
+        .iter()
+        .any(|run| now.matches(run.as_str()).count() > was.matches(run.as_str()).count())
+}
+
 /// Whether a new turn started after Enter: the pane is busy, or the prompt text now appears more
 /// often on screen than before Enter (the TUI echoed it into the transcript), or the input area
 /// no longer holds it while the screen changed.
@@ -309,7 +355,7 @@ pub fn turn_started(before: &str, now: &str, prompt: &str, busy: bool) -> bool {
     if occurrences(&squeezed(now), &head) > occurrences(&squeezed(before), &head) {
         return true;
     }
-    !prompt_visible_in_input(now, prompt) && normalize(before) != normalize(now)
+    !prompt_in_box(now, prompt) && normalize(before) != normalize(now)
 }
 
 /// What the input box says about a submit, for a profile that can read it. `Some(true)`: the turn
@@ -623,7 +669,7 @@ pub fn deliver_prompt_traced(
                 late_gate = Some(gate);
                 break;
             }
-            let seen = prompt_visible_in_input(&screen, prompt);
+            let seen = prompt_typed_in_input(before_typing.as_deref(), &screen, prompt);
             trace.push(format!("typed poll {poll}: visible={seen} busy={} rows={}", io.busy(), trace_rows(&screen)));
             if seen {
                 visible = true;
@@ -659,7 +705,7 @@ pub fn deliver_prompt_traced(
         }
         // A drawn screen took the keys (or queued them): wait for them to show rather than typing
         // a second copy (live r13: erase + retype left the task in the box twice, not submitted).
-        match await_late_echo(io, profile, prompt, trace) {
+        match await_late_echo(io, profile, prompt, before_typing.as_deref(), trace) {
             Ok(true) => {
                 visible = true;
                 break;
@@ -730,6 +776,7 @@ fn await_late_echo(
     io: &mut dyn DeliveryIo,
     profile: &dyn TuiProfile,
     prompt: &str,
+    before: Option<&str>,
     trace: &mut Vec<String>,
 ) -> Result<bool, Delivery> {
     trace.push("the text has not shown yet; waiting for it instead of typing it again".to_string());
@@ -744,7 +791,7 @@ fn await_late_echo(
             trace.push(format!("late poll {poll}: '{}' is on screen; Enter was not pressed", gate.id));
             return Err(Delivery::Blocked(gate));
         }
-        if prompt_visible_in_input(verdict.screen(), prompt) {
+        if prompt_typed_in_input(before, verdict.screen(), prompt) {
             trace.push(format!("late poll {poll}: the text showed; submitting it, not typing it again"));
             return Ok(true);
         }
@@ -849,7 +896,7 @@ fn give_up_not_visible(
             ComposerState::Empty => true,
             ComposerState::Unknown => {
                 !screen.trim().is_empty()
-                    && !prompt_visible_in_input(&screen, prompt)
+                    && !prompt_typed_in_input(before_typing, &screen, prompt)
                     && !shows_new_text_of(&screen, before_typing, prompt)
             }
             _ => false,
