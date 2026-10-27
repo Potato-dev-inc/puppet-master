@@ -217,10 +217,11 @@ impl TuiProfile for Claude {
     }
 
     /// The folder-trust dialog draws no "y/n" or "allow once" text, so the generic heuristic reads
-    /// it as a running pane; the permission menus are caught here too, whatever their wording.
-    /// Both are waiting for the user.
+    /// it as a running pane; the permission menus and the AskUserQuestion menu are caught here too,
+    /// whatever their wording. All are waiting for the user.
     fn classify_screen(&self, visible_tail: &str) -> Option<PaneStatus> {
-        (prompt::shows_trust_gate(visible_tail) || prompt::shows_permission_menu(visible_tail)).then_some(PaneStatus::WaitingInput)
+        (prompt::shows_trust_gate(visible_tail) || prompt::shows_permission_menu(visible_tail) || prompt::shows_question_menu(visible_tail))
+            .then_some(PaneStatus::WaitingInput)
     }
 
     /// Claude's dialogs by structure (see `prompt`), then the generic wording.

@@ -190,6 +190,32 @@ pub(super) fn register_spawned_pane(
     }
 }
 
+/// Nest a pane an MCP connection just started under the pane of the agent that started it. The
+/// connection's claimed pane (`X-Puppet-Master-Pane`) is only a hint: `pty::pane_parent` believes it
+/// when the pane is live and the connection's process runs inside it. Display-only, never a right.
+pub(super) fn note_pane_parent(registry: &Arc<Mutex<PaneRegistry>>, session: Option<&str>, child_pane: &str) {
+    use crate::pty::pane_parent::{accept_hint, claimed_pane, set_parent};
+    let Some(session) = session else {
+        return;
+    };
+    let Some(hint) = crate::mcp_sessions::claimed_session_pane(session) else {
+        return;
+    };
+    let claimed = claimed_pane(registry, &hint);
+    // Asked of the OS only when there is a live pane to check against.
+    let procs = claimed.as_ref().and_then(|_| crate::pty::agent_proc::snapshot());
+    let parent = accept_hint(
+        Some(&hint),
+        child_pane,
+        claimed.as_ref(),
+        crate::mcp_sessions::session_pid(session),
+        procs.as_deref(),
+    );
+    if let Some(parent) = parent {
+        set_parent(registry, child_pane, &parent);
+    }
+}
+
 pub(super) fn registry_pane_ids(registry: &Arc<Mutex<PaneRegistry>>) -> Vec<String> {
     registry.lock().panes.keys().cloned().collect()
 }
