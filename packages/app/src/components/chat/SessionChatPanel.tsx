@@ -9,6 +9,7 @@ import { useSessionChat } from '../../hooks/useSessionChat';
 import { ChatComposer } from './ChatComposer';
 import { PendingMessages } from './PendingMessages';
 import { SessionChatView } from './SessionChatView';
+import { useSideQuestion } from './useSideQuestion';
 
 export interface ChatReply {
   /** Why the message box is switched off, or null. */
@@ -20,6 +21,7 @@ export function SessionChatPanel({ paneId, dock, reply }: { paneId: string; dock
   const outbox = usePaneOutbox(tauriOutboxTransport, paneId, !!reply);
   const userTexts = useMemo(() => chat.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [chat.turns]);
   const { bubbles, hide } = usePendingBubbles(outbox.messages, userTexts);
+  const side = useSideQuestion(paneId, chat.turns);
   return (
     <SessionChatView
       state={chat.state}
@@ -31,6 +33,8 @@ export function SessionChatPanel({ paneId, dock, reply }: { paneId: string; dock
       cliVersion={chat.cliVersion}
       paneId={paneId}
       remember
+      headerExtra={chat.state === 'unavailable' ? undefined : side.button}
+      overlay={side.box}
       dock={dock}
       pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
       composer={reply ? <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} /> : undefined}
