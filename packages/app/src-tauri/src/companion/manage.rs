@@ -43,6 +43,8 @@ pub struct Draft {
     pub auto_start: Option<bool>,
     #[serde(default)]
     pub memory_review: Option<bool>,
+    #[serde(default)]
+    pub push_replies: Option<bool>,
     /// Missing = 04:00; `null` = no nap.
     #[serde(default, deserialize_with = "double_option")]
     pub nap_at: Option<Option<HhMm>>,
@@ -64,6 +66,7 @@ pub struct Patch {
     pub folder: Option<String>,
     pub auto_start: Option<bool>,
     pub memory_review: Option<bool>,
+    pub push_replies: Option<bool>,
     #[serde(default, deserialize_with = "double_option")]
     pub nap_at: Option<Option<HhMm>>,
     pub checkins: Option<Vec<CheckIn>>,
@@ -141,6 +144,7 @@ impl Service {
             folder,
             auto_start: draft.auto_start.unwrap_or(true),
             memory_review: draft.memory_review.unwrap_or(true),
+            push_replies: draft.push_replies.unwrap_or(true),
             nap_at: draft.nap_at.unwrap_or(Some(HhMm { h: 4, m: 0 })),
             checkins,
             created_ms: now,
@@ -194,6 +198,9 @@ impl Service {
         }
         if let Some(review) = patch.memory_review {
             next.memory_review = review;
+        }
+        if let Some(push) = patch.push_replies {
+            next.push_replies = push;
         }
         if let Some(nap) = patch.nap_at {
             next.nap_at = nap;

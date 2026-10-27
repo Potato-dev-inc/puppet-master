@@ -8,6 +8,7 @@
 use super::hub::testing::{hub_with, FakeDirectory};
 use super::hub::{Candidate, PushHub};
 use super::store::test_subscription;
+use super::companion_replies::{self, Message, Release, Step};
 use super::triggers::{Kind, PromptInfo, PromptRisk};
 use crate::prompt_risk::RiskLevel;
 use serde_json::{json, Value};
@@ -339,6 +340,107 @@ fn no_first_line_is_longer_than_fifty_six_characters() {
             assert!(first.chars().count() <= MAX_FIRST_LINE_CHARS, "{kind:?} {view:?}: {first}");
         }
     }
+}
+
+// ---- companion replies ---------------------------------------------------------------------------
+
+/// A phone set for companion replies: "dev-a" (watch), "dev-w" (watch), "dev-h" (hide details, watch),
+/// and "dev-n" (no caps at all, so no watch ability).
+fn reply_hub(name: &str) -> PushHub {
+    let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-w", "dev-w"), ("tok-h", "dev-h"), ("tok-n", "dev-n")]));
+    dir.cannot_watch.lock().push("dev-n".into());
+    let hub = hub_with(name, dir);
+    for (device, endpoint) in [
+        ("dev-a", "https://fcm.googleapis.com/fcm/send/a"),
+        ("dev-w", "https://fcm.googleapis.com/fcm/send/w"),
+        ("dev-h", "https://fcm.googleapis.com/fcm/send/h"),
+        ("dev-n", "https://fcm.googleapis.com/fcm/send/n"),
+    ] {
+        let (sub, _, _) = test_subscription(endpoint);
+        hub.store().lock().upsert(device, sub).unwrap();
+    }
+    hub.store().lock().set_hide_details("dev-h", true).unwrap();
+    hub
+}
+
+fn reply_message(text: &str) -> Message {
+    match companion_replies::Gate::default().reply("mochi", "Mochi", text, 1) {
+        Step::Send(message) => message,
+        other => panic!("a first reply goes out at once: {other:?}"),
+    }
+}
+
+/// The reply as a phone receives it: the watching phones only, title and body, and the routing keys.
+#[test]
+fn a_companion_reply_goes_to_the_phones_that_may_watch_and_nowhere_else() {
+    let hub = reply_hub("companion_reply_targets");
+    let message = reply_message("Good morning! Your brief is ready.");
+    let deliveries = hub.companion_deliveries(&message, 1_000);
+    let mut devices: Vec<&str> = deliveries.iter().map(|d| d.device_id.as_str()).collect();
+    devices.sort_unstable();
+    assert_eq!(devices, vec!["dev-a", "dev-h", "dev-w"], "dev-n has no watch ability");
+    assert!(deliveries.iter().all(|d| !d.urgent && d.pane_id.is_none() && d.kind == Kind::CompanionReply));
+    check("companion_reply", &payload_for(&deliveries, "dev-a"));
+}
+
+/// The body is redacted, one line, and cut to 120 characters; the title is the companion's name.
+#[test]
+fn a_companion_reply_body_is_redacted_one_line_and_cut() {
+    let hub = reply_hub("companion_reply_cut");
+    let secret = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let message = reply_message(&format!("Key {secret}\n\nand then {}", "more words ".repeat(30)));
+    let deliveries = hub.companion_deliveries(&message, 1_000);
+    let payload = payload_for(&deliveries, "dev-a");
+    let body = payload["body"].as_str().unwrap();
+    assert!(!body.contains("AAAAAAAAAAAAAAAA"), "{body}");
+    assert!(!body.contains('\n'), "{body:?}");
+    assert!(body.chars().count() <= 120, "{}", body.chars().count());
+    assert_eq!(payload["title"], json!("Mochi"));
+}
+
+/// A phone with "Hide details on lock screen" gets no words of the reply, only that there is one.
+#[test]
+fn a_hidden_phone_gets_no_words_of_the_reply() {
+    let hub = reply_hub("companion_reply_hidden");
+    let deliveries = hub.companion_deliveries(&reply_message("A private sentence."), 1_000);
+    let payload = payload_for(&deliveries, "dev-h");
+    assert_eq!(payload["body"], json!("New reply"));
+    assert!(!serde_json::to_string(&payload).unwrap().contains("private"));
+}
+
+/// A phone that is on screen shows the reply itself: no push to it.
+#[test]
+fn a_phone_on_screen_gets_no_companion_push() {
+    let hub = reply_hub("companion_reply_visible");
+    hub.set_visible("dev-a", true, 1_000);
+    let devices: Vec<String> = hub.companion_deliveries(&reply_message("Hi."), 1_500).into_iter().map(|d| d.device_id).collect();
+    assert!(!devices.contains(&"dev-a".to_string()), "{devices:?}");
+    assert!(devices.contains(&"dev-w".to_string()));
+}
+
+/// Two replies inside a minute: the first is pushed, the second is held. When the minute ends the held
+/// one goes out as its own text, and two or more as a count.
+#[test]
+fn replies_inside_one_minute_are_held_and_coalesced() {
+    let mut gate = companion_replies::Gate::default();
+    let hub = reply_hub("companion_reply_rate");
+    let Step::Send(first) = gate.reply("mochi", "Mochi", "One.", 0) else { panic!("first") };
+    assert_eq!(hub.companion_deliveries(&first, 0).len(), 3, "dev-a, dev-w and dev-h watch");
+    assert_eq!(gate.reply("mochi", "Mochi", "Two.", 10_000), Step::Held { arm: true });
+    assert_eq!(gate.reply("mochi", "Mochi", "Three.", 20_000), Step::Held { arm: false });
+    let Release::Send(batch) = gate.release("mochi", 60_000) else { panic!("the minute ended") };
+    assert_eq!(batch.body(false), "2 new replies");
+    let deliveries = hub.companion_deliveries(&batch, 60_000);
+    check("companion_reply_coalesced", &payload_for(&deliveries, "dev-a"));
+}
+
+/// Companion pushes never reach a pane's notification: a pane prompt keeps its own kind and copy.
+#[test]
+fn a_pane_prompt_is_never_worded_as_a_companion_reply() {
+    let hub = hub("pane_prompt_not_companion");
+    let (_, deliveries) = hub.plan(&waiting(Some("auth refactor"), Some(prompt(Some((RiskLevel::Low, "Run a command")), "npm test"))), 1_000);
+    assert!(!deliveries.is_empty());
+    assert!(deliveries.iter().all(|d| d.kind == Kind::WaitingInput));
 }
 
 /// Every golden file is exercised: a stray file means a case was dropped.

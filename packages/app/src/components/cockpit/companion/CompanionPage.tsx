@@ -218,7 +218,14 @@ export function CompanionPage(props: CompanionPageProps) {
               }}
             />
           )}
-          <CheckInsCard companionId={companion.id} checkins={checkins} nextCheckin={companion.nextCheckin} transport={transport} onChanged={() => onChanged()} />
+          <CheckInsCard
+            companionId={companion.id}
+            checkins={checkins}
+            nextCheckin={companion.nextCheckin}
+            pushReplies={companion.pushReplies}
+            transport={transport}
+            onChanged={() => onChanged()}
+          />
           <section className="ck-companion-card" aria-labelledby="ck-companion-setup-card">
             <h2 className="ck-companion-card-title" id="ck-companion-setup-card">
               Setup

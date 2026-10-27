@@ -2,6 +2,7 @@
 //! short-lived "Allow / Deny" grants, and the trigger gate. Everything takes `now_ms` so it can be
 //! tested without a clock, and nothing here does network I/O (see `sender.rs`).
 
+use super::companion_replies::{self, Message};
 use super::store::{Subscription, SubscriptionStore};
 use super::triggers::{coalesced_copy_view, copy_for_view, is_apple_endpoint, shown_in_full, Gate, Kind, PromptInfo, Verdict, View, Words};
 use super::vapid::VapidKeys;
@@ -26,6 +27,8 @@ pub trait DeviceDirectory: Send + Sync {
     /// Whether the device may answer approvals (its `answer` ability). A notification only carries
     /// Allow / Deny for a device that may use them: the tap would be refused anyway.
     fn device_can_answer(&self, device_id: &str) -> bool;
+    /// Whether the device may watch the companion replies (its `watch` ability).
+    fn device_can_watch(&self, device_id: &str) -> bool;
 }
 
 /// What an Allow / Deny token is good for: one answer to one prompt on one pane, from one device.
@@ -103,6 +106,8 @@ pub struct PushHub {
     suppressed: Mutex<HashMap<String, (Delivery, u64)>>,
     /// Held-back notifications released by "hidden" presence reports, waiting to be sent.
     outbox: Mutex<Vec<Delivery>>,
+    /// One message per companion per minute (`companion_replies`).
+    replies: Mutex<companion_replies::Gate>,
     directory: Box<dyn DeviceDirectory>,
 }
 
@@ -117,6 +122,7 @@ impl PushHub {
             held: Mutex::new(HashMap::new()),
             suppressed: Mutex::new(HashMap::new()),
             outbox: Mutex::new(Vec::new()),
+            replies: Mutex::new(companion_replies::Gate::default()),
             directory,
         }
     }
@@ -131,6 +137,10 @@ impl PushHub {
 
     pub fn store(&self) -> &Mutex<SubscriptionStore> {
         &self.store
+    }
+
+    pub fn companion_replies(&self) -> &Mutex<companion_replies::Gate> {
+        &self.replies
     }
 
     pub fn has_subscribers(&self) -> bool {
@@ -396,6 +406,35 @@ impl PushHub {
         }
         deliveries
     }
+
+    /// One companion reply, one message per phone that may watch (`watch` ability) and is not looking
+    /// at the PWA right now (the phone shows the reply itself). Carries no pane, no buttons, and is not
+    /// urgent: the phone may show it when it next wakes.
+    pub fn companion_deliveries(&self, message: &Message, now_ms: u64) -> Vec<Delivery> {
+        let mut deliveries = Vec::new();
+        for (device_id, subscription, hide_details) in self.store.lock().all_with_preferences() {
+            if !self.directory.device_can_watch(&device_id) || self.is_visible(&device_id, now_ms) {
+                continue;
+            }
+            let title = crate::redact::text(&message.title());
+            let body = crate::redact::text(&message.body(hide_details));
+            let mut extra = serde_json::Map::new();
+            extra.insert("v".into(), json!(2));
+            extra.insert("kind".into(), json!(Kind::CompanionReply.as_str()));
+            extra.insert("tag".into(), json!(format!("pm-companion-{}", message.companion_id)));
+            extra.insert("companion_id".into(), json!(message.companion_id));
+            let payload = super::sender::PushPayload::new(&title, &body, extra);
+            deliveries.push(Delivery {
+                device_id,
+                subscription,
+                payload,
+                urgent: false,
+                pane_id: None,
+                kind: Kind::CompanionReply,
+            });
+        }
+        deliveries
+    }
 }
 
 #[cfg(test)]
@@ -408,6 +447,8 @@ pub(crate) mod testing {
         pub tokens: Mutex<HashMap<String, String>>,
         /// Devices paired without the `answer` ability.
         pub cannot_answer: Mutex<Vec<String>>,
+        /// Devices paired without the `watch` ability.
+        pub cannot_watch: Mutex<Vec<String>>,
     }
 
     impl FakeDirectory {
@@ -415,6 +456,7 @@ pub(crate) mod testing {
             Self {
                 tokens: Mutex::new(pairs.iter().map(|(t, d)| (t.to_string(), d.to_string())).collect()),
                 cannot_answer: Mutex::new(Vec::new()),
+                cannot_watch: Mutex::new(Vec::new()),
             }
         }
     }
@@ -428,6 +470,9 @@ pub(crate) mod testing {
         }
         fn device_can_answer(&self, device_id: &str) -> bool {
             !self.cannot_answer.lock().iter().any(|d| d == device_id)
+        }
+        fn device_can_watch(&self, device_id: &str) -> bool {
+            !self.cannot_watch.lock().iter().any(|d| d == device_id)
         }
     }
 

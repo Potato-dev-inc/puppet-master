@@ -9,6 +9,7 @@
 //! Everything about which agent it is comes from the registry (label via `tui::descriptors`), never
 //! from matching agent names.
 
+pub mod companion_replies;
 pub mod hub;
 pub mod routes;
 pub mod sender;
@@ -21,6 +22,7 @@ mod tests_golden;
 
 use crate::mobile_pairing;
 use crate::pty::PaneRegistry;
+use companion_replies::{Message, Release, Step};
 use hub::{Candidate, DeviceDirectory, PushHub};
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
@@ -56,6 +58,15 @@ impl DeviceDirectory for PairingDirectory {
                 .lock()
                 .device_caps(device_id)
                 .is_some_and(|caps| caps.has(mobile_pairing::Cap::Answer))
+        })
+    }
+    fn device_can_watch(&self, device_id: &str) -> bool {
+        // Fails closed: a device the store does not know gets no companion reply push.
+        mobile_pairing::pairing_store().is_some_and(|store| {
+            store
+                .lock()
+                .device_caps(device_id)
+                .is_some_and(|caps| caps.has(mobile_pairing::Cap::Watch))
         })
     }
 }
@@ -259,6 +270,59 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
             dispatch(ctx, candidate);
         }
     });
+}
+
+/// Hook for the companion keeper: a reply went into a companion's feed. `enabled` is the companion's
+/// `push_replies`. The decision is made here (cheap); the sending runs on a thread of its own, so the
+/// keeper never waits on the network.
+pub fn notify_companion_reply(companion_id: &str, name: &str, text: &str, enabled: bool) {
+    let Some(ctx) = CTX.get() else { return };
+    if !enabled || !ctx.hub.has_subscribers() {
+        return;
+    }
+    let step = ctx.hub.companion_replies().lock().reply(companion_id, name, text, now_ms());
+    match step {
+        Step::Skip => {}
+        Step::Send(message) => {
+            let _ = std::thread::Builder::new().name("push-reply".into()).spawn(move || {
+                if let Some(ctx) = CTX.get() {
+                    send_companion(ctx, &message);
+                }
+            });
+        }
+        Step::Held { arm: true } => {
+            let owned = companion_id.to_string();
+            let spawned = std::thread::Builder::new().name("push-reply-timer".into()).spawn(move || run_reply_timer(&owned));
+            if spawned.is_err() {
+                if let Some(ctx) = CTX.get() {
+                    ctx.hub.companion_replies().lock().disarm(companion_id);
+                }
+            }
+        }
+        Step::Held { arm: false } => {}
+    }
+}
+
+/// Waits out a companion's window and sends what it held (`Gate::release`). One per companion at a time.
+fn run_reply_timer(companion_id: &str) {
+    loop {
+        let Some(ctx) = CTX.get() else { return };
+        let now = now_ms();
+        let release = ctx.hub.companion_replies().lock().release(companion_id, now);
+        match release {
+            Release::Send(message) => {
+                send_companion(ctx, &message);
+                return;
+            }
+            Release::Wait(due) => std::thread::sleep(Duration::from_millis(due.saturating_sub(now).clamp(50, 5_000))),
+            Release::Done => return,
+        }
+    }
+}
+
+fn send_companion(ctx: &Ctx, message: &Message) {
+    let deliveries = ctx.hub.companion_deliveries(message, now_ms());
+    send_deliveries(&ctx.hub, deliveries);
 }
 
 /// Test spy: the ids `notify_question` was called with (the global hub is not installed in tests).
