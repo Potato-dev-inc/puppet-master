@@ -42,6 +42,18 @@ pub fn open_external_url(url: String) -> Result<(), String> {
     open_url(trimmed)
 }
 
+/// Whether "Start Puppet Master when I sign in" is on. The OS entry is the source of truth.
+#[tauri::command]
+pub fn autostart_get(app: tauri::AppHandle) -> Result<bool, String> {
+    crate::autostart::get(&app)
+}
+
+/// Turn "Start Puppet Master when I sign in" on or off. Returns the state the OS reports after.
+#[tauri::command]
+pub fn autostart_set(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
+    crate::autostart::set(&app, enabled)
+}
+
 #[tauri::command]
 pub async fn launch_uninstall(app: tauri::AppHandle) -> Result<(), String> {
     if !is_packaged_install() {

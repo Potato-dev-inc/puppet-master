@@ -20,6 +20,8 @@ vi.mock('../../../lib/tauri', () => ({
     getAppInstallInfo: vi.fn(async () => mocks.install),
     getCoordinationStorageInfo: vi.fn(async () => mocks.storage),
     launchUninstall: vi.fn(async () => undefined),
+    autostartGet: vi.fn(async () => false),
+    autostartSet: vi.fn(async (enabled: boolean) => enabled),
   },
 }));
 vi.mock('../../../lib/loop-guard', () => ({

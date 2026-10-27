@@ -364,6 +364,10 @@ export const tauri = {
   openExternalUrl: (url: string) =>
     safeInvoke<void>('open_external_url', { url }, undefined, true),
   launchUninstall: () => safeInvoke<void>('launch_uninstall', undefined, undefined, true),
+  /** "Start Puppet Master when I sign in": the OS entry's state. Throws outside the desktop shell. */
+  autostartGet: () => safeInvoke<boolean>('autostart_get'),
+  /** Turns the sign-in start on or off; resolves with the state the OS reports afterward. */
+  autostartSet: (enabled: boolean) => safeInvoke<boolean>('autostart_set', { enabled }),
   getWorkerLaunch: () => safeInvoke<WorkerLaunchConfig | null>('get_worker_launch', undefined, null, true),
   getOpenCodeKeyStatus: () =>
     safeInvoke<OpenCodeKeyStatus>(

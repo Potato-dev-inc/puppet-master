@@ -15,6 +15,7 @@ import { AskBarSettingsBlock } from '../blocks/AskBarSettings';
 import { DiagnosticFile } from '../blocks/DiagnosticFile';
 import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
 import { SharedMemoryToggle } from '../blocks/SharedMemoryToggle';
+import { START_AT_SIGN_IN_HINT, START_AT_SIGN_IN_LABEL, StartAtSignInSettings } from '../blocks/StartAtSignInSettings';
 import { TeamSettings } from '../blocks/TeamSettings';
 import { WhatsNew, WHATS_NEW_LABEL } from '../blocks/WhatsNew';
 import { NumberControl, TextControl } from '../controls';
@@ -201,6 +202,14 @@ function UninstallRow({ env }: { env: SettingsEnv }) {
 
 export const generalRows: RowDef[] = [
   { id: 'project-folder', label: 'Default project folder', hint: 'Where new panes and orchestrator tools start.', keywords: 'workspace directory browse path', group: 'Project', render: (env) => <ProjectFolder env={env} /> },
+  {
+    id: 'start-at-sign-in',
+    label: START_AT_SIGN_IN_LABEL,
+    hint: START_AT_SIGN_IN_HINT,
+    keywords: 'autostart auto start startup boot login sign in windows launch tray companion reboot restart',
+    group: 'Startup',
+    render: (env) => <StartAtSignInSettings onSaved={env.markSaved} />,
+  },
   {
     id: 'theme',
     label: 'Theme',
