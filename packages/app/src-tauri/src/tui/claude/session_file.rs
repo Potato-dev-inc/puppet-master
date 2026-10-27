@@ -6,10 +6,10 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::session_extra::{context_window, note_line, plan_call, plan_result, system_line, tool_detail};
-use crate::session_chat::{cut, ChatItem, SessionFormat, TurnOutcome};
+use crate::session_chat::{cut, ChatItem, SessionFormat, ToolDetail, TurnOutcome};
 
 /// Longest first line of a tool call's input kept as its summary, in characters.
 const SUMMARY_CHARS: usize = 200;
@@ -21,6 +21,9 @@ const SUMMARY_KEYS: [&str; 7] = ["command", "file_path", "path", "pattern", "url
 const INJECTED: [&str; 4] = ["<command-name>", "<local-command-", "<system-reminder>", "Caveat:"];
 
 const INTERRUPTED: &str = "[Request interrupted by user";
+
+/// The tool name a `!` shell command gets in the chat view.
+const SHELL: &str = "Shell";
 
 pub struct ClaudeSessionFile;
 
@@ -78,9 +81,9 @@ fn user_line(value: &Value, out: &mut Line) {
         return;
     }
     match value.pointer("/message/content") {
-        Some(Value::String(text)) => user_text(text, out),
+        Some(Value::String(text)) => user_text(text, value, out),
         Some(Value::Array(blocks)) => {
-            user_text(&texts(blocks).join("\n"), out);
+            user_text(&texts(blocks).join("\n"), value, out);
             // The result of a task-list tool is a plan item, not a tool row.
             if !plan_result(value, blocks, out) {
                 for block in blocks.iter().filter(|b| kind(b) == Some("tool_result")) {
@@ -92,15 +95,110 @@ fn user_line(value: &Value, out: &mut Line) {
     }
 }
 
-/// What the person typed, or the end of a turn the person interrupted. Injected text gives nothing.
-fn user_text(text: &str, out: &mut Line) {
+/// What the person typed, or the end of a turn the person interrupted. Injected text gives nothing, except the
+/// `!` shell commands the person ran (`shell_call`, `shell_result`).
+fn user_text(text: &str, value: &Value, out: &mut Line) {
     let text = text.trim();
     if text.starts_with(INTERRUPTED) {
         out.push(|id, at| ChatItem::TurnEnd { id, at, outcome: TurnOutcome::Interrupted, duration_ms: None });
+    } else if text.starts_with("<bash-input>") {
+        shell_call(tagged(text, "bash-input").unwrap_or(""), value, out);
+    } else if text.starts_with("<bash-stdout>") || text.starts_with("<bash-stderr>") {
+        shell_result(text, value, out);
     } else if !text.is_empty() && !INJECTED.iter().any(|prefix| text.starts_with(*prefix)) {
         let text = text.to_string();
         out.push(|id, at| ChatItem::User { id, at, text });
     }
+}
+
+/// A `!` command the person ran: a `Shell` tool call with the command as its summary and input. The output line that
+/// follows names this line as its `parentUuid`, which gives both lines the same call id (`shell:<uuid>`).
+fn shell_call(command: &str, value: &Value, out: &mut Line) {
+    let call_id = format!("shell:{}", line_uuid(value, out.offset));
+    let input = json!({"command": command.trim()});
+    let summary = summary(Some(&input));
+    let detail = tool_detail(SHELL, Some(&input));
+    out.push(|id, at| ChatItem::ToolCall { id, at, call_id, name: SHELL.to_string(), summary, detail });
+}
+
+/// The output of a `!` command: `<bash-stdout>` then `<bash-stderr>`, with terminal codes removed. It is the result of
+/// the call its `parentUuid` names. An output line without that link gets a call of its own, so it still shows.
+fn shell_result(text: &str, value: &Value, out: &mut Line) {
+    let stdout = tagged(text, "bash-stdout").unwrap_or("");
+    let stderr = tagged(text, "bash-stderr").unwrap_or("");
+    let mut output = String::new();
+    for part in [stdout, stderr].iter().map(|part| part.trim_end()).filter(|part| !part.is_empty()) {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str(part);
+    }
+    let output = cut(&strip_ansi(&output));
+    let ok = stderr.trim().is_empty();
+    let call_id = match value.get("parentUuid").and_then(Value::as_str) {
+        Some(parent) => format!("shell:{parent}"),
+        None => {
+            let own = format!("shell:{}", line_uuid(value, out.offset));
+            let call = own.clone();
+            out.push(|id, at| ChatItem::ToolCall {
+                id,
+                at,
+                call_id: call,
+                name: SHELL.to_string(),
+                summary: String::new(),
+                detail: ToolDetail::default(),
+            });
+            own
+        }
+    };
+    out.push(|id, at| ChatItem::ToolResult { id, at, call_id, ok, output });
+}
+
+/// The line's `uuid`, or its byte offset when the line has none.
+fn line_uuid(value: &Value, offset: u64) -> String {
+    value.get("uuid").and_then(Value::as_str).map_or_else(|| offset.to_string(), str::to_string)
+}
+
+/// The text between `<tag>` and the `</tag>` after it, when `text` has both.
+fn tagged<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}>");
+    let start = text.find(&open)? + open.len();
+    let end = text[start..].find(&format!("</{tag}>"))? + start;
+    Some(&text[start..end])
+}
+
+/// `text` without terminal escape codes: `ESC [ ... final` (colours, cursor moves), `ESC ] ... BEL` or
+/// `ESC ] ... ESC \` (window titles, links), and any other `ESC x` pair.
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            // Parameters and intermediates, then one final byte from 0x40 to 0x7E.
+            Some('[') => {
+                for next in chars.by_ref() {
+                    if ('\u{40}'..='\u{7e}').contains(&next) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                let mut prev = '\0';
+                for next in chars.by_ref() {
+                    if next == '\u{7}' || (prev == '\u{1b}' && next == '\\') {
+                        break;
+                    }
+                    prev = next;
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 fn tool_result(block: &Value, out: &mut Line) {

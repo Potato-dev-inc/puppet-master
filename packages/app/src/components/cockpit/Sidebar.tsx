@@ -22,6 +22,7 @@ import { projectWithCopy } from './shell-labels';
 import type { CompanionView } from '../../lib/companion';
 import { CompanionRow, MakeCompanionRow } from './companion/CompanionRow';
 import { isCompanionPaneId } from './companion/model';
+import { JobsChip } from './rail/JobsChip';
 
 /** `localhost:5173`: where the preview is, without the scheme. */
 const previewAddress = (p: PreviewUrl): string => p.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -331,6 +332,7 @@ export function Sidebar({
           ]}
           small
         />
+        <JobsChip names={c.names} onOpenPane={(id) => c.select(id)} />
         {onOpenDoctor && (
           <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenDoctor}>
             <IconTerminal />
