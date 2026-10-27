@@ -276,6 +276,8 @@ describe('the agent\'s own question', () => {
     expect(btn('Blue')).toBeTruthy();
     expect(btn('Allow once')).toBeUndefined();
     expect(host.textContent).not.toContain(LEVEL_WORD.low);
+    // The question itself is the card's title, not a risk headline.
+    expect(host.querySelector('.ib-title, h3, [class*=title]')?.textContent ?? host.textContent).toContain('Pick a colour');
     act(() => btn('Blue')!.click());
     expect(onAnswer).toHaveBeenCalledTimes(1);
     expect(onAnswer.mock.calls[0][0]).toMatchObject({ id: '2', label: 'Blue' });

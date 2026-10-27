@@ -114,7 +114,7 @@ export function ApprovalPrompt({
           glyph={risk.level}
           risk={risk.level}
           guard={high}
-          title={risk.headline}
+          title={asksQuestion && prompt.summary ? prompt.summary : risk.headline}
           meta={who}
           status={asksQuestion ? null : LEVEL_WORD[risk.level]}
           age={age ?? null}
