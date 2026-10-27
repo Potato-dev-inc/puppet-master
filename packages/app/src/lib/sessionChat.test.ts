@@ -205,7 +205,7 @@ describe('groupTurns', () => {
   });
 
   it('returns nothing for no items', () => {
-    expect(groupTurns([])).toEqual({ turns: [], model: null, cliVersion: null, usage: null });
+    expect(groupTurns([])).toEqual({ turns: [], model: null, cliVersion: null, usage: null, plan: [], title: null, outputs: [] });
   });
 });
 

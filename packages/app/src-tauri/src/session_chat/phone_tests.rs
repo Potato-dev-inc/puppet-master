@@ -26,7 +26,7 @@ impl SessionFormat for Lines {
         match kind {
             "u" => vec![ChatItem::User { id, at: None, text }],
             "a" => vec![ChatItem::Assistant { id, at: None, text, model: None, final_answer: false }],
-            "t" => vec![ChatItem::ToolCall { id, at: None, call_id: format!("c{offset}"), name: "shell".into(), summary: text }],
+            "t" => vec![ChatItem::ToolCall { id, at: None, call_id: format!("c{offset}"), name: "shell".into(), summary: text, detail: Default::default() }],
             "o" => vec![ChatItem::ToolResult { id, at: None, call_id: "c0".into(), ok: true, output: text }],
             _ => Vec::new(),
         }
@@ -260,4 +260,27 @@ fn the_reader_ends_when_the_phone_stops_asking_and_stays_while_it_asks() {
     // A revision from before the restarted reader is a reset.
     let again = read_with(&rig.watchers, "p1", Some(&rig.opening), Some(1), lease);
     assert_eq!(again["reset"], true);
+}
+
+#[test]
+fn lean_drops_a_tool_calls_input_and_keeps_its_files() {
+    let call = ChatItem::ToolCall {
+        id: "0:0".into(),
+        at: None,
+        call_id: "c".into(),
+        name: "Edit".into(),
+        summary: "a.rs".into(),
+        detail: crate::session_chat::ToolDetail {
+            input: Some(serde_json::json!({"old_string": "a", "new_string": "b"})),
+            paths: vec!["a.rs".into()],
+            writes: true,
+            helper: false,
+        },
+    };
+    let value = serde_json::to_value(lean(call)).unwrap();
+    assert!(value.get("input").is_none());
+    assert_eq!(value["paths"], serde_json::json!(["a.rs"]));
+    assert_eq!(value["writes"], true);
+    let user = ChatItem::User { id: "1:0".into(), at: None, text: "hi".into() };
+    assert_eq!(lean(user.clone()), user);
 }

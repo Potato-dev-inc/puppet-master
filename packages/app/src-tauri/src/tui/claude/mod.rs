@@ -10,6 +10,7 @@ mod headless;
 mod prompt;
 mod screen;
 pub mod session_file;
+mod session_extra;
 pub mod session_source;
 #[cfg(test)]
 mod fullscreen_tests;

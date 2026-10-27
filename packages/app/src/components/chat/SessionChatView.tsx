@@ -80,6 +80,7 @@ function ToolRow({ step, fromScreen }: { step: ToolStep; fromScreen: boolean }) 
 /** `markdown`: the text is the agent's own session file, so its Markdown is formatted; anything else is shown as is. */
 function Step({ step, fromScreen, markdown }: { step: TurnStep; fromScreen: boolean; markdown: boolean }) {
   if (step.kind === 'tool') return <ToolRow step={step} fromScreen={fromScreen} />;
+  if (step.kind === 'notice') return <div className="text-[11px] text-pm-muted ck-chat-notice">{step.item.text}</div>;
   if (markdown) return <ChatMarkdown text={step.item.text} />;
   return <div className="whitespace-pre-wrap break-words ck-chat-text">{step.item.text}</div>;
 }
