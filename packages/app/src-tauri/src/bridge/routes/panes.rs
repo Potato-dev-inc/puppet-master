@@ -292,7 +292,7 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
         &settings,
     );
     if !req.via_opencode_api {
-        raw_keys_gate(cx, pane_id, &format!("{} characters{}", req.text.chars().count(), if req.append_newline { " and Enter" } else { "" }))?;
+        raw_keys_gate(cx, pane_id, &typed_text_keys(&req.text, req.append_newline))?;
     }
     // The origin says "an API caller"; the flight recorder also wants which one (agent, phone, app).
     crate::flight::with_tag(bridge_tag(cx), || {
@@ -321,14 +321,30 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
 /// line (`agent_authority::gate::check_raw_keys`). The person's keys and a pane with no dialog
 /// pass untouched.
 fn raw_keys_gate(cx: &Ctx, pane_id: &str, keys: &str) -> Result<(), (u16, serde_json::Value)> {
-    let Some(session) = cx.session.filter(|s| !s.trim().is_empty()) else {
+    raw_keys_gate_for(cx.session, cx.registry, pane_id, keys)
+}
+
+/// The same gate for any caller that types into a pane, such as the socket's `input` frame
+/// (`bridge/ws.rs`). `session` is the MCP session, `None` for the person and paired phones.
+pub(crate) fn raw_keys_gate_for(
+    session: Option<&str>,
+    registry: &std::sync::Arc<parking_lot::Mutex<crate::pty::PaneRegistry>>,
+    pane_id: &str,
+    keys: &str,
+) -> Result<(), (u16, serde_json::Value)> {
+    let Some(session) = session.filter(|s| !s.trim().is_empty()) else {
         return Ok(());
     };
-    let Some(prompt) = crate::pane_prompt::detect(cx.registry, pane_id, false) else {
+    let Some(prompt) = crate::pane_prompt::detect(registry, pane_id, false) else {
         return Ok(());
     };
-    crate::agent_authority::gate::check_raw_keys(Some(session), pane_id, &prompt, keys, Some(cx.registry))
+    crate::agent_authority::gate::check_raw_keys(Some(session), pane_id, &prompt, keys, Some(registry))
         .map_err(crate::bridge::errors::operation_http_error)
+}
+
+/// How a typed text is named to the raw-keys gate and its audit line: a count, never the text.
+pub(crate) fn typed_text_keys(text: &str, append_newline: bool) -> String {
+    format!("{} characters{}", text.chars().count(), if append_newline { " and Enter" } else { "" })
 }
 
 /// Who is typing: an agent (MCP session), a paired phone, or the local app (flight recorder tag).

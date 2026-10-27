@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tauri::AppHandle;
 
 use super::observe::observe_operation_pane_status;
+use crate::mobile_pairing::Viewer;
 use crate::pty::PaneRegistry;
 use crate::settings_store;
 
@@ -197,6 +198,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The first `panes` frame a new stream gets goes through the same viewer cut as pushed events:
+    /// a device without `watch` gets generic pane titles, a watching device and the app get the real
+    /// ones, and a revoked device gets nothing.
+    #[test]
+    fn first_snapshot_is_cut_for_the_viewer_like_pushed_events() {
+        use crate::mobile_pairing::{Caps, MobilePairingStore, PairRequestBody, Viewer};
+        let dir = std::env::temp_dir().join(format!("pm-sse-first-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut store = MobilePairingStore::load_or_create(dir.join("pairing.json")).unwrap();
+        let mut pair = |caps: Caps| {
+            let s = store.create_pairing_session_with_caps("http://127.0.0.1:1".into(), caps);
+            store
+                .pair_device(PairRequestBody {
+                    pairing_code: s.pairing_code,
+                    device_name: "p".into(),
+                    device_public_key: s.server_public_key,
+                })
+                .unwrap()
+                .device_id
+        };
+        let watcher = pair(Caps::watch_and_answer());
+        let plain = pair(Caps::none());
+        let panes = serde_json::json!([{"id": "p1", "title": "Ship the TASKTITLE fix", "status": "running"}]);
+        let settings = serde_json::json!({"theme": "dark"});
+        let first = |viewer: &Viewer| super::first_frames(viewer, &panes, &settings);
+
+        let plain_first = first(&Viewer::Device(plain.clone()));
+        assert!(!plain_first.contains("TASKTITLE"), "no task text in the first snapshot: {plain_first}");
+        assert!(plain_first.contains("\"Agent 1\""), "{plain_first}");
+        assert!(plain_first.contains("event: settings"), "the settings frame follows: {plain_first}");
+
+        assert!(first(&Viewer::Device(watcher)).contains("TASKTITLE"), "a watching device keeps the titles");
+        assert!(first(&Viewer::Local).contains("TASKTITLE"), "the app keeps the titles");
+
+        store.revoke_device(&plain).unwrap();
+        assert_eq!(first(&Viewer::Device(plain)), "", "a revoked device gets no snapshot");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn status_hooks_run_in_the_documented_order() {
         use super::StatusHook::*;
@@ -365,6 +406,28 @@ pub(crate) fn push_operation_sse(snapshot: &crate::operations::OperationSnapshot
     }
 }
 
+/// The frames a new stream is told first: the pane list, then the public settings. Each goes through
+/// the viewer's cut, the same one pushed events get (`Viewer::view`): a device without `watch` gets
+/// generic pane titles. A device that is gone gets nothing.
+pub(crate) fn first_frames(viewer: &Viewer, panes: &impl serde::Serialize, settings: &impl serde::Serialize) -> String {
+    let mut out = String::new();
+    if let Ok(json) = serde_json::to_string(panes) {
+        out.push_str(&viewer_frame(viewer, format!("event: panes\ndata: {json}\n\n")));
+    }
+    if let Ok(json) = serde_json::to_string(settings) {
+        out.push_str(&viewer_frame(viewer, format!("event: settings\ndata: {json}\n\n")));
+    }
+    out
+}
+
+/// What this viewer gets for one payload: the payload as the viewer's cut leaves it, or nothing.
+fn viewer_frame(viewer: &Viewer, payload: String) -> String {
+    match viewer.view(&payload) {
+        Some(Some(view)) => view.into_owned(),
+        _ => String::new(),
+    }
+}
+
 pub(super) fn handle_sse(
     stream: &mut TcpStream,
     registry: Arc<Mutex<PaneRegistry>>,
@@ -386,22 +449,12 @@ pub(super) fn handle_sse(
         return;
     }
 
-    let panes = registry.lock().list();
-    if let Ok(json) = serde_json::to_string(&panes) {
-        let snapshot = format!("event: panes\ndata: {json}\n\n");
-        if stream.write_all(snapshot.as_bytes()).is_err() {
-            return;
-        }
-    }
-
-    // Push the current public settings snapshot so the mobile PWA is in sync
-    // from the moment it connects (and doesn't have to race GET /settings).
+    // The pane list and the public settings snapshot, so the mobile PWA is in sync from the moment it
+    // connects (and does not have to race GET /settings). Cut for this viewer (see `first_frames`).
     let settings = settings_store::read_public_settings(app);
-    if let Ok(json) = serde_json::to_string(&settings) {
-        let snapshot = format!("event: settings\ndata: {json}\n\n");
-        if stream.write_all(snapshot.as_bytes()).is_err() {
-            return;
-        }
+    let snapshot = first_frames(&viewer, &registry.lock().list(), &settings);
+    if stream.write_all(snapshot.as_bytes()).is_err() {
+        return;
     }
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<String>(64);
