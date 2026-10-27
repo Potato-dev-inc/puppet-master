@@ -35,6 +35,7 @@ mod mobile_pairing;
 mod mobile_tunnel;
 mod tunnel_config;
 mod one_brain;
+mod companion;
 mod opencode;
 pub mod operations;
 #[cfg(test)]

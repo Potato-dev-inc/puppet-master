@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 
 use crate::tui::TuiProfile;
-pub use block::{block_state, render, BlockError, BlockState, Outcome, END, START};
+pub use block::{block_state, block_state_between, render, render_between, BlockError, BlockState, Outcome, END, START};
 
 pub const MEMORY_REL: &str = ".puppet-master/memory.md";
 const OFF_REL: &str = ".puppet-master/memory.off";
