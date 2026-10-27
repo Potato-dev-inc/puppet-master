@@ -47,6 +47,8 @@ export interface SessionChatViewProps {
   paneId?: string | null;
   /** Offer "Remember for all agents" on selected text (desktop Chat tab only). Needs `paneId`. */
   remember?: boolean;
+  /** Shown at the top of the chat while it has no turns yet (a companion's "new session" line). */
+  emptyNote?: ReactNode;
 }
 
 const SUMMARY_NOTE = 'Summary: your messages, final answers and activity lines.';
@@ -106,7 +108,7 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for the agent's session file; an unknown source keeps the text as it is.
   const markdown = source === 'file';
@@ -162,6 +164,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
             <p className="ck-sub text-pm-muted">{reason ?? 'Chat is not available for this pane.'}</p>
           </div>
         )}
+        {state !== 'unavailable' && turns.length === 0 && emptyNote}
         {state !== 'unavailable' && turns.length === 0 && (
           <div className="ck-chat-waiting">
             <p className="ck-sub text-pm-muted">

@@ -4,14 +4,15 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fakeCompanionTransport, type CompanionView } from '../../../lib/companion';
+import { fakeCompanionTransport, type CompanionView, type FeedItem } from '../../../lib/companion';
 import { CompanionPage, type CompanionPageProps } from './CompanionPage';
 
 // The chat is the Chat tab's panel, tested with the pane; here it only needs to show which pane it was given.
 vi.mock('../../chat/SessionChatPanel', async () => {
   const React = await import('react');
   return {
-    SessionChatPanel: ({ paneId }: { paneId: string }) => React.createElement('div', { 'data-testid': 'chat' }, paneId),
+    SessionChatPanel: ({ paneId, emptyNote }: { paneId: string; emptyNote?: React.ReactNode }) =>
+      React.createElement('div', { 'data-testid': 'chat' }, paneId, emptyNote),
   };
 });
 
@@ -57,10 +58,11 @@ const view = (over: Partial<CompanionView> = {}): CompanionView => ({
 
 const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === label);
 
-async function render(companion: CompanionView, over: Partial<CompanionPageProps> = {}) {
+async function render(companion: CompanionView, over: Partial<CompanionPageProps> = {}, feed: FeedItem[] = []) {
   const transport = fakeCompanionTransport({
     companions: [companion],
     memory: { soul: 'Warm.', user: '', memory: '', pending: [] },
+    feed,
   });
   const props: CompanionPageProps = {
     companion,
@@ -94,6 +96,16 @@ describe('CompanionPage', () => {
   it('offers no editor while the view has no check-in list (a save would replace check-ins it cannot see)', async () => {
     await render(view());
     expect(button('Add a check-in')).toBeUndefined();
+  });
+
+  it('says a new session starts after a nap or wake-up, when the companion slept before', async () => {
+    await render(view(), {}, [{ id: 'f1', atMs: 1000, kind: 'slept', text: 'Went to sleep.' }]);
+    expect(host.querySelector('[data-testid="chat"]')?.textContent).toContain('New session after a nap or wake-up');
+  });
+
+  it('shows no new-session line for a companion that has never slept (its first start is only a wake-up)', async () => {
+    await render(view(), {}, [{ id: 'f1', atMs: 1000, kind: 'woke', text: 'Woke up.' }]);
+    expect(host.querySelector('[data-testid="chat"]')?.textContent).not.toContain('New session');
   });
 
   it('Sleep sends the sleep command', async () => {

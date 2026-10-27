@@ -17,6 +17,8 @@ export const BLINK_MS = 120;
 /** The view box is 15 cells wide: the creature in columns 0 to 11, the overlay in columns 12 to 14. */
 const VIEW_W = 15;
 const DOT_R = 0.42;
+/** An open `hole` eye: a ring of this radius (stroke in companion-avatar.css), inside its one cell. */
+const EYE_RING_R = 0.3;
 const SMALL_DIM_OPACITY = 0.5;
 const RIPPLE_STEP_MS = 300;
 const ROW_STEP_MS = 40;
@@ -109,18 +111,23 @@ export function Avatar({ id, size, state, name, className }: AvatarProps): JSX.E
   cells.forEach((row, r) => {
     row.forEach((kind, c) => {
       if (kind === 'empty') return;
+      const motion = state === 'starting' ? move('ca-move-row') : undefined;
+      const style: CSSProperties | undefined = motion ? { animationDelay: `${(GRID - 1 - r) * ROW_STEP_MS}ms` } : undefined;
+      // An open eye of a `hole` face is a gap in the dense body. A thin ring marks it, so it reads at 96 px.
+      if (kind === 'eye' && !eyesClosed && def.eyes === 'hole') {
+        const ringClasses = ['ca-eye-ring', motion].filter(Boolean).join(' ');
+        body.push(<circle key={`${r}-${c}`} {...cell(c, r)} r={EYE_RING_R} className={ringClasses} style={style} />);
+        return;
+      }
       // `+` cells and closed eyes are dim dots; below SMALL_PX they become solid dots at half opacity.
       const dimmed = kind === 'dim' || (kind === 'eye' && eyesClosed);
-      if (kind === 'eye' && !eyesClosed && def.eyes === 'hole') return;
       const classes = ['ca-dot'];
       let opacity: number | undefined;
       if (dimmed) {
         if (small) opacity = SMALL_DIM_OPACITY;
         else classes.push('ca-dim');
       }
-      const motion = state === 'starting' ? move('ca-move-row') : undefined;
       if (motion) classes.push(motion);
-      const style: CSSProperties | undefined = motion ? { animationDelay: `${(GRID - 1 - r) * ROW_STEP_MS}ms` } : undefined;
       body.push(<circle key={`${r}-${c}`} {...cell(c, r)} r={DOT_R} className={classes.join(' ')} opacity={opacity} style={style} />);
     });
   });

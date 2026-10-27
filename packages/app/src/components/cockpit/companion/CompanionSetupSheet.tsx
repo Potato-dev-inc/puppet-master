@@ -6,6 +6,8 @@ import type { AvatarId, CompanionAgentOption, CompanionPersona, CompanionTranspo
 import { shipApi, type ShipApi } from '../../../lib/ship-api';
 import { tauri } from '../../../lib/tauri';
 import { isValidProjectPath } from '../../../lib/project-path';
+import { useAgentRegistry } from '../../../lib/agentRegistry';
+import { chatAllowedFor } from '../../../lib/mobile-pane-view';
 import { Avatar } from '../../companion/Avatar';
 import { AVATARS } from '../../companion/avatars';
 import { Sheet } from '../Sheet';
@@ -13,6 +15,8 @@ import { PERSONA_OPTIONS, isValidName } from './model';
 import '../../../styles/cockpit-companion.css';
 
 const FACES = Object.keys(AVATARS) as AvatarId[];
+// Face tiles: the face is drawn this wide (px) so it fills the tile.
+const FACE_PX = 40;
 const DEFAULT_PERSONA: Exclude<CompanionPersona, 'custom'> = 'cheerful';
 // The fresh start (SPEC section 4) happens at 04:00 unless the person changes it later.
 const DEFAULT_NAP = { h: 4, m: 0 };
@@ -66,6 +70,9 @@ export function CompanionSetupSheet({
     };
   }, [transport]);
 
+  // A plain shell (kind `shell` in the agent registry) is no agent to chat with: it is not listed at all.
+  const listing = useAgentRegistry();
+  const shown = agents?.filter((a) => chatAllowedFor(listing, a.id)) ?? null;
   const chosen = agents?.find((a) => a.id === agentType) ?? null;
   const valid = isValidName(name) && !!folder && !!chosen?.ok;
 
@@ -132,7 +139,7 @@ export function CompanionSetupSheet({
               onClick={() => pickFace(id)}
               title={AVATARS[id].name}
             >
-              <Avatar id={id} size={36} state="idle" name={AVATARS[id].name} />
+              <Avatar id={id} size={FACE_PX} state="idle" name={AVATARS[id].name} />
             </button>
           ))}
         </div>
@@ -155,9 +162,9 @@ export function CompanionSetupSheet({
         <legend className="ck-caption">3. Which agent should it use?</legend>
         <p className="ck-sub ck-companion-hint">It uses your own plan. No extra cost.</p>
         {agents === null && !error && <p className="ck-sub">Looking for agents…</p>}
-        {agents?.length === 0 && <p className="ck-sub">No agents yet. Set up an agent first.</p>}
+        {shown?.length === 0 && <p className="ck-sub">No agents yet. Set up an agent first.</p>}
         <div className="ck-companion-agents" role="radiogroup" aria-label="Which agent should it use?">
-          {agents?.map((a) => (
+          {shown?.map((a) => (
             <button
               key={a.id}
               type="button"

@@ -52,6 +52,13 @@ const SAMPLE: ChatItem[] = [
 ];
 
 describe('SessionChatView states', () => {
+  it('shows the empty-chat note above the waiting note, and only while there are no turns', () => {
+    render({ state: 'ready', emptyNote: <span>New session line</span> });
+    expect(text().indexOf('New session line')).toBeLessThan(text().indexOf(WAITING));
+    render({ state: 'ready', emptyNote: <span>New session line</span>, turns: turnsFrom(SAMPLE) });
+    expect(text()).not.toContain('New session line');
+  });
+
   it('shows the waiting note while the session file is not read yet', () => {
     render({ state: 'loading' });
     expect(text()).toContain(WAITING);

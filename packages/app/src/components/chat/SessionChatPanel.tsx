@@ -15,7 +15,7 @@ export interface ChatReply {
   blockedReason: string | null;
 }
 
-export function SessionChatPanel({ paneId, dock, reply }: { paneId: string; dock?: ReactNode; reply?: ChatReply }) {
+export function SessionChatPanel({ paneId, dock, reply, emptyNote }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode }) {
   const chat = useSessionChat(paneId, true);
   const outbox = usePaneOutbox(tauriOutboxTransport, paneId, !!reply);
   const userTexts = useMemo(() => chat.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [chat.turns]);
@@ -31,6 +31,7 @@ export function SessionChatPanel({ paneId, dock, reply }: { paneId: string; dock
       cliVersion={chat.cliVersion}
       paneId={paneId}
       remember
+      emptyNote={emptyNote}
       dock={dock}
       pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
       composer={reply ? <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} /> : undefined}
