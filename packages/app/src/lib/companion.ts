@@ -66,6 +66,8 @@ export interface CompanionView {
   checkins?: CheckIn[];
   restarts: number;
   autoStart: boolean;
+  /** Whether a reply pushes the phones that may watch. Missing on a view from before the setting: on. */
+  pushReplies?: boolean;
 }
 
 export type PendingKind = 'note' | 'user' | 'forget';
@@ -118,6 +120,7 @@ export interface CompanionDraft {
   folder: string;
   autoStart?: boolean;
   memoryReview?: boolean;
+  pushReplies?: boolean;
   napAt?: HhMm | null;
   checkins?: CheckIn[];
 }
@@ -358,6 +361,7 @@ export function fakeCompanionTransport(seed: FakeCompanionSeed = {}): FakeCompan
         if (patch.name !== undefined) next.name = patch.name;
         if (patch.avatar !== undefined) next.avatar = patch.avatar;
         if (patch.persona !== undefined) next.persona = patch.persona;
+        if (patch.pushReplies !== undefined) next.pushReplies = patch.pushReplies;
         if (patch.agentType !== undefined) next.agentType = patch.agentType;
         if (patch.folder !== undefined) next.folder = patch.folder;
         if (patch.autoStart !== undefined) next.autoStart = patch.autoStart;

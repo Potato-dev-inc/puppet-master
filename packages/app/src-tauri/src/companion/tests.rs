@@ -40,6 +40,7 @@ fn fixture() -> Fixture {
         folder: home.display().to_string(),
         auto_start: true,
         memory_review: true,
+        push_replies: true,
         nap_at: Some(HhMm { h: 4, m: 0 }),
         checkins: vec![],
         created_ms: 1,

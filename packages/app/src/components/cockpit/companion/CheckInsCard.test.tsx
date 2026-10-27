@@ -128,3 +128,65 @@ describe('CheckInsCard', () => {
     expect(once).toEqual({ kind: 'once', atMs: new Date('2026-11-01T09:30').getTime() });
   });
 });
+
+// "Tell me on my phone": one switch, on unless the companion says otherwise.
+describe('Tell me on my phone', () => {
+  const pushSwitch = () => host.querySelector<HTMLButtonElement>('button[role="switch"]')!;
+
+  const mochi: CompanionView = {
+    id: 'mochi',
+    name: 'Mochi',
+    avatar: 'mochi',
+    persona: 'calm',
+    agentType: 'claude',
+    agentLabel: 'Claude Code',
+    folderName: 'mochi',
+    state: 'idle',
+    stateLine: 'Idle',
+    paneId: null,
+    needs: null,
+    pendingMemory: 0,
+    nextCheckin: null,
+    restarts: 0,
+    autoStart: true,
+  };
+
+  async function renderWith(pushReplies: boolean | undefined) {
+    const transport = fakeCompanionTransport({ companions: [mochi] });
+    const onChanged = vi.fn<(v: CompanionView) => void>();
+    await act(async () =>
+      root.render(
+        <CheckInsCard companionId="mochi" checkins={undefined} nextCheckin={null} pushReplies={pushReplies} transport={transport} onChanged={onChanged} />,
+      ),
+    );
+    return { transport, onChanged };
+  }
+
+  it('is on when the companion has the setting on or the view predates it', async () => {
+    await renderWith(true);
+    expect(pushSwitch().getAttribute('aria-checked')).toBe('true');
+    await renderWith(undefined);
+    expect(pushSwitch().getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('shows off when the companion has the setting off', async () => {
+    await renderWith(false);
+    expect(pushSwitch().getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('turns the setting off with one update call and hands back the new view', async () => {
+    const { transport, onChanged } = await renderWith(true);
+    await act(async () => pushSwitch().click());
+    const calls = transport.calls.filter((c) => c.method === 'update');
+    expect(calls).toEqual([{ method: 'update', args: ['mochi', { pushReplies: false }] }]);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('says why when the save fails', async () => {
+    const { transport, onChanged } = await renderWith(true);
+    vi.spyOn(transport, 'update').mockRejectedValue(new Error('Desktop shell required: companion_update'));
+    await act(async () => pushSwitch().click());
+    expect(host.textContent).toContain('Desktop shell required');
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});

@@ -445,7 +445,10 @@ impl Service {
         }
         let text = reply.text.split_whitespace().collect::<Vec<_>>().join(" ");
         if !text.is_empty() {
-            self.feed(profile, FeedKind::Reply, now, &text);
+            // The same words the feed keeps (no home folder), so a push never shows a path either.
+            let clean = view::scrub(&text, Some(&profile.folder));
+            self.feed(profile, FeedKind::Reply, now, &clean);
+            self.host.reply_pushed(&profile.id, &profile.name, &clean, profile.push_replies);
         }
     }
 
