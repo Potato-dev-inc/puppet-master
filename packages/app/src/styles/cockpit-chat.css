@@ -498,3 +498,68 @@
 .cockpit .ck-chat-end-text {
   white-space: nowrap;
 }
+
+/* "Remember for all agents" (components/chat/RememberSelection.tsx): a small monochrome pill over selected text in a
+   message, and the toast under the conversation. Desktop only. */
+.ck-chat {
+  position: relative;
+}
+.ck-chat-remember {
+  position: fixed;
+  z-index: 70;
+  transform: translateX(-50%);
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--sep, rgba(128, 128, 128, 0.35));
+  background: var(--bg-float, rgba(40, 40, 44, 0.92));
+  color: var(--label, inherit);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: var(--float-shadow, 0 6px 18px rgba(0, 0, 0, 0.25));
+  cursor: pointer;
+}
+.ck-chat-remember:hover {
+  background: var(--fill-2, rgba(128, 128, 128, 0.18));
+}
+.ck-chat-remember:focus-visible,
+.ck-chat-remember-action:focus-visible {
+  outline: 2px solid var(--label-2, currentColor);
+  outline-offset: 1px;
+}
+.ck-chat-remember-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  z-index: 60;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--sep, rgba(128, 128, 128, 0.35));
+  background: var(--bg-float, rgba(40, 40, 44, 0.92));
+  color: var(--label, inherit);
+  box-shadow: var(--float-shadow, 0 6px 18px rgba(0, 0, 0, 0.25));
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ck-chat-remember-action {
+  border: 0;
+  background: transparent;
+  color: var(--label-1, inherit);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+.ck-chat-remember-action:hover {
+  background: var(--fill-2, rgba(128, 128, 128, 0.18));
+}

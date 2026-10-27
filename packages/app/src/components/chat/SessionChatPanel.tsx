@@ -30,6 +30,7 @@ export function SessionChatPanel({ paneId, dock, reply }: { paneId: string; dock
       model={chat.model}
       cliVersion={chat.cliVersion}
       paneId={paneId}
+      remember
       dock={dock}
       pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
       composer={reply ? <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} /> : undefined}
