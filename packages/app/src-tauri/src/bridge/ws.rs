@@ -28,6 +28,7 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Error as WsError, Message, WebSocket};
 
 use super::errors::{enrich_handle_error, operation_http_error};
+use super::routes::panes::{raw_keys_gate_for, typed_text_keys};
 use crate::pty::PaneRegistry;
 use crate::settings_store;
 
@@ -119,17 +120,12 @@ pub(super) fn serve(
     }
     let _ = stream.set_nodelay(true);
 
-    let mut snapshot = String::new();
-    if let Ok(json) = serde_json::to_string(&registry.lock().list()) {
-        snapshot.push_str(&format!("event: panes\ndata: {json}\n\n"));
-    }
+    // The first frames, cut for this viewer like every pushed event (see `sse::first_frames`).
     let settings = settings_store::read_public_settings(app);
-    if let Ok(json) = serde_json::to_string(&settings) {
-        snapshot.push_str(&format!("event: settings\ndata: {json}\n\n"));
-    }
+    let snapshot = super::sse::first_frames(&viewer, &registry.lock().list(), &settings);
 
     let mut ws = WebSocket::from_raw_socket(stream, Role::Server, None);
-    if ws.send(Message::Text(snapshot)).is_err() {
+    if !snapshot.is_empty() && ws.send(Message::Text(snapshot)).is_err() {
         return;
     }
     if ws.get_ref().set_nonblocking(true).is_err() {
@@ -285,18 +281,14 @@ fn write_input(
 ) -> Result<(), Value> {
     let paired_phone_typing = ctx.session.is_none()
         && crate::mobile_pairing::requires_pairing_token(ctx.headers, ctx.peer_loopback);
-    if !paired_phone_typing {
-        let route_path = format!("/panes/{pane_id}/input");
-        crate::mcp_sessions::authorize(ctx.session, "POST", &route_path, message)
-            .map_err(|error| {
-                super::typing_refusals::note_refused(pane_id, super::typing_refusals::Channel::Socket, &error.message);
-                enrich_handle_error(error, ctx.registry)
-            })
-            .map_err(|error| {
-                let (_, value) = operation_http_error(error);
-                value.get("error").cloned().unwrap_or(value)
-            })?;
-    }
+    check_socket_input(
+        ctx.session,
+        paired_phone_typing,
+        ctx.registry,
+        pane_id,
+        &typed_text_keys(text, append_newline),
+        message,
+    )?;
     // A paired phone is a person typing; any other caller here is an authorised API session.
     let origin = if paired_phone_typing { crate::pty::WriteOrigin::User } else { crate::pty::WriteOrigin::Api };
     // The flight recorder also wants which caller (an agent's session, a phone, the local app).
@@ -305,6 +297,35 @@ fn write_input(
         crate::pty::registry_write_input(ctx.registry, ctx.app, pane_id, text, append_newline, false, None, origin)
     })
     .map_err(|err| Value::String(err))
+}
+
+/// The checks a socket input must pass before the write, the same ones `POST /panes/{id}/input`
+/// makes: the MCP session must be allowed to type into the pane. A paired phone skips them (its
+/// `type` cap is checked by the caller).
+fn check_socket_input(
+    session: Option<&str>,
+    paired_phone_typing: bool,
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    keys: &str,
+    message: &Value,
+) -> Result<(), Value> {
+    if paired_phone_typing {
+        return Ok(());
+    }
+    let route_path = format!("/panes/{pane_id}/input");
+    crate::mcp_sessions::authorize(session, "POST", &route_path, message)
+        .map_err(|error| {
+            super::typing_refusals::note_refused(pane_id, super::typing_refusals::Channel::Socket, &error.message);
+            enrich_handle_error(error, registry)
+        })
+        .map_err(|error| {
+            let (_, value) = operation_http_error(error);
+            value.get("error").cloned().unwrap_or(value)
+        })?;
+    // A session's raw keys into a pane showing a dialog: the same answer gate as the HTTP route.
+    raw_keys_gate_for(session, registry, pane_id, keys)
+        .map_err(|(_, value)| value.get("error").cloned().unwrap_or(value))
 }
 
 /// Queue a message and push what can be written now. WouldBlock is fine: the rest goes out on
@@ -346,114 +367,5 @@ fn flush_briefly(ws: &mut WebSocket<TcpStream>) -> Result<(), ()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bearer_is_taken_from_the_offer() {
-        assert_eq!(
-            bearer_from_protocols("pm-events, pm-bearer.abc123"),
-            Some("abc123".into())
-        );
-        assert_eq!(bearer_from_protocols("pm-bearer.tok"), Some("tok".into()));
-        assert_eq!(bearer_from_protocols("pm-events"), None);
-        assert_eq!(bearer_from_protocols("pm-bearer."), None);
-    }
-
-    #[test]
-    fn hex_bearer_carries_base64_tokens() {
-        // "ab+/=" as hex: the characters browsers refuse in a subprotocol.
-        assert_eq!(
-            bearer_from_protocols("pm-events, pm-bearer-hex.61622b2f3d"),
-            Some("ab+/=".into())
-        );
-        assert_eq!(bearer_from_protocols("pm-bearer-hex.6"), None);
-        assert_eq!(bearer_from_protocols("pm-bearer-hex.zz"), None);
-    }
-
-    #[test]
-    fn pm_events_is_detected_in_the_offer() {
-        assert!(offers_pm_events("pm-events, pm-bearer.x"));
-        assert!(offers_pm_events("pm-bearer.x,pm-events"));
-        assert!(!offers_pm_events("pm-bearer.x"));
-        assert!(!offers_pm_events("pm-eventsx"));
-    }
-
-    #[test]
-    fn unfiltered_forwards_everything() {
-        assert!(should_forward("event: terminal\ndata: {\"pane_id\":\"a\",\"b64\":\"\"}\n\n", &None));
-    }
-
-    #[test]
-    fn watch_filters_terminal_payloads_only() {
-        let watch = Some(HashSet::from(["a".to_string()]));
-        let term_a = "event: terminal\ndata: {\"pane_id\":\"a\",\"b64\":\"eA==\"}\n\n";
-        let term_b = "event: terminal\ndata: {\"pane_id\":\"b\",\"b64\":\"eA==\"}\n\n";
-        assert!(should_forward(term_a, &watch));
-        assert!(!should_forward(term_b, &watch));
-        assert!(should_forward("event: panes\ndata: []\n\n", &watch));
-        assert!(should_forward("event: pane-status\ndata: {\"pane_id\":\"b\"}\n\n", &watch));
-        assert!(should_forward("event: terminal\ndata: not json\n\n", &watch));
-    }
-
-    #[test]
-    fn ping_is_answered_with_the_same_t() {
-        let ping: Value = serde_json::from_str(r#"{"type":"ping","t":12.5}"#).unwrap();
-        let pong: Value = serde_json::from_str(&pong_reply(&ping)).unwrap();
-        assert_eq!(pong, json!({"type": "pong", "t": 12.5}));
-        let bare: Value = serde_json::from_str(r#"{"type":"ping"}"#).unwrap();
-        assert_eq!(serde_json::from_str::<Value>(&pong_reply(&bare)).unwrap(), json!({"type": "pong", "t": null}));
-    }
-
-    #[test]
-    fn accept_key_matches_rfc_example() {
-        assert_eq!(
-            derive_accept_key(b"dGhlIHNhbXBsZSBub25jZQ=="),
-            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
-        );
-    }
-
-    /// A real handshake and one frame through tungstenite's client, on loopback.
-    #[test]
-    fn handshake_and_frame_round_trip() {
-        use std::net::TcpListener;
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            // Read the request head only; the handshake response is what this test checks.
-            let mut buf = Vec::new();
-            let mut chunk = [0_u8; 1024];
-            while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                let n = std::io::Read::read(&mut stream, &mut chunk).unwrap();
-                buf.extend_from_slice(&chunk[..n]);
-            }
-            let head = String::from_utf8_lossy(&buf).to_string();
-            let key = crate::mobile_pairing::header_value(&head, "Sec-WebSocket-Key").unwrap();
-            let accept = derive_accept_key(key.as_bytes());
-            let response = format!(
-                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\nSec-WebSocket-Protocol: pm-events\r\n\r\n"
-            );
-            stream.write_all(response.as_bytes()).unwrap();
-            let mut ws = WebSocket::from_raw_socket(stream, Role::Server, None);
-            ws.send(Message::Text("event: panes\ndata: []\n\n".into())).unwrap();
-            // Wait for the client's close so the test does not race the socket teardown.
-            let _ = ws.read();
-        });
-
-        let url = format!("ws://{addr}/events/ws");
-        let mut request = tungstenite::client::IntoClientRequest::into_client_request(url).unwrap();
-        request.headers_mut().insert(
-            "Sec-WebSocket-Protocol",
-            "pm-events, pm-bearer.test".parse().unwrap(),
-        );
-        let (mut client, response) = tungstenite::connect(request).unwrap();
-        assert_eq!(response.status(), 101);
-        match client.read().unwrap() {
-            Message::Text(text) => assert_eq!(text, "event: panes\ndata: []\n\n"),
-            other => panic!("unexpected frame {other:?}"),
-        }
-        let _ = client.close(None);
-        let _ = server.join();
-    }
-}
+#[path = "ws_tests.rs"]
+mod tests;
