@@ -33,7 +33,12 @@ export type NeedsYouKind =
    * A mission waits on a decision: the tests were changed, it is not getting anywhere, or it cannot go
    * on (`src-tauri/src/missions/cards.rs`, key `mission:<id>`). Its budget card is a question already.
    */
-  | 'mission';
+  | 'mission'
+  /**
+   * A companion that keeps stopping (`src-tauri/src/companion`, key `companion:<id>`). Its card offers "Try again",
+   * which restarts it. Counts like the Rust card (kind `setup`).
+   */
+  | 'companion';
 
 export interface NeedsYouItem {
   /** Stable across renders: `<kind>:<pane or question or notice id>`. */
@@ -60,6 +65,8 @@ export interface AttentionInput {
   statusSince?: ReadonlyMap<string, number>;
   /** Missions (Labs): one item per mission whose card waits on the person. */
   missions?: ReadonlyArray<{ id: string; state: string; needs?: string | null }>;
+  /** Companions: one item per companion that stopped for good (the Rust store raises the same card). */
+  companions?: ReadonlyArray<{ id: string; state: string }>;
 }
 
 const RISKS = new Set(['low', 'medium', 'high']);
@@ -104,6 +111,9 @@ export function deriveNeedsYou(input: AttentionInput): NeedsYouItem[] {
   // (that is a budget question, counted above). One item per mission, keyed like the Rust store.
   for (const m of input.missions ?? []) {
     if (m.state === 'needs_you' && m.needs !== 'budget') items.push({ id: `mission:${m.id}`, kind: 'mission' });
+  }
+  for (const x of input.companions ?? []) {
+    if (x.state === 'stopped') items.push({ id: `companion:${x.id}`, kind: 'companion' });
   }
   return items;
 }

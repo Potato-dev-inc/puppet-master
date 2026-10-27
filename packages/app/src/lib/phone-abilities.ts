@@ -14,12 +14,14 @@ export interface PhoneAbilities {
   canWatch: boolean;
   canType: boolean;
   canAnswer: boolean;
+  /** Start, stop or sleep an agent (companions: wake and sleep). */
+  canControl: boolean;
   /** A plain line to show in place of the input box, or null when this phone can type. */
   typingNote: string | null;
 }
 
 /** Until the PC has answered, and on an old PC that has no such route, nothing is hidden. */
-export const ALL_ABILITIES: PhoneAbilities = { canWatch: true, canType: true, canAnswer: true, typingNote: null };
+export const ALL_ABILITIES: PhoneAbilities = { canWatch: true, canType: true, canAnswer: true, canControl: true, typingNote: null };
 
 export function abilitiesFrom(me: PairMe | null | undefined): PhoneAbilities {
   if (!me || !Array.isArray(me.caps)) return ALL_ABILITIES;
@@ -27,11 +29,13 @@ export function abilitiesFrom(me: PairMe | null | undefined): PhoneAbilities {
   const canWatch = has('watch');
   const canType = has('type');
   const canAnswer = has('answer');
-  if (canType) return { canWatch, canType, canAnswer, typingNote: null };
+  const canControl = has('control');
+  if (canType) return { canWatch, canType, canAnswer, canControl, typingNote: null };
   return {
     canWatch,
     canType,
     canAnswer,
+    canControl,
     typingNote: canAnswer ? 'This phone can watch and answer, not type.' : 'This phone can watch, not type.',
   };
 }

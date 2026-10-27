@@ -35,6 +35,7 @@ mod mobile_pairing;
 mod mobile_tunnel;
 mod tunnel_config;
 mod one_brain;
+mod companion;
 mod opencode;
 pub mod operations;
 #[cfg(test)]
@@ -419,6 +420,23 @@ pub fn run() {
             commands::agent_run_mode_set,
             commands::audit_recent,
             commands::audit_verify,
+            commands::companion_list,
+            commands::companion_get,
+            commands::companion_agents,
+            commands::companion_create,
+            commands::companion_update,
+            commands::companion_archive,
+            commands::companion_wake,
+            commands::companion_sleep,
+            commands::companion_restart,
+            commands::companion_memory_get,
+            commands::companion_memory_save,
+            commands::companion_pending_decide,
+            commands::companion_outside_change_decide,
+            commands::companion_tidy_up,
+            commands::companion_checkins_set,
+            commands::companion_feed,
+            commands::companion_open_folder,
         ])
         .setup(|app| {
             // Before the first window: an older version's desktop service worker would serve its UI.
@@ -568,6 +586,7 @@ pub fn run() {
             attention::init();
             askbar::glue::init(app.handle());
             team::init(app.handle().clone(), registry_for_panes.clone());
+            companion::live::start(app.handle().clone(), registry_for_panes.clone());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });

@@ -13,6 +13,7 @@ import type { AttentionAnswerBody, AttentionAnswerOutcome, AttentionSnapshot } f
 import type { Question, QuestionAnswer } from './questions';
 import type { PhoneChatReply } from './sessionChatModel';
 import type { OutboxMessage } from './paneOutbox';
+import type { CompanionView, FeedItem, MemoryView, PendingDecision } from './companion';
 
 export interface WriteInputOptions {
   viaOpencodeApi?: boolean;
@@ -421,6 +422,14 @@ export interface BridgeClient {
   cancelPaneMessage?(paneId: string, messageId: string): Promise<OutboxMessage>;
   /** `GET /panes/{id}/messages`: the pane's waiting messages and the ones that just finished (needs `watch`). */
   listPaneMessages?(paneId: string): Promise<OutboxMessage[]>;
+  /** The companion routes (`/companions`, needs `watch`; wake and sleep need `control`). Absent on old PCs. */
+  companionList?(): Promise<CompanionView[]>;
+  companionGet?(id: string): Promise<CompanionView>;
+  companionFeed?(id: string, sinceMs: number): Promise<FeedItem[]>;
+  companionMemory?(id: string): Promise<MemoryView>;
+  companionDecidePending?(id: string, itemId: string, decision: PendingDecision): Promise<MemoryView>;
+  companionWake?(id: string): Promise<CompanionView>;
+  companionSleep?(id: string): Promise<CompanionView>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
   postOrchestratorMessage(text: string, messageId: string): Promise<void>;
   postOrchestratorViewport(viewport: {
@@ -462,4 +471,6 @@ export type BridgeEvent =
   /** Long-poll only: events were missed (phone asleep, app restarted); re-read pane state. */
   /** The pane's message box changed (watch only, text already redacted): the whole list of the pane. */
   | { type: 'pane-outbox'; paneId: string; messages: OutboxMessage[] }
+  /** Every companion changed (SPEC-1028 section 11): the phone's list, without folders. */
+  | { type: 'companion'; companions: CompanionView[] }
   | { type: 'resync' };

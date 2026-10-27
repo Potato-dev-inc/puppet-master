@@ -61,6 +61,21 @@ describe('deriveNeedsYou', () => {
   });
 });
 
+describe('companions in the one list', () => {
+  it('only a companion that stopped for good is an item, keyed like the Rust card', () => {
+    const items = deriveNeedsYou({
+      panes: [],
+      companions: [
+        { id: 'mochi', state: 'stopped' },
+        { id: 'bit', state: 'needs_you' },
+        { id: 'nib', state: 'idle' },
+      ],
+    });
+    expect(items.map((i) => i.id)).toEqual(['companion:mochi']);
+    expect(blockingItems(items)).toHaveLength(1);
+  });
+});
+
 describe('missions in the one list', () => {
   it('a mission that needs you is one blocking item keyed like the Rust card; its budget card is a question already', () => {
     const items = deriveNeedsYou({
