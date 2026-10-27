@@ -7,6 +7,7 @@ describe('abilitiesFrom (GET /pair/me)', () => {
       canWatch: true,
       canType: true,
       canAnswer: true,
+      canControl: true,
       typingNote: null,
     });
   });
@@ -16,6 +17,7 @@ describe('abilitiesFrom (GET /pair/me)', () => {
       canWatch: true,
       canType: false,
       canAnswer: true,
+      canControl: false,
       typingNote: 'This phone can watch and answer, not type.',
     });
   });

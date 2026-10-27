@@ -471,4 +471,6 @@ export type BridgeEvent =
   /** Long-poll only: events were missed (phone asleep, app restarted); re-read pane state. */
   /** The pane's message box changed (watch only, text already redacted): the whole list of the pane. */
   | { type: 'pane-outbox'; paneId: string; messages: OutboxMessage[] }
+  /** Every companion changed (SPEC-1028 section 11): the phone's list, without folders. */
+  | { type: 'companion'; companions: CompanionView[] }
   | { type: 'resync' };
