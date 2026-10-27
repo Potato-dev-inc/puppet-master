@@ -103,6 +103,12 @@ export const IconPane = () => (
     <path d="M2.5 6.5h11" />
   </Icon>
 );
+export const IconRail = () => (
+  <Icon>
+    <rect x="2.5" y="3" width="11" height="10" rx="2" />
+    <path d="M9.5 3v10" />
+  </Icon>
+);
 export const IconRename = () => (
   <Icon>
     <path d="m10.5 3.5 2 2M3 13l.6-2.6 7-7a1.4 1.4 0 0 1 2 2l-7 7L3 13Z" />
