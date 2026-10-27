@@ -413,7 +413,9 @@ impl PushHub {
     pub fn companion_deliveries(&self, message: &Message, now_ms: u64) -> Vec<Delivery> {
         let mut deliveries = Vec::new();
         for (device_id, subscription, hide_details) in self.store.lock().all_with_preferences() {
-            if !self.directory.device_can_watch(&device_id) || self.is_visible(&device_id, now_ms) {
+            // Read at send time, never at hold time: a phone that was unpaired, lost `watch`, or turned
+            // "Hide details" on during the minute gets what it is entitled to now.
+            if !self.directory.device_exists(&device_id) || !self.directory.device_can_watch(&device_id) || self.is_visible(&device_id, now_ms) {
                 continue;
             }
             let title = crate::redact::text(&message.title());

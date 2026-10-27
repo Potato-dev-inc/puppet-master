@@ -383,6 +383,37 @@ fn a_companion_reply_goes_to_the_phones_that_may_watch_and_nowhere_else() {
     check("companion_reply", &payload_for(&deliveries, "dev-a"));
 }
 
+/// A held reply is worded when it is SENT, from each phone's settings then: a phone that switched
+/// "Hide details" on during the minute gets no reply text, a phone that lost `watch` gets nothing,
+/// and an unpaired phone gets nothing.
+#[test]
+fn a_held_reply_reads_each_phones_settings_when_it_is_sent() {
+    let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-w", "dev-w"), ("tok-u", "dev-u")]));
+    let hub = hub_with("companion_reply_send_time", dir.clone());
+    for (device, endpoint) in [
+        ("dev-a", "https://fcm.googleapis.com/fcm/send/a"),
+        ("dev-w", "https://fcm.googleapis.com/fcm/send/w"),
+        ("dev-u", "https://fcm.googleapis.com/fcm/send/u"),
+    ] {
+        let (sub, _, _) = test_subscription(endpoint);
+        hub.store().lock().upsert(device, sub).unwrap();
+    }
+    let mut gate = companion_replies::Gate::default();
+    assert!(matches!(gate.reply("mochi", "Mochi", "First.", 0), Step::Send(_)));
+    assert_eq!(gate.reply("mochi", "Mochi", "A private second reply.", 10_000), Step::Held { arm: true });
+    // During the minute: dev-a turns "Hide details" on, dev-w loses watch, dev-u is unpaired.
+    hub.store().lock().set_hide_details("dev-a", true).unwrap();
+    dir.cannot_watch.lock().push("dev-w".into());
+    dir.tokens.lock().remove("tok-u");
+    let Release::Send(message) = gate.release("mochi", 60_000) else { panic!("the minute ended") };
+    let deliveries = hub.companion_deliveries(&message, 60_000);
+    let devices: Vec<&str> = deliveries.iter().map(|d| d.device_id.as_str()).collect();
+    assert_eq!(devices, vec!["dev-a"], "only the phone that still may watch and is paired");
+    let payload = payload_for(&deliveries, "dev-a");
+    assert_eq!(payload["body"], json!("New reply"), "hidden now: no words of the reply");
+    assert!(!serde_json::to_string(&payload).unwrap().contains("private"));
+}
+
 /// The body is redacted, one line, and cut to 120 characters; the title is the companion's name.
 #[test]
 fn a_companion_reply_body_is_redacted_one_line_and_cut() {
