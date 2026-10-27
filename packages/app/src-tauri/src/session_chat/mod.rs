@@ -6,6 +6,7 @@
 //! file, `screen` reads the chat off the screen and `watch` keeps one reader per open pane and sends what it reads.
 
 pub mod api;
+pub mod declared;
 pub mod detail;
 pub mod items;
 pub mod model;
@@ -18,6 +19,7 @@ pub mod tail;
 pub mod watch;
 
 pub use api::{ApiEndpoint, ChatFrom, SessionApi};
+pub use declared::{validate_session_chat, DeclaredSource, SessionChatTable};
 pub use detail::{bound_input, cut_to, paths_from_input, PlanItem, PlanStatus, ToolDetail};
 pub use opening::Opening;
 pub use model::{cut, ChatItem, SessionFormat, TurnOutcome};

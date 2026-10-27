@@ -1,0 +1,57 @@
+# Acme: a fictional CLI that writes a JSONL transcript. The Chat tab reads it (`[session_chat]`).
+# The same text is in docs/specs/agent-definitions/DEFINITION-FORMAT.md (a test keeps them equal).
+schema_version = 1
+
+[agent]
+id = "acme"
+label = "Acme CLI"
+icon = "AC"
+description = "A fictional CLI that writes its conversation to ~/.acme/sessions/<folder>/<id>.jsonl."
+experimental = true
+
+[binary]
+names = ["acme-fixture-not-installed"]
+install_hint = "see https://example.invalid/acme"
+
+[tui]
+argv = []
+
+[tui.busy]
+working_regex = ['thinking\.\.\.']
+
+[[tui.prompt]]
+kind = "command_approval"
+detect_regex = 'allow this command\?'
+choices = [
+  { id = "allow_once", key = "y" },
+  { id = "deny", key = "n" },
+]
+
+[session_chat]
+format = "jsonl"
+dir = "{home}/.acme/sessions/{cwd_dashes}"
+file_glob = "*.jsonl"
+pick = "newest_since_start"
+write_tools = ["write_file", "patch_file"]
+helper_tools = ["spawn_helper"]
+
+[session_chat.map]
+role = "/role"
+text = "/content"
+timestamp = "/ts"
+model = "/model"
+tool_name = "/call/name"
+tool_input = "/call/args"
+tool_id = "/call/id"
+tool_result_for = "/result/for"
+tool_output = "/result/output"
+tool_error = ["/result/is_error", "/result/exit_code"]
+usage_input = "/usage/in"
+usage_output = "/usage/out"
+turn_end = "/stop"
+
+[session_chat.values]
+user = ["user"]
+assistant = ["assistant"]
+tool = ["tool"]
+turn_end = ["end_turn"]

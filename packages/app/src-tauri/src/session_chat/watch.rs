@@ -103,7 +103,7 @@ impl Follower {
             if let Located::Found(path) = located {
                 if self.file.as_ref() != Some(&path) {
                     switched = self.file.is_some();
-                    self.tail = Some(Tail::new(path.clone()));
+                    self.tail = Some(Tail::new(path.clone()).with_cap(self.source.max_read_per_poll()));
                     self.file = Some(path);
                 }
             }

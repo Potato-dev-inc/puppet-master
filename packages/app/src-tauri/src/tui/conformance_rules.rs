@@ -19,7 +19,30 @@ pub const ALL: &[(&str, Rule)] = &[
     ("screen_methods_survive_huge_input", screen_methods_survive_huge_input),
     ("submit_and_startup_declarations_are_sane", submit_and_startup_declarations_are_sane),
     ("blank_screen_is_unknown", blank_screen_is_unknown),
+    ("session_chat_reads_noise_quietly", session_chat_reads_noise_quietly),
 ];
+
+/// A profile that names a session file format must read lines that are not chat (noise, half-written lines,
+/// other JSON) as no items, and must not panic on any of them. Reads no file.
+pub fn session_chat_reads_noise_quietly(profile: &dyn TuiProfile) -> Result<(), String> {
+    let Some(source) = profile.session_chat() else {
+        return Ok(());
+    };
+    let huge = format!("{{\"role\":\"user\",\"content\":\"{}\"}}", "x".repeat(2 * 1024 * 1024));
+    let lines = ["", "   ", "not json", "[]", "42", "null", "{}", "{\"a\":", "{\"role\":null,\"type\":[1,2]}", "\u{0}", huge.as_str()];
+    for line in lines {
+        let items = source.format().parse_line(line, 0);
+        if !items.is_empty() {
+            return Err(format!(
+                "{}: the session reader made {} item(s) of a line that is not chat: {:?}",
+                profile.id(),
+                items.len(),
+                line.chars().take(20).collect::<String>()
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Readiness ratchet (`agent_runs::readiness`): a blank screen is never an input box and its
 /// verdict is `Unknown`, so nothing is ever typed into a pane that has drawn nothing yet.

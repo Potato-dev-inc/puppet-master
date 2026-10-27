@@ -23,6 +23,8 @@ pub struct Tail {
     done: bool,
     /// The (length, modified time) of a `.zst` file that failed to decompress. It is not read again until one changes.
     broken: Option<(u64, Option<SystemTime>)>,
+    /// Most bytes one poll reads; the rest of a bigger backlog is read by the next polls.
+    cap: Option<u64>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -168,7 +170,13 @@ pub fn read_all_lines(path: &Path) -> io::Result<Vec<(u64, String)>> {
 
 impl Tail {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Tail { path: path.into(), offset: 0, partial: Vec::new(), len_seen: 0, done: false, broken: None }
+        Tail { path: path.into(), offset: 0, partial: Vec::new(), len_seen: 0, done: false, broken: None, cap: None }
+    }
+
+    /// Reads at most `cap` bytes per poll.
+    pub fn with_cap(mut self, cap: Option<u64>) -> Self {
+        self.cap = cap;
+        self
     }
 
     /// Complete lines appended since the last poll, each with the byte offset where it starts.
@@ -198,7 +206,7 @@ impl Tail {
         let from = self.offset + self.partial.len() as u64;
         file.seek(SeekFrom::Start(from))?;
         let mut fresh = Vec::new();
-        file.read_to_end(&mut fresh)?;
+        file.take(self.cap.unwrap_or(u64::MAX)).read_to_end(&mut fresh)?;
 
         let lines = self.take_complete_lines(fresh);
         if reset {
@@ -311,6 +319,24 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_file(&self.path);
         }
+    }
+
+    #[test]
+    fn a_capped_poll_reads_a_big_backlog_over_several_polls_without_losing_a_line() {
+        let scratch = Scratch::new("capped.jsonl");
+        scratch.write(b"aaaa
+bbbb
+cccc
+dddd
+");
+        let mut tail = Tail::new(scratch.path()).with_cap(Some(7));
+        let mut all = Vec::new();
+        for _ in 0..6 {
+            all.extend(lines(tail.poll().unwrap()));
+        }
+        let text: Vec<&str> = all.iter().map(|(_, line)| line.as_str()).collect();
+        assert_eq!(text, ["aaaa", "bbbb", "cccc", "dddd"]);
+        assert_eq!(all[3].0, 15);
     }
 
     fn lines(polled: Polled) -> Vec<(u64, String)> {

@@ -38,6 +38,11 @@ pub trait SessionSource: Send + Sync {
     fn looking_in(&self, _pane: &PaneFacts) -> Option<PathBuf> {
         None
     }
+    /// Most bytes of the file to read in one poll (`None`: all that was added). A format whose files come from a
+    /// definition someone wrote caps it, so a huge or runaway file costs a few polls, not one huge read.
+    fn max_read_per_poll(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// A folder path as a program sees it: no `\\?\` / `//?/` extended-length prefix (`\\?\UNC\h\s` is `\\h\s`).

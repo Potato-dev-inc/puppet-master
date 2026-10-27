@@ -70,6 +70,8 @@ pub struct Definition {
     pub profile: ProfileTable,
     /// How this agent reports its lifecycle to Puppet Master (Hook Lane); absent = no hooks.
     pub hooks: Option<super::hooks::HooksTable>,
+    /// Where this agent writes a JSONL transcript the Chat tab reads (`[session_chat]`); absent = the screen is read.
+    pub session_chat: Option<crate::session_chat::SessionChatTable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

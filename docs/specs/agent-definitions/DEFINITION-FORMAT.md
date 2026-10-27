@@ -269,6 +269,67 @@ allow menu (or a `[y/n]` line) that no `[[tui.prompt]]` matches, Puppet Master p
 for this session needs `allow_broad`. Sign-in, payment, model and telemetry questions get no card. Writing the table
 is still better: the card then has your kinds, keys and wording.
 
+### 6.1 Rich Chat from a transcript file (`[session_chat]`)
+
+The Chat tab of a visible pane reads the pane's screen by default. If your CLI also writes its conversation to a
+JSONL file (one JSON object per line), declare where and what the fields are, and the Chat tab shows the same rich
+view as for the built-in agents: messages, tool calls with the files they touch, results, token counts, the end of
+each turn. Puppet Master only reads the file; it never writes it.
+
+```toml
+[session_chat]
+format = "jsonl"                                   # the only format in v1
+dir = "{home}/.acme/sessions/{cwd_dashes}"         # where the CLI writes (see the placeholders below)
+file_glob = "*.jsonl"                              # default "*.jsonl"; a file name with * and ?
+pick = "newest_since_start"                        # default and only value: the newest file written since the pane started
+write_tools = ["write_file"]                       # optional: tools that change files (else guessed)
+helper_tools = ["spawn_helper"]                    # optional: tools that start a helper agent
+
+[session_chat.map]                                 # JSON pointers (RFC 6901) into ONE line
+role = "/role"                                     # required
+text = "/content"                                  # required: a string, or an array of parts
+# optional: tool_name, tool_input, tool_id, tool_result_for, tool_output, tool_error,
+#           timestamp, model, usage_input, usage_output, turn_end
+
+[session_chat.values]                              # all optional
+user = ["user"]                                    # default ["user"]
+assistant = ["assistant"]                          # default ["assistant"]
+tool = ["tool"]                                    # default ["tool"]
+turn_end = ["end_turn"]                            # required when map.turn_end is set
+```
+
+**`dir`** must start with `{home}` (the person's home folder), `{cwd}` (the folder the pane was started in) or
+`{env:NAME}` (an environment variable), and may then use one-segment placeholders: `{cwd_slug}` (every character that
+is not a letter or digit becomes `-`: `C:\Users\you\proj` is `C--Users-you-proj`), `{cwd_dashes}` (only `/`, `\` and
+`:` become `-`: `/home/you/proj` is `-home-you-proj`), `{cwd_url}` (percent-encoded), `{cwd_name}` (the last folder's
+name) and `{cwd_sha256}` (hex SHA-256 of the folder path). The folder that comes out must be under the person's home
+folder or the pane's folder, after symbolic links are followed; anything else is never listed or read. A `..` segment
+is refused when the definition loads.
+
+**What a line is.** The value at `map.role` is compared (letter case ignored) with `values`:
+
+| Role | The line gives |
+|---|---|
+| `user` | what the person typed (`map.text`), or, when `map.tool_result_for` is present, a tool result |
+| `assistant` | the answer text (`map.text`, with `map.model`), and a tool call too when `map.tool_name` is present |
+| `tool` | a tool result when `map.tool_result_for` is present, else a tool call when `map.tool_name` is present |
+| anything else | nothing (but see `turn_end` and the token counts) |
+
+- `text` is a string, or an array of parts: plain strings and objects `{type = "text" | "output_text" | "input_text", text = ...}` (an object with no `type` counts); other parts (images, thinking) are left out.
+- A tool call needs `tool_name`; `tool_id` pairs it with its result (`tool_result_for` holds that id). `tool_input` may be an object, a string that holds a JSON object, or a plain string (taken as the command). Its first of `command`, `cmd`, `file_path`, `path`, `pattern`, `query`, `url`, `description`, `prompt` is the one-line summary. The files a call touches are the input's `file_path`, `filepath`, `file`, `filename`, `target_file`, `notebook_path`, `path` or `target`. It **writes** when it touches a file and its name is in `write_tools`; with no `write_tools`, when its name has `write`, `edit`, `patch`, `create`, `replace`, `insert` or `save` in it, or its input has `content`, `new_string`, `old_string`, `new_text`, `patch`, `diff` or `edits`.
+- A tool result's text is `tool_output` (or the line's `text`). It failed when `tool_error` is `true`, a number other than 0 (an exit code), or a message. Terminal colour codes are removed and the text is cut to 4000 characters.
+- `timestamp` is a string (kept as is) or a number (Unix seconds, or milliseconds when it is that large).
+- `usage_input` / `usage_output` give a token count item when either is a number.
+- `turn_end` is the pointer of a field whose value (one of `values.turn_end`) says the turn ended: the answer on that line is marked final and a turn-end item follows. It is read on every line, so a line that is only an end marker works.
+
+Several pointers may be given for one field (`text = ["/content", "/message/content"]`): the first that finds a value wins.
+
+**Limits (not settable).** A line over 1 MiB is skipped; at most 8 MiB of a file is read per poll (a bigger backlog arrives over the next polls); a file over 128 MiB is not followed; at most 5000 folder entries are looked at; a pointer is at most 128 characters and 8 segments. The text that leaves goes through the same redaction as every other chat item.
+
+**Checked when the definition loads, never later.** `AGENT_DEF_SESSION_CHAT_BAD_DIR` (a template that is not under home or the project, has `..`, an unknown placeholder or unbalanced braces), `AGENT_DEF_SESSION_CHAT_BAD_GLOB`, `AGENT_DEF_SESSION_CHAT_BAD_POINTER` (not a pointer, too long, a bad `~` escape; the error path names the key, `session_chat.map.text` or `session_chat.map.tool_error.1`), `AGENT_DEF_INCONSISTENT` (`tool_input` without `tool_name`, `tool_output` without `tool_result_for`, `turn_end` without its values or the other way round, one value for two roles), and the usual `AGENT_DEF_UNKNOWN_FIELD` / `AGENT_DEF_INVALID_TOML` for a misspelt or missing key. The table is part of the fingerprint: changing it asks for approval again.
+
+If the table is absent, or the folder holds no file yet, nothing changes for agents that have none: they keep the screen reader. (With the table present the Chat tab waits for the file and says which folder it looks in.)
+
 ## 7. Regex tips
 
 - Engine: Rust `regex`. Linear-time and safe, but NO look-ahead/look-behind and NO backreferences.
@@ -412,3 +473,48 @@ deliver the task through `[headless.stdin]`; this is refused for project and ext
 
 See `SPEC.md` 7.2 for the full annotated file and `AGENT-CHOICE.md` for the verified CLI flags and the exact
 JSON events it prints.
+
+## 13. Complete example (visible + transcript): Acme
+
+A fictional CLI "acme" that writes `~/.acme/sessions/<folder>/<id>.jsonl`. Its lines look like this (the repository's test
+fixture, `src/tui/declarative/fixtures/acme/session.jsonl`, has a whole session):
+
+```jsonl
+{"ts":"2026-10-28T09:00:00.000Z","kind":"message","role":"user","content":"Add a greeting to main.py"}
+{"ts":"2026-10-28T09:00:05.000Z","kind":"tool_call","role":"tool","call":{"id":"c2","name":"write_file","args":{"path":"main.py","content":"print('hello')\n"}}}
+{"ts":"2026-10-28T09:00:05.500Z","kind":"tool_result","role":"tool","result":{"for":"c2","output":"wrote 1 line"}}
+{"ts":1793178060,"kind":"message","role":"assistant","model":"acme-1","content":"Done.","stop":"end_turn","usage":{"in":1200,"out":85}}
+```
+
+The definition (`fixtures/definitions/acme-chat.toml`; a test keeps the `[session_chat]` tables below equal to the file):
+
+```toml
+[session_chat]
+format = "jsonl"
+dir = "{home}/.acme/sessions/{cwd_dashes}"
+file_glob = "*.jsonl"
+pick = "newest_since_start"
+write_tools = ["write_file", "patch_file"]
+helper_tools = ["spawn_helper"]
+
+[session_chat.map]
+role = "/role"
+text = "/content"
+timestamp = "/ts"
+model = "/model"
+tool_name = "/call/name"
+tool_input = "/call/args"
+tool_id = "/call/id"
+tool_result_for = "/result/for"
+tool_output = "/result/output"
+tool_error = ["/result/is_error", "/result/exit_code"]
+usage_input = "/usage/in"
+usage_output = "/usage/out"
+turn_end = "/stop"
+
+[session_chat.values]
+user = ["user"]
+assistant = ["assistant"]
+tool = ["tool"]
+turn_end = ["end_turn"]
+```
