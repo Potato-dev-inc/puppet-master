@@ -5,7 +5,7 @@ import type { SessionChatState } from '../../hooks/useSessionChat';
 import type { ChatSource, ChatTurn, ToolStep, TurnStep } from '../../lib/sessionChat';
 import '../../styles/cockpit-chat.css';
 
-export const SESSION_CHAT_NOTE = 'Read-only. Approvals and questions still appear in the terminal.';
+export const SESSION_CHAT_NOTE = "Read-only. You can answer the agent's questions in the card at the bottom.";
 /** Under the note when the chat is read off the terminal's text: a reading, not the agent's own record. */
 export const SCREEN_CHAT_NOTE = 'Read from the screen: text may be cut or wrapped.';
 

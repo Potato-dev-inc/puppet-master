@@ -87,7 +87,7 @@ describe('SessionChatView states', () => {
   it('always shows the read-only note under the header', () => {
     render({ state: 'ready', turns: [] });
     expect(text()).toContain(SESSION_CHAT_NOTE);
-    expect(SESSION_CHAT_NOTE).toBe('Read-only. Approvals and questions still appear in the terminal.');
+    expect(SESSION_CHAT_NOTE).toBe("Read-only. You can answer the agent's questions in the card at the bottom.");
   });
 });
 
