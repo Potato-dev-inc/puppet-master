@@ -549,6 +549,25 @@ are ignored and counted for diagnostics. `plain_text`: `result.regex` and `resul
 | `broad` | bool | `false` | `allow_all` is allowed only with `allow_broad` (SEC-7) |
 | `not_when_regex` | string | none | suppress when also present (answered dialogs stay in scrollback) |
 
+#### `[session_chat]` (optional; absent = the Chat tab reads the screen)
+
+Where the CLI writes a JSONL transcript the Chat tab reads, and which JSON pointers (RFC 6901) hold what. Full guide
+and the complete "acme" example: `DEFINITION-FORMAT.md` 6.1 and 13. Part of the fingerprint (it reads files under home).
+
+| Field | Type | Default | Constraints |
+|---|---|---|---|
+| `format` | `jsonl` | req | one JSON object per line |
+| `dir` | string | req | starts with `{home}`, `{cwd}` or `{env:NAME}`; then `{cwd_slug}`, `{cwd_dashes}`, `{cwd_url}`, `{cwd_name}`, `{cwd_sha256}`; no `..`; at run time the real folder (links followed) must be under home or the pane folder, else it is never read |
+| `file_glob` | string | `"*.jsonl"` | a file name with `*` and `?`, at most 64 characters, has an extension |
+| `pick` | `newest_since_start` | `newest_since_start` | newest file modified since the pane started (5 s slack); a file whose name holds the agent's session id wins |
+| `map.role`, `map.text` | pointer or list of pointers | req | at most 6 per field, 128 characters, 8 segments |
+| `map.tool_name`, `tool_input`, `tool_id`, `tool_result_for`, `tool_output`, `tool_error`, `timestamp`, `model`, `usage_input`, `usage_output`, `turn_end` | pointer or list | none | `tool_input`/`tool_id` need `tool_name`; `tool_output`/`tool_error` need `tool_result_for`; `turn_end` needs `values.turn_end` |
+| `values.user` / `assistant` / `tool` | array<string> | `["user"]` / `["assistant"]` / `["tool"]` | compared without letter case; no value in two roles |
+| `values.turn_end` | array<string> | `[]` | required with `map.turn_end` |
+| `write_tools`, `helper_tools` | array<string> | `[]` | tool names (case ignored); empty `write_tools` = guessed from the name and the input |
+
+Run-time limits (not settable): lines over 1 MiB skipped, 8 MiB read per poll, files over 128 MiB not followed.
+
 #### `[standby]`, `[model]`, `[context]`, `[mcp_host]` (all optional)
 
 | Table.field | Type | Default | Constraints |
@@ -821,6 +840,9 @@ Loader codes (shown in the definitions list and `agent_definitions_changed.error
 | `AGENT_DEF_APPROVAL_STALE` | fingerprint changed since approval |
 | `AGENT_DEF_BINARY_CHANGED` | resolved path differs from the approved one (SEC-4) |
 | `AGENT_DEF_SHIM_NEEDS_NATIVE` | 7.3 step 4 |
+| `AGENT_DEF_SESSION_CHAT_BAD_DIR` | `session_chat.dir` is not under `{home}`/`{cwd}`/`{env:NAME}`, has `..`, an unknown placeholder or unbalanced braces |
+| `AGENT_DEF_SESSION_CHAT_BAD_GLOB` | `session_chat.file_glob` is not a plain file name pattern |
+| `AGENT_DEF_SESSION_CHAT_BAD_POINTER` | a `session_chat.map` pointer is missing (required keys), not RFC 6901, too long or too deep; the path names the key (`session_chat.map.text.1` for the second pointer of a list) |
 
 Run-time codes (bridge/MCP): `UNKNOWN_AGENT_TYPE` (400), `AGENT_NOT_INSTALLED` (carries `install_hint`),
 `AGENT_REPORTED_ERROR`, `AGENT_OUTPUT_UNPARSEABLE` (exit 0 but no result selector matched; the run fails

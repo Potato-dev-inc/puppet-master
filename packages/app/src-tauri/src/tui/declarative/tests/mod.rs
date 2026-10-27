@@ -9,6 +9,7 @@ mod removal;
 mod resolve;
 mod schema;
 mod screen;
+mod session_chat;
 mod select;
 mod template;
 mod validate;

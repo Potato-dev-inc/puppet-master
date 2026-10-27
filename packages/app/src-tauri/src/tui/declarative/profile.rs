@@ -68,6 +68,8 @@ pub struct DeclarativeProfile {
     engine: Option<TuiEngine>,
     risk_rules: Vec<crate::prompt_risk::RiskRule>,
     limits: Option<crate::handoff::CompiledLimits>,
+    /// The transcript the definition declares (`[session_chat]`), for the Chat tab.
+    chat_source: Option<&'static crate::session_chat::DeclaredSource>,
 }
 
 impl DeclarativeProfile {
@@ -121,10 +123,17 @@ impl DeclarativeProfile {
             Some(table) => Some(crate::handoff::CompiledLimits::compile(table)?),
             None => None,
         };
+        let chat_source = match &def.session_chat {
+            Some(table) => Some(crate::session_chat::DeclaredSource::shared(table).map_err(|errors| {
+                errors.into_iter().next().unwrap_or_else(|| DefError::new("AGENT_DEF_INCONSISTENT", "session_chat", "cannot be used"))
+            })?),
+            None => None,
+        };
         Ok(Self {
             engine,
             risk_rules,
             limits,
+            chat_source,
             origin: None,
             id: intern(&def.agent.id),
             not_dispatchable_reason: intern(&def.features.not_dispatchable_reason),
@@ -698,6 +707,10 @@ impl TuiProfile for DeclarativeProfile {
 
     fn hook_scheme(&self) -> Option<super::hooks::HooksTable> {
         self.def.hooks.clone()
+    }
+
+    fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
+        self.chat_source.map(|source| source as &'static dyn crate::session_chat::SessionSource)
     }
 
     fn context(&self) -> Option<AgentContextProfile> {

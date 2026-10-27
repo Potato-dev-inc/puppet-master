@@ -81,6 +81,7 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     if let Some(hooks) = &def.hooks {
         e.0.extend(super::hooks::validate_hooks(hooks));
     }
+    e.0.extend(def.session_chat.iter().flat_map(crate::session_chat::validate_session_chat));
     check_profile(def, &mut e);
     check_regexes(&regexes, &mut e);
     e.0

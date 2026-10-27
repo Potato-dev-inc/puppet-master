@@ -16,6 +16,7 @@ use super::api::{ApiEndpoint, ApiFollower, ChatFrom, SessionApi};
 use super::items::read_lines;
 use super::model::ChatItem;
 use super::screen::{ScreenFollower, ScreenRead};
+use super::screen_first::ScreenFirstFollower;
 use super::source::{Located, PaneFacts, SessionSource};
 use super::store::{Delta, Holders, Items};
 use super::tail::{Polled, Tail};
@@ -79,7 +80,7 @@ pub enum Change {
 }
 
 /// Finds a pane's file and reads what was added since the last step. No threads, no sleeping.
-struct Follower {
+pub(super) struct Follower {
     source: &'static dyn SessionSource,
     file: Option<PathBuf>,
     tail: Option<Tail>,
@@ -89,11 +90,11 @@ struct Follower {
 }
 
 impl Follower {
-    fn new(source: &'static dyn SessionSource) -> Self {
+    pub(super) fn new(source: &'static dyn SessionSource) -> Self {
         Follower { source, file: None, tail: None, last_locate: None, ambiguous: false }
     }
 
-    fn step(&mut self, facts: &PaneFacts, now: Instant, relocate: Duration) -> Change {
+    pub(super) fn step(&mut self, facts: &PaneFacts, now: Instant, relocate: Duration) -> Change {
         let mut switched = false;
         if !matches!(self.last_locate, Some(at) if now.duration_since(at) < relocate) {
             self.last_locate = Some(now);
@@ -103,7 +104,7 @@ impl Follower {
             if let Located::Found(path) = located {
                 if self.file.as_ref() != Some(&path) {
                     switched = self.file.is_some();
-                    self.tail = Some(Tail::new(path.clone()));
+                    self.tail = Some(Tail::new(path.clone()).with_cap(self.source.max_read_per_poll()));
                     self.file = Some(path);
                 }
             }
@@ -141,7 +142,7 @@ fn tilde(path: &std::path::Path, home: Option<&std::path::Path>) -> String {
 
 impl Follower {
     /// In words, what a pane with nothing to show is waiting for. For the person, one short sentence.
-    fn waiting(&self, facts: &PaneFacts) -> String {
+    pub(super) fn waiting(&self, facts: &PaneFacts) -> String {
         let since: DateTime<Local> = facts.started_at.into();
         let since = since.format("%H:%M:%S");
         match &self.file {
@@ -168,6 +169,8 @@ enum Reader {
     File(Follower),
     Screen(ScreenFollower),
     Api(ApiFollower),
+    /// The screen until the session file has something to show, then the file.
+    ScreenFirst(ScreenFirstFollower),
 }
 
 impl Reader {
@@ -177,6 +180,7 @@ impl Reader {
             Reader::File(follower) => Some(follower.step(&panes.facts(pane_id)?, now, relocate)),
             Reader::Screen(follower) => follower.step(panes, pane_id),
             Reader::Api(follower) => follower.step(panes, pane_id),
+            Reader::ScreenFirst(follower) => follower.step(panes, pane_id, now, relocate),
         }
     }
 
@@ -186,6 +190,8 @@ impl Reader {
             Reader::File(_) => "file",
             Reader::Screen(_) => ChatFrom::Screen.name(),
             Reader::Api(follower) => follower.from().name(),
+            Reader::ScreenFirst(follower) if follower.on_file() => "file",
+            Reader::ScreenFirst(_) => ChatFrom::Screen.name(),
         }
     }
 
@@ -194,6 +200,7 @@ impl Reader {
             Reader::File(follower) => Some(follower.waiting(&panes.facts(pane_id)?)),
             Reader::Screen(follower) => Some(follower.waiting()),
             Reader::Api(follower) => Some(follower.waiting()),
+            Reader::ScreenFirst(follower) => follower.waiting(panes, pane_id),
         }
     }
 
@@ -205,6 +212,8 @@ impl Reader {
                 ChatFrom::Api => tuning.api_poll,
                 ChatFrom::Screen => tuning.screen_poll,
             },
+            Reader::ScreenFirst(follower) if follower.on_file() => tuning.poll,
+            Reader::ScreenFirst(_) => tuning.screen_poll,
         }
     }
 }
@@ -302,6 +311,12 @@ impl Watchers {
     /// pane's screen while the API does not answer.
     pub fn open_api<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, api: &'static dyn SessionApi, agent_type: &str) -> Vec<ChatItem> {
         self.open_reader(pane_id, hold.into(), Reader::Api(ApiFollower::new(api, agent_type)))
+    }
+
+    /// As `open`, for an agent whose file may never be found: the chat is read from the pane's screen until the file
+    /// has something to show, and from the file after that.
+    pub fn open_screen_first<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, source: &'static dyn SessionSource, agent_type: &str) -> Vec<ChatItem> {
+        self.open_reader(pane_id, hold.into(), Reader::ScreenFirst(ScreenFirstFollower::new(Follower::new(source), agent_type)))
     }
 
     /// As `open`, for an agent with no session file: the chat is read from the pane's screen.
