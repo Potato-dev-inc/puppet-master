@@ -385,6 +385,7 @@ pub fn run() {
             commands::pane_run_info,
             commands::budget_for_pane,
             commands::budget_adjust,
+            commands::pane_usage,
             commands::pane_worktree,
             commands::pane_git_branch,
             commands::worktree_list,
