@@ -370,7 +370,7 @@ fn a_template_is_filled_in_from_home_cwd_and_the_environment() {
 }
 
 fn pane(cwd: &Path, started_at: SystemTime) -> PaneFacts {
-    PaneFacts { cwd: cwd.to_path_buf(), started_at, provider_session_id: None, home: None }
+    PaneFacts { cwd: cwd.to_path_buf(), started_at, provider_session_id: None, home: None, launch: Default::default() }
 }
 
 fn ago(seconds: u64) -> SystemTime {

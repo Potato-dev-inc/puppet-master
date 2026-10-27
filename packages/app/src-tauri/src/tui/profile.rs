@@ -524,6 +524,15 @@ pub trait TuiProfile: Send + Sync {
         Vec::new()
     }
 
+    /// Called when a pane of this agent is about to start: can its launch arguments choose the session id, so the
+    /// pane's session file is known from the first second (several panes in one folder otherwise share "the newest
+    /// file")? `fresh_id` is a new UUID the app offers. `Chosen` adds `args`; `Named` when `user_args` already name
+    /// the session; `Unmanaged` (the default) when the agent cannot be told, or `user_args` resume or fork a session
+    /// whose id is not known up front.
+    fn launch_session(&self, _user_args: &[String], _fresh_id: &str) -> LaunchSession {
+        LaunchSession::Unmanaged
+    }
+
     /// Whether the chat view may be built from this agent's screen when `session_chat` has no file for it.
     /// Default: every agent that is not a plain shell (a shell has no turns to show).
     fn screen_chat(&self) -> bool {

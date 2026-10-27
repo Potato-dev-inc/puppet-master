@@ -7,6 +7,7 @@
 //! The generic `Allow once` / `Always allow` wording is still read by the generic fallback.
 
 mod headless;
+mod launch_session;
 mod prompt;
 mod screen;
 pub mod session_file;
@@ -73,6 +74,10 @@ impl TuiProfile for Claude {
 
     fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
         Some(&session_source::SOURCE)
+    }
+
+    fn launch_session(&self, user_args: &[String], fresh_id: &str) -> super::LaunchSession {
+        launch_session::launch_session(user_args, fresh_id)
     }
 
     fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {

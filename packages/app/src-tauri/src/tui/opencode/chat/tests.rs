@@ -58,7 +58,7 @@ impl Drop for FakeServer {
 }
 
 fn pane() -> PaneFacts {
-    PaneFacts { cwd: PathBuf::from(r"C:\Users\you\proj"), started_at: SystemTime::now(), provider_session_id: None, home: None }
+    PaneFacts { cwd: PathBuf::from(r"C:\Users\you\proj"), started_at: SystemTime::now(), provider_session_id: None, home: None, launch: Default::default() }
 }
 
 fn endpoint(server: &FakeServer, session: Option<&str>) -> ApiEndpoint {

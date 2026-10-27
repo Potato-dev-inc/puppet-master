@@ -498,3 +498,14 @@ pub fn resolve_model(known: Option<&str>, readings: &[ModelReading]) -> Option<S
     }
     Some(last.name.clone())
 }
+
+/// How an agent's session id is settled when a pane starts (`TuiProfile::launch_session`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaunchSession {
+    /// The agent picks its own id (or the launch arguments leave it open): found by hooks or by the files it writes.
+    Unmanaged,
+    /// A fresh id Puppet Master chose; `args` make the agent use it.
+    Chosen { id: String, args: Vec<String> },
+    /// The launch arguments already name the session; nothing is added.
+    Named(String),
+}
