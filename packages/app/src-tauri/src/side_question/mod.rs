@@ -49,6 +49,19 @@ pub fn resolve_agent(pane_agent: &str, installed: &dyn Fn(&str) -> bool) -> Opti
     })
 }
 
+/// The folder the helper runs in: its own, never the pane's. A headless run writes a session file for its folder,
+/// and the pane's Chat follows the newest session file of the pane's folder: run there, the helper's question
+/// would show up in the pane's chat. Created when asked for (`None` if it cannot be made).
+pub fn helper_dir() -> Option<String> {
+    helper_dir_in(&crate::app_paths::app_data_dir())
+}
+
+fn helper_dir_in(base: &std::path::Path) -> Option<String> {
+    let dir = base.join("side-question");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.to_string_lossy().into_owned())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Target {
     pub agent: String,

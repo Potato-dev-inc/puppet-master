@@ -103,3 +103,14 @@ fn an_empty_question_or_a_failed_run_is_a_plain_error_and_never_runs_for_empty()
     assert!(!failed.ok && failed.answer.is_none());
     assert_eq!(failed.error.unwrap().code, "BACKEND_UNAVAILABLE");
 }
+
+#[test]
+fn the_helper_runs_in_its_own_folder_so_the_pane_chat_never_picks_up_its_session() {
+    let base = std::env::temp_dir().join(format!("pm-side-question-test-{}", std::process::id()));
+    let dir = helper_dir_in(&base).expect("the folder can be made");
+    assert!(std::path::Path::new(&dir).is_dir());
+    assert_eq!(std::path::Path::new(&dir).file_name().unwrap(), "side-question");
+    assert!(std::path::Path::new(&dir).starts_with(&base));
+    let _ = std::fs::remove_dir(&dir);
+    let _ = std::fs::remove_dir(&base);
+}

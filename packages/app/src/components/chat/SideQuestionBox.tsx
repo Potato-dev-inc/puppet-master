@@ -104,18 +104,18 @@ export function SideQuestionBox({ paneId, api, turns, onClose }: SideQuestionBox
   const asking = phase.kind === 'asking';
   const unavailable = target === null;
   return (
-    <section className="ck-side" role="dialog" aria-label="Ask about this session" data-testid="side-question">
-      <header className="ck-side-head">
-        <h2 className="ck-side-title">Ask about this session</h2>
-        <button type="button" className="ck-side-close" aria-label="Close side question" onClick={onClose}>
+    <section className="ck-sq" role="dialog" aria-label="Ask about this session" data-testid="side-question">
+      <header className="ck-sq-head">
+        <h2 className="ck-sq-title">Ask about this session</h2>
+        <button type="button" className="ck-sq-close" aria-label="Close side question" onClick={onClose}>
           Esc
         </button>
       </header>
-      <p className="ck-side-note">
+      <p className="ck-sq-note">
         {unavailable ? NO_SIDE_AGENT : 'A helper reads the recent chat and answers here. Your agent does not see this.'}
       </p>
       <form
-        className="ck-side-row"
+        className="ck-sq-row"
         onSubmit={(event) => {
           event.preventDefault();
           if (!asking) ask(text);
@@ -129,7 +129,7 @@ export function SideQuestionBox({ paneId, api, turns, onClose }: SideQuestionBox
           disabled={unavailable}
           aria-label="Your question"
           placeholder="What do you want to know?"
-          className="ck-side-field"
+          className="ck-sq-field"
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onFieldKeyDown}
         />
@@ -138,22 +138,22 @@ export function SideQuestionBox({ paneId, api, turns, onClose }: SideQuestionBox
         </button>
       </form>
       {asking && (
-        <p className="ck-side-status" role="status" data-testid="side-question-loading">
+        <p className="ck-sq-status" role="status" data-testid="side-question-loading">
           <DotSpinner status="running" size={3} label="Asking" />
           <span>{target ? `Asking ${target.label}…` : 'Asking…'}</span>
         </p>
       )}
       {phase.kind === 'error' && (
-        <p className="ck-side-error" role="alert" data-testid="side-question-error">
+        <p className="ck-sq-error" role="alert" data-testid="side-question-error">
           {phase.message}
         </p>
       )}
       {phase.kind === 'answer' && (
-        <div className="ck-side-answer" data-testid="side-question-answer">
-          <div className="ck-side-answer-body">
+        <div className="ck-sq-answer" data-testid="side-question-answer">
+          <div className="ck-sq-answer-body">
             <ChatMarkdown text={phase.text} />
           </div>
-          <div className="ck-side-actions">
+          <div className="ck-sq-actions">
             <button type="button" className="ck-btn" onClick={() => void copy()}>
               {copied ? 'Copied' : 'Copy'}
             </button>
