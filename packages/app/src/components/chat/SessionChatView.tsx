@@ -5,7 +5,7 @@ import type { SessionChatState } from '../../hooks/useSessionChat';
 import type { ChatSource, ChatTurn, ToolStep, TurnStep } from '../../lib/sessionChat';
 import '../../styles/cockpit-chat.css';
 
-export const SESSION_CHAT_NOTE = "Read-only. You can answer the agent's questions in the card at the bottom.";
+export const SESSION_CHAT_NOTE = 'Messages wait until the agent is free. Answer its questions in the card at the bottom.';
 /** Under the note when the chat is read off the terminal's text: a reading, not the agent's own record. */
 export const SCREEN_CHAT_NOTE = 'Read from the screen: text may be cut or wrapped.';
 
@@ -24,6 +24,10 @@ export interface SessionChatViewProps {
   cliVersion: string | null;
   /** What waits on the person (a question card, a bar): shown under the conversation, outside its scroll. */
   dock?: ReactNode;
+  /** Messages the person wrote that the conversation does not show yet: bubbles at the end of the conversation. */
+  pending?: ReactNode;
+  /** The message box, under the dock. Without it the chat is read-only. */
+  composer?: ReactNode;
 }
 
 /** "800ms" is "<1s"; "12s"; "2m 5s". */
@@ -108,7 +112,7 @@ function TurnView({ turn, fromScreen }: { turn: ChatTurn; fromScreen: boolean })
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -117,7 +121,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && atBottom.current) el.scrollTop = el.scrollHeight;
-  }, [turns]);
+  }, [turns, pending]);
 
   // A docked card takes height from the conversation when it appears or goes: a reader at the end stays at the
   // end; a reader scrolled up keeps the same place.
@@ -168,8 +172,10 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
           </div>
         )}
         {state !== 'unavailable' && turns.map((turn) => <TurnView key={turn.id} turn={turn} fromScreen={fromScreen} />)}
+        {state !== 'unavailable' && pending}
       </div>
       {dock && <div className="ck-chat-dock">{dock}</div>}
+      {state !== 'unavailable' && composer}
     </div>
   );
 }

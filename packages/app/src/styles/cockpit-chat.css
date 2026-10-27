@@ -117,3 +117,97 @@
     transition: none;
   }
 }
+
+/* The message box and the bubbles of messages the agent has not shown yet. Grayscale: a pending bubble is the
+   person's bubble with a dashed edge and no fill, a failed one only heavier. */
+.cockpit .ck-chat-pending-list {
+  margin-top: 4px;
+}
+.cockpit .ck-chat-pending-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+.cockpit .ck-chat-bubble--pending {
+  background: transparent;
+  border: 1px dashed var(--label-3);
+  color: var(--label-2);
+}
+.cockpit .ck-chat-pending-body--failed .ck-chat-bubble--pending {
+  border-style: solid;
+  color: var(--label);
+}
+.cockpit .ck-chat-pending-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 10px;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-chat-pending-body--failed .ck-chat-pending-meta {
+  color: var(--label-2);
+}
+.cockpit .ck-chat-link {
+  padding: 0;
+  font: inherit;
+  color: var(--label-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cockpit .ck-chat-link:hover {
+  color: var(--label);
+}
+.cockpit .ck-chat-link:focus-visible {
+  box-shadow: var(--focus);
+  border-radius: 3px;
+}
+.cockpit .ck-chat-composer {
+  flex: none;
+  padding: 10px 20px 14px;
+  background: var(--bg);
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-chat-composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--sep);
+  border-radius: 12px;
+}
+.cockpit .ck-chat-composer-row:focus-within {
+  border-color: var(--label-3);
+}
+.cockpit .ck-chat-composer-field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 0;
+  border: none;
+  outline: none;
+  min-height: 21px;
+  resize: none;
+  background: transparent;
+  color: var(--label);
+  font: 13px/1.5 var(--font-ui);
+}
+.cockpit .ck-chat-composer-field::placeholder {
+  color: var(--label-3);
+}
+.cockpit .ck-chat-composer-field:disabled {
+  color: var(--label-3);
+  cursor: not-allowed;
+}
+.cockpit .ck-chat-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.cockpit .ck-chat-composer-note {
+  margin: 6px 4px 0;
+  font-size: 11px;
+  color: var(--label-3);
+}

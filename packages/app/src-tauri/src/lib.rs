@@ -46,6 +46,7 @@ mod panic;
 mod askbar;
 mod attention;
 mod second_opinion;
+pub mod pane_outbox;
 mod pane_prompt;
 mod first_run;
 mod plain_mode;
@@ -155,6 +156,9 @@ pub fn run() {
             commands::list_panes,
             commands::session_chat_open,
             commands::session_chat_close,
+            commands::pane_message_send,
+            commands::pane_message_cancel,
+            commands::pane_messages_list,
             team::commands::team_state,
             team::commands::team_config_get,
             team::commands::team_config_set,
