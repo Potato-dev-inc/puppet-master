@@ -1193,3 +1193,8 @@ mod no_windows;
 
 #[path = "fake_tui_canary.rs"]
 mod canary;
+
+// ---- the Chat tab's message box: a message waits for the agent and goes in once (zero tokens) ------------------------
+
+#[path = "fake_tui_chat_reply.rs"]
+mod chat_reply;

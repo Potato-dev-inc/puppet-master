@@ -1,11 +1,25 @@
 // The chat over a terminal pane: reads the pane's session file while it is mounted (TerminalPane mounts it
 // only when the person picked Chat). `dock` is what waits on the person, shown under the conversation.
-import type { ReactNode } from 'react';
+// `reply`: give the chat a message box (the Cockpit's Chat tab does); `blockedReason` switches the box off.
+import { useMemo, type ReactNode } from 'react';
+import { usePaneOutbox } from '../../hooks/usePaneOutbox';
+import { tauriOutboxTransport } from '../../lib/paneOutbox';
+import { usePendingBubbles } from '../../hooks/usePendingBubbles';
 import { useSessionChat } from '../../hooks/useSessionChat';
+import { ChatComposer } from './ChatComposer';
+import { PendingMessages } from './PendingMessages';
 import { SessionChatView } from './SessionChatView';
 
-export function SessionChatPanel({ paneId, dock }: { paneId: string; dock?: ReactNode }) {
+export interface ChatReply {
+  /** Why the message box is switched off, or null. */
+  blockedReason: string | null;
+}
+
+export function SessionChatPanel({ paneId, dock, reply }: { paneId: string; dock?: ReactNode; reply?: ChatReply }) {
   const chat = useSessionChat(paneId, true);
+  const outbox = usePaneOutbox(tauriOutboxTransport, paneId, !!reply);
+  const userTexts = useMemo(() => chat.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [chat.turns]);
+  const { bubbles, hide } = usePendingBubbles(outbox.messages, userTexts);
   return (
     <SessionChatView
       state={chat.state}
@@ -16,6 +30,8 @@ export function SessionChatPanel({ paneId, dock }: { paneId: string; dock?: Reac
       model={chat.model}
       cliVersion={chat.cliVersion}
       dock={dock}
+      pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
+      composer={reply ? <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} /> : undefined}
     />
   );
 }

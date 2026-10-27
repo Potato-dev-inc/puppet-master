@@ -84,10 +84,36 @@ describe('SessionChatView states', () => {
     expect(text()).not.toContain(WAITING);
   });
 
-  it('always shows the read-only note under the header', () => {
+  it('always shows the note under the header: messages wait, questions are answered in the card', () => {
     render({ state: 'ready', turns: [] });
     expect(text()).toContain(SESSION_CHAT_NOTE);
-    expect(SESSION_CHAT_NOTE).toBe("Read-only. You can answer the agent's questions in the card at the bottom.");
+    expect(SESSION_CHAT_NOTE).toBe('Messages wait until the agent is free. Answer its questions in the card at the bottom.');
+  });
+
+  it('puts the pending bubbles after the conversation and the message box under the dock', () => {
+    render({
+      state: 'ready',
+      turns: turnsFrom(SAMPLE),
+      dock: <div data-testid="the-dock">dock</div>,
+      pending: <div data-testid="the-pending">pending</div>,
+      composer: <div data-testid="the-composer">composer</div>,
+    });
+    const pending = host.querySelector('[data-testid="the-pending"]')!;
+    const dock = host.querySelector('[data-testid="the-dock"]')!;
+    const composer = host.querySelector('[data-testid="the-composer"]')!;
+    const body = host.querySelector('.ck-chat-body')!;
+    expect(body.contains(pending)).toBe(true);
+    expect(body.contains(dock) || body.contains(composer)).toBe(false);
+    // Document order: conversation, pending bubbles, dock (the approval card), message box.
+    const order = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(order(pending, dock)).toBe(true);
+    expect(order(dock, composer)).toBe(true);
+  });
+
+  it('shows no message box or bubbles while the chat is unavailable', () => {
+    render({ state: 'unavailable', reason: 'No chat.', pending: <b>pending</b>, composer: <b>composer</b> });
+    expect(text()).not.toContain('composer');
+    expect(text()).not.toContain('pending');
   });
 });
 

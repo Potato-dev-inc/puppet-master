@@ -845,14 +845,11 @@ fn deliver_task(
     }
     let mut io = delivery::PaneIo { registry, app, pane_id };
     let mut trace = Vec::new();
-    let outcome = if profile.verifies_prompt_delivery() {
-        // Clear, type, verify the text is in the input box, submit, verify a turn started.
-        let outcome = delivery::deliver_prompt_traced(&mut io, profile.clear_input_sequence(), prompt, &mut trace);
+    // Clear, type, verify the text is in the input box (when the profile can read it), submit, verify a turn started.
+    let outcome = delivery::deliver_text(&mut io, profile.as_ref(), profile.clear_input_sequence(), prompt, &mut trace);
+    if profile.verifies_prompt_delivery() {
         delivery::record_delivery(&active.project_path, &active.operation_id, None, &outcome, &trace);
-        outcome
-    } else {
-        delivery::type_unverified(&mut io, profile.clear_input_sequence(), prompt, &mut trace)
-    };
+    }
     if !crate::agent_runs::readiness::has_recogniser(profile.as_ref())
         && !matches!(outcome, Delivery::NotReady { .. } | Delivery::AgentGone(_) | Delivery::Blocked(_))
     {

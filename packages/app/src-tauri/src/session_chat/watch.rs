@@ -2,7 +2,7 @@
 //! new lines into chat items and hands them to a `Sink` (the Tauri event in the app, a fake in tests).
 //! Chat text is never logged here; only pane ids and counts are.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -16,7 +16,10 @@ use super::items::read_lines;
 use super::model::ChatItem;
 use super::screen::{ScreenFollower, ScreenRead};
 use super::source::{Located, PaneFacts, SessionSource};
+use super::store::{Delta, Holders, Items};
 use super::tail::{Polled, Tail};
+
+pub use super::store::Hold;
 
 /// Most items kept per pane. Older ones are dropped, so a long session shows its tail.
 pub const MAX_ITEMS: usize = 3000;
@@ -172,7 +175,9 @@ impl Reader {
 
 /// The items one pane shows, and the way to stop its thread.
 struct Watch {
-    items: Mutex<VecDeque<ChatItem>>,
+    items: Mutex<Items>,
+    /// Who keeps the reader running; it ends when none is left.
+    holders: Mutex<Holders>,
     /// What the pane is waiting for while it has no items (see `Follower::waiting`).
     waiting: Mutex<Option<String>>,
     stop: AtomicBool,
@@ -183,7 +188,8 @@ struct Watch {
 impl Watch {
     fn new() -> Self {
         Watch {
-            items: Mutex::new(VecDeque::new()),
+            items: Mutex::new(Items::new()),
+            holders: Mutex::new(Holders::default()),
             waiting: Mutex::new(None),
             stop: AtomicBool::new(false),
             finished: AtomicBool::new(false),
@@ -192,7 +198,34 @@ impl Watch {
     }
 
     fn snapshot(&self) -> Vec<ChatItem> {
-        self.items.lock().iter().cloned().collect()
+        self.items.lock().all()
+    }
+
+    /// Adds (or renews) a holder. False when the reader already ended: the caller starts a new one.
+    fn hold(&self, hold: Hold) -> bool {
+        let mut holders = self.holders.lock();
+        if self.finished.load(Ordering::SeqCst) {
+            return false;
+        }
+        holders.add(hold, Instant::now());
+        true
+    }
+
+    /// Lets a holder go; true when none is left.
+    fn release(&self, holder: &str) -> bool {
+        let mut holders = self.holders.lock();
+        holders.remove(holder);
+        holders.none_left(Instant::now())
+    }
+
+    /// Asked by the reader between looks: when no holder is left the reader ends (and a new holder starts another).
+    fn unheld(&self) -> bool {
+        let mut holders = self.holders.lock();
+        let none = holders.none_left(Instant::now());
+        if none {
+            self.finished.store(true, Ordering::SeqCst);
+        }
+        none
     }
 
     fn stop(&self) {
@@ -222,24 +255,25 @@ impl Watchers {
 
     /// Starts following the pane (once) and returns the items so far, read before this returns when the
     /// file is already there. Opening an open pane returns its current items and starts nothing.
-    pub fn open(&self, pane_id: &str, source: &'static dyn SessionSource) -> Vec<ChatItem> {
-        self.open_reader(pane_id, Reader::File(Follower::new(source)))
+    pub fn open<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, source: &'static dyn SessionSource) -> Vec<ChatItem> {
+        self.open_reader(pane_id, hold.into(), Reader::File(Follower::new(source)))
     }
 
     /// As `open`, for an agent with no session file: the chat is read from the pane's screen.
-    pub fn open_screen(&self, pane_id: &str, agent_type: &str) -> Vec<ChatItem> {
-        self.open_reader(pane_id, Reader::Screen(ScreenFollower::new(agent_type)))
+    pub fn open_screen<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, agent_type: &str) -> Vec<ChatItem> {
+        self.open_reader(pane_id, hold.into(), Reader::Screen(ScreenFollower::new(agent_type)))
     }
 
-    fn open_reader(&self, pane_id: &str, mut reader: Reader) -> Vec<ChatItem> {
+    fn open_reader(&self, pane_id: &str, hold: Hold, mut reader: Reader) -> Vec<ChatItem> {
         let mut open = self.open.lock();
         if let Some(watch) = open.get(pane_id) {
-            if !watch.finished.load(Ordering::SeqCst) {
+            if watch.hold(hold) {
                 return watch.snapshot();
             }
             open.remove(pane_id);
         }
         let watch = Arc::new(Watch::new());
+        watch.hold(hold);
         // The first look happens here, so the caller gets the items in its answer and not as an event.
         let Some(first) = reader.step(&*self.panes, pane_id, Instant::now(), self.tuning.relocate) else {
             return Vec::new();
@@ -276,9 +310,22 @@ impl Watchers {
         self.open.lock().get(pane_id).and_then(|watch| watch.waiting.lock().clone())
     }
 
-    /// Stops following the pane. Its thread ends within one poll; nothing waits for it.
-    pub fn close(&self, pane_id: &str) {
-        if let Some(watch) = self.open.lock().remove(pane_id) {
+    /// What changed in the pane's items since revision `since` (`None`: the newest `cap`), `None` when the pane is
+    /// not open. Asking does not keep the reader running; opening it with a holder does.
+    pub fn since(&self, pane_id: &str, since: Option<u64>, cap: usize) -> Option<Delta> {
+        let watch = self.open.lock().get(pane_id).cloned()?;
+        let delta = watch.items.lock().since(since, cap);
+        Some(delta)
+    }
+
+    /// `holder` lets go of the pane. The reader stops when nobody holds it any more (its thread ends within one
+    /// poll; nothing waits for it). A holder that never held the pane changes nothing.
+    pub fn close(&self, pane_id: &str, holder: &str) {
+        let mut open = self.open.lock();
+        if !open.get(pane_id).is_some_and(|watch| watch.release(holder)) {
+            return;
+        }
+        if let Some(watch) = open.remove(pane_id) {
             watch.stop();
         }
     }
@@ -317,7 +364,7 @@ impl Worker {
         tracing::debug!(pane = %self.pane_id, "session chat: reader started");
         loop {
             std::thread::park_timeout(self.reader.poll(&self.tuning));
-            if self.watch.stop.load(Ordering::SeqCst) {
+            if self.watch.stop.load(Ordering::SeqCst) || self.watch.unheld() {
                 break;
             }
             let Some(change) = self.reader.step(&*self.panes, &self.pane_id, Instant::now(), self.tuning.relocate) else {
@@ -360,26 +407,23 @@ fn apply(watch: &Watch, change: Change, max: usize, out: Option<(&dyn Sink, &str
         }
     };
     let count = batch.len();
-    if upsert {
-        // An item sent again under its id replaces the old copy where it stands.
-        for item in &batch {
-            match items.iter().rposition(|known| known.id() == item.id()) {
-                Some(at) => items[at] = item.clone(),
-                None => items.push_back(item.clone()),
-            }
+    for item in &batch {
+        if upsert {
+            // An item sent again under its id replaces the old copy where it stands.
+            items.upsert(item);
+        } else {
+            items.push(item.clone());
         }
-    } else {
-        items.extend(batch.iter().cloned());
     }
     let dropped = items.len().saturating_sub(max);
     if dropped > 0 {
-        items.drain(..dropped);
+        items.drop_oldest(dropped);
     }
     // A batch bigger than the cap would leave the viewer with a gap before it: it gets the capped list instead.
     if count > max {
         reset = true;
     }
-    let send = if reset { items.iter().cloned().collect() } else { batch };
+    let send = if reset { items.all() } else { batch };
     if let Some((sink, pane_id)) = out {
         tracing::debug!(pane = %pane_id, count, dropped, reset, "session chat: items");
         sink.send(pane_id, send, reset);

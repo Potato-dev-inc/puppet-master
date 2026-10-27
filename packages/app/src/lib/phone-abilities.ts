@@ -10,6 +10,8 @@ export interface PairMe {
 }
 
 export interface PhoneAbilities {
+  /** Read pane text: the chat of an agent pane needs it. */
+  canWatch: boolean;
   canType: boolean;
   canAnswer: boolean;
   /** A plain line to show in place of the input box, or null when this phone can type. */
@@ -17,15 +19,17 @@ export interface PhoneAbilities {
 }
 
 /** Until the PC has answered, and on an old PC that has no such route, nothing is hidden. */
-export const ALL_ABILITIES: PhoneAbilities = { canType: true, canAnswer: true, typingNote: null };
+export const ALL_ABILITIES: PhoneAbilities = { canWatch: true, canType: true, canAnswer: true, typingNote: null };
 
 export function abilitiesFrom(me: PairMe | null | undefined): PhoneAbilities {
   if (!me || !Array.isArray(me.caps)) return ALL_ABILITIES;
   const has = (cap: DeviceCap) => me.caps.includes(cap);
+  const canWatch = has('watch');
   const canType = has('type');
   const canAnswer = has('answer');
-  if (canType) return { canType, canAnswer, typingNote: null };
+  if (canType) return { canWatch, canType, canAnswer, typingNote: null };
   return {
+    canWatch,
     canType,
     canAnswer,
     typingNote: canAnswer ? 'This phone can watch and answer, not type.' : 'This phone can watch, not type.',

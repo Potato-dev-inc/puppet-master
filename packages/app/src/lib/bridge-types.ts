@@ -11,6 +11,8 @@ import type { PublicSettings } from './bridge-settings';
 import type { PreviewUrl } from './pane-preview';
 import type { AttentionAnswerBody, AttentionAnswerOutcome, AttentionSnapshot } from './attention';
 import type { Question, QuestionAnswer } from './questions';
+import type { PhoneChatReply } from './sessionChatModel';
+import type { OutboxMessage } from './paneOutbox';
 
 export interface WriteInputOptions {
   viaOpencodeApi?: boolean;
@@ -403,8 +405,22 @@ export interface BridgeClient {
     args: { answer: string; request_id?: string },
   ): Promise<unknown>;
   getSettings(): Promise<PublicSettings>;
+  /**
+   * `GET /panes/{id}/chat`: the read-only chat of an agent pane (needs `watch`). With `since` (the `rev` of the last
+   * answer) only what changed. Absent on clients that are not a phone.
+   */
+  paneChat?(paneId: string, since?: number): Promise<PhoneChatReply>;
   /** What this phone may do (`GET /pair/me`). Absent on clients that are not a phone. */
   pairMe?(): Promise<{ local: boolean; device_id?: string; caps: string[] }>;
+  /**
+   * `POST /panes/{id}/messages`: a message for the pane's agent, sent when the agent is free (needs `type`). Rejects
+   * with the PC's plain reason when it refuses. Absent on clients that are not a phone.
+   */
+  sendPaneMessage?(paneId: string, text: string): Promise<OutboxMessage>;
+  /** `DELETE /panes/{id}/messages/{messageId}`: cancels a message that has not started to be typed (needs `type`). */
+  cancelPaneMessage?(paneId: string, messageId: string): Promise<OutboxMessage>;
+  /** `GET /panes/{id}/messages`: the pane's waiting messages and the ones that just finished (needs `watch`). */
+  listPaneMessages?(paneId: string): Promise<OutboxMessage[]>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
   postOrchestratorMessage(text: string, messageId: string): Promise<void>;
   postOrchestratorViewport(viewport: {
@@ -444,4 +460,6 @@ export type BridgeEvent =
   /** The PC refused typed input over the socket (`input-error` frame): `error` is its reason. */
   | { type: 'input-refused'; pane_id: string; error: string }
   /** Long-poll only: events were missed (phone asleep, app restarted); re-read pane state. */
+  /** The pane's message box changed (watch only, text already redacted): the whole list of the pane. */
+  | { type: 'pane-outbox'; paneId: string; messages: OutboxMessage[] }
   | { type: 'resync' };

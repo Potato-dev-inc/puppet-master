@@ -8,6 +8,7 @@ import type { Question } from './questions';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
 import { localSecretHeaders } from './bridge-local-secret';
 import type { PreviewUrl } from './pane-preview';
+import type { OutboxMessage } from './paneOutbox';
 import { AttentionAnswerError, type AttentionAnswerOutcome, type AttentionSnapshot } from './attention';
 
 export type * from './bridge-types';
@@ -204,6 +205,19 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       call('POST', `/panes/${encodeURIComponent(paneId)}/opencode/question/reply`, args),
     getSettings: () => call('GET', '/settings'),
     pairMe: () => call('GET', '/pair/me'),
+    paneChat: (paneId, since) =>
+      call('GET', `/panes/${encodeURIComponent(paneId)}/chat${since === undefined ? '' : `?since=${since}`}`),
+    sendPaneMessage: async (paneId, text) =>
+      (await call<{ message: OutboxMessage }>('POST', `/panes/${encodeURIComponent(paneId)}/messages`, { text })).message,
+    cancelPaneMessage: async (paneId, messageId) =>
+      (
+        await call<{ message: OutboxMessage }>(
+          'DELETE',
+          `/panes/${encodeURIComponent(paneId)}/messages/${encodeURIComponent(messageId)}`,
+        )
+      ).message,
+    listPaneMessages: async (paneId) =>
+      (await call<{ messages: OutboxMessage[] | null }>('GET', `/panes/${encodeURIComponent(paneId)}/messages`)).messages ?? [],
     patchSettings: (patch) => call('PATCH', '/settings', patch),
     postOrchestratorMessage: (text, messageId) =>
       call('POST', '/orchestrator/message', { text, message_id: messageId }),
