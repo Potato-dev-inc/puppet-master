@@ -1,0 +1,376 @@
+/* Companion screens in the cockpit (SPEC-1028 section 8): the sidebar rows, the page, the rail cards and the setup
+   sheet. Grayscale tokens from cockpit.css only, so light and dark both work. Dense, like the rest of the cockpit. */
+
+/* ---------- sidebar rows ---------- */
+.cockpit .ck-companion-row {
+  gap: 8px;
+}
+/* Two classes deep, so it beats the shared 16 px glyph width in cockpit.css. */
+.cockpit .ck-companion-row .ck-companion-face {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.cockpit .ck-companion-state {
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 11px;
+  color: var(--label-3);
+  white-space: nowrap;
+}
+.cockpit .ck-companion-row.is-needs .ck-companion-state {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-companion-row .ck-companion-outline {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px dashed var(--label-4);
+}
+.cockpit .ck-companion-row--empty .ck-row-title {
+  color: var(--label-3);
+}
+
+/* ---------- page header ---------- */
+.cockpit .ck-companion-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  min-width: 0;
+}
+.cockpit .ck-companion-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cockpit .ck-companion-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-companion-face-big {
+  flex: none;
+}
+.cockpit .ck-companion-head-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.cockpit .ck-companion-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--label);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: left;
+  cursor: text;
+}
+.cockpit .ck-companion-name:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--label-4);
+}
+.cockpit .ck-companion-name-input {
+  font-size: 20px;
+  font-weight: 600;
+  height: 30px;
+}
+.cockpit .ck-companion-stateline {
+  margin: 0;
+  font-size: 12.5px;
+}
+.cockpit .ck-companion-open-card {
+  margin-top: 2px;
+}
+.cockpit .ck-companion-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.cockpit .ck-companion-head-actions .ck-menu-wrap {
+  position: relative;
+}
+.cockpit .ck-companion-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cockpit .ck-companion-asleep,
+.cockpit .ck-companion-wait {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  margin: 0;
+}
+
+/* ---------- right rail ---------- */
+.cockpit .ck-companion-rail {
+  width: 280px;
+  flex: none;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 12px 20px;
+  border-left: 1px solid var(--sep);
+  background: var(--bg-side);
+}
+.cockpit .ck-companion-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+.cockpit .ck-companion-card-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.cockpit .ck-companion-card .ck-kv {
+  margin: 0;
+}
+.cockpit .ck-companion-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-companion-notice-actions {
+  display: flex;
+  gap: 6px;
+}
+.cockpit .ck-companion-editor {
+  width: 100%;
+  min-height: 150px;
+  box-sizing: border-box;
+  font-size: 12px;
+}
+.cockpit .ck-companion-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-companion-meta-actions {
+  display: flex;
+  gap: 6px;
+}
+.cockpit .ck-companion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-companion-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-companion-pending:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.cockpit .ck-companion-pending-text {
+  margin: 0;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-companion-pending-target {
+  margin: 0;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-companion-pending-actions {
+  display: flex;
+  gap: 6px;
+}
+.cockpit .ck-companion-checkin {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12.5px;
+}
+.cockpit .ck-companion-checkin.is-off {
+  opacity: 0.5;
+}
+.cockpit .ck-companion-checkin-label {
+  font-weight: 500;
+}
+.cockpit .ck-companion-add {
+  align-self: flex-start;
+}
+.cockpit .ck-companion-privacy {
+  margin: 0;
+  font-size: 11.5px;
+}
+
+/* ---------- sheets ---------- */
+.cockpit .ck-companion-sheet {
+  width: 440px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  gap: 10px;
+}
+.cockpit .ck-companion-step {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cockpit .ck-companion-step legend {
+  padding: 0;
+  margin-bottom: 2px;
+}
+.cockpit .ck-companion-hint {
+  margin: 0;
+  font-size: 12px;
+}
+.cockpit .ck-companion-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.cockpit .ck-companion-input {
+  height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--label);
+  background: var(--bg-raised);
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  min-width: 0;
+}
+.cockpit .ck-companion-input--area {
+  height: 84px;
+  padding: 8px;
+  resize: vertical;
+}
+.cockpit .ck-companion-input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-companion-row-fields {
+  display: flex;
+  gap: 8px;
+}
+.cockpit .ck-companion-faces {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.cockpit .ck-companion-face-pick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--label-2);
+  cursor: pointer;
+}
+.cockpit .ck-companion-face-pick.is-picked {
+  color: var(--label);
+  background: var(--fill-active);
+  border-color: var(--label-4);
+}
+.cockpit .ck-companion-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-companion-agent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label);
+  text-align: left;
+  cursor: pointer;
+}
+.cockpit .ck-companion-agent.is-picked {
+  border-color: var(--label-4);
+  background: var(--fill-active);
+}
+.cockpit .ck-companion-agent:disabled {
+  cursor: default;
+}
+.cockpit .ck-companion-reason {
+  font-size: 11.5px;
+}
+.cockpit .ck-companion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cockpit .ck-companion-chip {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--label-2);
+  cursor: pointer;
+}
+.cockpit .ck-companion-chip.is-picked {
+  color: var(--label);
+  border-color: var(--label-4);
+  background: var(--fill-active);
+}
+.cockpit .ck-companion-folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.cockpit .ck-companion-folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
