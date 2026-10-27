@@ -27,6 +27,7 @@ use super::super::exec;
 use super::super::agent_error;
 use super::super::livetest::mask_words;
 use super::super::report::{render, CheckError, Source as ReportSource, WizardError};
+use super::super::transcript;
 use super::super::session::{sha256_hex, Draft, Session, State, VisibleTested, Wizard, WizardEnv};
 use super::answer::{scope_ok, AnswerCfg, AnswerKey, Answerer, AnsweredQ, Hint, Input as AnswerInput, Step as AnswerStep};
 use super::api::make_project;
@@ -112,6 +113,8 @@ pub struct Outcome {
     pub answered: Vec<AnsweredQ>,
     /// The same, masked, for the reply.
     pub answered_json: Vec<Value>,
+    /// What the search for the program's transcript found after the reply check: `{found, dir}` or `{found: false, why}`.
+    pub transcript: Option<Value>,
 }
 
 impl Outcome {
@@ -236,6 +239,8 @@ struct Test<'a> {
     baseline: parking_lot::Mutex<agent_error::Baseline>,
     /// Still before the first task of the pane under test: `look` adds what it sees to `baseline`.
     collecting: AtomicBool,
+    /// The reply the `done_reply` check read off the screen (for the transcript search).
+    last_reply: parking_lot::Mutex<Option<String>>,
 }
 
 /// A model name in a capture: `model: <name>` or `model = <name>`, on a screen of the agent at rest or at work.
@@ -821,6 +826,9 @@ impl Test<'_> {
     /// should have dropped, and naming it tells the drafter which table it belongs in.
     fn check_clean_reply(&self, label: &'static str, task: &str, baseline: &str, word: &str) -> Result<String, Fail> {
         let (result, look) = self.wait_turn(label, task, baseline)?;
+        if label == "done_reply" {
+            *self.last_reply.lock() = Some(result.clone());
+        }
         let shown = self.masked(&result);
         if !result.to_lowercase().contains(&word.to_lowercase()) {
             return Err(fail(format!("The reply that was read does not contain the answer the agent gave. It read: {shown:?}. Check `[tui.chrome]`, `[tui.tool_activity]` and `[tui.dialogs]`."), &look.watch));
@@ -1141,7 +1149,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     session.visible.test_menu_result.lock().take();
     session.visible.test_baseline.lock().take();
     *session.visible.test_profile.lock() = Some(draft.text.clone());
-    let mut outcome = Outcome { checks: Vec::new(), errors: Vec::new(), agent_error: None, screens: Vec::new(), answered: Vec::new(), answered_json: Vec::new() };
+    let mut outcome = Outcome { checks: Vec::new(), errors: Vec::new(), agent_error: None, screens: Vec::new(), answered: Vec::new(), answered_json: Vec::new(), transcript: None };
     let setup_failed = |outcome: &mut Outcome, code: &str, message: String| {
         outcome.errors.push(CheckError::new("visibletest", code, "", message));
     };
@@ -1170,6 +1178,11 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         setup_failed(&mut outcome, "VISIBLETEST_SPAWN_FAILED", e);
         return outcome;
     }
+    // The files the program may already have (the transcript search reads only what is appended after this moment).
+    session.visible.transcript.lock().take();
+    let search_roots = transcript::Roots { cwd: project.clone(), homes: env.homes.clone(), names: transcript::names_for(&session.command, &session.program, &def.agent.id) };
+    let pane_started = std::time::SystemTime::now();
+    let files_before = transcript::Snapshot::take(&search_roots);
     let host = env.host.clone();
     let spec = PaneSpec { profile: profile.clone(), cwd: project.clone(), cols: GRID_COLS, rows: GRID_ROWS, window: env.visible.window && !session.autonomous };
     let pane = match host.spawn(&spec) {
@@ -1228,6 +1241,7 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         unreadable: parking_lot::Mutex::new(None),
         baseline: parking_lot::Mutex::new(agent_error::Baseline::new()),
         collecting: AtomicBool::new(true),
+        last_reply: parking_lot::Mutex::new(None),
     };
     let words = &session.words;
     let task = message_task_for(&words.two);
@@ -1330,6 +1344,12 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
             let r = test.check_done_reply(&task, &baseline, &words.two).map(Some);
             turn_ok = record(&mut test, &mut outcome, "done_reply", t, r) == "passed";
             if turn_ok {
+                // The program may have written the turn to a JSONL file: find it, and check what the Chat tab would read.
+                let reply = test.last_reply.lock().clone().unwrap_or_default();
+                let search = transcript::Search { roots: &search_roots, before: &files_before, since: pane_started, prompt: &task, reply: &reply, word: &words.two };
+                let finding = transcript::Finding { draft_sha256: draft.sha256.clone(), result: transcript::find_with_retries(&search) };
+                outcome.transcript = Some(finding.to_json());
+                *session.visible.transcript.lock() = Some(finding);
                 let t = Instant::now();
                 let r = test.check_model();
                 record(&mut test, &mut outcome, "model", t, r);
@@ -1456,6 +1476,7 @@ pub fn outcome_json(outcome: &Outcome, state: State, version: Option<&str>) -> V
         "total": outcome.total(),
         "agent_error": outcome.agent_error,
         "answered": outcome.answered_json,
+        "transcript": outcome.transcript,
     })
 }
 

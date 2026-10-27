@@ -75,6 +75,8 @@ Steps (`do = ...`): `think {ms, verb}` and `wait {ms}` stay busy; `say {text}`; 
 | `composer_glyph = "»"` | Codex layout: the glyph that starts the input row (default `›`). A different one is a CLI update that redrew its input box: the real Codex profile no longer finds it |
 | `[[startup]] animate = true` | the trust question redraws while it waits: a blinking block after the question and a spinner row with a seconds counter under it |
 
+**Transcript (any layout).** `transcript = "chats/session.jsonl"` (a path under the working folder; `PM_FAKE_TUI_TRANSCRIPT` wins; no absolute path, no `..`) makes the fake append the conversation as JSONL the way a real CLI keeps it: the typed prompt as a user line, every `say` as an assistant line, every `tool` step as a call line and a result line. `transcript_shape = "flat"` (default, `{"role":"user","content":"..."}`) or `"nested"` (`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"..."}]}}`; `PM_FAKE_TUI_TRANSCRIPT_SHAPE` wins). Used by the wizard's transcript search tests.
+
 A turn that runs out of steps ends like a real one: a summary row, then the composer. A prompt no turn matches gets the first turn without `on_prompt`, else "OK".
 
 ## Layout of the code

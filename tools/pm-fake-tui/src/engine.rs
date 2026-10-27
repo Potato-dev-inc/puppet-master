@@ -84,6 +84,7 @@ pub struct Engine {
     ctrl_c_armed: bool,
     exit: Option<i32>,
     log: Option<std::fs::File>,
+    transcript: Option<crate::transcript::Transcript>,
 }
 
 impl Engine {
@@ -112,6 +113,7 @@ impl Engine {
             .or_else(|| script.log.clone())
             .filter(|path| !path.is_empty())
             .and_then(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).ok());
+        let transcript = crate::transcript::Transcript::from_settings(script.transcript.as_deref(), script.transcript_shape.as_deref(), &base_dir);
         let mut engine = Engine {
             gates: script.startup.iter().cloned().collect(),
             opts: Opts {
@@ -150,6 +152,7 @@ impl Engine {
             ctrl_c_armed: false,
             exit: None,
             log,
+            transcript,
         };
         engine.log(now, "start", json!({ "agent": format!("{layout:?}").to_lowercase(), "cols": cols, "rows": rows }));
         let boot = engine.script.boot_ms;
@@ -583,6 +586,9 @@ impl Engine {
 
     fn submit(&mut self, prompt: String, now: u64) {
         self.log(now, "prompt", json!({ "text": prompt }));
+        if let Some(transcript) = &self.transcript {
+            transcript.user(&prompt);
+        }
         self.last_prompt = prompt.clone();
         if self.script.echo_task || self.layout != Layout::Nimbus {
             self.blocks.push(Block::User(prompt.clone()));
@@ -617,6 +623,9 @@ impl Engine {
                 Step::Wait { ms } => self.sleep = Some(Sleep { verb: self.verb.clone(), until: now + ms }),
                 Step::Say { text } => {
                     let text = self.fill(&text);
+                    if let Some(transcript) = &self.transcript {
+                        transcript.assistant(&text);
+                    }
                     self.blocks.push(Block::Reply(text));
                 }
                 Step::Lines { count, template } => {
@@ -632,6 +641,9 @@ impl Engine {
                     self.blocks.push(Block::Raw(vec![row]));
                 }
                 Step::Tool { label, detail, ms, failed } => {
+                    if let Some(transcript) = self.transcript.as_mut() {
+                        transcript.tool(&label, detail.as_deref().unwrap_or(""));
+                    }
                     self.blocks.push(Block::Tool { label, detail, failed });
                     if ms > 0 {
                         self.sleep = Some(Sleep { verb: self.verb.clone(), until: now + ms });
@@ -1210,6 +1222,27 @@ steps = [{{ do = \"run\", command = {command:?} }}, {{ do = \"run\", command = \
         assert_eq!(std::fs::read_to_string(dir.join("sub/out.txt")).unwrap(), "hello\n");
         assert!(e.plain(100).contains("Write(sub/out.txt)"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_transcript_is_written_only_when_asked_and_only_under_the_working_directory() {
+        let dir = std::env::temp_dir().join(format!("pm-fake-tui-transcript-{}", std::process::id()));
+        let toml = "transcript = \"chats/s.jsonl\"\n[[turn]]\nsteps = [{ do = \"tool\", label = \"ls\", detail = \"a.txt\" }, { do = \"say\", text = \"Done.\" }]";
+        let mut e = Engine::new(Script::parse(toml, false).unwrap(), dir.clone(), 100, 30, 0);
+        type_text(&mut e, "hello", 0);
+        e.on_key(Key::Enter, 100);
+        let lines: Vec<String> = std::fs::read_to_string(dir.join("chats/s.jsonl")).unwrap().lines().map(str::to_string).collect();
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert_eq!(lines[0], r#"{"content":"hello","role":"user"}"#);
+        assert!(lines[1].contains(r#""name":"ls""#) && lines[2].contains(r#""role":"tool""#));
+        assert_eq!(lines[3], r#"{"content":"Done.","role":"assistant"}"#);
+        // a path that leaves the folder is ignored
+        for bad in ["../x.jsonl", "/abs.jsonl"] {
+            assert!(crate::transcript::Transcript::from_settings(Some(bad), None, &dir).is_none(), "{bad}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
+        let plain = Engine::new(Script::parse("[[turn]]\nsteps = [{ do = \"say\", text = \"x\" }]", false).unwrap(), std::env::temp_dir().join("pm-fake-tui-no-transcript"), 100, 30, 0);
+        assert!(plain.transcript.is_none());
     }
 }
 

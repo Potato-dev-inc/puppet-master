@@ -60,6 +60,8 @@ impl Session {
         env.approvals_path = self.aux().join("agent-approvals.json");
         env.temp_root = temp;
         env.path_dirs = None;
+        // no folder of the person's is ever looked at: the transcript is searched for in the pane's own folder only
+        env.homes = Default::default();
         env.app_build = "fake-tui-e2e".into();
         env.visible = RunnerCfg {
             capture: Config { stable_ms: 1200, frozen_ms: 3000, idle_done_ms: 3000, question_ms: 4000, work_step: asks_the_listing_task, ..Config::default() },

@@ -11,3 +11,4 @@ pub mod render;
 pub mod runtime;
 pub mod script;
 pub mod term;
+pub mod transcript;

@@ -328,6 +328,8 @@ Several pointers may be given for one field (`text = ["/content", "/message/cont
 
 **Checked when the definition loads, never later.** `AGENT_DEF_SESSION_CHAT_BAD_DIR` (a template that is not under home or the project, has `..`, an unknown placeholder or unbalanced braces), `AGENT_DEF_SESSION_CHAT_BAD_GLOB`, `AGENT_DEF_SESSION_CHAT_BAD_POINTER` (not a pointer, too long, a bad `~` escape; the error path names the key, `session_chat.map.text` or `session_chat.map.tool_error.1`), `AGENT_DEF_INCONSISTENT` (`tool_input` without `tool_name`, `tool_output` without `tool_result_for`, `turn_end` without its values or the other way round, one value for two roles), and the usual `AGENT_DEF_UNKNOWN_FIELD` / `AGENT_DEF_INVALID_TOML` for a misspelt or missing key. The table is part of the fingerprint: changing it asks for approval again.
 
+The Agent Wizard fills this table by itself when it can: it finds the JSONL file the CLI wrote during its test turn, infers the pointers, checks them with this reader and writes the table under the comment `# found by the wizard: check before approving` (agent-wizard SPEC 11.23). It is part of the fingerprint like any other table, so you still approve it.
+
 Until the file has something to show (a wrong folder, a CLI that writes nothing yet) the Chat tab is read off the screen, as for an agent with no table; when the file has items it switches to them, once, and the view is told where the items come from.
 
 ## 7. Regex tips

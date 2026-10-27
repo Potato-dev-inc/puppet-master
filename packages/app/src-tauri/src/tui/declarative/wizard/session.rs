@@ -107,6 +107,8 @@ pub struct WizardEnv {
     pub visible: RunnerCfg,
     /// `<app data>/agent-approvals.json`: where the autonomous wizard records its approval (`finish`).
     pub approvals_path: PathBuf,
+    /// The person's folders the transcript search may look under (`transcript`). Empty in tests.
+    pub homes: super::transcript::Homes,
 }
 
 impl WizardEnv {
@@ -121,6 +123,7 @@ impl WizardEnv {
             host: Arc::new(LiveHost),
             visible: RunnerCfg::default(),
             approvals_path: crate::tui::declarative::approvals::default_path(),
+            homes: super::transcript::Homes::from_env(),
         }
     }
 
@@ -271,6 +274,8 @@ pub struct VisibleData {
     pub test_profile: Mutex<Option<String>>,
     /// What the autonomous wizard did (SPEC 11.19): the exact plans that ran and the verdicts it acted on.
     pub auto: AutoRecord,
+    /// The `[session_chat]` table the last visible test found in a transcript the program wrote, or why it found none.
+    pub transcript: Mutex<Option<super::transcript::Finding>>,
 }
 
 /// The record of an autonomous run, written to `<id>.wizard.json`. Shared through `VisibleData`'s `Arc`.

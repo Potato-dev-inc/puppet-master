@@ -57,6 +57,19 @@ pub fn sha256_hex(cwd: &str) -> String {
     Sha256::digest(cwd.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// The segment placeholders and what each one is for `cwd`, the likeliest first. A folder name in a transcript path that
+/// equals one of these can be written with the placeholder (`{cwd_slug}`), so the table holds for any project folder.
+pub fn cwd_placeholders(cwd: &Path) -> Vec<(&'static str, String)> {
+    let text = clean_cwd(cwd);
+    vec![
+        ("cwd_sha256", sha256_hex(&text)),
+        ("cwd_slug", slug(&text)),
+        ("cwd_dashes", dashes(&text)),
+        ("cwd_url", url_encoded(&text)),
+        ("cwd_name", folder_name(&text)),
+    ]
+}
+
 /// `template` with its placeholders filled in. `None` when one cannot be (no home folder, an unset variable) or
 /// when a segment placeholder came out as something that is not one segment.
 pub fn expand(template: &str, names: &Names<'_>) -> Option<String> {
