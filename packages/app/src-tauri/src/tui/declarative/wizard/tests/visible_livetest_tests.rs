@@ -65,12 +65,14 @@ fn status_of(v: &Value, name: &str) -> String {
     checks(v).into_iter().find(|(n, _)| n == name).map(|(_, s)| s).unwrap()
 }
 
+/// The limits of a test whose fake agent answers on its own. They only bound a wait that is meant to end in failure,
+/// so they are long: a short wall-clock limit made these tests fail when the machine was busy.
 fn quick_limits(env: &mut crate::tui::declarative::wizard::WizardEnv) {
-    env.visible.test.ready = Duration::from_millis(400);
-    env.visible.test.busy = Duration::from_millis(400);
-    env.visible.test.done = Duration::from_millis(600);
-    env.visible.test.permission = Duration::from_millis(400);
-    env.visible.test.person = Duration::from_secs(3);
+    env.visible.test.ready = Duration::from_secs(20);
+    env.visible.test.busy = Duration::from_secs(20);
+    env.visible.test.done = Duration::from_secs(20);
+    env.visible.test.permission = Duration::from_secs(6);
+    env.visible.test.person = Duration::from_secs(30);
 }
 
 #[test]
@@ -183,7 +185,11 @@ fn a_reply_that_does_not_contain_the_answer_fails_the_reply_check() {
 
 #[test]
 fn an_agent_never_seen_working_fails_the_busy_check() {
-    let f = fixture("vl-notbusy", None, quick_limits);
+    // the busy check ends at its limit: a short one, since nothing can make the pane look busy here
+    let f = fixture("vl-notbusy", None, |env| {
+        quick_limits(env);
+        env.visible.test.busy = Duration::from_secs(1);
+    });
     // it answers at once, with no working screen
     f.host.on_deliver(|h, pane, text| {
         let word = text.rsplit(' ').next().unwrap_or("").to_string();
@@ -202,7 +208,6 @@ fn an_agent_never_seen_working_fails_the_busy_check() {
 #[test]
 fn no_permission_question_skips_that_check_and_the_rest_still_counts() {
     let f = fixture("vl-noperm", None, quick_limits);
-    let for_thread = f.host.clone();
     f.host.on_deliver(move |h, pane, text| {
         if text.contains("hello.txt") {
             // the agent just does it
@@ -211,11 +216,8 @@ fn no_permission_question_skips_that_check_and_the_rest_still_counts() {
         }
         let word = text.rsplit(' ').next().unwrap_or("").to_string();
         h.set_screen_of(pane, &screens::working(&word, 0));
-        let (host, pane) = (for_thread.clone(), pane.to_string());
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(120));
-            host.set_screen_of(&pane, &screens::reply(&word));
-        });
+        let s0 = screens::reply(&word);
+        h.then(pane, 3, move |h, p| h.set_screen_of(p, &s0));
         Delivered::Submitted
     });
     let run = f.run();
@@ -233,7 +235,6 @@ fn a_question_the_profile_does_not_make_a_card_for_fails_the_permission_check() 
     // the draft fails its screen fixture (so verify is not ok) but it may still be tested
     let draft = visible_draft("fake-agent").replace("detect_regex = 'allow nimbus to .*\\[y/n\\]'", "detect_regex = 'nothing like it'");
     let f = fixture("vl-nocard", Some(draft), quick_limits);
-    let for_thread = f.host.clone();
     f.host.on_deliver(move |h, pane, text| {
         if text.contains("hello.txt") {
             h.set_screen_of(pane, screens::PERMISSION);
@@ -241,11 +242,8 @@ fn a_question_the_profile_does_not_make_a_card_for_fails_the_permission_check() 
         }
         let word = text.rsplit(' ').next().unwrap_or("").to_string();
         h.set_screen_of(pane, &screens::working(&word, 0));
-        let (host, pane) = (for_thread.clone(), pane.to_string());
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(120));
-            host.set_screen_of(&pane, &screens::reply(&word));
-        });
+        let s0 = screens::reply(&word);
+        h.then(pane, 3, move |h, p| h.set_screen_of(p, &s0));
         Delivered::Submitted
     });
     let run = f.run();
@@ -302,7 +300,6 @@ fn permission_limits(env: &mut crate::tui::declarative::wizard::WizardEnv) {
 
 /// An agent whose plain turns work as in `script_agent` and whose hello.txt task does `on_task`.
 fn agent_that(f: &Fixture, on_task: impl Fn(&FakeHost, &str) + Send + Sync + 'static) {
-    let for_thread = f.host.clone();
     f.host.on_deliver(move |h, pane, text| {
         if text.contains("hello.txt") {
             on_task(h, pane);
@@ -310,20 +307,22 @@ fn agent_that(f: &Fixture, on_task: impl Fn(&FakeHost, &str) + Send + Sync + 'st
         }
         let word = text.rsplit(' ').next().unwrap_or("").to_string();
         h.set_screen_of(pane, &screens::working(&word, 0));
-        let (host, pane) = (for_thread.clone(), pane.to_string());
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(120));
-            host.set_screen_of(&pane, &screens::working(&word, 1));
-            std::thread::sleep(Duration::from_millis(120));
-            host.set_screen_of(&pane, &screens::reply(&word));
-        });
+        let s0 = screens::working(&word, 1);
+        let s1 = screens::reply(&word);
+        h.then(pane, 3, move |h, p| h.set_screen_of(p, &s0));
+        h.then(pane, 3, move |h, p| h.set_screen_of(p, &s1));
         Delivered::Submitted
     });
 }
 
 #[test]
 fn an_agent_back_at_its_input_box_ends_the_permission_check_without_waiting_for_the_limit() {
-    let f = fixture("vl-backready", None, permission_limits);
+    // the limit is far away: the check must end by the screen's shape, and a run that waited for the limit fails
+    // the assertion below (the bound is well under the limit, so a loaded machine does not trip it)
+    let f = fixture("vl-backready", None, |env| {
+        permission_limits(env);
+        env.visible.test.permission = Duration::from_secs(60);
+    });
     agent_that(&f, |h, pane| h.set_screen_of(pane, &screens::reply("alldone")));
     let began = std::time::Instant::now();
     let run = f.run();
@@ -332,12 +331,16 @@ fn an_agent_back_at_its_input_box_ends_the_permission_check_without_waiting_for_
     let v = f.finish(run);
     assert_eq!(status_of(&v, "permission"), "skipped", "{}\n{}", v["text"], v["checks"]);
     assert_eq!(v["ok"], true, "{}", v["text"]);
-    assert!(began.elapsed() < Duration::from_secs(5), "ended by the idle shape, not by the six second limit: {:?}", began.elapsed());
+    assert!(began.elapsed() < Duration::from_secs(30), "ended by the idle shape, not by the sixty second limit: {:?}", began.elapsed());
 }
 
 #[test]
 fn a_file_written_behind_a_working_looking_screen_that_never_moves_ends_the_check() {
-    let f = fixture("vl-frozenfile", None, permission_limits);
+    // the limit is far away: the file written behind the frozen picture ends the check, not the limit (see above)
+    let f = fixture("vl-frozenfile", None, |env| {
+        permission_limits(env);
+        env.visible.test.permission = Duration::from_secs(60);
+    });
     agent_that(&f, |h, pane| {
         let cwd = h.pane(pane).expect("the pane").cwd;
         std::fs::write(cwd.join("hello.txt"), "x").expect("the agent writes the file");
@@ -349,14 +352,13 @@ fn a_file_written_behind_a_working_looking_screen_that_never_moves_ends_the_chec
     f.host.set_screen(screens::IDLE);
     let v = f.finish(run);
     assert_eq!(status_of(&v, "permission"), "skipped", "{}\n{}", v["text"], v["checks"]);
-    assert!(began.elapsed() < Duration::from_secs(5), "{:?}", began.elapsed());
+    assert!(began.elapsed() < Duration::from_secs(30), "ended by the file, not by the sixty second limit: {:?}", began.elapsed());
 }
 
 #[test]
 fn a_picture_nothing_recognises_is_shown_to_the_person_and_nothing_is_pressed() {
     let f = fixture("vl-oddquestion", None, |env| {
         permission_limits(env);
-        env.visible.test.permission = Duration::from_millis(2500);
     });
     agent_that(&f, |h, pane| h.set_screen_of(pane, "NIMBUS 0.4\n\nWhere should hello.txt go?\n\n   project folder      scratch folder\n\nuse the arrow keys\n"));
     let run = f.run();
@@ -405,17 +407,13 @@ fn with_banner(screen: &str) -> String {
 #[test]
 fn a_prompt_regex_that_is_too_broad_is_the_drafts_fault_never_the_agents_own_error() {
     let f = fixture("vl-broad", None, quick_limits);
-    let for_thread = f.host.clone();
     f.host.on_deliver(move |h, pane, text| {
         let word = text.rsplit(' ').next().unwrap_or("").to_string();
         // the profile reads the working screen as a question (its regex matched text that is not one)
         h.set_screen_of(pane, &with_banner(&screens::working(&word, 0)));
         h.set_card(Some(json!({"kind": "command_approval", "choices": ["allow_once", "deny"]})));
-        let (host, pane) = (for_thread.clone(), pane.to_string());
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(120));
-            host.set_screen_of(&pane, &with_banner(&screens::working(&word, 1)));
-        });
+        let s0 = with_banner(&screens::working(&word, 1));
+        h.then(pane, 3, move |h, p| h.set_screen_of(p, &s0));
         Delivered::Submitted
     });
     let run = f.run();
@@ -459,17 +457,13 @@ fn with_account(screen: &str) -> String {
 /// An agent that shows `ACCOUNT` on every screen, takes the task and then shows `after` (a reply screen body) instead of
 /// the answer.
 fn account_agent(f: &Fixture, after: &'static str) {
-    let for_thread = f.host.clone();
     f.host.on_deliver(move |h, pane, text| {
         let word = text.rsplit(' ').next().unwrap_or("").to_string();
         h.set_screen_of(pane, &with_account(&screens::working(&word, 0)));
-        let (host, pane) = (for_thread.clone(), pane.to_string());
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(120));
-            host.set_screen_of(&pane, &with_account(&screens::working(&word, 1)));
-            std::thread::sleep(Duration::from_millis(120));
-            host.set_screen_of(&pane, &with_account(&format!("NIMBUS 0.4\n\n> Reply with exactly the word: {word}\n{after}\n\ndone in 2s\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n")));
-        });
+        let s0 = with_account(&screens::working(&word, 1));
+        let s1 = with_account(&format!("NIMBUS 0.4\n\n> Reply with exactly the word: {word}\n{after}\n\ndone in 2s\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n"));
+        h.then(pane, 3, move |h, p| h.set_screen_of(p, &s0));
+        h.then(pane, 3, move |h, p| h.set_screen_of(p, &s1));
         Delivered::Submitted
     });
 }
@@ -498,15 +492,11 @@ fn a_row_that_read_like_an_error_but_was_on_the_screen_before_the_task_is_never_
     fn shown(body: String) -> String {
         format!("{body}  {TIP}\n")
     }
-    let for_thread = f.host.clone();
     f.host.on_deliver(move |h, pane, text| {
         let word = text.rsplit(' ').next().unwrap_or("").to_string();
         h.set_screen_of(pane, &shown(screens::working(&word, 0)));
-        let (host, pane) = (for_thread.clone(), pane.to_string());
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(150));
-            host.set_screen_of(&pane, &shown(format!("NIMBUS 0.4\n\n> Reply with exactly the word: {word}\nreply: not it\n\ndone in 2s\n\n| > Type a task...             |\n")));
-        });
+        let s0 = shown(format!("NIMBUS 0.4\n\n> Reply with exactly the word: {word}\nreply: not it\n\ndone in 2s\n\n| > Type a task...             |\n"));
+        h.then(pane, 3, move |h, p| h.set_screen_of(p, &s0));
         Delivered::Submitted
     });
     let run = f.run();

@@ -165,23 +165,37 @@ mod tests {
         // The context is merely old (the TTL ran out), not incomplete.
         std::thread::sleep(Duration::from_millis(350));
         let (release, wait) = std::sync::mpsc::channel::<()>();
+        let (begun, has_begun) = std::sync::mpsc::channel::<()>();
         let slow = {
             let known = known.clone();
             std::thread::spawn(move || {
                 known.context(ttl, move || {
+                    // from here on this thread holds the gather: the other caller must not be asked before
+                    let _ = begun.send(());
                     let _ = wait.recv_timeout(Duration::from_secs(5));
                     ctx_with("second-secret")
                 })
             })
         };
-        std::thread::sleep(Duration::from_millis(100));
-        let started = Instant::now();
-        let other = known.context(ttl, || panic!("a second gather while one runs"));
-        assert!(started.elapsed() < Duration::from_secs(1), "blocked {:?} behind the slow gather", started.elapsed());
+        has_begun.recv_timeout(Duration::from_secs(30)).expect("the slow gather begins");
+        // The other caller runs on its own thread and reports back. A caller that waited for the gather would
+        // only report after the release, so a report before it is the proof it was not blocked. (The wait is
+        // bounded, not timed against the clock: a loaded machine can take a while to schedule a thread.)
+        let (answer, reported) = std::sync::mpsc::channel();
+        let other_caller = {
+            let known = known.clone();
+            std::thread::spawn(move || {
+                let _ = answer.send(known.context(ttl, || panic!("a second gather while one runs")));
+            })
+        };
+        let other = reported.recv_timeout(Duration::from_secs(30)).expect("a caller with a context is not blocked by the slow gather");
         assert_eq!(other.env_values, vec!["first-secret".to_string()], "the last context is served meanwhile");
+        other_caller.join().unwrap();
         release.send(()).unwrap();
         assert_eq!(slow.join().unwrap().env_values, vec!["second-secret".to_string()]);
-        assert_eq!(known.context(ttl, || panic!("fresh")).env_values, vec!["second-secret".to_string()]);
+        // The new context is a moment old here. A long TTL makes this a check that it is cached, not a race with
+        // the 300 ms TTL on a busy machine.
+        assert_eq!(known.context(Duration::from_secs(60), || panic!("fresh")).env_values, vec!["second-secret".to_string()]);
     }
 
     #[test]
@@ -203,20 +217,25 @@ mod tests {
         known.context(ttl, || ctx_with("old"));
         known.refresh();
         let (release, wait) = std::sync::mpsc::channel::<()>();
+        let (begun, has_begun) = std::sync::mpsc::channel::<()>();
         let slow = {
             let known = known.clone();
             std::thread::spawn(move || {
                 known.context(ttl, move || {
+                    // this thread holds the gather from here on (no guessing how long the spawn takes)
+                    let _ = begun.send(());
                     let _ = wait.recv_timeout(Duration::from_secs(5));
                     ctx_with("new")
                 })
             })
         };
-        std::thread::sleep(Duration::from_millis(100));
+        has_begun.recv_timeout(Duration::from_secs(30)).expect("the gather begins");
         let waiter = {
             let known = known.clone();
             std::thread::spawn(move || known.context(ttl, || ctx_with("own")))
         };
+        // The waiter must still be blocked while the gather runs. A thread that was not blocked would finish at
+        // once, so this only ever fails on the bug; a loaded machine can only make it pass more easily.
         std::thread::sleep(Duration::from_millis(100));
         assert!(!waiter.is_finished(), "the old context is incomplete after a refresh: it is not served");
         release.send(()).unwrap();

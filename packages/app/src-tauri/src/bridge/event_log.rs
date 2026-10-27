@@ -157,12 +157,33 @@ data: {\"v\":1,\"rev\":7"), "{}", poll.data);
 
     #[test]
     fn a_poll_wakes_as_soon_as_an_event_arrives() {
+        // The log is process-wide and other tests record into it while this one waits, so a poll can wake on
+        // someone else's event. The waiter therefore polls on from where each answer ended until OUR event (it
+        // carries a unique id) is in the answer, and the check is on how soon that poll woke: a poll that was not
+        // woken by our event would only end after its whole wait.
+        const WAIT: Duration = Duration::from_secs(10);
         let start = poll(None, Duration::ZERO).cursor;
-        let waiter = std::thread::spawn(move || poll(Some(start), Duration::from_secs(5)));
+        let marker = uuid::Uuid::new_v4().to_string();
+        let waiter_marker = marker.clone();
+        let waiter = std::thread::spawn(move || {
+            let began = std::time::Instant::now();
+            let mut cursor = start;
+            loop {
+                let got = poll(Some(cursor), WAIT);
+                if got.data.contains(&waiter_marker) {
+                    return (got, std::time::Instant::now());
+                }
+                // a missing event fails the test rather than hanging it
+                assert!(began.elapsed() < Duration::from_secs(60), "our event never came through the poll");
+                cursor = got.cursor;
+            }
+        });
         std::thread::sleep(Duration::from_millis(50));
-        record("event: test\ndata: {}\n\n");
-        let got = waiter.join().unwrap();
-        assert!(got.data.contains("event: test"));
+        let recorded = std::time::Instant::now();
+        record(&format!("event: test\ndata: {{\"id\":\"{marker}\"}}\n\n"));
+        let (got, woke) = waiter.join().unwrap();
+        assert!(got.data.contains(&marker));
         assert!(got.cursor > start);
+        assert!(woke.duration_since(recorded) < Duration::from_secs(5), "woke {:?} after the event, the wait was {WAIT:?}", woke.duration_since(recorded));
     }
 }
