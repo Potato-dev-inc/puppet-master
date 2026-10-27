@@ -724,8 +724,9 @@ fn a_stage_says_so_when_the_program_was_stopped_after_its_last_event() {
     assert_eq!(stage(&t, "pong")["stopped_early"], true, "it was stopped after its done event, not left to exit");
     assert_eq!(stage(&t, "pong")["exit"], 0);
     // a program that exits on its own keeps its real exit code and is not marked stopped
+    // the program exits on its own: a long grace, so a loaded machine cannot have the wizard stop it first
     let tree2 = Tree::new("l-exits-itself");
-    let wizard2 = tree2.wizard();
+    let wizard2 = tree2.wizard_with(|env| env.limits.live_grace = Duration::from_secs(30));
     let id2 = verified(&wizard2, "fake-agent", GOOD);
     let t2 = live(&wizard2, &id2);
     assert_eq!(stage(&t2, "pong")["stopped_early"], false);

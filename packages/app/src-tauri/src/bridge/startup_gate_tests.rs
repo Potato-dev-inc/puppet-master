@@ -124,7 +124,7 @@ fn declining_the_dialog_fails_the_run_with_a_clear_code() {
         let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
         std::thread::spawn(move || wait_for_startup_permission_resolution(&registry, &project, &id, pane, "claude"))
     };
-    std::thread::sleep(Duration::from_millis(300));
+    wait_for(|| crate::pane_prompt::gate_was_seen(pane).then_some(()));
     assert!(!handle.is_finished());
 
     // "No, exit": Claude quits, the pane's process is gone (status error, screen blank).
@@ -157,7 +157,7 @@ fn declining_the_dialog_while_the_host_shell_stays_alive_still_fails_the_run() {
         let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
         std::thread::spawn(move || wait_for_startup_permission_resolution(&registry, &project, &id, pane, "claude"))
     };
-    std::thread::sleep(Duration::from_millis(300));
+    wait_for(|| crate::pane_prompt::gate_was_seen(pane).then_some(()));
     assert!(!handle.is_finished());
 
     show(&registry, pane, DECLINED_HOST_SHELL);
@@ -304,7 +304,7 @@ fn declining_codex_trust_fails_with_the_same_code_as_claude() {
         let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
         std::thread::spawn(move || wait_for_startup_permission_resolution(&registry, &project, &id, pane, "codex"))
     };
-    std::thread::sleep(Duration::from_millis(300));
+    wait_for(|| crate::pane_prompt::gate_was_seen(pane).then_some(()));
     assert!(!handle.is_finished(), "the run holds while the gate shows");
     // "No, quit": Codex exits.
     show(&registry, pane, "");
@@ -346,7 +346,7 @@ fn leaving_a_sign_in_screen_unfinished_fails_with_its_own_code_and_a_finished_on
         let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
         std::thread::spawn(move || wait_for_startup_permission_resolution(&registry, &project, &id, pane, "codex"))
     };
-    std::thread::sleep(Duration::from_millis(300));
+    wait_for(|| crate::pane_prompt::gate_was_seen(pane).then_some(()));
     show(&registry, pane, "");
     set_status(&registry, pane, PaneStatus::Error);
     crate::pane_wait_notify::bump_waiters();

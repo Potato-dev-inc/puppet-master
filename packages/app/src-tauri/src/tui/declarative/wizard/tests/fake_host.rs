@@ -48,6 +48,9 @@ struct State {
     delivered: Vec<(String, String)>,
     killed: Vec<String>,
     spawn_error: Option<String>,
+    /// The first screen the next pane shows (default: the banner). A test sets it to a dialog it needs in place from
+    /// the first look, rather than racing the wizard's first look at a banner.
+    next_spawn_screen: Option<String>,
     shown: Vec<String>,
     counter: u64,
     /// Every key press the wizard made: (pane, keys).
@@ -136,6 +139,11 @@ impl FakeHost {
     /// Every key the wizard pressed, in order, flattened.
     pub fn pressed(&self) -> Vec<AnswerKey> {
         self.state.lock().pressed.iter().flat_map(|(_, k)| k.clone()).collect()
+    }
+
+    /// The first screen the next pane spawned shows.
+    pub fn set_next_spawn_screen(&self, text: &str) {
+        self.state.lock().next_spawn_screen = Some(text.to_string());
     }
 
     pub fn fail_spawn(&self, message: &str) {
@@ -234,11 +242,12 @@ impl PaneHost for FakeHost {
         }
         st.counter += 1;
         let id = format!("fake-pane-{}", st.counter);
+        let first_screen = st.next_spawn_screen.take().unwrap_or_else(|| screens::BANNER.to_string());
         st.panes.insert(
             id.clone(),
             FakePane {
                 // the agent has drawn its banner by the time the pane exists (the start check reads a screen)
-                screen: screens::BANNER.to_string(),
+                screen: first_screen,
                 watch: None,
                 status: "idle".into(),
                 alive: true,
