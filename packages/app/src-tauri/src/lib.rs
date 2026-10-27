@@ -45,6 +45,7 @@ mod pane_preview;
 mod loop_guard;
 mod panic;
 mod askbar;
+mod side_question;
 mod attention;
 mod second_opinion;
 pub mod pane_outbox;
@@ -214,6 +215,8 @@ pub fn run() {
             commands::askbar_notices,
             commands::askbar_notice_dismiss,
             commands::askbar_notice_open,
+            commands::side_question_target,
+            commands::side_question_ask,
             commands::agents_health,
             commands::agents_health_test,
             commands::agents_install_plan,
