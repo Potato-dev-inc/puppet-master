@@ -1,15 +1,8 @@
-// The message box of one pane's Chat tab: the pane's waiting and just-finished messages (the first list from
-// `pane_messages_list`, then the `pane-outbox` events), and the two things a person does: send and cancel.
+// The message box of one pane's Chat tab: the pane's waiting and just-finished messages (the list from the
+// transport, then its change events), and the two things a person does: send and cancel. The transport is the
+// desktop's Tauri commands or the phone's bridge (lib/paneOutbox.ts, lib/paneOutbox-bridge.ts).
 import { useCallback, useEffect, useState } from 'react';
-import {
-  cancelPaneMessage,
-  errorText,
-  listPaneMessages,
-  onPaneOutbox,
-  sendPaneMessage,
-  withSent,
-  type OutboxMessage,
-} from '../lib/paneOutbox';
+import { errorText, withSent, type OutboxMessage, type OutboxTransport } from '../lib/paneOutbox';
 
 export interface PaneOutboxHook {
   messages: OutboxMessage[];
@@ -19,24 +12,21 @@ export interface PaneOutboxHook {
   cancel: (messageId: string) => Promise<string | null>;
 }
 
-export function usePaneOutbox(paneId: string, enabled: boolean): PaneOutboxHook {
+const NOT_CONNECTED = 'Could not reach your PC.';
+
+export function usePaneOutbox(transport: OutboxTransport | null, paneId: string, enabled: boolean): PaneOutboxHook {
   const [messages, setMessages] = useState<OutboxMessage[]>([]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !transport) return;
     let live = true;
-    let unlisten: (() => void) | null = null;
     setMessages([]);
-    // Subscribe before listing, so a change that happens while the list is in flight is not lost.
-    void onPaneOutbox((event) => {
-      if (live && event.paneId === paneId) setMessages(event.messages);
-    })
-      .then((off) => {
-        if (live) unlisten = off;
-        else off();
-      })
-      .catch(() => undefined);
-    listPaneMessages(paneId)
+    // Watch before listing, so a change that happens while the list is in flight is not lost.
+    const stop = transport.watch(paneId, (list) => {
+      if (live) setMessages(list);
+    });
+    transport
+      .list(paneId)
       .then((list) => {
         // An event that came first is newer than this list.
         if (live) setMessages((prev) => (prev.length > 0 ? prev : list));
@@ -44,34 +34,36 @@ export function usePaneOutbox(paneId: string, enabled: boolean): PaneOutboxHook 
       .catch(() => undefined);
     return () => {
       live = false;
-      unlisten?.();
+      stop();
     };
-  }, [paneId, enabled]);
+  }, [transport, paneId, enabled]);
 
   const send = useCallback(
     async (text: string) => {
+      if (!transport) return NOT_CONNECTED;
       try {
-        const sent = await sendPaneMessage(paneId, text);
+        const sent = await transport.send(paneId, text);
         setMessages((prev) => withSent(prev, sent));
         return null;
       } catch (error) {
         return errorText(error);
       }
     },
-    [paneId],
+    [transport, paneId],
   );
 
   const cancel = useCallback(
     async (messageId: string) => {
+      if (!transport) return NOT_CONNECTED;
       try {
-        const done = await cancelPaneMessage(paneId, messageId);
+        const done = await transport.cancel(paneId, messageId);
         setMessages((prev) => prev.map((m) => (m.id === done.id ? done : m)));
         return null;
       } catch (error) {
         return errorText(error);
       }
     },
-    [paneId],
+    [transport, paneId],
   );
 
   return { messages, send, cancel };

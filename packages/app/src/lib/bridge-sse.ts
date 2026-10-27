@@ -8,6 +8,7 @@ import { hasBridgeLocalSecret, localSecretHeaders } from './bridge-local-secret'
 import type { BridgeEvent, LoopSignalInfo, OpenCodeWorkerEvent } from './bridge-types';
 import type { PreviewUrl } from './pane-preview';
 import type { AttentionSnapshot } from './attention';
+import type { OutboxMessage } from './paneOutbox';
 
 /** Decode a base64 terminal chunk into raw bytes. */
 export function decodeBase64(text: string): Uint8Array {
@@ -65,6 +66,9 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
     });
   } else if (eventName === 'settings') {
     onEvent({ type: 'settings', settings: parsed as PublicSettings });
+  } else if (eventName === 'pane-outbox') {
+    const payload = parsed as { paneId: string; messages?: OutboxMessage[] };
+    onEvent({ type: 'pane-outbox', paneId: payload.paneId, messages: Array.isArray(payload.messages) ? payload.messages : [] });
   } else if (eventName === 'orchestrator-viewport') {
     const payload = parsed as { width: number; height: number; active: boolean };
     onEvent({
@@ -230,6 +234,7 @@ const BRIDGE_EVENT_NAMES = [
   'orchestrator-viewport',
   'questions',
   'attention',
+  'pane-outbox',
 ] as const;
 
 function shouldUseFetchBridgeSse(baseUrl: string): boolean {

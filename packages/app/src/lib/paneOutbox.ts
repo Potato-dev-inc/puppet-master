@@ -115,3 +115,38 @@ export function withSent(list: readonly OutboxMessage[], sent: OutboxMessage): O
   if (list.some((m) => m.id === sent.id)) return [...list];
   return [...list, sent].sort((a, b) => a.createdAt - b.createdAt);
 }
+
+/**
+ * Where a message box gets its messages. The desktop asks the Tauri commands; a phone asks the PC's bridge
+ * (`paneOutbox-bridge.ts`). ChatComposer, PendingMessages and usePaneOutbox only ever talk to this shape.
+ */
+export interface OutboxTransport {
+  send(paneId: string, text: string): Promise<OutboxMessage>;
+  cancel(paneId: string, messageId: string): Promise<OutboxMessage>;
+  list(paneId: string): Promise<OutboxMessage[]>;
+  /** Calls `cb` with the pane's whole list on every change. Returns the stop function. */
+  watch(paneId: string, cb: (messages: OutboxMessage[]) => void): () => void;
+}
+
+/** The desktop implementation: the Tauri commands and the `pane-outbox` event. */
+export const tauriOutboxTransport: OutboxTransport = {
+  send: sendPaneMessage,
+  cancel: cancelPaneMessage,
+  list: listPaneMessages,
+  watch(paneId, cb) {
+    let live = true;
+    let unlisten: UnlistenFn | null = null;
+    void onPaneOutbox((event) => {
+      if (live && event.paneId === paneId) cb(event.messages);
+    })
+      .then((off) => {
+        if (live) unlisten = off;
+        else off();
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+      unlisten?.();
+    };
+  },
+};

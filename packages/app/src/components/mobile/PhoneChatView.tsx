@@ -1,10 +1,16 @@
-// The read-only chat of one agent pane on the phone: the same view the desktop has (SessionChatView), fed by
+// The chat of one agent pane on the phone: the same view the desktop has (SessionChatView), fed by
 // `GET /panes/{id}/chat?since=<rev>` every 1.5 s while this view and the page are visible. Each answer carries
 // only what changed since the last one; `reset` drops the list held. It never touches the pane's size (the
-// terminal under it keeps its own lease rules) and has no composer: what waits on the person is the docked card.
+// terminal under it keeps its own lease rules). The message box at the bottom sends through the PC's bridge
+// (`paneOutbox-bridge.ts`) and needs the `type` cap; without it the box is replaced by one plain line.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { BridgeClient } from '../../lib/bridge-types';
+import { bridgeOutboxTransport } from '../../lib/paneOutbox-bridge';
 import { groupTurns, mergeItems, type ChatItem, type ChatSource, type SessionChatState } from '../../lib/sessionChatModel';
+import { usePaneOutbox } from '../../hooks/usePaneOutbox';
+import { usePendingBubbles } from '../../hooks/usePendingBubbles';
+import { ChatComposer } from '../chat/ChatComposer';
+import { PendingMessages } from '../chat/PendingMessages';
 import { SessionChatView } from '../chat/SessionChatView';
 import '../../styles/phone-chat.css';
 
@@ -14,6 +20,7 @@ export const POLL_MS = 1500;
 const MAX_KEPT = 1500;
 
 export const NO_WATCH_NOTE = 'This phone cannot read chats.';
+export const NO_SEND_NOTE = 'This phone cannot send messages.';
 const UNREACHABLE = 'Could not reach your PC. Trying again…';
 
 interface Status {
@@ -51,12 +58,18 @@ export function PhoneChatView({
   bridge,
   paneId,
   canWatch,
+  canType,
+  sendBlock = null,
   dock,
 }: {
   bridge: BridgeClient | null;
   paneId: string;
   /** This phone may read pane text (`watch`). Without it nothing is asked. */
   canWatch: boolean;
+  /** This phone may send messages to the agent (`type`). Without it the box is replaced by one line. */
+  canType: boolean;
+  /** Why the message box is switched off (shown instead of a hint), or null. */
+  sendBlock?: string | null;
   /** What waits on the person (the docked card), under the conversation. */
   dock?: ReactNode;
 }) {
@@ -123,11 +136,25 @@ export function PhoneChatView({
 
   const grouped = useMemo(() => groupTurns(items), [items]);
 
+  // The message box: its messages come over the bridge, and it needs to read the list (`watch`) as well as send.
+  const canSend = canWatch && canType;
+  const outboxTransport = useMemo(() => (bridge ? bridgeOutboxTransport(bridge) : null), [bridge]);
+  const outbox = usePaneOutbox(outboxTransport, paneId, canSend);
+  const userTexts = useMemo(() => grouped.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [grouped.turns]);
+  const { bubbles, hide } = usePendingBubbles(outbox.messages, userTexts);
+  const pending = canSend ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined;
+  const composer = canSend ? (
+    <ChatComposer onSend={outbox.send} blockedReason={sendBlock} />
+  ) : (
+    <p className="ph-chat-send-off" data-testid="phone-chat-no-send">{NO_SEND_NOTE}</p>
+  );
+
   if (!canWatch) {
     return (
       <div className="ph-chat" data-testid="phone-chat">
         <p className="ph-chat-plain">{NO_WATCH_NOTE}</p>
         {dock}
+        {!canType && <p className="ph-chat-send-off" data-testid="phone-chat-no-send">{NO_SEND_NOTE}</p>}
       </div>
     );
   }
@@ -142,6 +169,8 @@ export function PhoneChatView({
         model={grouped.model}
         cliVersion={grouped.cliVersion}
         dock={dock}
+        pending={pending}
+        composer={composer}
       />
     </div>
   );

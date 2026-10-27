@@ -6,7 +6,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BridgeClient } from '../../lib/bridge-types';
 import type { ChatItem, PhoneChatReply } from '../../lib/sessionChatModel';
-import { NO_WATCH_NOTE, PhoneChatView, POLL_MS } from './PhoneChatView';
+import { publishBridgeOutbox } from '../../lib/paneOutbox-bridge';
+import type { OutboxMessage } from '../../lib/paneOutbox';
+import { NO_SEND_NOTE, NO_WATCH_NOTE, PhoneChatView, POLL_MS } from './PhoneChatView';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,9 +52,18 @@ function bridgeWith(answers: Array<PhoneChatReply | Error>) {
   return { bridge: { paneChat } as unknown as BridgeClient, paneChat };
 }
 
-async function mount(props: { bridge: BridgeClient | null; canWatch?: boolean; dock?: React.ReactNode; paneId?: string }) {
+async function mount(props: { bridge: BridgeClient | null; canWatch?: boolean; canType?: boolean; sendBlock?: string | null; dock?: React.ReactNode; paneId?: string }) {
   await act(async () => {
-    root.render(<PhoneChatView bridge={props.bridge} paneId={props.paneId ?? 'p1'} canWatch={props.canWatch ?? true} dock={props.dock} />);
+    root.render(
+      <PhoneChatView
+        bridge={props.bridge}
+        paneId={props.paneId ?? 'p1'}
+        canWatch={props.canWatch ?? true}
+        canType={props.canType ?? true}
+        sendBlock={props.sendBlock}
+        dock={props.dock}
+      />,
+    );
   });
 }
 
@@ -209,5 +220,103 @@ describe('PhoneChatView states', () => {
     const dock = host.querySelector('.ck-chat-dock');
     expect(dock?.textContent).toBe('Allow?');
     expect(host.querySelector('[data-testid="phone-chat"]')).not.toBeNull();
+  });
+});
+
+describe('PhoneChatView message box', () => {
+  const queued = (over: Partial<OutboxMessage> = {}): OutboxMessage => ({
+    id: 'm1',
+    text: 'fix the login test',
+    createdAt: 1,
+    state: 'queued',
+    waitingFor: 'The agent is working. Sends when the turn ends.',
+    error: null,
+    ...over,
+  });
+
+  function bridgeWithBox(over: Partial<BridgeClient> = {}) {
+    const sendPaneMessage = vi.fn(async (_paneId: string, text: string) => queued({ id: 'm9', text }));
+    const listPaneMessages = vi.fn(async () => [] as OutboxMessage[]);
+    const cancelPaneMessage = vi.fn(async () => queued({ state: 'cancelled' }));
+    const { paneChat } = bridgeWith([reply({ rev: 1 })]);
+    const bridge = { paneChat, sendPaneMessage, listPaneMessages, cancelPaneMessage, ...over } as unknown as BridgeClient;
+    return { bridge, sendPaneMessage, listPaneMessages, cancelPaneMessage };
+  }
+
+  const box = () => host.querySelector('[data-testid="chat-composer"]');
+  const field = () => host.querySelector('textarea') as HTMLTextAreaElement;
+
+  function typeAndSend(text: string) {
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    act(() => {
+      set.call(field(), text);
+      field().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => {
+      field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    });
+  }
+
+  it('shows the message box when the phone may type and watch', async () => {
+    const { bridge } = bridgeWithBox();
+    await mount({ bridge });
+    expect(box()).not.toBeNull();
+    expect(host.querySelector('[data-testid="phone-chat-no-send"]')).toBeNull();
+  });
+
+  it('without the type cap it shows no box and one plain line', async () => {
+    const { bridge, listPaneMessages } = bridgeWithBox();
+    await mount({ bridge, canType: false });
+    expect(box()).toBeNull();
+    expect(host.querySelector('textarea')).toBeNull();
+    expect(text()).toContain('This phone cannot send messages.');
+    expect(NO_SEND_NOTE).toBe('This phone cannot send messages.');
+    expect(listPaneMessages).not.toHaveBeenCalled();
+  });
+
+  it('without the watch cap it shows no box, and the chat note stays', async () => {
+    const { bridge, listPaneMessages } = bridgeWithBox();
+    await mount({ bridge, canWatch: false });
+    expect(box()).toBeNull();
+    expect(text()).toContain(NO_WATCH_NOTE);
+    expect(listPaneMessages).not.toHaveBeenCalled();
+  });
+
+  it('sends the text through the bridge and shows it as a waiting bubble', async () => {
+    const { bridge, sendPaneMessage } = bridgeWithBox();
+    await mount({ bridge });
+    typeAndSend('  fix the login test ');
+    await act(async () => { await Promise.resolve(); });
+    expect(sendPaneMessage).toHaveBeenCalledWith('p1', 'fix the login test');
+    expect(field().value).toBe('');
+    const bubble = host.querySelector('[data-testid="chat-pending"]');
+    expect(bubble?.getAttribute('data-state')).toBe('queued');
+    expect(bubble?.textContent).toContain('fix the login test');
+    expect(host.querySelector('[data-testid="chat-pending-waiting"]')?.textContent).toBe('The agent is working. Sends when the turn ends.');
+  });
+
+  it('a queued bubble can be cancelled through the bridge', async () => {
+    const { bridge, cancelPaneMessage } = bridgeWithBox({
+      listPaneMessages: vi.fn(async () => [queued()]),
+    } as Partial<BridgeClient>);
+    await mount({ bridge });
+    await act(async () => { await Promise.resolve(); });
+    const cancel = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Cancel') as HTMLButtonElement;
+    await act(async () => { cancel.click(); await Promise.resolve(); });
+    expect(cancelPaneMessage).toHaveBeenCalledWith('p1', 'm1');
+  });
+
+  it('shows the messages the PC pushes with pane-outbox', async () => {
+    const { bridge } = bridgeWithBox();
+    await mount({ bridge });
+    await act(async () => { publishBridgeOutbox('p1', [queued({ id: 'pushed', text: 'from the event' })]); });
+    expect(host.querySelector('[data-testid="chat-pending"]')?.textContent).toContain('from the event');
+  });
+
+  it('a send block shows its sentence instead of a hint and switches the box off', async () => {
+    const { bridge } = bridgeWithBox();
+    await mount({ bridge, sendBlock: 'The agent is not running. Open Terminal.' });
+    expect(text()).toContain('The agent is not running. Open Terminal.');
+    expect(field().disabled).toBe(true);
   });
 });

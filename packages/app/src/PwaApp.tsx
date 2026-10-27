@@ -41,6 +41,8 @@ import { InputRefusedNote } from './components/mobile/InputRefusedNote';
 import { TypingNote } from './components/mobile/TypingNote';
 import { PaneViewSwitch } from './components/mobile/PaneViewSwitch';
 import { PhoneChatView } from './components/mobile/PhoneChatView';
+import { composerBlock } from './lib/paneOutbox';
+import { publishBridgeOutbox } from './lib/paneOutbox-bridge';
 import { chatAllowedFor, keepViewsOf, readPaneViews, writePaneViews, type PaneView } from './lib/mobile-pane-view';
 import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
@@ -282,6 +284,7 @@ export default function PwaApp() {
       if (ev.type === 'input-refused') noteInputRefused(ev.pane_id, ev.error);
       if (ev.type === 'settings') setSettings(ev.settings);
       if (ev.type === 'questions') setQuestionsRev((n) => n + 1);
+      if (ev.type === 'pane-outbox') publishBridgeOutbox(ev.paneId, ev.messages);
       if (ev.type === 'attention') setAttention((cur) => newerSnapshot(cur, ev.snapshot));
       if (ev.type === 'resync') {
         registryRef.current.resetStreams();
@@ -680,7 +683,15 @@ export default function PwaApp() {
             </div>
           )}
           {activePane && activeView === 'chat' && (
-            <PhoneChatView key={active} bridge={bridge} paneId={active} canWatch={abilities.canWatch} dock={dockedCard} />
+            <PhoneChatView
+              key={active}
+              bridge={bridge}
+              paneId={active}
+              canWatch={abilities.canWatch}
+              canType={abilities.canType}
+              sendBlock={composerBlock(activePane, activePane?.info.agent_type === 'shell')}
+              dock={dockedCard}
+            />
           )}
           {active !== ALL_TAB && !activePane && (
             <div className="ph-loading">Loading agent…</div>

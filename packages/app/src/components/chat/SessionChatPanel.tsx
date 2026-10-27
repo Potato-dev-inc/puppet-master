@@ -3,6 +3,7 @@
 // `reply`: give the chat a message box (the Cockpit's Chat tab does); `blockedReason` switches the box off.
 import { useMemo, type ReactNode } from 'react';
 import { usePaneOutbox } from '../../hooks/usePaneOutbox';
+import { tauriOutboxTransport } from '../../lib/paneOutbox';
 import { usePendingBubbles } from '../../hooks/usePendingBubbles';
 import { useSessionChat } from '../../hooks/useSessionChat';
 import { ChatComposer } from './ChatComposer';
@@ -16,7 +17,7 @@ export interface ChatReply {
 
 export function SessionChatPanel({ paneId, dock, reply }: { paneId: string; dock?: ReactNode; reply?: ChatReply }) {
   const chat = useSessionChat(paneId, true);
-  const outbox = usePaneOutbox(paneId, !!reply);
+  const outbox = usePaneOutbox(tauriOutboxTransport, paneId, !!reply);
   const userTexts = useMemo(() => chat.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [chat.turns]);
   const { bubbles, hide } = usePendingBubbles(outbox.messages, userTexts);
   return (
