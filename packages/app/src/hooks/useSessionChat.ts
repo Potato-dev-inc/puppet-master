@@ -11,6 +11,8 @@ import {
   type ChatItem,
   type ChatSource,
   type ChatTurn,
+  type OutputFile,
+  type PlanItem,
   type SessionChatState,
   type UsageItem,
 } from '../lib/sessionChat';
@@ -29,6 +31,10 @@ export interface SessionChatHook {
   model: string | null;
   cliVersion: string | null;
   usage: UsageItem | null;
+  /** The agent's task list now; empty when it made none. */
+  plan: PlanItem[];
+  /** Files the agent's tool calls touched, in order of first touch. */
+  outputs: OutputFile[];
 }
 
 interface Status {
@@ -115,5 +121,7 @@ export function useSessionChat(paneId: string, enabled: boolean): SessionChatHoo
     model: grouped.model,
     cliVersion: grouped.cliVersion,
     usage: grouped.usage,
+    plan: grouped.plan,
+    outputs: grouped.outputs,
   };
 }

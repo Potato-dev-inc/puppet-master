@@ -1,0 +1,243 @@
+/* The session rail beside a pane's main area. Grayscale tokens only; dense, quiet cards. */
+
+.cockpit .ck-pane-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-pane-row > .ck-pane-body {
+  flex: 1;
+  min-width: 0;
+  border-top: 0;
+}
+
+.cockpit .ck-rail {
+  flex: none;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px 16px;
+  overflow-y: auto;
+  border-left: 1px solid var(--sep);
+  background: var(--bg-side);
+  animation: ck-rail-in 220ms var(--ease-sheet);
+}
+@keyframes ck-rail-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.cockpit .ck-rail-parent {
+  align-self: flex-start;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--label-2);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background-color 160ms var(--ease),
+    color 160ms var(--ease);
+}
+.cockpit .ck-rail-parent:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+
+.cockpit .ck-rail-card {
+  padding: 9px 10px 10px;
+  border-radius: 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--sep);
+  box-shadow: var(--raise-hi);
+}
+.cockpit .ck-rail-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--label-2);
+}
+.cockpit .ck-rail-note {
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-rail-empty,
+.cockpit .ck-rail-line,
+.cockpit .ck-rail-more {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-rail-line {
+  margin-top: 6px;
+  color: var(--label-2);
+}
+.cockpit .ck-rail-more {
+  margin-top: 4px;
+  padding-left: 6px;
+}
+
+/* Where: label and value on one line each. */
+.cockpit .ck-rail-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+}
+.cockpit .ck-rail-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+.cockpit .ck-rail-row dt {
+  flex: none;
+  width: 52px;
+  color: var(--label-3);
+}
+.cockpit .ck-rail-row dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-rail-row .ck-mono {
+  font: 11.5px var(--font-mono);
+}
+
+/* Context: a thin bar. */
+.cockpit .ck-rail-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fill-active);
+  overflow: hidden;
+}
+.cockpit .ck-rail-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--label-2);
+  transition: width 320ms var(--ease-sheet);
+}
+
+/* Lists: tasks, files, helpers. */
+.cockpit .ck-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cockpit .ck-rail-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--label);
+}
+.cockpit .ck-rail-task-text {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cockpit .ck-rail-task.is-completed .ck-rail-task-text {
+  color: var(--label-3);
+}
+.cockpit .ck-rail-task.is-pending .ck-rail-task-text {
+  color: var(--label-2);
+}
+.cockpit .ck-rail-dot {
+  flex: none;
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  margin-top: 4.5px;
+  border-radius: 50%;
+  border: 1.25px solid var(--label-3);
+}
+.cockpit .ck-rail-task.is-in_progress .ck-rail-dot {
+  border-color: var(--label);
+  background: radial-gradient(circle, var(--label) 0 2px, transparent 2.5px);
+}
+.cockpit .ck-rail-task.is-completed .ck-rail-dot {
+  border-color: var(--label-3);
+  background: var(--label-3);
+}
+
+.cockpit .ck-rail-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  width: calc(100% + 12px);
+  border-radius: 6px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--label);
+  transition: background-color 160ms var(--ease);
+}
+.cockpit button.ck-rail-item:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-rail-item .pm-dots {
+  align-self: center;
+  color: var(--label-2);
+}
+.cockpit .ck-rail-file {
+  flex: none;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-rail-folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--label-3);
+}
+
+/* The pane header's button for showing and hiding the rail. */
+.cockpit .ck-icon-btn[aria-pressed='true'] {
+  color: var(--label);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-rail {
+    animation: none;
+  }
+  .cockpit .ck-rail-bar-fill {
+    transition: none;
+  }
+}
