@@ -40,6 +40,7 @@ pub mod operations;
 #[cfg(test)]
 mod operations_contract_tests;
 mod pane_activity;
+mod pane_jobs;
 mod pane_preview;
 mod loop_guard;
 mod panic;
@@ -193,6 +194,9 @@ pub fn run() {
             commands::agents_list,
             commands::pane_activities,
             commands::pane_previews,
+            commands::pane_jobs,
+            commands::pane_jobs_all,
+            commands::pane_job_stop,
             commands::loop_status,
             commands::loop_signals,
             commands::loop_dismiss,

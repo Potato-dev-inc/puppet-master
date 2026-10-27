@@ -19,6 +19,7 @@ import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
 import { projectWithCopy } from './shell-labels';
+import { JobsChip } from './rail/JobsChip';
 
 /** `localhost:5173`: where the preview is, without the scheme. */
 const previewAddress = (p: PreviewUrl): string => p.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -305,6 +306,7 @@ export function Sidebar({
           ]}
           small
         />
+        <JobsChip names={c.names} onOpenPane={(id) => c.select(id)} />
         {onOpenDoctor && (
           <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenDoctor}>
             <IconTerminal />
