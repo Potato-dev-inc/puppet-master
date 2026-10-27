@@ -163,7 +163,14 @@ pub fn spawn_pane(
     account_env.set.push((crate::pty::PANE_ID_ENV.to_string(), pane_id.clone()));
     // An agent that serves its session over a local API is told where (the chat view reads it from there).
     let api_args = profile.prepare_session_api(&pane_id, &user_args);
-    let extra_args: Vec<String> = user_args.into_iter().chain(hooks.extra_args).chain(api_args).collect();
+    // An agent that can be told its session id gets one now, so the chat view finds this pane's own file.
+    let (session_id, session_args) = match profile.launch_session(&user_args, &Uuid::new_v4().to_string()) {
+        crate::tui::LaunchSession::Chosen { id, args } => (Some(id), args),
+        crate::tui::LaunchSession::Named(id) => (Some(id), Vec::new()),
+        crate::tui::LaunchSession::Unmanaged => (None, Vec::new()),
+    };
+    let extra_args: Vec<String> =
+        user_args.into_iter().chain(hooks.extra_args).chain(api_args).chain(session_args).collect();
     let cmd = launch_command(
         profile.as_ref(),
         &crate::tui::SpawnRequest {
@@ -176,6 +183,7 @@ pub fn spawn_pane(
         &account_env,
     )?;
     let PtyChild { master, child, pid } = open_pty_child(cmd, rows, cols)?;
+    crate::pty::launch_session::set(&pane_id, session_id);
 
     let writer = master
         .take_writer()

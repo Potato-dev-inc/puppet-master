@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use super::session_file::{config_dir, newest_session, project_dir, session_path, ClaudeSessionFile};
 use crate::session_chat::{plain_path, Located, PaneFacts, SessionFormat, SessionSource};
+#[cfg(test)]
+use crate::session_chat::LaunchFacts;
 
 /// A session file can be a few seconds older than the pane when the clocks or the filesystem round.
 const SLACK: Duration = Duration::from_secs(5);
@@ -40,11 +42,22 @@ fn config_dirs(pane: &PaneFacts) -> Vec<PathBuf> {
 
 /// The file the pane's agent reported (hook session id) when it exists; else the newest session file in the
 /// pane's project folder written since the pane started; else, with an id, the file that id will have.
+///
+/// A pane launched with `--session-id` (`LaunchFacts::from_launch`) owns exactly `<id>.jsonl`: other panes in the
+/// folder write other files, so "the newest file" is never a stand-in while its own is missing (`own_file`).
 fn locate_in(configs: &[PathBuf], pane: &PaneFacts) -> Located {
     let id = pane.provider_session_id.as_deref().filter(|id| !id.is_empty());
     let dir_of = |config: &PathBuf| existing_project_dir(config, &pane.cwd);
     if let Some(id) = id {
-        if let Some(path) = configs.iter().map(|config| session_path(&dir_of(config), id)).find(|path| path.is_file()) {
+        let existing = configs.iter().map(|config| session_path(&dir_of(config), id)).find(|path| path.is_file());
+        if pane.launch.from_launch {
+            return match (existing, configs.first()) {
+                (Some(path), _) => Located::Found(cleared_into(&path, pane).unwrap_or(path)),
+                (None, Some(config)) => Located::Found(session_path(&dir_of(config), id)),
+                (None, None) => Located::NotYet,
+            };
+        }
+        if let Some(path) = existing {
             return Located::Found(path);
         }
     }
@@ -56,6 +69,20 @@ fn locate_in(configs: &[PathBuf], pane: &PaneFacts) -> Located {
         (Some(id), Some(config)) => Located::Found(session_path(&dir_of(config), id)),
         _ => Located::NotYet,
     }
+}
+
+/// `/clear` starts a new session id and file. Hooks report it; without them the pane's launch file just stops growing
+/// while a newer one appears in its folder. That newer file is taken only when it can only be this pane's: no other
+/// live pane of the agent works in the folder (`siblings == 0`). With siblings a newer file may be theirs, so the
+/// view stays on the launch file until a hook reports the new id (the known limit without hooks).
+fn cleared_into(own: &Path, pane: &PaneFacts) -> Option<PathBuf> {
+    if pane.launch.siblings > 0 {
+        return None;
+    }
+    let written = own.metadata().ok()?.modified().ok()?;
+    let newest = newest_session(own.parent()?, written)?;
+    let newer = newest.metadata().ok()?.modified().ok()? > written;
+    (newest != own && newer).then_some(newest)
 }
 
 /// `<config>/projects/<encoded cwd>`. A `\\?\` prefix and a trailing separator on the cwd are ignored, and
@@ -124,7 +151,15 @@ mod tests {
             started_at,
             provider_session_id: id.map(str::to_string),
             home: None,
+            launch: Default::default(),
         }
+    }
+
+    /// A pane launched with its own session id, with `siblings` other panes of the agent in the folder.
+    fn launched(started_at: SystemTime, id: &str, siblings: usize) -> PaneFacts {
+        let mut facts = pane(started_at, Some(id));
+        facts.launch = LaunchFacts { from_launch: true, siblings };
+        facts
     }
 
     fn ago(seconds: u64) -> SystemTime {
@@ -223,6 +258,62 @@ mod tests {
         // The account folder wins when it has a file too.
         let own = account.session(FOLDER, "b.jsonl", ago(1));
         assert_eq!(locate_in(&both, &pane(ago(30), None)), Located::Found(own));
+    }
+
+    #[test]
+    fn two_panes_in_one_folder_each_find_their_own_file() {
+        let config = Config::new();
+        let first = config.session(FOLDER, "id-one.jsonl", ago(5));
+        let second = config.session(FOLDER, "id-two.jsonl", ago(1));
+        let both = [config.0.clone()];
+        // The newest file is the second pane's; the first pane must not follow it.
+        assert_eq!(locate_in(&both, &launched(ago(30), "id-one", 1)), Located::Found(first));
+        assert_eq!(locate_in(&both, &launched(ago(30), "id-two", 1)), Located::Found(second));
+    }
+
+    #[test]
+    fn a_launched_pane_waits_for_its_own_file_instead_of_taking_another() {
+        let config = Config::new();
+        config.session(FOLDER, "other.jsonl", ago(1));
+        let dir = config.0.join("projects").join(FOLDER);
+        assert_eq!(
+            locate_in(&[config.0.clone()], &launched(ago(30), "mine", 1)),
+            Located::Found(dir.join("mine.jsonl"))
+        );
+    }
+
+    #[test]
+    fn after_clear_a_lone_pane_follows_the_new_file() {
+        let config = Config::new();
+        let launch_file = config.session(FOLDER, "mine.jsonl", ago(20));
+        let facts = launched(ago(60), "mine", 0);
+        assert_eq!(locate_in(&[config.0.clone()], &facts), Located::Found(launch_file));
+        let cleared = config.session(FOLDER, "after-clear.jsonl", ago(2));
+        assert_eq!(locate_in(&[config.0.clone()], &facts), Located::Found(cleared.clone()));
+        // A second clear moves on again.
+        let again = config.session(FOLDER, "after-clear-2.jsonl", ago(1));
+        assert_eq!(locate_in(&[config.0.clone()], &facts), Located::Found(again));
+    }
+
+    #[test]
+    fn after_clear_a_pane_with_siblings_stays_on_its_launch_file() {
+        // Known limit without hooks: a newer file may belong to a sibling, so nothing is guessed.
+        let config = Config::new();
+        let launch_file = config.session(FOLDER, "mine.jsonl", ago(20));
+        config.session(FOLDER, "newer.jsonl", ago(2));
+        assert_eq!(locate_in(&[config.0.clone()], &launched(ago(60), "mine", 1)), Located::Found(launch_file));
+    }
+
+    #[test]
+    fn a_hook_reported_id_is_not_treated_as_the_launch_id() {
+        // After `/clear` a hook reports the new id: its file wins, and the old fallback rules apply again.
+        let config = Config::new();
+        config.session(FOLDER, "launch.jsonl", ago(20));
+        let hooked = config.session(FOLDER, "hooked.jsonl", ago(10));
+        config.session(FOLDER, "sibling.jsonl", ago(1));
+        let mut facts = pane(ago(60), Some("hooked"));
+        facts.launch = LaunchFacts { from_launch: false, siblings: 1 };
+        assert_eq!(locate_in(&[config.0.clone()], &facts), Located::Found(hooked));
     }
 
     #[test]

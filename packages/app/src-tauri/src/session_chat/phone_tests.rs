@@ -61,7 +61,7 @@ struct Pane;
 
 impl PaneLookup for Pane {
     fn facts(&self, _pane_id: &str) -> Option<PaneFacts> {
-        Some(PaneFacts { cwd: PathBuf::from(r"C:\Users\you\proj"), started_at: SystemTime::now(), provider_session_id: None, home: None })
+        Some(PaneFacts { cwd: PathBuf::from(r"C:\Users\you\proj"), started_at: SystemTime::now(), provider_session_id: None, home: None, launch: Default::default() })
     }
 }
 

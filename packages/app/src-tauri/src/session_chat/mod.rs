@@ -24,6 +24,6 @@ pub use declared::{cwd_placeholders, validate_session_chat, DeclaredSource, Name
 pub use detail::{bound_input, cut_to, paths_from_input, PlanItem, PlanStatus, ToolDetail};
 pub use opening::Opening;
 pub use model::{cut, ChatItem, SessionFormat, TurnOutcome};
-pub use source::{plain_path, Located, PaneFacts, SessionSource};
+pub use source::{plain_path, LaunchFacts, Located, PaneFacts, SessionSource};
 pub use screen::{read_pane, ScreenRead};
 pub use watch::{Hold, PaneLookup, Sink, Watchers};

@@ -17,6 +17,29 @@ pub struct PaneFacts {
     pub provider_session_id: Option<String>,
     /// The agent's config folder when the pane runs under a Puppet Master account; `None` = the CLI's own.
     pub home: Option<PathBuf>,
+    /// How `provider_session_id` came to be known, and who else writes in the folder.
+    pub launch: LaunchFacts,
+}
+
+/// What the app knows from launching a pane (`TuiProfile::launch_session`), which hooks may not have confirmed yet.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LaunchFacts {
+    /// `provider_session_id` is the id the pane was launched with (no hook has reported another): its file is exactly
+    /// that one, and another pane's file is never a stand-in while it does not exist yet.
+    pub from_launch: bool,
+    /// Other live panes of the same agent in the same folder. They write files there too.
+    pub siblings: usize,
+}
+
+impl LaunchFacts {
+    /// Facts for a pane: `me` and `others` are `(agent type, folder)`; panes of the same agent in the same folder
+    /// (case and a `\\?\` prefix aside) are siblings.
+    pub fn of<'a>(from_launch: bool, me: (&str, &str), others: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+        let folder = |cwd: &str| plain_path(cwd).trim_end_matches(['/', '\\']).to_lowercase().replace('/', "\\");
+        let mine = folder(me.1);
+        let siblings = others.into_iter().filter(|(agent, cwd)| *agent == me.0 && folder(cwd) == mine).count();
+        LaunchFacts { from_launch, siblings }
+    }
 }
 
 /// The answer to "which file is this pane writing?".
@@ -68,7 +91,21 @@ pub fn plain_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::plain_path;
+    use super::{plain_path, LaunchFacts};
+
+    #[test]
+    fn siblings_are_other_panes_of_the_same_agent_in_the_same_folder() {
+        let others = [
+            ("claude", r"C:\Users\you\proj"),
+            ("claude", r"\\?\c:\users\YOU\proj\"),
+            ("claude", r"C:\Users\you\elsewhere"),
+            ("codex", r"C:\Users\you\proj"),
+        ];
+        let facts = LaunchFacts::of(true, ("claude", r"C:\Users\you\proj"), others);
+        assert_eq!(facts, LaunchFacts { from_launch: true, siblings: 2 });
+        assert_eq!(LaunchFacts::of(false, ("claude", "C:/Users/you/proj"), others).siblings, 2);
+        assert_eq!(LaunchFacts::of(false, ("claude", r"C:\x"), []).siblings, 0);
+    }
 
     #[test]
     fn the_extended_length_prefix_is_dropped() {

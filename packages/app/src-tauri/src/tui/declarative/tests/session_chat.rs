@@ -257,7 +257,7 @@ fn a_declarative_agent_gets_the_rich_chat_from_its_own_transcript() {
 
     let folder = Folder::new();
     std::fs::write(folder.transcript(), TRANSCRIPT).unwrap();
-    let facts = PaneFacts { cwd: folder.0.clone(), started_at: SystemTime::now() - Duration::from_secs(30), provider_session_id: None, home: None };
+    let facts = PaneFacts { cwd: folder.0.clone(), started_at: SystemTime::now() - Duration::from_secs(30), provider_session_id: None, home: None, launch: Default::default() };
     let sink = Arc::new(Collect::default());
     let tuning = crate::session_chat::watch::Tuning {
         poll: Duration::from_millis(10),
@@ -291,6 +291,6 @@ fn a_transcript_in_a_folder_the_pane_may_not_read_shows_nothing() {
     let profile = build_for_test(&definition).unwrap();
     let pane = Folder::new();
     std::fs::write(pane.transcript(), TRANSCRIPT).unwrap();
-    let facts = PaneFacts { cwd: pane.0.clone(), started_at: SystemTime::now() - Duration::from_secs(30), provider_session_id: None, home: None };
+    let facts = PaneFacts { cwd: pane.0.clone(), started_at: SystemTime::now() - Duration::from_secs(30), provider_session_id: None, home: None, launch: Default::default() };
     assert_eq!(profile.session_chat().unwrap().locate(&facts), crate::session_chat::Located::NotYet);
 }

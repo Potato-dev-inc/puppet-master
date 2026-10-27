@@ -84,6 +84,7 @@ fn facts() -> PaneFacts {
         started_at: SystemTime::now(),
         provider_session_id: None,
         home: None,
+        launch: Default::default(),
     }
 }
 

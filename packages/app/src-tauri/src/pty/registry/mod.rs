@@ -185,6 +185,7 @@ impl PaneRegistry {
         super::hidden::forget(id);
         super::resize_clock::forget(id);
         super::pane_facts::forget(id);
+        super::launch_session::forget(id);
         crate::flight::closed(id);
         self.panes.remove(id)
     }
@@ -194,6 +195,7 @@ impl PaneRegistry {
             super::hidden::forget(id);
             super::resize_clock::forget(id);
             super::pane_facts::forget(id);
+            super::launch_session::forget(id);
             crate::flight::closed(id);
         }
         std::mem::take(&mut self.panes).into_values().collect()

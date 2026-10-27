@@ -94,12 +94,31 @@ struct RegistryPanes(Arc<Mutex<PaneRegistry>>);
 
 impl PaneLookup for RegistryPanes {
     fn facts(&self, pane_id: &str) -> Option<PaneFacts> {
-        let info = self.0.lock().get(pane_id)?.info.clone();
+        let (info, others) = {
+            let registry = self.0.lock();
+            let info = registry.get(pane_id)?.info.clone();
+            let others: Vec<(String, String)> = registry
+                .panes
+                .iter()
+                .filter(|(id, pane)| id.as_str() != pane_id && !*pane.exited.lock())
+                .map(|(_, pane)| (pane.info.agent_type.clone(), pane.info.cwd.clone()))
+                .collect();
+            (info, others)
+        };
         let account = info.account.as_deref();
+        // A hook-reported id (it follows `/clear` and resumes) wins; until one arrives, the id the pane was launched with.
+        let hooked = crate::agent_hooks::ledger::pinned_session(pane_id);
+        let launched = crate::pty::launch_session::get(pane_id);
+        let from_launch = hooked.is_none() && launched.is_some();
         Some(PaneFacts {
             cwd: PathBuf::from(&info.cwd),
             started_at: UNIX_EPOCH + Duration::from_millis(info.created_at.max(0) as u64),
-            provider_session_id: crate::agent_hooks::ledger::pinned_session(pane_id),
+            provider_session_id: hooked.or(launched),
+            launch: crate::session_chat::LaunchFacts::of(
+                from_launch,
+                (&info.agent_type, &info.cwd),
+                others.iter().map(|(agent, cwd)| (agent.as_str(), cwd.as_str())),
+            ),
             home: account
                 .and_then(|id| crate::accounts::Store::default_location().get(id))
                 .map(|account| PathBuf::from(account.home)),
