@@ -67,12 +67,14 @@ fn status_of(v: &Value, name: &str) -> String {
     v["checks"].as_array().unwrap().iter().find(|c| c["name"] == name).map(|c| c["status"].as_str().unwrap().to_string()).unwrap()
 }
 
+/// Long limits for the success paths (a short wall-clock limit failed under load, see `fake_host.rs`). `step` stays
+/// short: the "stuck" message is the thing a test waits for, and it comes at `step`.
 fn quick(env: &mut crate::tui::declarative::wizard::WizardEnv) {
-    env.visible.test.ready = Duration::from_secs(8);
-    env.visible.test.busy = Duration::from_millis(600);
-    env.visible.test.done = Duration::from_secs(3);
-    env.visible.test.permission = Duration::from_millis(500);
-    env.visible.test.person = Duration::from_secs(4);
+    env.visible.test.ready = Duration::from_secs(20);
+    env.visible.test.busy = Duration::from_secs(20);
+    env.visible.test.done = Duration::from_secs(20);
+    env.visible.test.permission = Duration::from_secs(6);
+    env.visible.test.person = Duration::from_secs(30);
     env.visible.test.step = Duration::from_secs(1);
 }
 

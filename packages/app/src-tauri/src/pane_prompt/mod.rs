@@ -215,6 +215,25 @@ pub(crate) fn mark_gate_declined(pane_id: &str) {
     DECLINED_GATES.lock().insert(pane_id.to_string());
 }
 
+/// Test builds only: panes whose startup gate a run's wait has looked at. A decline seen without the gate
+/// having been seen is a different error (the run never knew the folder was untrusted), so a test that
+/// declines must first wait for this (see `note_gate_seen` / `gate_was_seen`).
+static SEEN_GATES: once_cell::sync::Lazy<Mutex<std::collections::HashSet<String>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// A run's wait looked at a startup gate on `pane_id`. Recorded in test builds only.
+pub(crate) fn note_gate_seen(pane_id: &str) {
+    if cfg!(test) {
+        SEEN_GATES.lock().insert(pane_id.to_string());
+    }
+}
+
+/// Test builds: whether a run's wait has looked at a startup gate on `pane_id` yet (see `note_gate_seen`).
+#[cfg(test)]
+pub(crate) fn gate_was_seen(pane_id: &str) -> bool {
+    SEEN_GATES.lock().contains(pane_id)
+}
+
 /// Whether the user declined the startup gate on this pane. The decline is final for the run that
 /// was waiting on the gate: it fails with `WORKSPACE_TRUST_DECLINED` and nothing is typed.
 pub(crate) fn gate_was_declined(pane_id: &str) -> bool {

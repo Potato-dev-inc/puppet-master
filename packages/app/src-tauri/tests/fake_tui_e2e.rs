@@ -441,6 +441,86 @@ steps = [{ do = "think", ms = 300 }, { do = "say", text = "Hello after trust fro
     assert_eq!(events_named(&session, "prompt").len(), 1, "the task is typed exactly once: {:#?}", session.events());
 }
 
+/// Live (chat-tab verify, Codex 0.162.1, started from its Agent Command Center): the pane header said "Needs you
+/// · Trust this folder" but no card with buttons appeared, because the dialog's second row is `Back to Agent
+/// Command Center` and its footer is `esc back`. The card now offers Trust / Don't trust for that wording too,
+/// and nothing answers it for the person. "Don't trust" picks the `Back` row (arrow down, then Enter).
+#[test]
+fn codex_back_wording_trust_dialog_is_a_card_with_trust_and_dont_trust() {
+    let session = World::get().session("trust-back-card");
+    session.script(
+        r#"
+agent = "codex"
+boot_ms = 100
+[[startup]]
+gate = "trust"
+style = "folder_access_back"
+after_ms = 300
+[[turn]]
+on_prompt = "back card"
+steps = [{ do = "say", text = "Never typed." }]
+"#,
+    );
+    let parked = run_until_stopped(&session, "fake_codex", "back card", json!({}));
+    if status(&parked) != "needs_input" {
+        explain(&session, &parked, "the run should park on the trust dialog");
+    }
+    let pane = parked["pane_id"].as_str().expect("pane").to_string();
+    assert_eq!(parked["prompt"]["kind"], "workspace_trust", "{}", parked["prompt"]);
+    let offered: Vec<(&str, &str)> = parked["prompt"]["options"]
+        .as_array()
+        .map(|o| o.iter().filter_map(|x| Some((x["id"].as_str()?, x["label"].as_str()?))).collect())
+        .unwrap_or_default();
+    assert_eq!(offered, [("trust", "Trust this folder"), ("deny", "Don't trust")], "{}", parked["prompt"]);
+    let card = session.card(&pane).expect("the desktop card for the pane");
+    assert_eq!(card["choices"], json!(["trust", "deny"]), "{card}");
+    assert!(events_named(&session, "gate_answer").is_empty(), "nothing answered the dialog for the user: {:#?}", session.events());
+    assert!(events_named(&session, "prompt").is_empty(), "the task must not be typed over the dialog");
+
+    let prompt_id = parked["prompt"]["id"].as_str().expect("prompt id").to_string();
+    session.answer_card(&pane, &prompt_id, "deny").unwrap_or_else(|e| panic!("answer refused: {e}"));
+    let done = wait_for(&session, &handle_of(&parked), TERMINAL, 60);
+    assert_eq!(status(&done), "failed", "{done}");
+    assert_eq!(error_code(&done), "WORKSPACE_TRUST_DECLINED", "{}", done["error"]);
+    assert_eq!(events_named(&session, "gate_answer")[0]["answer"], "decline", "the Back row was chosen");
+    assert!(events_named(&session, "prompt").is_empty(), "the task never reached the agent");
+}
+
+/// The same dialog in the standard 0.162.1 wording (`2. Quit`, `esc quit`): Trust from the card delivers the task once.
+#[test]
+fn codex_folder_access_trust_dialog_card_trusts_and_the_task_is_typed_once() {
+    let session = World::get().session("trust-folder-access");
+    session.script(
+        r#"
+agent = "codex"
+boot_ms = 100
+[[startup]]
+gate = "trust"
+style = "folder_access"
+after_ms = 300
+[[turn]]
+on_prompt = "folder access"
+steps = [{ do = "think", ms = 300 }, { do = "say", text = "Hello after trust." }]
+"#,
+    );
+    let parked = run_until_stopped(&session, "fake_codex", "folder access", json!({}));
+    if status(&parked) != "needs_input" {
+        explain(&session, &parked, "the run should park on the trust dialog");
+    }
+    let pane = parked["pane_id"].as_str().expect("pane").to_string();
+    let card = session.card(&pane).expect("the desktop card for the pane");
+    assert_eq!(card["choices"], json!(["trust", "deny"]), "{card}");
+    let prompt_id = parked["prompt"]["id"].as_str().expect("prompt id").to_string();
+    session.answer_card(&pane, &prompt_id, "trust").unwrap_or_else(|e| panic!("answer refused: {e}"));
+    let done = wait_for(&session, &handle_of(&parked), TERMINAL, 60);
+    if status(&done) != "completed" {
+        explain(&session, &done, "the run should finish after trust was given from the card");
+    }
+    assert!(done["result"].as_str().unwrap_or_default().contains("Hello after trust."), "{done}");
+    assert_eq!(events_named(&session, "gate_answer")[0]["answer"], "trust");
+    assert_eq!(events_named(&session, "prompt").len(), 1, "the task is typed exactly once: {:#?}", session.events());
+}
+
 /// Live v0.2.0 hunt (audit entries 7-11): five "trust" answers for one Codex trust card within
 /// 400 ms, all `who: desktop`, on a worktree run while the window had another project selected. The
 /// card's answer missed the run (its pane's folder is the worktree, the run lives in the origin

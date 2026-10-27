@@ -25,11 +25,16 @@ packages/app/src-tauri/src/agent_pack/golden/* text eol=lf
 
 # Codex rollout fixtures are read line by line and compared with their offsets: keep them LF.
 packages/app/src-tauri/src/tui/codex/fixtures/*.jsonl text eol=lf
+# A finished Codex rollout compressed with zstd (made from rollout_basic.jsonl): binary, never converted.
+packages/app/src-tauri/src/tui/codex/fixtures/*.zst binary
 # Claude session fixtures are read line by line and compared with their offsets: keep them LF.
 packages/app/src-tauri/src/tui/claude/fixtures/*.jsonl text eol=lf
 
 # Raw terminal bytes (cursor moves, CR/LF as the pane sent them), read by tests through the terminal emulator: never convert.
 packages/app/src-tauri/src/tui/**/fixtures/*.ansi -text
+
+# Codex trust-dialog captures: read through include_str! and split on newlines, keep them LF.
+packages/app/src-tauri/src/tui/codex/fixtures/trust_folder_*.txt text eol=lf
 
 # OpenCode screen captures (rows read through the terminal emulator): keep them LF.
 packages/app/src-tauri/src/tui/opencode/fixtures/screen_*.txt text eol=lf

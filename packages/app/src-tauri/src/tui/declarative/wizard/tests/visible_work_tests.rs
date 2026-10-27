@@ -102,10 +102,11 @@ struct Fx {
 fn fixture(name: &str, draft: String, agent: Agent) -> Fx {
     let tree = Tree::new(name);
     let (wizard, host) = tree.visible_wizard_with(|env| {
-        env.visible.test.ready = Duration::from_secs(3);
-        env.visible.test.busy = Duration::from_secs(2);
-        env.visible.test.done = Duration::from_secs(4);
-        env.visible.test.permission = Duration::from_secs(1);
+        // long bounds (see fake_host.rs): these only end a wait that fails
+        env.visible.test.ready = Duration::from_secs(20);
+        env.visible.test.busy = Duration::from_secs(20);
+        env.visible.test.done = Duration::from_secs(20);
+        env.visible.test.permission = Duration::from_secs(6);
     });
     let id = ok(&wizard, "start", json!({"command": "fake-agent"}))["session"].as_str().expect("session").to_string();
     ok(&wizard, "probe", json!({"session": id}));
@@ -120,7 +121,6 @@ fn fixture(name: &str, draft: String, agent: Agent) -> Fx {
 
 /// The agent's behaviour for each task the visible test types.
 fn script(host: &Arc<FakeHost>, words: &TestWords, agent: Agent) {
-    let for_thread = host.clone();
     let words = words.clone();
     host.on_deliver(move |h, pane, text| {
         if text.contains("hello.txt") {
@@ -128,36 +128,29 @@ fn script(host: &Arc<FakeHost>, words: &TestWords, agent: Agent) {
             h.set_card(Some(json!({"kind": "command_approval", "choices": ["allow_once", "deny"]})));
             return Delivered::Submitted;
         }
-        let (host, pane, text, words) = (for_thread.clone(), pane.to_string(), text.to_string(), words.clone());
+        let (text, words) = (text.to_string(), words.clone());
         if text.contains("List the files") {
-            h.set_screen_of(&pane, &work_working(&agent, &words, 1));
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(150));
-                host.set_screen_of(&pane, &work_working(&agent, &words, 2));
-                std::thread::sleep(Duration::from_millis(150));
-                host.set_screen_of(&pane, &work_reply(&agent, &words));
-            });
+            h.set_screen_of(pane, &work_working(&agent, &words, 1));
+            let (agent2, words2) = (agent.clone(), words.clone());
+            h.then(pane, 3, move |h, p| h.set_screen_of(p, &work_working(&agent2, &words2, 2)));
+            h.then(pane, 3, move |h, p| h.set_screen_of(p, &work_reply(&agent, &words)));
         } else if text.starts_with("Write the whole numbers") {
             // 70 rows into a 40-row pane: the banner, the echo and the first rows are in the scrollback
             let word = text.rsplit(' ').next().unwrap_or("").to_string();
-            h.set_screen_of(&pane, &agent.at_rest(&format!("> {text}\n\n")).replace(BOX, &format!("reply: 1\n\n  ctrl+c to stop\n\n{BOX}")));
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(150));
+            h.set_screen_of(pane, &agent.at_rest(&format!("> {text}\n\n")).replace(BOX, &format!("reply: 1\n\n  ctrl+c to stop\n\n{BOX}")));
+            h.then(pane, 3, move |h, pane| {
                 let mut above: Vec<String> = vec![agent.banner().trim_end().to_string(), String::new(), format!("> {text}"), "reply: 1".into()];
                 above.extend((2..=40).map(|n| n.to_string()));
                 let refs: Vec<&str> = above.iter().map(String::as_str).collect();
-                host.push_scrollback(&pane, &refs);
+                h.push_scrollback(pane, &refs);
                 let tail: String = (41..=70).map(|n| format!("{n}\n")).collect();
                 // the screen: only the tail of the reply, no banner
-                host.set_screen_of(&pane, &format!("{tail}{word}\n\n{BOX}{}", agent.footer()));
+                h.set_screen_of(pane, &format!("{tail}{word}\n\n{BOX}{}", agent.footer()));
             });
         } else {
             let word = text.rsplit(' ').next().unwrap_or("").to_string();
-            h.set_screen_of(&pane, &screens::working(&word, 0));
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(150));
-                host.set_screen_of(&pane, &agent.at_rest(&format!("> {text}\nreply: {word}\n\ndone in 2s\n\n")));
-            });
+            h.set_screen_of(pane, &screens::working(&word, 0));
+            h.then(pane, 3, move |h, p| h.set_screen_of(p, &agent.at_rest(&format!("> {text}\nreply: {word}\n\ndone in 2s\n\n"))));
         }
         Delivered::Submitted
     });

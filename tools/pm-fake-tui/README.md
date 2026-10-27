@@ -39,6 +39,8 @@ gate = "update_menu"          # "update_menu" (codex) or "trust" (both layouts)
 after_ms = 600                # appears this long after the previous screen
 composer_first = true         # draw the composer meanwhile: the menu then opens OVER a composer that looked ready
 honour_esc = true             # false: the screen ignores Esc
+style = "folder_access"       # codex trust only: the 0.162.1 dialog as drawn live (`Folder access`, `1. Trust and continue` / `2. Quit`);
+                              # "folder_access_back": row 2 `Back to Agent Command Center`, footer `esc back`
 
 [[turn]]
 on_prompt = "approve"         # substring of the submitted prompt, case-insensitive; omit = any prompt

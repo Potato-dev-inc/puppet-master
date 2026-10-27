@@ -218,8 +218,9 @@ fn the_buttons_work_through_the_route() {
     let tree = Tree::new("cap-act");
     let (wizard, host) = tree.visible_wizard();
     let id = probed(&wizard, "fake-agent");
+    // the trust question is on the pane from its first look: the start step cannot finish on a banner before it
+    host.set_next_spawn_screen(screens::TRUST);
     start_capture(&wizard, &id, json!([]));
-    host.set_screen(screens::TRUST);
     wait_status(&wizard, &id, "the question", |s| s["needs_you"]["kind"] == "trust");
     // "It is ready" is refused while a question is on screen
     let err = call(&wizard, "capture", json!({"session": id, "op": "act", "action": "ready"})).unwrap_err();
