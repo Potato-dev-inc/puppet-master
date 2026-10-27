@@ -475,9 +475,35 @@ pub trait TuiProfile: Send + Sync {
     }
 
     /// Where this agent writes the session file the chat view reads (`crate::session_chat`). `None` (the
-    /// default): the agent has no file Puppet Master can read, and the chat view says so.
+    /// default): the agent has no file Puppet Master can read, and the chat view falls back to reading the
+    /// screen (`screen_chat`).
     fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
         None
+    }
+
+    /// Whether the chat view may be built from this agent's screen when `session_chat` has no file for it.
+    /// Default: every agent that is not a plain shell (a shell has no turns to show).
+    fn screen_chat(&self) -> bool {
+        self.features().kind != Kind::Shell
+    }
+
+    /// The person's own message, read from one screen row of the transcript (the row where the TUI echoes a sent
+    /// prompt). `row` is untrimmed; `None` for any other row. The chat view's screen reader starts a turn at such
+    /// a row. Default `None`: the TUI declares no readable echo, and turns are then cut by the pane's status.
+    fn user_message_row(&self, _row: &str) -> Option<String> {
+        None
+    }
+
+    /// The part of the pane's text that is the conversation, for the chat view's screen reader: what the TUI draws
+    /// beside or below it (a scrollbar, a sidebar, the input box, a footer) is left out, and a screen that is no
+    /// conversation yet (a home screen) gives nothing. Default: the text as it is.
+    fn transcript_text(&self, text: &str) -> String {
+        text.to_string()
+    }
+
+    /// Whether `user_message_row` can ever answer (the profile declares how its transcript echoes a message).
+    fn reads_user_messages(&self) -> bool {
+        false
     }
 }
 

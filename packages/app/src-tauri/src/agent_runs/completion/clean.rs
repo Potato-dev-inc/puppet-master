@@ -218,7 +218,7 @@ fn keep_last_copy_of_repeated_echoes(
     rescued
 }
 
-pub(super) fn normalize_echo(text: &str) -> String {
+pub(crate) fn normalize_echo(text: &str) -> String {
     text.chars()
         .filter(|ch| ch.is_alphanumeric() || ch.is_whitespace())
         .flat_map(char::to_lowercase)

@@ -1,10 +1,11 @@
-//! Tauri commands of the chat view: it follows the session file an agent writes for a pane
-//! (`crate::session_chat`) and sends the items to the desktop windows as `session-chat-items` events.
+//! Tauri commands of the chat view: it follows the session file an agent writes for a pane, or reads the pane's
+//! screen when the agent has no file Puppet Master can read (`crate::session_chat`), and sends the items to the
+//! desktop windows as `session-chat-items` events.
 //! Desktop only: nothing here is reachable through the bridge, the phone or MCP.
 
 use super::AppState;
 use crate::pty::PaneRegistry;
-use crate::session_chat::{ChatItem, PaneFacts, PaneLookup, Sink, Watchers};
+use crate::session_chat::{ChatItem, PaneFacts, PaneLookup, ScreenRead, Sink, Watchers};
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -13,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, State};
 
-const NO_SOURCE: &str = "This agent does not write a session file Puppet Master can read yet.";
+const NO_SOURCE: &str = "Chat is not available for this pane: it has no agent to read a conversation from.";
 
 /// The readers of the panes whose chat view is open. Built on the first open.
 #[derive(Default)]
@@ -31,6 +32,7 @@ impl SessionChatState {
 }
 
 /// Answer of `session_chat_open`. `waiting_for`: while there are no items, what the reader is waiting for.
+/// `source`: where the items come from, `"file"` (the agent's session file) or `"screen"` (read off the terminal).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionChatOpened {
@@ -38,6 +40,7 @@ pub struct SessionChatOpened {
     reason: Option<String>,
     items: Vec<ChatItem>,
     waiting_for: Option<String>,
+    source: Option<&'static str>,
 }
 
 #[derive(Clone, Serialize)]
@@ -83,10 +86,14 @@ impl PaneLookup for RegistryPanes {
                 .map(|account| PathBuf::from(account.home)),
         })
     }
+
+    fn screen(&self, pane_id: &str, known: Option<u64>) -> Option<ScreenRead> {
+        crate::session_chat::read_pane(&self.0, pane_id, known)
+    }
 }
 
-/// Start following the pane's session file. `{ available, reason, items }`; the items so far come back
-/// here, later ones as `session-chat-items` events until `session_chat_close`.
+/// Start following the pane's session file, or its screen. `{ available, reason, items, source }`; the items so far
+/// come back here, later ones as `session-chat-items` events until `session_chat_close`.
 #[tauri::command]
 pub async fn session_chat_open(
     app: AppHandle,
@@ -100,9 +107,12 @@ pub async fn session_chat_open(
         .get(&pane_id)
         .map(|pane| pane.info.agent_type.clone())
         .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
-    let Some(source) = crate::tui::profile_for(&agent_type).session_chat() else {
-        return Ok(SessionChatOpened { available: false, reason: Some(NO_SOURCE.into()), items: Vec::new(), waiting_for: None });
-    };
+    let profile = crate::tui::profile_for(&agent_type);
+    let source = profile.session_chat();
+    // An agent with no session file Puppet Master can read is read off its screen, unless it is a plain shell.
+    if source.is_none() && !profile.screen_chat() {
+        return Ok(SessionChatOpened { available: false, reason: Some(NO_SOURCE.into()), items: Vec::new(), waiting_for: None, source: None });
+    }
     let registry = state.registry.clone();
     let watchers = chat
         .watchers
@@ -110,15 +120,19 @@ pub async fn session_chat_open(
         .clone();
     // The first read of a long session file happens in this call.
     let (items, waiting_for) = tauri::async_runtime::spawn_blocking(move || {
-        let items = watchers.open(&pane_id, source);
+        let items = match source {
+            Some(source) => watchers.open(&pane_id, source),
+            None => watchers.open_screen(&pane_id, &agent_type),
+        };
         (items, watchers.waiting_for(&pane_id))
     })
     .await
     .map_err(|e| format!("INTERNAL: {e}"))?;
-    Ok(SessionChatOpened { available: true, reason: None, items, waiting_for })
+    let source = if source.is_some() { "file" } else { "screen" };
+    Ok(SessionChatOpened { available: true, reason: None, items, waiting_for, source: Some(source) })
 }
 
-/// Stop following the pane's session file.
+/// Stop following the pane's session file or screen.
 #[tauri::command]
 pub async fn session_chat_close(chat: State<'_, SessionChatState>, pane_id: String) -> Result<(), String> {
     if let Some(watchers) = chat.watchers.get() {
@@ -130,7 +144,14 @@ pub async fn session_chat_close(chat: State<'_, SessionChatState>, pane_id: Stri
 #[cfg(test)]
 mod tests {
     #[test]
-    fn an_agent_without_a_session_source_gets_no_chat_view() {
-        assert!(crate::tui::profile_for("no-such-agent").session_chat().is_none());
+    fn an_agent_without_a_session_source_is_read_off_its_screen_unless_it_is_a_shell() {
+        let generic = crate::tui::profile_for("no-such-agent");
+        assert!(generic.session_chat().is_none());
+        assert!(generic.screen_chat());
+        let shell = crate::tui::profile_for("powershell");
+        assert!(shell.session_chat().is_none() && !shell.screen_chat());
+        // The two agents with a session file keep it.
+        assert!(crate::tui::profile_for("claude").session_chat().is_some());
+        assert!(crate::tui::profile_for("codex").session_chat().is_some());
     }
 }

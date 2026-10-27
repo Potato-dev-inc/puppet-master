@@ -14,6 +14,7 @@ use parking_lot::Mutex;
 
 use super::items::read_lines;
 use super::model::ChatItem;
+use super::screen::{ScreenFollower, ScreenRead};
 use super::source::{Located, PaneFacts, SessionSource};
 use super::tail::{Polled, Tail};
 
@@ -30,12 +31,19 @@ pub trait Sink: Send + Sync {
 /// What the watcher asks about a pane: its facts, or `None` when the pane is gone.
 pub trait PaneLookup: Send + Sync {
     fn facts(&self, pane_id: &str) -> Option<PaneFacts>;
+    /// What the pane's screen shows, for a chat read from the screen (`None`: the pane is gone). `known`: the output
+    /// position of the text read last; when the pane has printed nothing since, the answer carries no text.
+    fn screen(&self, _pane_id: &str, _known: Option<u64>) -> Option<ScreenRead> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Tuning {
     /// How often the file is read.
     pub poll: Duration,
+    /// How often a pane's screen is looked at (the chat read from the screen).
+    pub screen_poll: Duration,
     /// How often the pane's file is looked for again (to find it, and to follow a switch).
     pub relocate: Duration,
     pub max_items: usize,
@@ -43,15 +51,17 @@ pub struct Tuning {
 
 impl Default for Tuning {
     fn default() -> Self {
-        Tuning { poll: Duration::from_millis(400), relocate: Duration::from_secs(1), max_items: MAX_ITEMS }
+        Tuning { poll: Duration::from_millis(400), screen_poll: Duration::from_millis(700), relocate: Duration::from_secs(1), max_items: MAX_ITEMS }
     }
 }
 
 /// What one look at the file changed.
 #[derive(Debug, PartialEq)]
-enum Change {
+pub enum Change {
     Nothing,
     Append(Vec<ChatItem>),
+    /// Items to add, or to put in place of the shown items with the same id (a screen read changes its items).
+    Upsert(Vec<ChatItem>),
     /// The file was replaced or truncated: these items are everything there is.
     Reset(Vec<ChatItem>),
 }
@@ -130,6 +140,36 @@ impl Follower {
     }
 }
 
+/// What a pane's chat is read from: its session file, or its screen.
+enum Reader {
+    File(Follower),
+    Screen(ScreenFollower),
+}
+
+impl Reader {
+    /// One look at the pane; `None` when the pane is gone.
+    fn step(&mut self, panes: &dyn PaneLookup, pane_id: &str, now: Instant, relocate: Duration) -> Option<Change> {
+        match self {
+            Reader::File(follower) => Some(follower.step(&panes.facts(pane_id)?, now, relocate)),
+            Reader::Screen(follower) => follower.step(panes, pane_id),
+        }
+    }
+
+    fn waiting(&self, panes: &dyn PaneLookup, pane_id: &str) -> Option<String> {
+        match self {
+            Reader::File(follower) => Some(follower.waiting(&panes.facts(pane_id)?)),
+            Reader::Screen(follower) => Some(follower.waiting()),
+        }
+    }
+
+    fn poll(&self, tuning: &Tuning) -> Duration {
+        match self {
+            Reader::File(_) => tuning.poll,
+            Reader::Screen(_) => tuning.screen_poll,
+        }
+    }
+}
+
 /// The items one pane shows, and the way to stop its thread.
 struct Watch {
     items: Mutex<VecDeque<ChatItem>>,
@@ -183,6 +223,15 @@ impl Watchers {
     /// Starts following the pane (once) and returns the items so far, read before this returns when the
     /// file is already there. Opening an open pane returns its current items and starts nothing.
     pub fn open(&self, pane_id: &str, source: &'static dyn SessionSource) -> Vec<ChatItem> {
+        self.open_reader(pane_id, Reader::File(Follower::new(source)))
+    }
+
+    /// As `open`, for an agent with no session file: the chat is read from the pane's screen.
+    pub fn open_screen(&self, pane_id: &str, agent_type: &str) -> Vec<ChatItem> {
+        self.open_reader(pane_id, Reader::Screen(ScreenFollower::new(agent_type)))
+    }
+
+    fn open_reader(&self, pane_id: &str, mut reader: Reader) -> Vec<ChatItem> {
         let mut open = self.open.lock();
         if let Some(watch) = open.get(pane_id) {
             if !watch.finished.load(Ordering::SeqCst) {
@@ -190,21 +239,19 @@ impl Watchers {
             }
             open.remove(pane_id);
         }
-        let Some(facts) = self.panes.facts(pane_id) else {
-            return Vec::new();
-        };
-        let mut follower = Follower::new(source);
         let watch = Arc::new(Watch::new());
         // The first look happens here, so the caller gets the items in its answer and not as an event.
-        let first = follower.step(&facts, Instant::now(), self.tuning.relocate);
+        let Some(first) = reader.step(&*self.panes, pane_id, Instant::now(), self.tuning.relocate) else {
+            return Vec::new();
+        };
         apply(&watch, first, self.tuning.max_items, None);
         let snapshot = watch.snapshot();
-        *watch.waiting.lock() = waiting_of(&watch, &follower, &facts);
+        *watch.waiting.lock() = waiting_of(&watch, &reader, &*self.panes, pane_id);
 
         let worker = Worker {
             pane_id: pane_id.to_string(),
             watch: watch.clone(),
-            follower,
+            reader,
             sink: self.sink.clone(),
             panes: self.panes.clone(),
             tuning: self.tuning,
@@ -258,7 +305,7 @@ impl Drop for Watchers {
 struct Worker {
     pane_id: String,
     watch: Arc<Watch>,
-    follower: Follower,
+    reader: Reader,
     sink: Arc<dyn Sink>,
     panes: Arc<dyn PaneLookup>,
     tuning: Tuning,
@@ -269,16 +316,15 @@ impl Worker {
     fn run(mut self) {
         tracing::debug!(pane = %self.pane_id, "session chat: reader started");
         loop {
-            std::thread::park_timeout(self.tuning.poll);
+            std::thread::park_timeout(self.reader.poll(&self.tuning));
             if self.watch.stop.load(Ordering::SeqCst) {
                 break;
             }
-            let Some(facts) = self.panes.facts(&self.pane_id) else {
+            let Some(change) = self.reader.step(&*self.panes, &self.pane_id, Instant::now(), self.tuning.relocate) else {
                 break;
             };
-            let change = self.follower.step(&facts, Instant::now(), self.tuning.relocate);
             apply(&self.watch, change, self.tuning.max_items, Some((&*self.sink, &self.pane_id)));
-            let waiting = waiting_of(&self.watch, &self.follower, &facts);
+            let waiting = waiting_of(&self.watch, &self.reader, &*self.panes, &self.pane_id);
             let mut known = self.watch.waiting.lock();
             if *known != waiting {
                 self.sink.waiting(&self.pane_id, waiting.as_deref());
@@ -292,24 +338,39 @@ impl Worker {
 }
 
 /// What the pane is waiting for: only while it has nothing to show.
-fn waiting_of(watch: &Watch, follower: &Follower, facts: &PaneFacts) -> Option<String> {
-    watch.items.lock().is_empty().then(|| follower.waiting(facts))
+fn waiting_of(watch: &Watch, reader: &Reader, panes: &dyn PaneLookup, pane_id: &str) -> Option<String> {
+    if watch.items.lock().is_empty() {
+        reader.waiting(panes, pane_id)
+    } else {
+        None
+    }
 }
 
 /// Puts a change into the pane's items (dropping the oldest past `max`) and sends it to the sink.
 /// Sending happens under the items lock so a snapshot never misses or repeats a batch.
 fn apply(watch: &Watch, change: Change, max: usize, out: Option<(&dyn Sink, &str)>) {
     let mut items = watch.items.lock();
+    let upsert = matches!(change, Change::Upsert(_));
     let (batch, mut reset) = match change {
         Change::Nothing => return,
-        Change::Append(new) => (new, false),
+        Change::Append(new) | Change::Upsert(new) => (new, false),
         Change::Reset(new) => {
             items.clear();
             (new, true)
         }
     };
     let count = batch.len();
-    items.extend(batch.iter().cloned());
+    if upsert {
+        // An item sent again under its id replaces the old copy where it stands.
+        for item in &batch {
+            match items.iter().rposition(|known| known.id() == item.id()) {
+                Some(at) => items[at] = item.clone(),
+                None => items.push_back(item.clone()),
+            }
+        }
+    } else {
+        items.extend(batch.iter().cloned());
+    }
     let dropped = items.len().saturating_sub(max);
     if dropped > 0 {
         items.drain(..dropped);

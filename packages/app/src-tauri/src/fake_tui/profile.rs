@@ -236,6 +236,14 @@ impl TuiProfile for FakeAgent {
         self.inner.is_summary_line(lower)
     }
 
+    fn user_message_row(&self, row: &str) -> Option<String> {
+        self.inner.user_message_row(row)
+    }
+
+    fn reads_user_messages(&self) -> bool {
+        self.inner.reads_user_messages()
+    }
+
     fn run_warnings(&self, facts: &RunFacts) -> Vec<Warning> {
         self.inner.run_warnings(facts)
     }

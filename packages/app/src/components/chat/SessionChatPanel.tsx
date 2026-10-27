@@ -10,6 +10,7 @@ export function SessionChatPanel({ paneId }: { paneId: string }) {
       state={chat.state}
       reason={chat.reason}
       waitingFor={chat.waitingFor}
+      source={chat.source}
       turns={chat.turns}
       model={chat.model}
       cliVersion={chat.cliVersion}

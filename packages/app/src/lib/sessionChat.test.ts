@@ -303,3 +303,33 @@ describe('Tauri wrappers', () => {
     expect(cb).toHaveBeenCalledWith(payload);
   });
 });
+
+describe('mergeItems for a chat read from the screen', () => {
+  it('replaces a reply sent again under its id with the newest copy, wherever it stands, and keeps the order', () => {
+    const items = [user('screen:1:user', 'say hi'), say('screen:1:reply', 'hi'), user('screen:2:user', 'again')];
+    const grown = mergeItems(items, [say('screen:1:reply', 'hi there')], false);
+    expect(grown.map((i) => i.id)).toEqual(['screen:1:user', 'screen:1:reply', 'screen:2:user']);
+    expect(grown[1]).toEqual(say('screen:1:reply', 'hi there'));
+    const again = mergeItems(grown, [say('screen:1:reply', 'hi there, friend'), say('screen:2:reply', 'ok')], false);
+    expect(again.map((i) => i.id)).toEqual(['screen:1:user', 'screen:1:reply', 'screen:2:user', 'screen:2:reply']);
+    expect(again[1]).toEqual(say('screen:1:reply', 'hi there, friend'));
+  });
+
+  it('a reset after an item went away shows only what is sent, in its order', () => {
+    const before = [user('screen:1:user'), call('screen:1:tool:0', 'screen:1:tool:0', '', 'ls'), say('screen:1:reply', 'a')];
+    const after = mergeItems(before, [user('screen:1:user'), say('screen:1:reply', 'a')], true);
+    expect(after.map((i) => i.id)).toEqual(['screen:1:user', 'screen:1:reply']);
+  });
+
+  it('groups the items of a screen turn into one turn with its tool row and reply', () => {
+    const { turns } = groupTurns([
+      user('screen:1:user', 'list'),
+      call('screen:1:tool:0', 'screen:1:tool:0', '', '$ ls'),
+      say('screen:1:reply', 'two files'),
+      end('screen:1:end'),
+    ]);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].steps.map((s) => s.kind)).toEqual(['tool', 'text']);
+    expect(turns[0].outcome).toBe('completed');
+  });
+});

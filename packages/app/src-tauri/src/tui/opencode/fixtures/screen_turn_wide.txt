@@ -1,0 +1,57 @@
+# capture: opencode 1.19.0, pane 158x56 (sidebar shown), rows of the pane through vt100 (trailing blanks trimmed), 2026-10-27; one turn: a file read, then the answer
+                                                                                                                 █
+  ┃                                                                                                              █    First word of notes.txt
+  ┃  Read notes.txt and reply with only its first word.                                                          █
+  ┃                                                                                                              █    Context
+                                                                                                                 █    14,203 tokens
+     → Read notes.txt                                                                                            █    1% used
+                                                                                                                 █    $0.00 spent
+     v2                                                                                                          █
+                                                                                                                 █    MCP
+     ▣  Build · DeepSeek V4.1 Flash · 12.7s                                                                      █    • pencil Connected
+                                                                                                                 █
+                                                                                                                 █    LSP
+                                                                                                                 █    LSPs are disabled
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+                                                                                                                 █
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · DeepSeek V4.1 Flash OpenCode Go                                                                          /D:\pm-hunt\demo-a:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   D:\pm-hunt\demo-a                                                           14.2K (1%) · $0.00  ctrl+p commands    • OpenCode 1.19.0
+

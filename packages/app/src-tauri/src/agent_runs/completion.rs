@@ -7,7 +7,7 @@ mod clean;
 mod links;
 
 use crate::operations::ResultCapture;
-use clean::normalize_echo;
+pub(crate) use clean::{is_tui_chrome_line, normalize_echo};
 pub use clean::{clean_extracted_result, clean_extracted_result_after, clean_extracted_result_in_turn, tui_turn_evidence};
 pub use links::restore_link_paths;
 

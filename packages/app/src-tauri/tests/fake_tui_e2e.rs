@@ -1170,6 +1170,11 @@ mod wizard_menus;
 #[path = "fake_tui_screen_agents.rs"]
 mod screen_agents;
 
+// ---- the Chat tab of an agent with no session file, read off its screen (zero tokens) ---------------------------
+
+#[path = "fake_tui_chat_screen.rs"]
+mod chat_screen;
+
 /// Co-work Heads-up with two people: two processes, a relay, a git remote (tests/fake_tui_team.rs).
 #[path = "fake_tui_team.rs"]
 mod team;

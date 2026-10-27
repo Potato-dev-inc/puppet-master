@@ -74,6 +74,11 @@ fn question_identity(detect: &Regex, clean: &str) -> String {
     clean[start..end].chars().filter(|ch| ch.is_alphanumeric()).flat_map(char::to_lowercase).collect()
 }
 
+/// A glyph a TUI draws in front of a transcript row: box and block art, a prompt marker, a bullet.
+fn is_row_decoration(ch: char) -> bool {
+    ('\u{2500}'..='\u{259f}').contains(&ch) || matches!(ch, '>' | '<' | '|' | '\u{203a}' | '\u{276f}' | '\u{bb}' | '\u{2022}' | '\u{25cf}')
+}
+
 /// `text` limited to `SCREEN_CAP` bytes, keeping the end (the live part of a screen).
 pub fn cap(text: &str) -> &str {
     if text.len() <= SCREEN_CAP {
@@ -136,6 +141,8 @@ pub struct TuiEngine {
     waiting: Vec<Regex>,
     has_ready: bool,
     delivery: bool,
+    /// `[tui.delivery] transcript_echo_regex`: the row where the transcript shows a sent message.
+    transcript_echo: Option<Regex>,
     sidebar: Option<crate::tui::types::SidebarCrop>,
 }
 
@@ -230,6 +237,12 @@ impl TuiEngine {
                 .delivery
                 .as_ref()
                 .is_some_and(|d| d.input_echo_regex.is_some() && d.transcript_echo_regex.is_some()),
+            transcript_echo: tui
+                .delivery
+                .as_ref()
+                .and_then(|d| d.transcript_echo_regex.as_deref())
+                .map(|pattern| build(pattern, "tui.delivery.transcript_echo_regex"))
+                .transpose()?,
             sidebar: tui.layout.as_ref().and_then(|l| {
                 Some(crate::tui::types::SidebarCrop { min_cols: l.sidebar_min_cols?, width: l.sidebar_width? })
             }),
@@ -255,6 +268,28 @@ impl TuiEngine {
     /// TUI-5: only with both echo regexes.
     pub fn verifies_prompt_delivery(&self) -> bool {
         self.delivery
+    }
+
+    /// Whether the definition says how the transcript echoes a sent message.
+    pub fn reads_user_messages(&self) -> bool {
+        self.transcript_echo.is_some()
+    }
+
+    /// The person's message on one transcript row: `transcript_echo_regex` must match the row. The text is the
+    /// `text` group when the pattern has one, else the row from the match on without its leading decoration
+    /// (a `┃` bar, a `>` marker, spaces), which is what a pattern like `┃\s+\S` points at.
+    pub fn user_message_row(&self, row: &str) -> Option<String> {
+        let row = cap(row);
+        let found = self.transcript_echo.as_ref()?.captures(row)?;
+        let text = match found.name("text") {
+            Some(group) => group.as_str().trim().to_string(),
+            None => {
+                let start = found.get(0)?.start();
+                let tail = &row[start..];
+                tail.trim_start_matches(|ch: char| ch.is_whitespace() || is_row_decoration(ch)).trim_end().to_string()
+            }
+        };
+        (!text.is_empty()).then_some(text)
     }
 
     /// `Some(true)` on a working marker, `Some(false)` on an idle marker, `None` otherwise or when

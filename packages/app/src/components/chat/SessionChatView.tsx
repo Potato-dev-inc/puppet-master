@@ -2,10 +2,12 @@
 // call as one row (click to see its output) and a divider where a turn ended. Text is plain (no markdown).
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { SessionChatState } from '../../hooks/useSessionChat';
-import type { ChatTurn, ToolStep, TurnStep } from '../../lib/sessionChat';
+import type { ChatSource, ChatTurn, ToolStep, TurnStep } from '../../lib/sessionChat';
 import '../../styles/cockpit-chat.css';
 
 export const SESSION_CHAT_NOTE = 'Read-only. Approvals and questions still appear in the terminal.';
+/** Under the note when the chat is read off the terminal's text: a reading, not the agent's own record. */
+export const SCREEN_CHAT_NOTE = 'Read from the screen: text may be cut or wrapped.';
 
 /** Within this many pixels of the end counts as "at the bottom" (auto-scroll follows only then). */
 const AT_BOTTOM_PX = 24;
@@ -15,6 +17,8 @@ export interface SessionChatViewProps {
   reason: string | null;
   /** What an empty chat is waiting for, under the waiting line (where the reader looks). */
   waitingFor?: string | null;
+  /** Where the items are read from. `screen`: the terminal's text (no tool output; text may be cut or wrapped). */
+  source?: ChatSource | null;
   turns: ChatTurn[];
   model: string | null;
   cliVersion: string | null;
@@ -34,9 +38,11 @@ const STATUS_LABEL: Record<ToolStep['status'], string> = {
   error: 'error',
 };
 
-function ToolRow({ step }: { step: ToolStep }) {
+function ToolRow({ step, fromScreen }: { step: ToolStep; fromScreen: boolean }) {
   const [open, setOpen] = useState(false);
   const { call, result, status } = step;
+  // A tool row read off the screen is just the row: no name, no result and no status to report.
+  const label = fromScreen ? null : STATUS_LABEL[status];
   return (
     <div>
       <button
@@ -45,25 +51,27 @@ function ToolRow({ step }: { step: ToolStep }) {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left hover:bg-pm-raised ck-chat-tool"
       >
-        <span className="shrink-0 font-mono text-pm-text ck-chat-tool-name">{call.name}</span>
+        {call.name && <span className="shrink-0 font-mono text-pm-text ck-chat-tool-name">{call.name}</span>}
         <span className="min-w-0 flex-1 truncate font-mono text-pm-muted ck-chat-tool-summary" title={call.summary}>
           {call.summary}
         </span>
-        <span className={`shrink-0 text-[10px] ${status === 'error' ? 'text-pm-err' : 'text-pm-muted'} ck-chat-tool-status${status === 'error' ? ' ck-chat-tool-status--error' : ''}`}>
-          {STATUS_LABEL[status]}
-        </span>
+        {label && (
+          <span className={`shrink-0 text-[10px] ${status === 'error' ? 'text-pm-err' : 'text-pm-muted'} ck-chat-tool-status${status === 'error' ? ' ck-chat-tool-status--error' : ''}`}>
+            {label}
+          </span>
+        )}
       </button>
       {open && (
         <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-pm-border bg-pm-panel p-1.5 font-mono text-[11px] text-pm-muted ck-chat-output">
-          {result ? result.output : 'No output yet.'}
+          {result ? result.output : fromScreen ? 'Tool output is not read from the screen.' : 'No output yet.'}
         </pre>
       )}
     </div>
   );
 }
 
-function Step({ step }: { step: TurnStep }) {
-  if (step.kind === 'tool') return <ToolRow step={step} />;
+function Step({ step, fromScreen }: { step: TurnStep; fromScreen: boolean }) {
+  if (step.kind === 'tool') return <ToolRow step={step} fromScreen={fromScreen} />;
   return <div className="whitespace-pre-wrap break-words ck-chat-text">{step.item.text}</div>;
 }
 
@@ -80,7 +88,7 @@ function TurnEndDivider({ turn }: { turn: ChatTurn }) {
   );
 }
 
-function TurnView({ turn }: { turn: ChatTurn }) {
+function TurnView({ turn, fromScreen }: { turn: ChatTurn; fromScreen: boolean }) {
   return (
     <section className="space-y-1.5 ck-chat-turn">
       {turn.user && (
@@ -91,14 +99,15 @@ function TurnView({ turn }: { turn: ChatTurn }) {
         </div>
       )}
       {turn.steps.map((step) => (
-        <Step key={step.id} step={step} />
+        <Step key={step.id} step={step} fromScreen={fromScreen} />
       ))}
       {turn.end && <TurnEndDivider turn={turn} />}
     </section>
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, turns, model, cliVersion }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion }: SessionChatViewProps) {
+  const fromScreen = source === 'screen';
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
 
@@ -119,7 +128,14 @@ export function SessionChatView({ state, reason, waitingFor, turns, model, cliVe
         <span className="min-w-0 truncate ck-chat-model">{model ?? 'Model not known yet'}</span>
         {cliVersion && <span className="shrink-0 text-pm-muted ck-chat-cli">CLI {cliVersion}</span>}
       </header>
-      <p className="border-b border-pm-border px-2 py-1 text-[11px] text-pm-muted ck-chat-note">{SESSION_CHAT_NOTE}</p>
+      <p className="border-b border-pm-border px-2 py-1 text-[11px] text-pm-muted ck-chat-note">
+        {SESSION_CHAT_NOTE}
+        {fromScreen && (
+          <span className="block ck-chat-screen-note" data-testid="session-chat-screen-note">
+            {SCREEN_CHAT_NOTE}
+          </span>
+        )}
+      </p>
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2 ck-chat-body">
         {state === 'unavailable' && (
           <div className="ck-empty ck-chat-empty">
@@ -129,13 +145,15 @@ export function SessionChatView({ state, reason, waitingFor, turns, model, cliVe
         )}
         {state !== 'unavailable' && turns.length === 0 && (
           <div className="ck-chat-waiting">
-            <p className="ck-sub text-pm-muted">Waiting for the agent&apos;s session file…</p>
+            <p className="ck-sub text-pm-muted">
+              {fromScreen ? 'Waiting for a message on the terminal…' : "Waiting for the agent's session file…"}
+            </p>
             {waitingFor && (
               <p className="mt-0.5 break-words text-[11px] text-pm-muted opacity-70 ck-chat-waiting-for">{waitingFor}</p>
             )}
           </div>
         )}
-        {state !== 'unavailable' && turns.map((turn) => <TurnView key={turn.id} turn={turn} />)}
+        {state !== 'unavailable' && turns.map((turn) => <TurnView key={turn.id} turn={turn} fromScreen={fromScreen} />)}
       </div>
     </div>
   );
