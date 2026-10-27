@@ -166,3 +166,85 @@ fn only_the_context_size_is_kept_of_the_model_list() {
     assert_eq!(table.get("a/m1"), Some(&1000));
     assert_eq!(table.get("b/m1"), Some(&2000));
 }
+
+// ---- two OpenCode panes in one folder (safety net) ----
+//
+// Every OpenCode pane serves its own API, but the folder's sessions are shared: each server lists the sessions of
+// every pane in the folder. A pane must not show the conversation of the pane next to it.
+
+fn started_ms() -> u64 {
+    pane().started_at.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+}
+
+/// A server for one pane: the folder's session list (the same for every pane), what this pane's server works on, and
+/// the messages of the sessions it can read (`/session/<id>/message`).
+fn pane_server(list: serde_json::Value, busy: serde_json::Value, readable: &'static [&'static str]) -> FakeServer {
+    FakeServer::start(move |path| match path {
+        "/session" => Some(list.to_string()),
+        "/session/status" => Some(busy.to_string()),
+        other => readable.iter().any(|id| other == format!("/session/{id}/message")).then(|| TURN.to_string()),
+    })
+}
+
+/// Registers `server` as the API of the TUI pane `pane_id`; the pane's entry goes when the guard drops.
+struct Served(&'static str);
+
+impl Drop for Served {
+    fn drop(&mut self) {
+        ports().lock().remove(self.0);
+    }
+}
+
+fn serve_pane(pane_id: &'static str, server: &FakeServer) -> Served {
+    let port: u16 = server.base_url.rsplit(':').next().unwrap().parse().unwrap();
+    ports().lock().insert(pane_id.to_string(), port);
+    Served(pane_id)
+}
+
+#[test]
+fn a_pane_that_has_not_sent_anything_does_not_show_the_session_a_working_pane_next_to_it_holds() {
+    let started = started_ms();
+    let list = json!([{"id": "ses_b1", "time": {"created": started + 100, "updated": started + 9_000}}]);
+    // B works on ses_b1; A's server knows no work at all. Both list the same shared folder.
+    let server_b = pane_server(list.clone(), json!({"ses_b1": {"type": "busy"}}), &["ses_b1"]);
+    let server_a = pane_server(list, json!({}), &["ses_b1"]);
+    let _server_a = serve_pane("pane-safety-oc-1a", &server_a);
+    let _server_b = serve_pane("pane-safety-oc-1b", &server_b);
+
+    let error = API.fetch(&pane(), &endpoint(&server_a, None)).unwrap_err();
+    assert!(error.contains("no session yet"), "A has no session of its own: its chat falls back to the screen. {error}");
+    assert!(API.fetch(&pane(), &endpoint(&server_b, None)).is_ok(), "B reads the session its server works on");
+}
+
+#[test]
+fn two_panes_with_a_session_each_read_their_own_whoever_touched_theirs_last() {
+    let started = started_ms();
+    let list = json!([
+        {"id": "ses_b2", "time": {"created": started + 100, "updated": started + 9_000}},
+        {"id": "ses_a2", "time": {"created": started + 200, "updated": started + 3_000}},
+    ]);
+    // A's server can read only ses_a2 and B's only ses_b2: whichever session a pane picks, the other fails to load.
+    let server_a = pane_server(list.clone(), json!({}), &["ses_a2"]);
+    let server_b = pane_server(list, json!({"ses_b2": {"type": "busy"}}), &["ses_b2"]);
+    let _server_a = serve_pane("pane-safety-oc-2a", &server_a);
+    let _server_b = serve_pane("pane-safety-oc-2b", &server_b);
+
+    assert!(API.fetch(&pane(), &endpoint(&server_a, None)).is_ok(), "A (idle, older session) reads ses_a2, not B's newer one");
+    assert!(API.fetch(&pane(), &endpoint(&server_b, None)).is_ok(), "B reads ses_b2");
+    // A again, a moment later: still its own.
+    assert!(API.fetch(&pane(), &endpoint(&server_a, None)).is_ok());
+}
+
+#[test]
+fn the_session_another_pane_showed_before_is_not_taken_by_a_pane_with_none() {
+    let started = started_ms();
+    let list = json!([{"id": "ses_b3", "time": {"created": started + 100, "updated": started + 4_000}}]);
+    let server_a = pane_server(list.clone(), json!({}), &["ses_b3"]);
+    let server_b = pane_server(list, json!({}), &["ses_b3"]);
+    let _server_a = serve_pane("pane-safety-oc-3a", &server_a);
+    let _server_b = serve_pane("pane-safety-oc-3b", &server_b);
+    // B is idle but showed ses_b3 before (its chat was open): that session is B's.
+    assert!(API.fetch(&pane(), &endpoint(&server_b, None)).is_ok());
+    let error = API.fetch(&pane(), &endpoint(&server_a, None)).unwrap_err();
+    assert!(error.contains("no session yet"), "{error}");
+}

@@ -3,6 +3,8 @@ use crate::pty::agent_proc::ProcEntry;
 use std::collections::HashMap;
 
 const NOW: u64 = 1_000_000;
+/// The start time a job was listed with, and that the system reports for it now (nothing replaced it).
+const SEEN: u64 = NOW - 60_000;
 
 fn row(pid: u32, parent: u32, image: &str, age_ms: u64, command: &str) -> Row {
     Row { pid, parent, image: image.into(), started_ms: Some(NOW - age_ms), command: command.into() }
@@ -162,41 +164,74 @@ fn table() -> Vec<ProcEntry> {
 
 #[test]
 fn stop_is_allowed_for_anything_below_the_agent_or_the_pane() {
-    assert_eq!(authorize_stop(&table(), 10, Some(11), 20), Ok(()));
-    assert_eq!(authorize_stop(&table(), 10, Some(11), 21), Ok(()));
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 20, SEEN, Some(SEEN)), Ok(()));
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 21, SEEN, Some(SEEN)), Ok(()));
     // The agent is not known yet: the pane's own process is the scope.
-    assert_eq!(authorize_stop(&table(), 10, None, 20), Ok(()));
+    assert_eq!(authorize_stop(&table(), 10, None, 20, SEEN, Some(SEEN)), Ok(()));
 }
 
 #[test]
 fn stop_refuses_the_agent_the_pane_and_pid_zero() {
-    assert_eq!(authorize_stop(&table(), 10, Some(11), 11), Err(Refusal::Itself));
-    assert_eq!(authorize_stop(&table(), 10, Some(11), 10), Err(Refusal::Itself));
-    assert_eq!(authorize_stop(&table(), 10, Some(11), 0), Err(Refusal::Itself));
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 11, SEEN, Some(SEEN)), Err(Refusal::Itself));
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 10, SEEN, Some(SEEN)), Err(Refusal::Itself));
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 0, SEEN, Some(SEEN)), Err(Refusal::Itself));
 }
 
 #[test]
 fn stop_refuses_a_process_outside_the_pane() {
     for pid in [1, 30, 31] {
-        assert_eq!(authorize_stop(&table(), 10, Some(11), pid), Err(Refusal::NotInPane), "pid {pid}");
+        assert_eq!(authorize_stop(&table(), 10, Some(11), pid, SEEN, Some(SEEN)), Err(Refusal::NotInPane), "pid {pid}");
     }
 }
 
 #[test]
 fn stop_refuses_plumbing_and_a_pid_that_is_gone() {
-    assert_eq!(authorize_stop(&table(), 10, Some(11), 12), Err(Refusal::NotInPane));
-    assert_eq!(authorize_stop(&table(), 10, Some(11), 40), Err(Refusal::NotInPane));
-    assert_eq!(authorize_stop(&table(), 10, Some(11), 999), Err(Refusal::Gone));
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 12, SEEN, Some(SEEN)), Err(Refusal::NotInPane));
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 40, SEEN, Some(SEEN)), Err(Refusal::NotInPane));
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 999, SEEN, Some(SEEN)), Err(Refusal::Gone));
     assert!(!Refusal::NotInPane.message().is_empty());
+}
+
+// ---- a reused process id (safety net) ----
+
+/// The job python (20) ended after the card listed it, and the system gave pid 20 to a new process. The new
+/// one is below the pane too (the agent started it), so the parent chain alone cannot tell: the start time does.
+#[test]
+fn stop_refuses_a_pid_the_system_gave_to_a_new_process_even_when_it_is_below_the_pane() {
+    let later = SEEN + 90_000;
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 20, SEEN, Some(later)), Err(Refusal::Replaced));
+    // One millisecond off is another process too: the listed start is compared exactly.
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 20, SEEN, Some(SEEN + 1)), Err(Refusal::Replaced));
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 20, SEEN, Some(SEEN)), Ok(()));
+}
+
+#[test]
+fn stop_refuses_when_the_system_will_not_say_when_the_process_started_or_the_card_sent_no_start() {
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 20, SEEN, None), Err(Refusal::Replaced), "cannot tell: not stopped");
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 20, 0, Some(0)), Err(Refusal::Replaced), "a start of 0 is no start");
+    assert!(!Refusal::Replaced.message().is_empty());
+}
+
+#[test]
+fn a_reused_pid_that_landed_outside_the_pane_is_still_refused_as_not_in_the_pane() {
+    // pid 30 belongs to another tree: the chain check answers first, whatever its start time.
+    assert_eq!(authorize_stop(&table(), 10, Some(11), 30, SEEN, Some(SEEN)), Err(Refusal::NotInPane));
+}
+
+#[test]
+fn the_stop_the_job_row_sends_carries_the_start_time_it_was_listed_with() {
+    let rows = [row(11, 10, "node.exe", 600_000, "node agent.js"), row(20, 11, "python.exe", 60_000, "python -m http.server")];
+    let jobs = select(&rows, &no_ports(), Some((11, None)), &[], NOW);
+    assert_eq!(jobs[0].started_at_ms, SEEN, "the card sends this value back with the pid");
 }
 
 #[test]
 fn a_job_the_agent_started_is_still_stoppable_after_the_agent_exited() {
     // The agent (11) is gone from the table but was seen; its orphan keeps the old parent pid.
     let procs = vec![entry(10, 1, "powershell.exe"), entry(20, 11, "python.exe")];
-    assert_eq!(authorize_stop(&procs, 10, Some(11), 20), Ok(()));
+    assert_eq!(authorize_stop(&procs, 10, Some(11), 20, SEEN, Some(SEEN)), Ok(()));
     // Without that record the orphan is not provably this pane's.
-    assert_eq!(authorize_stop(&procs, 10, None, 20), Err(Refusal::NotInPane));
+    assert_eq!(authorize_stop(&procs, 10, None, 20, SEEN, Some(SEEN)), Err(Refusal::NotInPane));
 }
 
 #[cfg(windows)]
@@ -227,10 +262,15 @@ mod windows {
         let me = std::process::id();
         let pane = super::super::PaneRef { id: "test-pane-jobs".into(), agent_type: "shell".into(), pid: me };
         // The child is below this test process: it is "the pane", so the child is a job of it.
-        let refused = super::super::stop_job(&pane, 4).unwrap_err();
+        let refused = super::super::stop_job(&pane, 4, 1).unwrap_err();
         assert!(refused.contains("not run under this pane") || refused.contains("already gone"), "{refused}");
         assert!(pid_alive(child.id()), "a refusal kills nothing");
-        super::super::stop_job(&pane, child.id()).expect("child is below the pane");
+        let started = sys::details(child.id()).started_ms.expect("the child's start time");
+        // A pid that a new process now holds: right pane chain, wrong start time. Nothing is killed.
+        let reused = super::super::stop_job(&pane, child.id(), started - 5_000).unwrap_err();
+        assert!(reused.contains("ended") && reused.contains("Nothing was stopped"), "{reused}");
+        assert!(pid_alive(child.id()) && pid_alive(grandchild), "a reused pid kills nothing");
+        super::super::stop_job(&pane, child.id(), started).expect("child is below the pane");
         let _ = child.wait();
         assert!(wait_until_dead(child.id()));
         assert!(wait_until_dead(grandchild), "its tree goes with it");

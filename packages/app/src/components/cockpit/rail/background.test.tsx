@@ -79,13 +79,14 @@ describe('BackgroundCard', () => {
     expect(a.stop).not.toHaveBeenCalled();
   });
 
-  it('stops exactly that pid of that pane on Yes', async () => {
+  it('stops exactly that pid of that pane, with the start time the job was listed with, on Yes', async () => {
     const a = api();
-    act(() => root.render(<BackgroundCard paneId="p1" jobs={[job(7), job(8)]} api={a} />));
+    act(() => root.render(<BackgroundCard paneId="p1" jobs={[job(7, { startedAtMs: 1_700_000_000_123 }), job(8)]} api={a} />));
     click(host.querySelectorAll('.ck-job-stop')[0]);
     await act(async () => click(button('Yes')));
     expect(a.stop).toHaveBeenCalledTimes(1);
-    expect(a.stop).toHaveBeenCalledWith('p1', 7);
+    // The start time travels with the pid: a pid the system reused for a new process has another one, and is refused.
+    expect(a.stop).toHaveBeenCalledWith('p1', 7, 1_700_000_000_123);
   });
 
   it('says why when the stop is refused', async () => {

@@ -227,6 +227,11 @@ pub fn pinned_session(pane_id: &str) -> Option<String> {
     LEDGERS.lock().get(pane_id).and_then(|l| l.pinned_session.clone())
 }
 
+/// The agent session ids every pane except `pane_id` is pinned to now: what a pane must not take for its own.
+pub fn pinned_sessions_except(pane_id: &str) -> Vec<String> {
+    LEDGERS.lock().iter().filter(|(id, _)| id.as_str() != pane_id).filter_map(|(_, ledger)| ledger.pinned_session.clone()).collect()
+}
+
 /// True once any pane of this agent has reported (the doctor's "connected").
 pub fn agent_ever_connected(agent: &str) -> bool {
     EVER_CONNECTED.lock().contains(agent)

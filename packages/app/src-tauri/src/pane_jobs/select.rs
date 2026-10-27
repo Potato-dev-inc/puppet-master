@@ -183,6 +183,9 @@ pub enum Refusal {
     Itself,
     Gone,
     NotInPane,
+    /// The pid is below the pane, but it is not the process the person saw: it started at another time (the
+    /// job ended and the system gave its pid to a new process), or the system would not say when it started.
+    Replaced,
 }
 
 impl Refusal {
@@ -191,14 +194,17 @@ impl Refusal {
             Refusal::Itself => "That is the agent itself, not a background job.",
             Refusal::Gone => "That job is already gone.",
             Refusal::NotInPane => "That process does not run under this pane, so it was not stopped.",
+            Refusal::Replaced => "That job has ended, and its process id now belongs to something else. Nothing was stopped.",
         }
     }
 }
 
 /// May `pid` be stopped for this pane, judged on a fresh process table? Only a process that is
 /// right now below the pane's process (or below its agent, which may have outlived the shell
-/// record) and is neither of them.
-pub fn authorize_stop(procs: &[ProcEntry], root: u32, agent: Option<u32>, pid: u32) -> Result<(), Refusal> {
+/// record), is neither of them, and is still the process the person saw: the system hands a free
+/// pid to the next new process, so the start time listed with the job (`listed_start_ms`) must
+/// equal the start time the system reports now (`started_ms_now`, `None` when it will not say).
+pub fn authorize_stop(procs: &[ProcEntry], root: u32, agent: Option<u32>, pid: u32, listed_start_ms: u64, started_ms_now: Option<u64>) -> Result<(), Refusal> {
     if pid == 0 || pid == root || Some(pid) == agent {
         return Err(Refusal::Itself);
     }
@@ -210,9 +216,11 @@ pub fn authorize_stop(procs: &[ProcEntry], root: u32, agent: Option<u32>, pid: u
     }
     let mut seeds = vec![root];
     seeds.extend(agent);
-    if descendant_pids(procs, &seeds).contains(&pid) {
-        Ok(())
-    } else {
-        Err(Refusal::NotInPane)
+    if !descendant_pids(procs, &seeds).contains(&pid) {
+        return Err(Refusal::NotInPane);
     }
+    if listed_start_ms == 0 || started_ms_now != Some(listed_start_ms) {
+        return Err(Refusal::Replaced);
+    }
+    Ok(())
 }

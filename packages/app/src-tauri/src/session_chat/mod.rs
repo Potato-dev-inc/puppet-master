@@ -6,6 +6,7 @@
 //! file, `screen` reads the chat off the screen and `watch` keeps one reader per open pane and sends what it reads.
 
 pub mod api;
+mod claims;
 pub mod declared;
 pub mod detail;
 pub mod items;

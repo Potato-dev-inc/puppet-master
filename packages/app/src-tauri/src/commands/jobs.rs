@@ -28,9 +28,10 @@ pub fn pane_jobs_all(state: State<'_, AppState>) -> HashMap<String, Vec<Job>> {
     crate::pane_jobs::jobs_for_panes(&pane_refs(&state, None))
 }
 
-/// Stop one job (and its tree). Refused unless `pid` is below that pane's process right now.
+/// Stop one job (and its tree). Refused unless `pid` is below that pane's process right now and started at
+/// `started_at_ms` (the start time the card listed it with), so a reused process id is never stopped.
 #[tauri::command(async)]
-pub fn pane_job_stop(state: State<'_, AppState>, pane_id: String, pid: u32) -> Result<(), String> {
+pub fn pane_job_stop(state: State<'_, AppState>, pane_id: String, pid: u32, started_at_ms: u64) -> Result<(), String> {
     let pane = pane_refs(&state, Some(&pane_id)).pop().ok_or("That pane is not open any more.")?;
-    crate::pane_jobs::stop_job(&pane, pid)
+    crate::pane_jobs::stop_job(&pane, pid, started_at_ms)
 }

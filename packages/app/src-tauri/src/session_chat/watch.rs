@@ -13,6 +13,7 @@ use chrono::{DateTime, Local};
 use parking_lot::Mutex;
 
 use super::api::{ApiEndpoint, ApiFollower, ChatFrom, SessionApi};
+use super::claims::Claims;
 use super::items::read_lines;
 use super::model::ChatItem;
 use super::screen::{ScreenFollower, ScreenRead};
@@ -46,6 +47,11 @@ pub trait PaneLookup: Send + Sync {
     /// Where the pane's agent serves its session API (`None`: it does not, or not yet).
     fn api(&self, _pane_id: &str) -> Option<ApiEndpoint> {
         None
+    }
+    /// The agent session ids every other pane is pinned to (from their hooks): a file named after one of them is
+    /// that pane's conversation, never this pane's.
+    fn other_sessions(&self, _pane_id: &str) -> Vec<String> {
+        Vec::new()
     }
 }
 
@@ -87,11 +93,71 @@ pub(super) struct Follower {
     last_locate: Option<Instant>,
     /// The last answer was `Ambiguous`.
     ambiguous: bool,
+    /// The pane's id and the table of who follows what (`Watchers` gives it; a bare follower in a test has none).
+    claim: Option<(String, Arc<Claims>)>,
+    /// The session ids other panes are pinned to (`PaneLookup::other_sessions`), as of the last look.
+    others: Vec<String>,
+}
+
+impl Drop for Follower {
+    fn drop(&mut self) {
+        if let Some((pane, claims)) = &self.claim {
+            claims.forget(pane);
+        }
+    }
 }
 
 impl Follower {
     pub(super) fn new(source: &'static dyn SessionSource) -> Self {
-        Follower { source, file: None, tail: None, last_locate: None, ambiguous: false }
+        Follower { source, file: None, tail: None, last_locate: None, ambiguous: false, claim: None, others: Vec::new() }
+    }
+
+    /// A follower that tells `claims` which file it follows, and leaves alone the file a sibling follows.
+    pub(super) fn claiming(source: &'static dyn SessionSource, pane_id: &str, claims: Arc<Claims>) -> Self {
+        let mut follower = Follower::new(source);
+        follower.claim = Some((pane_id.to_string(), claims));
+        follower
+    }
+
+    /// The session ids the other panes are pinned to, for the next `locate`.
+    pub(super) fn set_others(&mut self, others: Vec<String>) {
+        self.others = others;
+    }
+
+    /// Whether a file the source picked may be this pane's. A file this pane already follows, or one named after this
+    /// pane's own session id, is. A file named after another pane's session id is not. A file another pane follows is
+    /// not either; a pane that follows a file does not move to another while a sibling runs in its folder; and where a
+    /// missing file leaves the screen to be read (`screen_until_found`) no file is taken for a pane without a session
+    /// id while a sibling is still looking for its own: nothing tells whose it is. Such a pick is answered as
+    /// `Ambiguous`, which keeps what the pane shows and asks again.
+    fn vet(&self, located: Located, facts: &PaneFacts) -> Located {
+        let Located::Found(path) = &located else { return located };
+        if self.file.as_ref() == Some(path) {
+            return located;
+        }
+        let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        let id = facts.provider_session_id.as_deref().filter(|id| !id.is_empty());
+        if id.is_some_and(|id| name.contains(id)) {
+            return located;
+        }
+        let foreign = self.others.iter().any(|other| other.len() >= 8 && id != Some(other.as_str()) && name.contains(other.as_str()));
+        let claimed = self.claim.as_ref().is_some_and(|(pane, claims)| {
+            let source = source_key(self.source);
+            claims.held_by_other(pane, source, &facts.cwd, path)
+                // Following one file, a newer one in a folder shared with a sibling is as likely the sibling's as a new session.
+                || (self.file.is_some() && claims.has_sibling(pane, source, &facts.cwd))
+                || (self.file.is_none() && id.is_none() && self.source.screen_until_found() && claims.rival_searching(pane, source, &facts.cwd))
+        });
+        if foreign || claimed {
+            return Located::Ambiguous(vec![path.clone()]);
+        }
+        located
+    }
+
+    fn note_claim(&self, facts: &PaneFacts) {
+        if let Some((pane, claims)) = &self.claim {
+            claims.note(pane, source_key(self.source), &facts.cwd, self.file.as_deref());
+        }
     }
 
     pub(super) fn step(&mut self, facts: &PaneFacts, now: Instant, relocate: Duration) -> Change {
@@ -100,6 +166,7 @@ impl Follower {
             self.last_locate = Some(now);
             // Ambiguous and NotYet keep the file already followed; only a different file replaces it.
             let located = self.source.locate(facts);
+            let located = self.vet(located, facts);
             self.ambiguous = matches!(located, Located::Ambiguous(_));
             if let Located::Found(path) = located {
                 if self.file.as_ref() != Some(&path) {
@@ -109,6 +176,7 @@ impl Follower {
                 }
             }
         }
+        self.note_claim(facts);
         let Some(tail) = self.tail.as_mut() else {
             return Change::Nothing;
         };
@@ -128,6 +196,11 @@ impl Follower {
             Err(_) => Change::Nothing,
         }
     }
+}
+
+/// Which agent's source this is, for telling panes of one agent from panes of another.
+fn source_key(source: &'static dyn SessionSource) -> usize {
+    source as *const dyn SessionSource as *const () as usize
 }
 
 /// A folder as the person reads it: the home folder is written `~`, so a sentence on the screen (or in a shared
@@ -177,7 +250,11 @@ impl Reader {
     /// One look at the pane; `None` when the pane is gone.
     fn step(&mut self, panes: &dyn PaneLookup, pane_id: &str, now: Instant, relocate: Duration) -> Option<Change> {
         match self {
-            Reader::File(follower) => Some(follower.step(&panes.facts(pane_id)?, now, relocate)),
+            Reader::File(follower) => {
+                let facts = panes.facts(pane_id)?;
+                follower.set_others(panes.other_sessions(pane_id));
+                Some(follower.step(&facts, now, relocate))
+            }
             Reader::Screen(follower) => follower.step(panes, pane_id),
             Reader::Api(follower) => follower.step(panes, pane_id),
             Reader::ScreenFirst(follower) => follower.step(panes, pane_id, now, relocate),
@@ -290,6 +367,8 @@ pub struct Watchers {
     tuning: Tuning,
     open: Mutex<HashMap<String, Arc<Watch>>>,
     alive: Arc<AtomicUsize>,
+    /// Which pane follows which file (see `claims`).
+    claims: Arc<Claims>,
 }
 
 impl Watchers {
@@ -298,13 +377,13 @@ impl Watchers {
     }
 
     pub fn with_tuning(sink: Arc<dyn Sink>, panes: Arc<dyn PaneLookup>, tuning: Tuning) -> Self {
-        Watchers { sink, panes, tuning, open: Mutex::new(HashMap::new()), alive: Arc::new(AtomicUsize::new(0)) }
+        Watchers { sink, panes, tuning, open: Mutex::new(HashMap::new()), alive: Arc::new(AtomicUsize::new(0)), claims: Arc::new(Claims::default()) }
     }
 
     /// Starts following the pane (once) and returns the items so far, read before this returns when the
     /// file is already there. Opening an open pane returns its current items and starts nothing.
     pub fn open<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, source: &'static dyn SessionSource) -> Vec<ChatItem> {
-        self.open_reader(pane_id, hold.into(), Reader::File(Follower::new(source)))
+        self.open_reader(pane_id, hold.into(), Reader::File(Follower::claiming(source, pane_id, self.claims.clone())))
     }
 
     /// As `open`, for an agent that serves its session over an API: the chat is read from there, and from the
@@ -316,7 +395,7 @@ impl Watchers {
     /// As `open`, for an agent whose file may never be found: the chat is read from the pane's screen until the file
     /// has something to show, and from the file after that.
     pub fn open_screen_first<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, source: &'static dyn SessionSource, agent_type: &str) -> Vec<ChatItem> {
-        self.open_reader(pane_id, hold.into(), Reader::ScreenFirst(ScreenFirstFollower::new(Follower::new(source), agent_type)))
+        self.open_reader(pane_id, hold.into(), Reader::ScreenFirst(ScreenFirstFollower::new(Follower::claiming(source, pane_id, self.claims.clone()), agent_type)))
     }
 
     /// As `open`, for an agent with no session file: the chat is read from the pane's screen.
