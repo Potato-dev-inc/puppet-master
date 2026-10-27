@@ -498,3 +498,8 @@
 .cockpit .ck-chat-end-text {
   white-space: nowrap;
 }
+
+/* The questions of a pane's helpers: the Inbox's own compact cards, one under the other, scrolling on their own. */
+.cockpit .ck-chat-dock .ck-helper-asks {
+  gap: 8px;
+}
