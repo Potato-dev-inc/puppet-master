@@ -10,9 +10,11 @@ import { blockingItems, itemsOfKind, needsYouPaneIds } from '../../lib/attention
 import { activityText } from '../../lib/pane-activity';
 import { mainPreview, type PreviewUrl } from '../../lib/pane-preview';
 import '../../styles/live-preview.css';
+import '../../styles/cockpit-helpers.css';
 import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
-import { formatElapsed, groupPanes, spinnerStatus } from './model';
+import { formatElapsed, spinnerStatus } from './model';
+import { groupHelperTree, helperChipText, type HelperNode } from '../../lib/pane-helpers';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
@@ -40,7 +42,15 @@ export function Sidebar({
   // The same list the Inbox badge and the Doto counter use, so the three numbers always agree.
   const needs = useNeedsYou(c);
   const questionPanes = needsYouPaneIds(needs);
-  const groups = groupPanes(list, questionPanes);
+  const groups = groupHelperTree(list, questionPanes);
+  // Parents whose helpers the person folded away (the helpers that need you stay listed in Needs you).
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const toggleFolded = (id: string) =>
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   const waiting = blockingItems(needs).length;
   // Questions agents asked through ask_user: they belong to no pane row, so they get a row of their own.
   const asks = itemsOfKind(blockingItems(needs), 'question').length;
@@ -124,50 +134,81 @@ export function Sidebar({
     };
   }, [menuOpen]);
 
-  const section = (title: string, items: typeof list, count?: number, extraRow = 0) =>
+  type Pane = (typeof list)[number];
+  const paneTitle = (p: Pane) => paneHeading(p.info, c.names.get(p.info.id) ?? p.info.agent_type).primary;
+  const row = (p: Pane, awayFrom?: Pane) => {
+    const id = p.info.id;
+    const since = c.statusSince.get(id);
+    const active = c.selectedId === id && !c.spawn;
+    const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
+    const detail =
+      activityText(p.status, c.activities?.[id]) ??
+      (p.status === 'error' ? `Error · ${projectWithCopy(p.info.cwd)}` : projectWithCopy(p.info.cwd));
+    const subline = paneSubline(
+      p.info,
+      c.names.get(id) ?? p.info.agent_type,
+      // Away from its parent (in Needs you) a helper says whose it is.
+      awayFrom ? `Helper of ${paneTitle(awayFrom)} · ${detail}` : detail,
+      multiLogin,
+    );
+    return (
+      <button
+        key={id}
+        type="button"
+        className={`ck-row${active ? ' is-active' : ''}${p.status === 'waiting_input' || questionPanes.has(id) ? ' is-needs' : ''}`}
+        onClick={() => c.select(id)}
+        title={lastTurn.get(id)?.sentence}
+        aria-current={active ? 'true' : undefined}
+      >
+        <span className="ck-row-glyph">
+          <DotSpinner status={spinnerStatus(p.status)} />
+        </span>
+        <span className="ck-row-main" title={[...new Set([heading.primary, subline, projectWithCopy(p.info.cwd)])].join(' · ')}>
+          <span className="ck-row-title">{heading.primary}</span>
+          <span className="ck-row-sub">{subline}</span>
+        </span>
+        {mainPreview(c.previews, id) && (
+          <span className="ck-row-preview" title={`Has a preview · ${previewAddress(mainPreview(c.previews, id)!)}`} role="img" aria-label="Has a preview">
+            <IconGlobe />
+          </span>
+        )}
+        <span className="ck-row-time">{since ? formatElapsed(c.now - since) : ''}</span>
+      </button>
+    );
+  };
+  // A row, and under it its helpers: indented behind a thin guide line, folded by the "N helpers" chip.
+  const node = (n: HelperNode<Pane>): JSX.Element => {
+    const id = n.pane.info.id;
+    if (n.helpers.length === 0) return row(n.pane, n.awayFrom);
+    const open = !folded.has(id);
+    return (
+      <div key={id} className="ck-node">
+        {row(n.pane, n.awayFrom)}
+        <div className="ck-helpers" role="group" aria-label={`Helpers of ${paneTitle(n.pane)}`}>
+          <button
+            type="button"
+            className="ck-helper-chip"
+            onClick={() => toggleFolded(id)}
+            aria-expanded={open}
+            title={open ? 'Hide helpers' : 'Show helpers'}
+          >
+            {helperChipText(n)}
+            <span className={`ck-helper-caret${open ? ' is-open' : ''}`} aria-hidden="true" />
+          </button>
+          {open && n.helpers.map(node)}
+        </div>
+      </div>
+    );
+  };
+
+  const section = (title: string, items: HelperNode<Pane>[], count?: number, extraRow = 0) =>
     items.length === 0 && extraRow === 0 ? null : (
       <div className="ck-group" key={title}>
         <div className="ck-caption">
           {title}
           {count ? <span className="ck-caption-count">{count}</span> : null}
         </div>
-        {items.map((p) => {
-          const id = p.info.id;
-          const since = c.statusSince.get(id);
-          const active = c.selectedId === id && !c.spawn;
-          const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
-          const subline = paneSubline(
-            p.info,
-            c.names.get(id) ?? p.info.agent_type,
-            activityText(p.status, c.activities?.[id]) ??
-              (p.status === 'error' ? `Error · ${projectWithCopy(p.info.cwd)}` : projectWithCopy(p.info.cwd)),
-            multiLogin,
-          );
-          return (
-            <button
-              key={id}
-              type="button"
-              className={`ck-row${active ? ' is-active' : ''}${p.status === 'waiting_input' || questionPanes.has(id) ? ' is-needs' : ''}`}
-              onClick={() => c.select(id)}
-              title={lastTurn.get(id)?.sentence}
-              aria-current={active ? 'true' : undefined}
-            >
-              <span className="ck-row-glyph">
-                <DotSpinner status={spinnerStatus(p.status)} />
-              </span>
-              <span className="ck-row-main" title={[...new Set([heading.primary, subline, projectWithCopy(p.info.cwd)])].join(' · ')}>
-                <span className="ck-row-title">{heading.primary}</span>
-                <span className="ck-row-sub">{subline}</span>
-              </span>
-              {mainPreview(c.previews, id) && (
-                <span className="ck-row-preview" title={`Has a preview · ${previewAddress(mainPreview(c.previews, id)!)}`} role="img" aria-label="Has a preview">
-                  <IconGlobe />
-                </span>
-              )}
-              <span className="ck-row-time">{since ? formatElapsed(c.now - since) : ''}</span>
-            </button>
-          );
-        })}
+        {items.map(node)}
         {extraRow > 0 && (
           <button type="button" className="ck-row" onClick={() => c.select(null)}>
             <span className="ck-row-glyph">

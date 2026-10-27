@@ -9,6 +9,7 @@ use uuid::Uuid;
 mod authorize;
 mod identity;
 mod ownership;
+mod pane_hint;
 mod pane_ids;
 mod reconnect;
 
