@@ -373,7 +373,8 @@ pub fn spawn_pane(
                             // waiting_input and whenever the detected prompt changes.
                             let waiting = *status.lock() == PaneStatus::WaitingInput;
                             if let Some(prompt) = crate::pane_prompt::next_prompt_event(&mut prompt_track, waiting, || {
-                                crate::pane_prompt::detect_in_screen(&agent_type, &last_snapshot, false)
+                                // The pane is waiting: a menu no profile describes still gets its card by shape.
+                                crate::pane_prompt::detect_in_screen_with_status(&agent_type, &last_snapshot, false, Some("waiting_input"))
                                     .and_then(|p| crate::pane_prompt::PanePrompt::from_detected(&p))
                             }) {
                                 crate::attention::on_prompt(&pane_id, waiting, prompt.as_ref());

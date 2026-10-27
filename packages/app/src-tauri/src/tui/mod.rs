@@ -19,6 +19,7 @@ pub mod cursor;
 pub mod declarative;
 pub mod generic;
 pub mod install;
+pub mod menu_shape;
 pub mod opencode;
 pub mod registry;
 pub mod shell;

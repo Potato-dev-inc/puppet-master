@@ -487,6 +487,22 @@ impl TuiEngine {
         Some(found)
     }
 
+    /// Whether a `[[tui.prompt]]` table recognises a question on `screen` (a live one: `not_when_regex` has not
+    /// suppressed it). The pane status reads this on the visible tail, so a definition without
+    /// `[tui.classify] waiting_regex` still shows `waiting_input` behind its own prompts.
+    pub fn declares_prompt(&self, screen: &str) -> bool {
+        self.matching_prompt(&strip_ansi(cap(screen))).is_some()
+    }
+
+    /// The kind of the startup question (`workspace_trust`, `startup_screen`) a prompt table recognises on the last
+    /// rows of `screen`, if any. A startup question is the last thing a CLI draws before it takes a task, so only the
+    /// tail counts: the same words higher up are an answered dialog in the scrollback.
+    pub fn startup_gate_kind(&self, screen: &str) -> Option<&str> {
+        let tail = tail_lines(screen, TAIL_LINES);
+        let prompt = self.matching_prompt(&tail)?;
+        matches!(prompt.kind.as_str(), "workspace_trust" | "startup_screen").then_some(prompt.kind.as_str())
+    }
+
     /// True when a table prompt's `detect_regex` matches even if `not_when_regex` suppresses it: the
     /// screen is the definition's own, so the generic heuristic must not second-guess it.
     pub fn claims(&self, screen: &str) -> bool {

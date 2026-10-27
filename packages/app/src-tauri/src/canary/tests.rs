@@ -775,3 +775,44 @@ fn the_live_wrapper_weighs_one_agents_signals_at_most_every_half_minute() {
     assert!(super::live::signal_due("signal_throttle_test", t0 + Duration::from_secs(31)));
     assert!(super::live::signal_due("signal_throttle_other", t0 + Duration::from_secs(1)), "each agent has its own clock");
 }
+
+// ---- a wizard-added agent's trust screen -----------------------------------------------------------------------------
+
+/// A definition with only a `[[tui.prompt]]` for the folder-trust question (what the Agent Wizard writes).
+const TRUST_ONLY_AGENT: &str = r##"
+schema_version = 1
+
+[agent]
+id = "trustprobe"
+label = "Trust Probe"
+experimental = true
+
+[binary]
+names = ["trustprobe-not-installed"]
+install_hint = "see https://example.invalid/trustprobe"
+
+[tui]
+argv = []
+
+[[tui.prompt]]
+kind = "workspace_trust"
+detect_regex = 'do you trust the contents of this project'
+choices = [
+  { id = "allow_once", key = "enter" },
+  { id = "deny", key = "escape" },
+]
+"##;
+
+const TRUST_SCREEN: &str = "\n Probe CLI v1.4.0\n\nAccessing workspace:\nC:\\Users\\you\\project\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n  No, exit\n\n\u{2191}/\u{2193} Navigate \u{b7} enter Confirm\n";
+
+#[test]
+fn a_trust_screen_a_definition_declares_is_a_question_for_the_person_not_changed_screens() {
+    let profile = crate::tui::declarative::DeclarativeProfile::new(crate::tui::declarative::parse_definition(TRUST_ONLY_AGENT).unwrap()).unwrap();
+    let mut io = FakeIo::new(vec![(When::At(ms(500)), TRUST_SCREEN)]);
+    let result = run::drive(&mut io, &profile, &Timing::default());
+    // Before: no startup gate, so the screen was "not recognised" and the agent got a "screens changed" card.
+    assert_eq!(result.outcome, Outcome::AsksYou, "{result:?}");
+    assert_eq!(result.gate, Some("workspace_trust"));
+    assert!(io.written.is_empty(), "only the person passes a trust gate: {:?}", io.written);
+    assert!(result.outcome.passed() && !result.outcome.changed_screens());
+}
