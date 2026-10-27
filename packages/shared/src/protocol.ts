@@ -20,6 +20,8 @@ export const PaneInfoSchema = z.object({
   reprints_on_resize: z.boolean().optional(),
   /** Human title (user name, else derived from the first task); absent until the pane has one. */
   title: z.string().nullable().optional(),
+  /** The pane of the agent that started this one over MCP (a helper); absent for a pane nobody's agent started. Display-only. */
+  parent_pane_id: z.string().nullable().optional(),
 });
 export type PaneInfo = z.infer<typeof PaneInfoSchema>;
 

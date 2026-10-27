@@ -16,7 +16,7 @@ use super::delegation::cleanup_failed_operation;
 use super::locks::acquire_operation_locks;
 use super::startup_gate::dismiss_for_operation;
 use super::pane_util::{
-    emit_panes_changed, pane_ready_for_dispatch, present_spawned_pane, read_only_pane_matches,
+    emit_panes_changed, note_pane_parent, pane_ready_for_dispatch, present_spawned_pane, read_only_pane_matches,
     spawn_pane_with_timeout, wait_for_pane_idle,
 };
 use super::sse::push_operation_sse;
@@ -372,6 +372,10 @@ fn assign_pane(
     };
     if let Some(key) = &pool_key {
         crate::standby::note_run(key, &operation.project_path);
+    }
+    if pane_created {
+        // Nested under the pane of the agent that asked for this run, when it ran from one.
+        note_pane_parent(registry, operation.owner_session_id.as_deref(), &pane_id);
     }
     if pane_created && standby_claim.is_none() {
         present_spawned_pane(registry, app, &pane_id, operation.placement.as_deref());

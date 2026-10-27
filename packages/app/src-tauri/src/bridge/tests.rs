@@ -1055,3 +1055,81 @@ mod toolbelt_routes {
         assert!(err.is_err(), "route is not exposed to MCP sessions");
     }
 }
+
+mod pane_parent {
+    use crate::bridge::http::request_session;
+    use crate::bridge::pane_util::note_pane_parent;
+    use crate::pty::registry::PaneRegistry;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+
+    /// A registry with a parent pane (whose process is this test process) and a fresh child pane.
+    fn registry(parent_pid: u32) -> (Arc<Mutex<PaneRegistry>>, String, String) {
+        let (parent, child) = (uuid::Uuid::new_v4().to_string(), uuid::Uuid::new_v4().to_string());
+        let registry = Arc::new(Mutex::new(PaneRegistry::new()));
+        {
+            let mut reg = registry.lock();
+            let mut stub = PaneRegistry::test_pane_stub(&parent);
+            stub.info.pid = parent_pid;
+            reg.panes.insert(parent.clone(), stub);
+            reg.panes.insert(child.clone(), PaneRegistry::test_pane_stub(&child));
+        }
+        (registry, parent, child)
+    }
+
+    fn parent_of(registry: &Arc<Mutex<PaneRegistry>>, pane: &str) -> Option<String> {
+        registry.lock().panes[pane].info().parent_pane_id
+    }
+
+    #[test]
+    fn the_headers_the_shim_sends_reach_the_session_table() {
+        let session = uuid::Uuid::new_v4().to_string();
+        let headers = format!(
+            "POST /agents/run HTTP/1.1\r\nX-Puppet-Master-Session: {session}\r\nX-Puppet-Master-Pid: 4321\r\nX-Puppet-Master-Pane: pane-xyz\r\n"
+        );
+        assert_eq!(request_session(&headers), Some(session.as_str()));
+        assert_eq!(crate::mcp_sessions::claimed_session_pane(&session).as_deref(), Some("pane-xyz"));
+        assert_eq!(crate::mcp_sessions::session_pid(&session), Some(4321));
+    }
+
+    #[test]
+    fn a_run_started_from_a_pane_is_nested_under_it() {
+        let (registry, parent, child) = registry(std::process::id());
+        let session = uuid::Uuid::new_v4().to_string();
+        crate::mcp_sessions::note_session_pane(&session, &parent);
+        crate::mcp_sessions::note_session_pid(&session, std::process::id());
+        note_pane_parent(&registry, Some(&session), &child);
+        assert_eq!(parent_of(&registry, &child).as_deref(), Some(parent.as_str()));
+        assert_eq!(parent_of(&registry, &parent), None, "the parent itself is untouched");
+    }
+
+    #[test]
+    fn a_connection_that_runs_outside_the_named_pane_is_not_nested() {
+        // The named pane's process is not an ancestor of the caller: someone else's pane id.
+        let (registry, parent, child) = registry(u32::MAX - 7);
+        let session = uuid::Uuid::new_v4().to_string();
+        crate::mcp_sessions::note_session_pane(&session, &parent);
+        crate::mcp_sessions::note_session_pid(&session, std::process::id());
+        note_pane_parent(&registry, Some(&session), &child);
+        if crate::pty::agent_proc::snapshot().is_some() {
+            assert_eq!(parent_of(&registry, &child), None);
+        }
+    }
+
+    #[test]
+    fn a_connection_with_no_hint_or_no_session_is_not_nested() {
+        let (registry, parent, child) = registry(std::process::id());
+        let silent = uuid::Uuid::new_v4().to_string();
+        crate::mcp_sessions::note_session_pid(&silent, std::process::id());
+        note_pane_parent(&registry, Some(&silent), &child);
+        note_pane_parent(&registry, None, &child);
+        assert_eq!(parent_of(&registry, &child), None);
+        // A hint for a pane that does not exist is dropped too.
+        let ghost = uuid::Uuid::new_v4().to_string();
+        crate::mcp_sessions::note_session_pane(&ghost, "no-such-pane");
+        crate::mcp_sessions::note_session_pid(&ghost, std::process::id());
+        note_pane_parent(&registry, Some(&ghost), &child);
+        assert_eq!(parent_of(&registry, &child), None);
+        let _ = parent;
+    }
+}

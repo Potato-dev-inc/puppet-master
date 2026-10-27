@@ -10,7 +10,7 @@ use super::{opencode, session, Ctx, RouteResult};
 use crate::bridge::errors::operation_http_error;
 use crate::bridge::http::{parse_json, query_param};
 use crate::bridge::pane_util::{
-    emit_panes_changed, pane_buffer_view, present_spawned_pane, register_spawned_pane,
+    emit_panes_changed, note_pane_parent, pane_buffer_view, present_spawned_pane, register_spawned_pane,
 };
 use crate::pty::{
     registry_kill_pane, registry_read_buffer, registry_read_raw_buffer, registry_read_screen_replay_at, registry_read_snapshot,
@@ -175,6 +175,7 @@ fn spawn(cx: &Ctx) -> RouteResult {
         let _ = crate::pty::viewer_size::claim(registry, &pane_id, viewer, cols, rows);
     }
     register_spawned_pane(session, &agent_type, &pane_id).map_err(operation_http_error)?;
+    note_pane_parent(registry, session, &pane_id);
     present_spawned_pane(registry, app, &pane_id, placement.as_deref());
     Ok((
         201,

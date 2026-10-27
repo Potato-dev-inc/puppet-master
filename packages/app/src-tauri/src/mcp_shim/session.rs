@@ -60,7 +60,16 @@ pub(crate) fn session_headers(id: &str) -> String {
     if let Some(name) = CLIENT_NAME.get() {
         headers.push_str(&format!("X-Puppet-Master-Client: {name}\r\n"));
     }
+    if let Some(pane) = pane_header(std::env::var(mcp_sessions::PANE_ID_ENV).ok()) {
+        headers.push_str(&format!("X-Puppet-Master-Pane: {pane}\r\n"));
+    }
     headers
+}
+
+/// The pane Puppet Master launched this agent in (`PUPPET_MASTER_PANE_ID`), cut down to plain
+/// characters so it can never inject a header line. Sent as a hint for sidebar nesting only.
+pub(crate) fn pane_header(env_value: Option<String>) -> Option<String> {
+    mcp_sessions::clean_pane_hint(&env_value?)
 }
 
 thread_local! { pub(crate) static MCP_SESSION_ID: RefCell<Option<String>> = const { RefCell::new(None) }; }
