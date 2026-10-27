@@ -72,6 +72,21 @@ describe('useSessionChat waiting line', () => {
     expect(latest.waitingFor).toBeNull();
   });
 
+  it('follows the source of its own pane: an API chat falls back to the screen and back', async () => {
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === 'session_chat_open' ? { available: true, reason: null, items: [], source: 'api' } : undefined,
+    );
+    act(() => root.render(<Probe paneId="p1" />));
+    await flush();
+    expect(latest.source).toBe('api');
+    act(() => handlers.get('session-chat-source')!({ payload: { paneId: 'other', source: 'screen' } }));
+    expect(latest.source).toBe('api');
+    act(() => handlers.get('session-chat-source')!({ payload: { paneId: 'p1', source: 'screen' } }));
+    expect(latest.source).toBe('screen');
+    act(() => handlers.get('session-chat-source')!({ payload: { paneId: 'p1', source: 'api' } }));
+    expect(latest.source).toBe('api');
+  });
+
   it('has no waiting line when the open answer carries none (an older backend)', async () => {
     invoke.mockImplementation(async (cmd: string) =>
       cmd === 'session_chat_open' ? { available: true, reason: null, items: [] } : undefined,

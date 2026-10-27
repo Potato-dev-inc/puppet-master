@@ -3,10 +3,12 @@
 //!
 //! - `screen` — the interactive TUI's menus and selectors
 //! - `transcript` — how the conversation is drawn (message rows, tool rows, the input box, the sidebar)
+//! - `chat` — the same conversation read from OpenCode's local HTTP API, with tool input, output and diffs
 //!
 //! The HTTP API client (keys, quota, messages) is a protocol backend, not a screen-scraped TUI,
 //! and stays in `crate::opencode`.
 
+mod chat;
 pub mod read_only;
 mod screen;
 mod transcript;
@@ -143,6 +145,19 @@ impl TuiProfile for OpenCode {
         screen::looks_like_menu(text)
     }
 
+    /// The TUI is started with `--port`, so it serves its own API on a port Puppet Master knows.
+    fn session_api(&self) -> Option<&'static dyn crate::session_chat::SessionApi> {
+        Some(&chat::API)
+    }
+
+    fn session_api_endpoint(&self, pane: &crate::pty::registry::PaneState) -> Option<crate::session_chat::ApiEndpoint> {
+        chat::tui_endpoint(pane)
+    }
+
+    fn prepare_session_api(&self, pane_id: &str, user_args: &[String]) -> Vec<String> {
+        chat::prepare(pane_id, user_args)
+    }
+
     transcript_methods!();
 }
 
@@ -184,6 +199,15 @@ impl TuiProfile for OpenCodeNative {
 
     fn looks_like_menu(&self, text: &str) -> bool {
         screen::looks_like_menu(text)
+    }
+
+    /// The worker's server (`opencode serve`) is the pane's own and Puppet Master made its session.
+    fn session_api(&self) -> Option<&'static dyn crate::session_chat::SessionApi> {
+        Some(&chat::API)
+    }
+
+    fn session_api_endpoint(&self, pane: &crate::pty::registry::PaneState) -> Option<crate::session_chat::ApiEndpoint> {
+        chat::native_endpoint(pane)
     }
 
     transcript_methods!();

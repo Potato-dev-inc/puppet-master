@@ -4,7 +4,7 @@
 // and are re-exported here, so desktop imports keep working.
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { SessionChatItemsEvent, SessionChatSnapshot, SessionChatStatusEvent } from './sessionChatModel';
+import type { SessionChatItemsEvent, SessionChatSnapshot, SessionChatSourceEvent, SessionChatStatusEvent } from './sessionChatModel';
 
 export * from './sessionChatModel';
 
@@ -54,4 +54,10 @@ export function onSessionChatItems(cb: (event: SessionChatItemsEvent) => void): 
 export function onSessionChatStatus(cb: (event: SessionChatStatusEvent) => void): Promise<UnlistenFn> {
   if (!isTauri()) return Promise.resolve(noopUnlisten);
   return listen<SessionChatStatusEvent>('session-chat-status', (e) => cb(e.payload));
+}
+
+/** Where a pane's chat is read from changed (an API chat falls back to the terminal and back). No-op outside the desktop shell. */
+export function onSessionChatSource(cb: (event: SessionChatSourceEvent) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return Promise.resolve(noopUnlisten);
+  return listen<SessionChatSourceEvent>('session-chat-source', (e) => cb(e.payload));
 }

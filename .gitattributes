@@ -39,3 +39,4 @@ packages/app/src-tauri/src/tui/codex/fixtures/trust_folder_*.txt text eol=lf
 # OpenCode screen captures (rows read through the terminal emulator): keep them LF.
 packages/app/src-tauri/src/tui/opencode/fixtures/screen_*.txt text eol=lf
 packages/app/src-tauri/src/tui/claude/fixtures/ask_user_question_*.txt text eol=lf
+packages/app/src-tauri/src/tui/opencode/fixtures/*.json text eol=lf

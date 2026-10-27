@@ -10,6 +10,7 @@ import {
   groupTurns,
   mergeItems,
   onSessionChatItems,
+  onSessionChatSource,
   onSessionChatStatus,
   openSessionChat,
   type ChatItem,
@@ -300,6 +301,16 @@ describe('Tauri wrappers', () => {
     const handler = listen.mock.calls[0][1] as unknown as (e: { payload: unknown }) => void;
     handler({ payload: { paneId: 'p1', waitingFor: null } });
     expect(cb).toHaveBeenCalledWith({ paneId: 'p1', waitingFor: null });
+  });
+
+  it('subscribes to session-chat-source and unwraps the payload', async () => {
+    setTauri(true);
+    const cb = vi.fn();
+    await onSessionChatSource(cb);
+    expect(listen).toHaveBeenCalledWith('session-chat-source', expect.any(Function));
+    const handler = listen.mock.calls[0][1] as unknown as (e: { payload: unknown }) => void;
+    handler({ payload: { paneId: 'p1', source: 'screen' } });
+    expect(cb).toHaveBeenCalledWith({ paneId: 'p1', source: 'screen' });
   });
 
   it('refuses outside the desktop shell', async () => {
