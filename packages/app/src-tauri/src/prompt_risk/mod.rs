@@ -141,6 +141,11 @@ fn assess_without_command(input: &RiskInput, extra: &[RiskRule]) -> Risk {
             "Finish the startup screen",
             "The agent is showing a sign-in or setup screen. Finish it in the terminal; nothing is asked of Puppet Master.",
         ),
+        "question" => plain(
+            RiskLevel::Low,
+            "The agent has a question",
+            "Pick the answer you want. Nothing is changed until you do.",
+        ),
         "broad_approval" => plain(
             RiskLevel::Medium,
             "Allow without asking again",

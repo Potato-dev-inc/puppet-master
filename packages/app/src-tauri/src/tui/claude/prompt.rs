@@ -23,6 +23,8 @@ use serde_json::{json, Value};
 
 use crate::tui::{generic, Reply};
 
+mod question;
+
 /// Kind of the folder-trust dialog. Generic code treats this kind as a startup gate: a run parks
 /// on it and the task is typed only after it is gone (see `bridge/approvals.rs`).
 pub(super) const KIND_TRUST: &str = "workspace_trust";
@@ -459,7 +461,14 @@ pub(super) fn shows_permission_menu(screen: &str) -> bool {
 /// The dialog on screen, or `None`. The caller falls back to the generic detection for the older
 /// `Allow once` / `Always allow` wording.
 pub(super) fn detect_prompt(agent_type: &str, screen: &str, allow_broad: bool) -> Option<Value> {
-    trust_gate(agent_type, screen).or_else(|| permission_menu(agent_type, screen, allow_broad))
+    trust_gate(agent_type, screen)
+        .or_else(|| permission_menu(agent_type, screen, allow_broad))
+        .or_else(|| question::question_menu(agent_type, screen))
+}
+
+/// Whether Claude's own question menu (AskUserQuestion) is on screen: a pane waiting for the person.
+pub(super) fn shows_question_menu(screen: &str) -> bool {
+    question::shows_question_menu(screen)
 }
 
 /// Arrow keys that move the pointer from `from` to `to` (1-based rows).
