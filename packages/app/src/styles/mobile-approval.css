@@ -274,3 +274,23 @@
     animation: none;
   }
 }
+
+/* A helper's question under its parent's chat: a quiet lead line, the helper's own card, then "Open helper". */
+.ph .ph-dock-helper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-top: 6px;
+}
+.ph .ph-dock-helper > .ph-appr {
+  align-self: stretch;
+}
+.ph .ph-dock-helper-lead {
+  margin: 0 16px;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.ph .ph-dock-helper > .ph-btn {
+  margin: 0 16px 4px;
+}

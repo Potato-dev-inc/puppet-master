@@ -39,11 +39,12 @@ export const queueCount = (snapshot: AttentionSnapshot): number => snapshot.item
 
 /** What the docked card of a pane shows: its own first open item (or a tombstone that just left), the
  *  number of OTHER open items waiting, and the first of them to offer as "Next". */
-export function dockFor(snapshot: AttentionSnapshot, paneId: string, settledAt: ReadonlyMap<string, number>, now: number) {
+export function dockFor(snapshot: AttentionSnapshot, paneId: string, settledAt: ReadonlyMap<string, number>, now: number, shown: ReadonlySet<string> = new Set()) {
   const queue = visibleQueue(snapshot, settledAt, now);
   const mine = queue.filter((item) => item.pane?.id === paneId && PROMPT_KINDS.includes(item.kind));
   const current = mine.find(isOpen) ?? mine[0] ?? null;
-  const others = queue.filter((item) => isOpen(item) && item !== current);
+  // `shown`: items already drawn elsewhere in the dock (a helper's card in its parent's chat) are not "more" or "Next".
+  const others = queue.filter((item) => isOpen(item) && item !== current && !shown.has(item.id));
   return { current, more: others.length, next: others[0] ?? null };
 }
 

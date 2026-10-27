@@ -78,3 +78,30 @@ describe('the docked card', () => {
     expect((document.activeElement as HTMLElement).textContent).toBe('Deny');
   });
 });
+
+describe('a helper’s question in its parent’s chat', () => {
+  const helperItem = { ...ITEM_LOW, id: 'helperQ1', pane: { ...ITEM_LOW.pane!, id: 'helper-pane' } };
+  const renderWith = async (s: AttentionSnapshot, helperPaneIds: string[], onOpenPane = vi.fn()) => {
+    await act(async () => {
+      root.render(<DockedCard snapshot={s} paneId="parent-pane" bridge={bridge} canAnswer onOpenPane={onOpenPane} onOpenItem={() => undefined} helperPaneIds={helperPaneIds} />);
+    });
+    return onOpenPane;
+  };
+
+  it('docks the helper’s card under the parent, with Open helper, and counts it once', async () => {
+    const onOpenPane = await renderWith(snap([helperItem, ITEM_HIGH]), ['helper-pane']);
+    expect(host.querySelectorAll('[data-testid="helper-question"] .ph-appr')).toHaveLength(1);
+    expect(host.querySelector('.ph-dock-helper-lead')?.textContent).toContain('helper asks');
+    // Only the OTHER pane's item is "more waiting"; the helper's card is already on screen.
+    expect(host.querySelector('.ph-queue-line')?.textContent).toContain('1 more waiting');
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-role="open-helper"]')!.click());
+    expect(onOpenPane).toHaveBeenCalledWith('helper-pane');
+  });
+
+  it('shows nothing for a helper that is not asking, or when no helper is passed', async () => {
+    await renderWith(snap([helperItem]), []);
+    expect(host.querySelector('[data-testid="helper-question"]')).toBeNull();
+    await renderWith(snap([tombstone(helperItem, { state: 'answered' })]), ['helper-pane']);
+    expect(host.querySelector('[data-testid="helper-question"]')).toBeNull();
+  });
+});

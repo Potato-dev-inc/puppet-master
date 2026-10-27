@@ -499,6 +499,11 @@
   white-space: nowrap;
 }
 
+/* The questions of a pane's helpers: the Inbox's own compact cards, one under the other, scrolling on their own. */
+.cockpit .ck-chat-dock .ck-helper-asks {
+  gap: 8px;
+}
+
 /* "Remember for all agents" (components/chat/RememberSelection.tsx): a small monochrome pill over selected text in a
    message, and the toast under the conversation. Desktop only. */
 .ck-chat {
