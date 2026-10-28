@@ -15,6 +15,7 @@ mod digest;
 mod flight;
 mod locks;
 mod missions;
+mod night;
 pub(super) mod mcp;
 mod opencode;
 mod operations;
@@ -87,6 +88,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| checkpoints::handle(cx))
         .or_else(|| tamper::handle(cx))
         .or_else(|| missions::handle(cx))
+        .or_else(|| night::handle(cx))
         .or_else(|| digest::handle(cx))
         .or_else(|| flight::handle(cx))
         .or_else(|| team_mcp::handle(cx))
