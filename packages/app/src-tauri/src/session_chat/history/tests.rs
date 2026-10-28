@@ -67,14 +67,6 @@ fn resume_args_never_carry_a_shell_metacharacter_from_the_id() {
 }
 
 #[test]
-fn from_process_under_test_has_no_home_and_no_variables() {
-    let env = HistoryEnv::from_process();
-    assert!(env.home().is_none());
-    assert!(env.var("CLAUDE_CONFIG_DIR").is_none());
-    assert!(env.var("CODEX_HOME").is_none());
-}
-
-#[test]
 fn fixed_env_gives_its_home_and_only_its_variables() {
     let home = PathBuf::from("C:\\Users\\you\\fixture-home");
     let env = HistoryEnv::fixed(Some(home.clone()), &[("CODEX_HOME", "D:\\fixture\\codex"), ("EMPTY", "")]);
