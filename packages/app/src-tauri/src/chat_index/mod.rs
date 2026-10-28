@@ -14,6 +14,7 @@
 mod aside;
 mod entry;
 mod feeder;
+mod imported;
 mod query;
 mod store;
 
@@ -22,6 +23,7 @@ mod tests;
 
 pub use entry::PaneContext;
 pub use feeder::{open_store, Answer, ChatIndex, ContextLookup, Status};
+pub use imported::ImportedChatRow;
 pub use store::{Hit, MAX_ITEMS};
 
 use std::sync::atomic::{AtomicBool, Ordering};
