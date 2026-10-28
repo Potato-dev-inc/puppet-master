@@ -24,6 +24,7 @@
 
 mod git;
 pub mod folder;
+pub mod harden;
 pub mod pr;
 pub mod preset;
 pub mod proc;
@@ -33,6 +34,8 @@ pub mod service;
 mod tests;
 #[cfg(test)]
 mod tests_ship;
+#[cfg(test)]
+mod tests_issue;
 
 use crate::operations::OperationError;
 use git::{git_ok, git_raw, git_limited, GitOut};
@@ -346,11 +349,38 @@ fn check_copy_fits(root: &Path, dir_name: &str, prefix: &str) -> Result<(), Oper
     crate::path_limit::check_error(&planned)
 }
 
+/// How [`create_with`] makes a copy. The default is what [`create`] has always done.
+#[derive(Debug, Clone)]
+pub struct CreateOptions {
+    /// The commit to start from (for example `origin/main`). `None` = the origin's HEAD.
+    pub start_point: Option<String>,
+    /// `false` skips the preset's `copy` list (env files and the like). Setup steps still run.
+    pub copy_files: bool,
+    /// Environment for every git call this creation makes (see [`harden::git_env`]).
+    pub git_env: Vec<(String, String)>,
+}
+
+impl Default for CreateOptions {
+    fn default() -> Self {
+        Self { start_point: None, copy_files: true, git_env: Vec::new() }
+    }
+}
+
 /// Create `<project>/.puppet-master/worktrees/<short>` on a new branch `pm/<handle>` from the
 /// origin's current HEAD. Idempotent per handle: a retry gets the same worktree back.
 ///
 /// Uncommitted changes in the origin are not in the new worktree (it starts from `HEAD`).
 pub fn create(project: &str, handle: &str) -> Result<WorktreeRef, OperationError> {
+    create_with(project, handle, &CreateOptions::default())
+}
+
+/// [`create`] with options: a start point, no copy of the preset's files, and the environment
+/// for its git calls.
+pub fn create_with(
+    project: &str,
+    handle: &str,
+    opts: &CreateOptions,
+) -> Result<WorktreeRef, OperationError> {
     let project_path = PathBuf::from(project);
     let info = repo_info(&project_path)?;
     if let Some(existing) = find_by_handle(project, handle).filter(|w| w.closed.is_none()) {
@@ -358,6 +388,20 @@ pub fn create(project: &str, handle: &str) -> Result<WorktreeRef, OperationError
             return Ok(existing);
         }
     }
+    // The commit the copy starts from. A named start point is resolved here, so the record says
+    // which commit the diff is measured against.
+    let (start, base_commit) = match &opts.start_point {
+        Some(point) => {
+            harden::check_name(point)?;
+            let commit = git_ok(
+                &project_path,
+                &["rev-parse", "--verify", "-q", &format!("{point}^{{commit}}")],
+                "GIT_FAILED",
+            )?;
+            (point.clone(), commit)
+        }
+        None => (info.head.clone(), info.head.clone()),
+    };
     let root = worktrees_root(&project_path);
     let base_name = format!("{}-{:04x}", slug(handle, 10), fnv16(handle));
     check_copy_fits(&root, &base_name, &info.prefix)?;
@@ -385,6 +429,9 @@ pub fn create(project: &str, handle: &str) -> Result<WorktreeRef, OperationError
         branch = format!("{base_branch}-{n}");
     }
     let dir_str = dir.to_string_lossy().into_owned();
+    // Checking out can run filter drivers from the repo's own config, so the hardened env also
+    // blanks those (see harden::with_filters_off).
+    let add_env = harden::with_filters_off(&project_path, &opts.git_env)?;
     let created = git_raw(
         &project_path,
         &[
@@ -395,9 +442,9 @@ pub fn create(project: &str, handle: &str) -> Result<WorktreeRef, OperationError
             "-b",
             &branch,
             &dir_str,
-            &info.head,
+            &start,
         ],
-        &[],
+        &harden::refs(&add_env),
     )?;
     if !created.ok {
         let _ = std::fs::remove_dir_all(&dir);
@@ -418,7 +465,7 @@ pub fn create(project: &str, handle: &str) -> Result<WorktreeRef, OperationError
         cwd: cwd.to_string_lossy().into_owned(),
         branch,
         base: info.branch,
-        base_commit: info.head,
+        base_commit,
         repo: project.to_string(),
         handle: handle.to_string(),
         created_at_ms: now_ms(),
@@ -432,24 +479,29 @@ pub fn create(project: &str, handle: &str) -> Result<WorktreeRef, OperationError
     // recorded; a failing setup never deletes the copy.
     let mut reference = reference;
     match preset::load(&project_path) {
-        Ok(wanted) if !wanted.is_empty() => {
-            let log_file = worktrees_root(&project_path).join(format!("{dir_name}.setup.log"));
-            let _ = std::fs::remove_file(&log_file);
-            let env = proc::ToolEnv::default();
-            reference.setup = preset::apply(
-                &preset::Target {
-                    project: &project_path,
-                    cwd: Path::new(&reference.cwd),
-                    prefix: &info.prefix,
-                    exclude_file: &info.exclude_file,
-                    log_file: &log_file,
-                    env: &env,
-                },
-                &wanted,
-            );
-            write_meta(&project_path, &dir_name, &reference)?;
+        Ok(mut wanted) => {
+            // An issue copy skips the preset's files (`.env` and the like); its setup still runs.
+            if !opts.copy_files {
+                wanted.copy.clear();
+            }
+            if !wanted.is_empty() {
+                let log_file = worktrees_root(&project_path).join(format!("{dir_name}.setup.log"));
+                let _ = std::fs::remove_file(&log_file);
+                let env = proc::ToolEnv::default();
+                reference.setup = preset::apply(
+                    &preset::Target {
+                        project: &project_path,
+                        cwd: Path::new(&reference.cwd),
+                        prefix: &info.prefix,
+                        exclude_file: &info.exclude_file,
+                        log_file: &log_file,
+                        env: &env,
+                    },
+                    &wanted,
+                );
+                write_meta(&project_path, &dir_name, &reference)?;
+            }
         }
-        Ok(_) => {}
         Err(error) => tracing::warn!(%error, project, "ignoring an unreadable .puppet-master/project.toml"),
     }
     Ok(reference)
@@ -515,7 +567,7 @@ fn stage_all_but_internal(wt: &Path, env: &[(&str, &std::ffi::OsStr)]) -> Result
 /// Snapshot the worktree's full state (committed + uncommitted + untracked, honouring ignore
 /// rules) as a tree object, through a temporary copy of the index: the agent's own index is never
 /// touched.
-fn snapshot_tree(wt: &Path) -> Result<String, OperationError> {
+fn snapshot_tree(wt: &Path, env: &[(String, String)]) -> Result<String, OperationError> {
     let git_dir = PathBuf::from(git_ok(wt, &["rev-parse", "--absolute-git-dir"], "GIT_FAILED")?);
     let tmp = git_dir.join(format!(
         "pm-index-{}-{}",
@@ -526,10 +578,11 @@ fn snapshot_tree(wt: &Path) -> Result<String, OperationError> {
     if real.is_file() {
         std::fs::copy(&real, &tmp).map_err(|error| err("GIT_FAILED", error.to_string()))?;
     }
-    let env: [(&str, &std::ffi::OsStr); 1] = [("GIT_INDEX_FILE", tmp.as_os_str())];
+    let mut env_refs = harden::refs(env);
+    env_refs.push(("GIT_INDEX_FILE", tmp.as_os_str()));
     let result = (|| {
-        stage_all_but_internal(wt, &env)?;
-        let tree = git_raw(wt, &["write-tree"], &env)?;
+        stage_all_but_internal(wt, &env_refs)?;
+        let tree = git_raw(wt, &["write-tree"], &env_refs)?;
         if !tree.ok {
             return Err(err("GIT_FAILED", format!("git write-tree failed: {}", tree.stderr.trim())));
         }
@@ -581,8 +634,15 @@ fn parse_changes(numstat: &str, name_status: &str) -> Changes {
 
 /// Files changed in the worktree against its base commit (committed or not).
 pub fn changes(reference: &WorktreeRef) -> Result<Changes, OperationError> {
+    changes_with(reference, &[])
+}
+
+/// [`changes`] with the environment of PM's own git calls on the copy (see [`harden::git_env`]):
+/// the staging step runs with blank filter drivers and no fsmonitor.
+pub fn changes_with(reference: &WorktreeRef, env: &[(String, String)]) -> Result<Changes, OperationError> {
     let wt = require_checkout(reference)?;
-    let tree = snapshot_tree(&wt)?;
+    let env = harden::with_filters_off(&wt, env)?;
+    let tree = snapshot_tree(&wt, &env)?;
     let numstat = git_ok_raw(&wt, &["diff", "--numstat", "-z", "--no-renames", &reference.base_commit, &tree])?;
     let names = git_ok_raw(&wt, &["diff", "--name-status", "-z", "--no-renames", &reference.base_commit, &tree])?;
     Ok(parse_changes(&numstat, &names))
@@ -603,7 +663,7 @@ fn git_ok_raw(dir: &Path, args: &[&str]) -> Result<String, OperationError> {
 /// Stat plus the unified patch (capped at [`MAX_PATCH_BYTES`]); `path` narrows the patch to one file.
 pub fn diff(reference: &WorktreeRef, path: Option<&str>) -> Result<DiffView, OperationError> {
     let wt = require_checkout(reference)?;
-    let tree = snapshot_tree(&wt)?;
+    let tree = snapshot_tree(&wt, &[])?;
     let numstat = git_ok_raw(&wt, &["diff", "--numstat", "-z", "--no-renames", &reference.base_commit, &tree])?;
     let names = git_ok_raw(&wt, &["diff", "--name-status", "-z", "--no-renames", &reference.base_commit, &tree])?;
     let mut args = vec![
@@ -722,7 +782,7 @@ pub fn merge_keep(reference: &WorktreeRef) -> Result<MergeOutcome, OperationErro
         return Err(error);
     }
     // Record the agent's work on its branch (it normally leaves it uncommitted).
-    commit_all(&wt, &format!("Puppet Master: changes from {}", reference.handle))?;
+    commit_all(&wt, &format!("Puppet Master: changes from {}", reference.handle), &[])?;
     let head_before = git_ok(&origin, &["rev-parse", "HEAD"], "GIT_FAILED")?;
     // The person's git history uses the app's words: a "separate copy", never an "isolated run".
     let message = format!("Merge separate copy {} (Puppet Master, {})", reference.branch, reference.handle);
@@ -803,13 +863,15 @@ fn identity_args<'a>(dir: &Path, args: &[&'a str]) -> Vec<&'a str> {
     full
 }
 
-fn commit_all(wt: &Path, message: &str) -> Result<(), OperationError> {
-    stage_all_but_internal(wt, &[])?;
-    let staged = git_raw(wt, &["diff", "--cached", "--quiet"], &[])?;
+fn commit_all(wt: &Path, message: &str, env: &[(String, String)]) -> Result<(), OperationError> {
+    let env = harden::with_filters_off(wt, env)?;
+    let env = harden::refs(&env);
+    stage_all_but_internal(wt, &env)?;
+    let staged = git_raw(wt, &["diff", "--cached", "--quiet"], &env)?;
     if staged.ok {
         return Ok(()); // nothing staged: the branch already holds everything
     }
-    let commit = git_raw(wt, &identity_args(wt, &["commit", "--no-verify", "-m", message]), &[])?;
+    let commit = git_raw(wt, &identity_args(wt, &["commit", "--no-verify", "-m", message]), &env)?;
     if commit.ok {
         Ok(())
     } else {
@@ -820,9 +882,15 @@ fn commit_all(wt: &Path, message: &str) -> Result<(), OperationError> {
 /// Record the agent's loose edits as one commit on the worktree's branch (the same commit a merge
 /// makes first). `true` when something was committed. `.puppet-master/` is never included.
 pub(crate) fn commit_pending(reference: &WorktreeRef) -> Result<bool, OperationError> {
+    commit_pending_with(reference, &[])
+}
+
+/// [`commit_pending`] with the environment of PM's own git calls on the copy (see
+/// [`harden::git_env`]): no hooks run, not even `post-commit`, and no fsmonitor or filter drivers.
+pub fn commit_pending_with(reference: &WorktreeRef, env: &[(String, String)]) -> Result<bool, OperationError> {
     let wt = require_checkout(reference)?;
     let before = git_ok(&wt, &["rev-parse", "HEAD"], "GIT_FAILED")?;
-    commit_all(&wt, &format!("Puppet Master: changes from {}", reference.handle))?;
+    commit_all(&wt, &format!("Puppet Master: changes from {}", reference.handle), env)?;
     let after = git_ok(&wt, &["rev-parse", "HEAD"], "GIT_FAILED")?;
     Ok(before != after)
 }
