@@ -1,0 +1,13 @@
+# Starter: the lead builds, a helper reviews the diff. Both roles start at once, so the reviewer waits for the change.
+name = "Builder + Reviewer"
+
+[[roles]]
+name = "Builder"
+agent_type = "{default}"
+task = "Build the change the person asks for in {folder}. Keep the change small. When it is done, say what you changed and which files you touched."
+
+[[roles]]
+name = "Reviewer"
+agent_type = "{default}"
+parent = "Builder"
+task = "Another agent (the Builder) is changing the code in {folder} right now. Wait until its change looks finished: run git diff from time to time. Then review the whole diff for bugs, missing tests and unclear code. Reply with a short list of findings, most important first. Do not edit any file."
