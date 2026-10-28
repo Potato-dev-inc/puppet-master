@@ -1,0 +1,8 @@
+{
+  "login": "you",
+  "id": 10001,
+  "type": "User",
+  "site_admin": false,
+  "name": "You Example",
+  "email": "you@example.com"
+}

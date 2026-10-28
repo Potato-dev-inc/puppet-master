@@ -1,0 +1,23 @@
+[
+  {
+    "id": 2001,
+    "event": "labeled",
+    "actor": {"login": "you", "id": 10001, "type": "User"},
+    "label": {"name": "puppet", "color": "ededed"},
+    "created_at": "2026-10-26T08:00:00Z"
+  },
+  {
+    "id": 2002,
+    "event": "unlabeled",
+    "actor": {"login": "you", "id": 10001, "type": "User"},
+    "label": {"name": "puppet", "color": "ededed"},
+    "created_at": "2026-10-26T09:00:00Z"
+  },
+  {
+    "id": 2003,
+    "event": "labeled",
+    "actor": {"login": "someone", "id": 10002, "type": "User"},
+    "label": {"name": "puppet", "color": "ededed"},
+    "created_at": "2026-10-27T10:00:00Z"
+  }
+]

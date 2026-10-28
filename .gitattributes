@@ -62,3 +62,6 @@ packages/app/src-tauri/catalog/agents/**/*.txt text eol=lf
 packages/app/src-tauri/catalog/agents/**/*.jsonl text eol=lf
 packages/app/src-tauri/src/agent_store/embedded.rs text eol=lf
 scripts/fixtures/store-catalog/** text eol=lf
+
+# Assign-an-issue fixtures are parsed as JSON; keep them LF on every checkout.
+packages/app/src-tauri/src/issue_intake/fixtures/gh/*.json text eol=lf

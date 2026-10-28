@@ -1,0 +1,9 @@
+[
+  {
+    "id": 3001,
+    "event": "labeled",
+    "actor": {"login": "octo-org-ci[bot]", "id": 10004, "type": "Bot"},
+    "label": {"name": "puppet", "color": "ededed"},
+    "created_at": "2026-10-27T10:00:00Z"
+  }
+]
