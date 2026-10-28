@@ -3,10 +3,12 @@
 //! - `headless` — command line for headless runs and reading their JSON output
 //! - `screen` — whether the interactive TUI is working (drives how soon a pane reads idle)
 //! - `prompt` - the folder-trust dialog and the numbered permission menus: detection and answers
+//! - `history` - where its old chats are kept (`~/.claude/projects`, `CLAUDE_CONFIG_DIR`) and how to resume one
 //!
 //! The generic `Allow once` / `Always allow` wording is still read by the generic fallback.
 
 mod headless;
+mod history;
 mod launch_session;
 mod prompt;
 mod screen;
@@ -74,6 +76,11 @@ impl TuiProfile for Claude {
 
     fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
         Some(&session_source::SOURCE)
+    }
+
+    /// Claude Code's old chats: `~/.claude/projects` and `CLAUDE_CONFIG_DIR` (`history.rs`).
+    fn session_history(&self) -> Option<&'static dyn crate::session_chat::SessionHistory> {
+        Some(&history::HISTORY)
     }
 
     fn launch_session(&self, user_args: &[String], fresh_id: &str) -> super::LaunchSession {

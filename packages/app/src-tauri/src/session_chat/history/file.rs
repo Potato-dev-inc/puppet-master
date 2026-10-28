@@ -208,7 +208,7 @@ impl SessionHistory for FileHistory {
 
     fn places(&self, env: &HistoryEnv) -> Vec<String> {
         let home = env.home().map(|home| home.to_string_lossy().into_owned());
-        let shown = |path: &str| home_to_tilde(&plain_path(path), home.as_deref());
+        let shown = |path: &str| shown_place(path, home.as_deref());
         let mut out: Vec<String> = with_names(env, |names| {
             self.spec.roots.iter().filter_map(|template| expand(template, names)).map(|path| shown(&path)).collect()
         });
@@ -298,6 +298,12 @@ fn with_names<T>(env: &HistoryEnv, f: impl FnOnce(&Names<'_>) -> T) -> T {
     let lookup = |name: &str| env.var(name);
     let names = Names { home: env.home(), cwd: Path::new(""), env: &lookup };
     f(&names)
+}
+
+/// A folder as the screen shows it: the home folder as `~`, and one kind of separator (`/`). A root that comes from a
+/// variable can mix them (`D:/alt` joined with `projects` is `D:/alt\projects` on Windows), so they are made the same.
+fn shown_place(path: &str, home: Option<&str>) -> String {
+    home_to_tilde(&plain_path(path), home).replace('\\', "/")
 }
 
 /// The session id from a file name: the name without `.jsonl` or `.jsonl.zst`.
