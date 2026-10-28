@@ -47,7 +47,7 @@ fn is_stray_control(c: char) -> bool {
 
 /// The text with line breaks as LF, the invisible and control characters and the HTML comments
 /// taken out. Returns the text, the comment count and the invisible character count.
-fn strip_hidden(raw: &str) -> (String, u32, u32) {
+pub(crate) fn strip_hidden(raw: &str) -> (String, u32, u32) {
     let mut kept = String::with_capacity(raw.len());
     let mut invisible = 0;
     let mut chars = raw.chars().peekable();
@@ -270,7 +270,7 @@ pub fn card_context(s: &IssueSnapshot, forced: &[String]) -> String {
 /// What PM writes into a pull request before it leaves the PC: known secrets and token shapes masked
 /// (strict, which keeps addresses), every e-mail address as `<email>` (`mask_emails`, as the other
 /// outbound sinks do), then the home folder as `~`.
-fn publish_text(text: &str, ctx: &RedactContext, home: Option<&str>) -> String {
+pub(crate) fn publish_text(text: &str, ctx: &RedactContext, home: Option<&str>) -> String {
     let masked = redact::mask_emails(redact::strict_with(text, ctx).as_str());
     home_to_tilde(&masked, home)
 }
