@@ -20,8 +20,14 @@ export const ACTIVITY_MAX_LINES = 14;
 const MARK_LABEL = 'Puppet Master';
 const END_LABEL = 'Made with Puppet Master';
 const FAILED_LABEL = 'failed';
+const NO_FILES_LABEL = 'No files changed';
 
-const TERM = { x: 40, y: 48, w: 1200, h: 520 };
+const TERM = { x: 40, y: 48, w: 1200, h: 540 };
+/** The terminal font: as large as the area allows, never below 12 px (readable) and never above 26 px. */
+export const TERM_MIN_FONT = 12;
+export const TERM_MAX_FONT = 26;
+const CELL_W = 0.6;
+const LINE_H = 1.2;
 const ACTIVITY_LINE_H = 44;
 const CAPTION = { y: 616, h: 48, maxW: 1100, padX: 24 };
 const END_FADE_MS = 500;
@@ -57,16 +63,44 @@ export interface DrawOpts {
   guard: GuardCounter;
 }
 
+/** Where and how big the terminal is drawn. */
+export interface TerminalLayout {
+  fontPx: number;
+  /** True when the lines are still wider than the area at the smallest font, so the right side is cut. */
+  crop: boolean;
+  /** Rows that fit in the area at this font. When `rowsShown` is more, the top ones are cut (see `firstRow`). */
+  maxRows: number;
+  /** Left edge of the first column: the text is centred when it is narrower than the area. */
+  x: number;
+}
+
 /**
- * Font size and crop for the terminal scene. The text gets at most 1200 px of width and 520 px of height; the font is
- * kept between 9 and 20 px. `crop` is true when the lines are still wider than the area at 9 px, so the right side is cut.
+ * Font size for the terminal scene. The font grows until the text fills the area's width (1200 px) or its height
+ * (540 px), at most 26 px; it never goes under 12 px, so a very tall or very wide terminal is cut instead of
+ * becoming unreadable. A text narrower than the area is centred.
  */
-export function layoutTerminal(cols: number, rowsShown: number): { fontPx: number; crop: boolean } {
+export function layoutTerminal(cols: number, rowsShown: number): TerminalLayout {
   const c = Math.max(1, cols);
   const rows = Math.max(1, rowsShown);
-  const fit = Math.min(1200 / (c * 0.6), 520 / (rows * 1.25));
-  const fontPx = Math.min(20, Math.max(9, fit));
-  return { fontPx, crop: c * 0.6 * fontPx > 1200 };
+  const fit = Math.min(TERM.w / (c * CELL_W), TERM.h / (rows * LINE_H));
+  const fontPx = Math.min(TERM_MAX_FONT, Math.max(TERM_MIN_FONT, fit));
+  const width = c * CELL_W * fontPx;
+  return {
+    fontPx,
+    crop: width > TERM.w + 0.001,
+    maxRows: Math.max(1, Math.floor(TERM.h / (fontPx * LINE_H) + 0.001)),
+    x: width >= TERM.w - 0.01 ? TERM.x : TERM.x + (TERM.w - width) / 2,
+  };
+}
+
+/**
+ * The first shown row when the rows do not all fit. The bottom is kept (the prompt and the newest output live
+ * there), unless the cursor is above the window; then the window starts at the cursor.
+ */
+export function firstRow(rowsShown: number, maxRows: number, cursorRow: number | null): number {
+  const bottom = Math.max(0, rowsShown - maxRows);
+  if (cursorRow !== null && cursorRow >= 0 && cursorRow < bottom) return cursorRow;
+  return bottom;
 }
 
 /** Draws the frame of the clip at `tMs` (clip time, from 0). A time past the end draws the end card. */
@@ -113,16 +147,21 @@ function drawTitle(ctx: Ctx2D, agent: string, request: string, opts: DrawOpts): 
 function drawTerminal(ctx: Ctx2D, replay: TerminalReplay, local: number, opts: DrawOpts): void {
   const frame = frameAt(replay.frames, local);
   const shown = Math.max(1, replay.rowTo - replay.rowFrom + 1);
-  const { fontPx } = layoutTerminal(replay.cols, shown);
-  const cellW = fontPx * 0.6;
-  const lineH = fontPx * 1.25;
+  const layout = layoutTerminal(replay.cols, shown);
+  const { fontPx } = layout;
+  const cellW = fontPx * CELL_W;
+  const lineH = fontPx * LINE_H;
   clipped(ctx, TERM.x, TERM.y, TERM.w, TERM.h, () => {
     if (!frame) return;
-    frame.rows.forEach((index, row) => {
-      drawRow(ctx, replay.rowTable[index] ?? [], TERM.x, TERM.y + row * lineH, lineH, fontPx, cellW, opts);
-    });
     const caret = caretOf(frame, replay.rowFrom, shown);
-    if (caret) fill(ctx, CLIP_COLORS.text, TERM.x + caret.col * cellW, TERM.y + caret.row * lineH, 2, lineH);
+    const skip = firstRow(shown, layout.maxRows, caret ? caret.row : null);
+    frame.rows.forEach((index, row) => {
+      if (row < skip || row >= skip + layout.maxRows) return;
+      drawRow(ctx, replay.rowTable[index] ?? [], layout.x, TERM.y + (row - skip) * lineH, lineH, fontPx, cellW, opts);
+    });
+    if (caret && caret.row >= skip && caret.row < skip + layout.maxRows) {
+      fill(ctx, CLIP_COLORS.text, layout.x + caret.col * cellW, TERM.y + (caret.row - skip) * lineH, 2, lineH);
+    }
   });
 }
 
@@ -193,7 +232,15 @@ function drawResult(ctx: Ctx2D, plan: ClipPlan, opts: DrawOpts): void {
   const X = 80;
   const { files, checks, sentence } = plan.result;
   let checksY = 340;
-  if (files) {
+  if (files && files.count === 0) {
+    // A read-only turn: say so in words instead of "0 files changed +0 -0".
+    label(ctx, NO_FILES_LABEL, X, 220, { font: css(64, FONT_SANS, 600), color: CLIP_COLORS.text }, opts);
+    const block = fitLines(ctx, sentence, opts, { family: FONT_SANS, maxW: CLIP_WIDTH - 160, maxLines: 2, startPx: 32, minPx: 22 });
+    block.lines.forEach((line, i) => {
+      label(ctx, line, X, 290 + i * block.px * 1.3, { font: css(block.px, FONT_SANS), color: CLIP_COLORS.muted }, opts);
+    });
+    checksY = 290 + block.lines.length * block.px * 1.3 + 50;
+  } else if (files) {
     const head = `${files.count} ${files.count === 1 ? 'file' : 'files'} changed`;
     const big = fitLines(ctx, head, opts, { family: FONT_SANS, weight: 600, maxW: CLIP_WIDTH - 160, maxLines: 1, startPx: 64, minPx: 32 });
     label(ctx, big.lines[0] ?? '', X, 220, { font: css(big.px, FONT_SANS, 600), color: CLIP_COLORS.text }, opts);

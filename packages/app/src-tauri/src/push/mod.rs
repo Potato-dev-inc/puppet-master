@@ -147,6 +147,7 @@ fn nobody_to_tell(ctx: &Ctx) -> bool {
 
 /// Hook for `push_pane_status_sse`. Cheap when nobody subscribed.
 pub fn notify_pane_status(pane_id: &str, status: &str) {
+    crate::channels::pane_status(pane_id, status);
     let Some(ctx) = CTX.get() else { return };
     let Some(kind) = ctx.hub.note_pane_status(pane_id, status) else { return };
     // A Night Shift pane is quiet: no push while the person sleeps (the morning push covers it).

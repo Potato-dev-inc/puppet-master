@@ -7,7 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RenderClipArgs, RenderClipResult } from '../../lib/clipEncode';
 import type { ClipPlan } from '../../lib/clipTypes';
-import { ClipSheet, FALLBACK_NOTE } from './ClipSheet';
+import { ClipSheet, FALLBACK_NOTE, clipSeconds } from './ClipSheet';
 import { NOTHING_TO_SHOW, type ClipApi } from './useClipMaker';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -400,5 +400,18 @@ describe('ClipSheet notes and errors', () => {
     await flush();
     act(() => root.render(<div />));
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:clip-1');
+  });
+});
+
+describe('clipSeconds', () => {
+  it('shows the length as the video has it, never rounded up to the next whole second', () => {
+    expect(clipSeconds(28_500)).toBe('28.5 s');
+    expect(clipSeconds(22_500)).toBe('22.5 s');
+    expect(clipSeconds(23_000)).toBe('23 s');
+    expect(clipSeconds(14_500)).toBe('14.5 s');
+    expect(clipSeconds(10_500)).toBe('10.5 s');
+    expect(clipSeconds(20_040)).toBe('20 s');
+    expect(clipSeconds(20_060)).toBe('20.1 s');
+    expect(clipSeconds(-5)).toBe('0 s');
   });
 });

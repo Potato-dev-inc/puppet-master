@@ -3,11 +3,49 @@
 //! talking to) hand things to the `Notifier`, which decides; what it returns is queued for the poller's
 //! send thread. Nothing here decides what the chat may read: that is all in `notify`.
 
+use std::collections::HashSet;
+
 use super::notify::{Links, Note};
 use super::runtime::Runtime;
 use crate::push::hub::Candidate;
 use crate::push::triggers::Kind;
 use crate::turn_summary::model::TurnSummary;
+
+/// A summary is published a few seconds after its turn ended (the settle step), so the tick looks
+/// back this far instead of only at "since the last tick". Older turns are never reported (after a
+/// restart or a long sleep).
+const TURN_LOOKBACK_MS: u64 = 120_000;
+
+/// The finished turns the tick already handled: a turn is reported once, whenever its summary shows up.
+pub struct TurnsSeen {
+    /// Turns that ended at or before this time are never reported (the chat was off, or not started).
+    floor_ms: u64,
+    done: HashSet<(String, u32, u64)>,
+}
+
+impl TurnsSeen {
+    pub fn new(floor_ms: u64) -> Self {
+        Self { floor_ms, done: HashSet::new() }
+    }
+
+    /// The chat is off: nothing that ends now may be reported later.
+    fn skip_until(&mut self, now: u64) {
+        self.floor_ms = now;
+        self.done.clear();
+    }
+
+    /// Where to start looking; handled turns that fell out of the window are forgotten.
+    fn window_start(&mut self, now: u64) -> u64 {
+        let start = self.floor_ms.saturating_add(1).max(now.saturating_sub(TURN_LOOKBACK_MS));
+        self.done.retain(|(_, _, ended)| *ended >= start);
+        start
+    }
+
+    /// True the first time this turn is seen.
+    fn first_time(&mut self, t: &TurnSummary) -> bool {
+        self.done.insert((t.pane_id.clone(), t.turn, t.ended_at_ms))
+    }
+}
 
 /// A question's candidate key is `q-<question id>` (see `push::notify_question`).
 const QUESTION_KEY: &str = "q-";
@@ -26,6 +64,11 @@ impl Runtime {
         };
         let note = self.with_links(|links| self.notifier.offer(c, question.as_ref(), &cfg, links, now));
         self.send_note(note);
+    }
+
+    /// A pane's status changed (from the same event the phone push listens to).
+    pub fn pane_status(&self, pane_id: &str, status: &str) {
+        self.notifier.pane_status(pane_id, status);
     }
 
     /// A companion's reply went into its feed. It reaches the chat only inside a conversation the
@@ -48,7 +91,7 @@ impl Runtime {
         let now = self.deps.host.now_ms();
         if !self.listening() {
             // Turns that end while the chat is off are never reported later.
-            *self.turns_seen_ms.lock() = now;
+            self.turns_seen.lock().skip_until(now);
             return;
         }
         let held = {
@@ -56,13 +99,13 @@ impl Runtime {
             self.notifier.flush_held(&mut limits.outbound, now)
         };
         self.send_note(held);
-        let since = {
-            let mut seen = self.turns_seen_ms.lock();
-            std::mem::replace(&mut *seen, now)
+        let since = self.turns_seen.lock().window_start(now);
+        let fresh: Vec<TurnSummary> = {
+            let mut seen = self.turns_seen.lock();
+            (self.deps.turns)(since).into_iter().filter(|t| seen.first_time(t)).collect()
         };
-        let turns = (self.deps.turns)(since.saturating_add(1));
-        if !turns.is_empty() {
-            self.turns_ended(&turns, now);
+        if !fresh.is_empty() {
+            self.turns_ended(&fresh, now);
         }
     }
 

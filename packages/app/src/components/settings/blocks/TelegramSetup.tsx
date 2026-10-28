@@ -1,7 +1,7 @@
 // Settings > Phone > Telegram (early). Step 1 saves the bot token in the OS credential store; the app never
 // shows it again, not even its last digits. Step 2 pairs one chat. Then the person turns the bot on and
 // picks what it may do. Telegram is a third party, so the warning at the top always shows.
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
 import {
   onTelegramChanged,
   telegramForget,
@@ -25,6 +25,9 @@ export const TELEGRAM_FOOTER = 'When your PC sleeps or Puppet Master is closed, 
 export const TELEGRAM_AUDIT = 'See Telegram actions in Security > Audit.';
 export const NO_STORE = "This computer has no safe place for the token, so Telegram can't be used.";
 export const DISCONNECT_BODY = 'Forget the bot token and the chat? You can connect again later.';
+
+/** While the link is connecting or on, the block asks the PC again this often, in case an event was missed. */
+export const STATUS_POLL_MS = 3000;
 
 /** At this many strangers an hour the warning shows. */
 export const STRANGERS_WARN_AT = 50;
@@ -95,23 +98,42 @@ export function TelegramSetup({ env, api = telegramApi }: { env: SettingsEnv; ap
   const [draft, setDraft] = useState('');
   const [now, setNow] = useState(() => Date.now());
 
-  useEffect(() => {
-    let live = true;
-    const load = () => {
+  /** Reads the status again. The latest answer wins; an answer that arrives after unmount is dropped. */
+  const load = useCallback(
+    (alive: () => boolean) => {
       api
         .status()
-        .then((next) => live && setStatus(next))
-        .catch((err) => live && setError(errText(err)));
-    };
-    load();
-    const off = api.onChanged(load);
+        .then((next) => alive() && setStatus(next))
+        .catch((err) => alive() && setError(errText(err)));
+    },
+    [api],
+  );
+
+  useEffect(() => {
+    let live = true;
+    const reload = () => load(() => live);
+    reload();
+    const off = api.onChanged(reload);
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       live = false;
       off();
       clearInterval(clock);
     };
-  }, [api]);
+  }, [api, load]);
+
+  // The event is the main way the line stays true; while it says "Connecting…" or "On" it is also read
+  // every few seconds, so a conflict or a refused token shows up even if an event was missed.
+  const linkState = status?.state;
+  useEffect(() => {
+    if (linkState !== 'connecting' && linkState !== 'on') return;
+    let live = true;
+    const poll = setInterval(() => load(() => live), STATUS_POLL_MS);
+    return () => {
+      live = false;
+      clearInterval(poll);
+    };
+  }, [linkState, load]);
 
   /** Runs one change and shows what came back. A refusal stays on screen as the reason. */
   const change = async (action: () => Promise<TelegramStatus>, saved = true) => {

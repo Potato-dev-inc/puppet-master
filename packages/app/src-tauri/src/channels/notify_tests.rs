@@ -417,6 +417,39 @@ fn duplicate_prompt_is_not_sent_twice() {
 }
 
 #[test]
+fn the_same_prompt_again_after_the_pane_stopped_waiting_is_told_again() {
+    let mut world = World::new();
+    let n = Notifier::default();
+    let c = candidate(
+        Kind::WaitingInput,
+        Some(approval("npm test", true, RiskLevel::Low, "x")),
+        Some(item()),
+    );
+    assert!(n.offer(&c, None, &cfg(), world.links(), 0).is_some());
+    // Still waiting (a repeated status event): still the same one prompt.
+    n.pane_status("pane-1", "waiting_input");
+    assert!(n.offer(&c, None, &cfg(), world.links(), 40_000).is_none());
+    // The person answered, the agent worked, then it asked the same thing again.
+    n.pane_status("pane-1", "running");
+    n.pane_status("pane-1", "waiting_input");
+    assert!(n.offer(&c, None, &cfg(), world.links(), 80_000).is_some());
+}
+
+#[test]
+fn another_panes_status_does_not_reset_a_duplicate() {
+    let mut world = World::new();
+    let n = Notifier::default();
+    let c = candidate(
+        Kind::WaitingInput,
+        Some(approval("npm test", true, RiskLevel::Low, "x")),
+        Some(item()),
+    );
+    assert!(n.offer(&c, None, &cfg(), world.links(), 0).is_some());
+    n.pane_status("pane-2", "running");
+    assert!(n.offer(&c, None, &cfg(), world.links(), 40_000).is_none());
+}
+
+#[test]
 fn thirty_second_gate_holds_a_second_prompt_and_summarises_it_later() {
     let mut world = World::new();
     let n = Notifier::default();

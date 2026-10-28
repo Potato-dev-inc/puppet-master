@@ -43,8 +43,8 @@ export interface Timeline {
 }
 
 /**
- * Lay out the clip: title (3 s), replay (4 to 18 s, or none), result (5 s), end card (2.5 s). The longest clip is
- * 28.5 s. `requestOverride` replaces only the request shown on the title; an empty one keeps the plan's request.
+ * Lay out the clip: title (3 s), replay (4 to 18 s, or none), result (5 s, left out when it has nothing to show),
+ * end card (2.5 s). The longest clip is 28.5 s. `requestOverride` replaces only the request shown on the title; an empty one keeps the plan's request.
  */
 export function buildTimeline(plan: ClipPlan, requestOverride?: string): Timeline {
   const scenes: Scene[] = [];
@@ -65,12 +65,21 @@ export function buildTimeline(plan: ClipPlan, requestOverride?: string): Timelin
     at += length;
   }
 
-  scenes.push({ kind: 'result', startMs: at, endMs: at + RESULT_MS });
-  at += RESULT_MS;
+  // A result with nothing to say (no files fact, no checks, no sentence) would be a blank stretch: no scene.
+  if (hasResult(plan)) {
+    scenes.push({ kind: 'result', startMs: at, endMs: at + RESULT_MS });
+    at += RESULT_MS;
+  }
   scenes.push({ kind: 'end', startMs: at, endMs: at + END_CARD_MS, agent: plan.agent });
   at += END_CARD_MS;
 
   return { scenes, captions, totalMs: at };
+}
+
+/** True when the result scene has something to draw: a files fact (even "no files changed"), checks or a sentence. */
+export function hasResult(plan: ClipPlan): boolean {
+  const { files, checks, sentence } = plan.result;
+  return files !== null || (checks ?? '').trim() !== '' || sentence.trim() !== '';
 }
 
 /**
