@@ -4,7 +4,7 @@
 //! plan is built twice, once to show the user and again when they press Run; the second plan must
 //! produce the same command text or the run is refused (`INSTALL_COMMAND_CHANGED`).
 
-use crate::tui::install::{InstallSpec, InstallTable};
+use crate::tui::install::{is_pypi_package, is_python_version, InstallSpec, InstallTable};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -17,6 +17,7 @@ const TOOLS_TOML: &str = include_str!("tools.toml");
 pub enum Method {
     Winget,
     Npm,
+    Uv,
     Script,
 }
 
@@ -129,6 +130,39 @@ fn npm_args(package: &str) -> Vec<String> {
     ["install", "-g", package].iter().map(|s| s.to_string()).collect()
 }
 
+/// `tool install [--python <v>] <package>`. The package and version were checked by the spec
+/// validator; `python` is checked again here so a bad value can never reach the argv.
+fn uv_args(package: &str, python: Option<&str>) -> Option<Vec<String>> {
+    if !is_pypi_package(package) {
+        return None;
+    }
+    let mut args: Vec<String> = ["tool", "install"].iter().map(|s| s.to_string()).collect();
+    if let Some(version) = python {
+        if !is_python_version(version) {
+            return None;
+        }
+        args.push("--python".into());
+        args.push(version.into());
+    }
+    args.push(package.into());
+    Some(args)
+}
+
+/// `tool uninstall <package>`, the removal that matches `uv_args`.
+fn uv_uninstall_args(package: &str) -> Vec<String> {
+    ["tool", "uninstall", package].iter().map(|s| s.to_string()).collect()
+}
+
+/// `uninstall --id <id> -e --source winget`, the removal that matches `winget_args`.
+fn winget_uninstall_args(id: &str) -> Vec<String> {
+    ["uninstall", "--id", id, "-e", "--source", "winget"].iter().map(|s| s.to_string()).collect()
+}
+
+/// `uninstall -g <package>`, the removal that matches `npm_args`.
+fn npm_uninstall_args(package: &str) -> Vec<String> {
+    ["uninstall", "-g", package].iter().map(|s| s.to_string()).collect()
+}
+
 /// Text for the sheet and the pane banner. Every token passed the spec validator, so plain
 /// spaces are enough; the real run quotes each token again (`command::powershell_script`).
 fn display(action: &Action) -> String {
@@ -154,7 +188,14 @@ fn step(label: &str, tool: Option<&str>, spec: &InstallSpec, method: &str, tools
             Action::Argv { exe: "npm".into(), args: npm_args(spec.npm.as_deref()?) },
             false,
         ),
-        _ => (Method::Script, Action::Script { url: spec.script_url.clone()? }, true),
+        "uv" => (
+            Method::Uv,
+            Action::Argv { exe: "uv".into(), args: uv_args(spec.uv.as_deref()?, spec.python.as_deref())? },
+            false,
+        ),
+        "script" => (Method::Script, Action::Script { url: spec.script_url.clone()? }, true),
+        // Never guess: a method this file does not know gets no step at all.
+        _ => return None,
     };
     Some(Step {
         tool: tool.map(str::to_string),
@@ -168,11 +209,14 @@ fn step(label: &str, tool: Option<&str>, spec: &InstallSpec, method: &str, tools
     })
 }
 
-/// Tools a method needs that this PC lacks. `npm` always needs Node.js.
+/// Tools a method needs that this PC lacks. `npm` always needs Node.js; `uv` always needs uv.
 fn missing_tools(spec: &InstallSpec, method: &str, tools: &Tools) -> Vec<String> {
     let mut need: Vec<&str> = spec.requires.iter().map(String::as_str).collect();
     if method == "npm" && !need.contains(&"node") {
         need.push("node");
+    }
+    if method == "uv" && !need.contains(&"uv") {
+        need.push("uv");
     }
     need.into_iter().filter(|t| !tools.has(t)).map(str::to_string).collect()
 }
@@ -187,9 +231,9 @@ fn tool_step(tool: &str, tools: &Tools) -> Option<Step> {
 
 /// The plan for one agent.
 ///
-/// Preference: a method that is ready now (winget, then npm, in the spec's order); then one that
-/// is ready once a missing tool is installed through winget; the vendor script last, because it is
-/// the one method that downloads and runs code.
+/// Preference: a method that is ready now (winget, then npm, then uv, in the spec's order); then
+/// one that is ready once a missing tool (Node.js, uv) is installed through winget; the vendor
+/// script last, because it is the one method that downloads and runs code.
 pub fn plan_install(agent_id: &str, label: &str, spec: Option<&InstallSpec>, tools: &Tools) -> Plan {
     let blocked = |reason: &str| Plan {
         agent_id: agent_id.into(),
@@ -236,6 +280,69 @@ pub fn plan_install(agent_id: &str, label: &str, spec: Option<&InstallSpec>, too
         );
     }
     blocked("No way to install this one from here. Use the command below.")
+}
+
+/// Plain words for "this was not installed by a method we can remove".
+const INSTALLED_ANOTHER_WAY: &str = "This was installed another way. Remove it where you installed it.";
+
+/// The removal for a program that the Store installed, from the CURRENT spec.
+///
+/// `record_method` and `record_package` come from what the Store recorded at install time. The
+/// spec must still name that same method and that same package, otherwise the plan is blocked: a
+/// catalog change must never point a removal at a different program. One step only, never a
+/// script, never a prerequisite (Node.js, Git and uv stay on the PC).
+pub fn plan_uninstall(
+    agent_id: &str,
+    label: &str,
+    spec: Option<&InstallSpec>,
+    record_method: &str,
+    record_package: &str,
+    tools: &Tools,
+) -> Plan {
+    let blocked = |reason: &str| Plan {
+        agent_id: agent_id.into(),
+        label: label.into(),
+        steps: Vec::new(),
+        blocked: Some(reason.to_string()),
+    };
+    let Some(spec) = spec else { return blocked(INSTALLED_ANOTHER_WAY) };
+    let (method, now) = match record_method {
+        "winget" => (Method::Winget, spec.winget.as_deref()),
+        "npm" => (Method::Npm, spec.npm.as_deref()),
+        "uv" => (Method::Uv, spec.uv.as_deref()),
+        _ => return blocked(INSTALLED_ANOTHER_WAY),
+    };
+    if now != Some(record_package) {
+        return blocked(INSTALLED_ANOTHER_WAY);
+    }
+    let action = match method {
+        Method::Winget => match &tools.winget {
+            Some(exe) => Action::Argv { exe: exe.clone(), args: winget_uninstall_args(record_package) },
+            None => {
+                return blocked(
+                    "This PC cannot remove apps from the command line (winget is missing). Remove it where you installed it.",
+                )
+            }
+        },
+        Method::Npm => Action::Argv { exe: "npm".into(), args: npm_uninstall_args(record_package) },
+        Method::Uv => Action::Argv { exe: "uv".into(), args: uv_uninstall_args(record_package) },
+        Method::Script => return blocked(INSTALLED_ANOTHER_WAY),
+    };
+    Plan {
+        agent_id: agent_id.into(),
+        label: label.into(),
+        steps: vec![Step {
+            tool: None,
+            label: label.into(),
+            method,
+            command: display(&action),
+            action,
+            source: spec.source.clone(),
+            high_risk: false,
+            note: String::new(),
+        }],
+        blocked: None,
+    }
 }
 
 #[cfg(test)]

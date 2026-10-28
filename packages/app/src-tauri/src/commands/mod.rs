@@ -46,6 +46,7 @@ mod first_run;
 mod crews;
 mod plain_mode;
 mod plans;
+mod scores;
 mod second_opinion;
 mod session_chat;
 mod chat_index_settings;
@@ -57,6 +58,7 @@ mod toolbelt;
 mod agent_pack;
 mod point;
 mod channels;
+mod night;
 
 pub use agent_install::*;
 pub use agent_wizard::*;
@@ -96,6 +98,7 @@ pub use first_run::*;
 pub use crews::*;
 pub use plain_mode::*;
 pub use plans::*;
+pub use scores::*;
 pub use second_opinion::*;
 pub use pane_outbox::*;
 pub use session_chat::*;
@@ -108,6 +111,7 @@ pub use toolbelt::*;
 pub use agent_pack::*;
 pub use point::*;
 pub use channels::*;
+pub use night::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

@@ -35,8 +35,13 @@ pub fn start_fail_from(err: OperationError) -> StartFail {
 }
 
 /// The key that makes a retried start return the same mission (`night:<run>:<task>:<n>`).
-fn idempotency_key(run: &NightRun, task: &Task, n: u8) -> String {
-    format!("night:{}:{}:{}", run.id, task.spec.id, n)
+pub(super) fn idempotency_key(run: &NightRun, task: &Task, n: u8) -> String {
+    key_of(&run.id, &task.spec.id, n)
+}
+
+/// The same key from the ids alone, for code that has the run id but not the run.
+pub(super) fn key_of(run_id: &str, task_id: &str, n: u8) -> String {
+    format!("night:{run_id}:{task_id}:{n}")
 }
 
 /// The mission request for a task with declared checks. One agent, quiet, rollback on, the test

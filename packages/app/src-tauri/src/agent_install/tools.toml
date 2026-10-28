@@ -19,3 +19,14 @@ programs = ["node.exe", "npm.cmd"]
 source = "https://nodejs.org/en/download"
 winget = "OpenJS.NodeJS.LTS"
 note = "Windows may ask if the installer can make changes. That is expected."
+
+[tools.uv]
+label = "uv"
+# Needed by agents whose install spec says `uv = "<package>"` (Python agents). uv puts each tool in
+# its own folder, so no system Python is touched.
+# UNVERIFIED: `astral-sh.uv` has not been checked with `winget show` yet. Run it before release.
+programs = ["uv.exe"]
+[tools.uv.install.windows]
+source = "https://docs.astral.sh/uv/getting-started/installation/"
+winget = "astral-sh.uv"
+note = "Windows may ask if the installer can make changes. That is expected."
