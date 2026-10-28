@@ -67,3 +67,5 @@ scripts/fixtures/store-catalog/** text eol=lf
 packages/app/src-tauri/src/issue_intake/fixtures/gh/*.json text eol=lf
 # Assign-an-issue text fixtures (issue bodies, task and issue-file goldens) are compared byte for byte: keep them LF.
 packages/app/src-tauri/src/issue_intake/fixtures/text/*.txt text eol=lf
+# Package check top lists (SPEC-n33 PC-2): read by include_str! and split on newlines; keep LF.
+packages/app/src-tauri/src/prompt_risk/packages/popular/*.txt text eol=lf
