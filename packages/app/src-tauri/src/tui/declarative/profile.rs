@@ -70,6 +70,8 @@ pub struct DeclarativeProfile {
     limits: Option<crate::handoff::CompiledLimits>,
     /// The transcript the definition declares (`[session_chat]`), for the Chat tab.
     chat_source: Option<&'static crate::session_chat::DeclaredSource>,
+    /// Where the definition's old chats are (`[session_chat.history]`), for the importer.
+    history_source: Option<&'static dyn crate::session_chat::SessionHistory>,
 }
 
 impl DeclarativeProfile {
@@ -129,11 +131,18 @@ impl DeclarativeProfile {
             })?),
             None => None,
         };
+        let history_source = match &def.session_chat {
+            Some(table) => crate::session_chat::declared::DeclaredHistory::shared(table).map_err(|errors| {
+                errors.into_iter().next().unwrap_or_else(|| DefError::new("AGENT_DEF_INCONSISTENT", "session_chat.history", "cannot be used"))
+            })?,
+            None => None,
+        };
         Ok(Self {
             engine,
             risk_rules,
             limits,
             chat_source,
+            history_source,
             origin: None,
             id: intern(&def.agent.id),
             not_dispatchable_reason: intern(&def.features.not_dispatchable_reason),
@@ -711,6 +720,10 @@ impl TuiProfile for DeclarativeProfile {
 
     fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
         self.chat_source.map(|source| source as &'static dyn crate::session_chat::SessionSource)
+    }
+
+    fn session_history(&self) -> Option<&'static dyn crate::session_chat::SessionHistory> {
+        self.history_source
     }
 
     fn context(&self) -> Option<AgentContextProfile> {
