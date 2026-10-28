@@ -22,6 +22,9 @@ integrations/** text eol=lf
 # Wizard test fixtures are split on "\n=====\n" or patched with multi-line replaces: keep them LF on every checkout.
 packages/app/src-tauri/src/tui/declarative/wizard/tests/fixtures/* text eol=lf
 
+# Point message golden fixtures are compared byte for byte (SPEC n32 PF-4): keep them LF.
+packages/app/src-tauri/src/point/tests/fixtures/*.txt text eol=lf
+
 # Golden files compared byte for byte by the agent pack tests.
 packages/app/src-tauri/src/agent_pack/golden/* text eol=lf
 
