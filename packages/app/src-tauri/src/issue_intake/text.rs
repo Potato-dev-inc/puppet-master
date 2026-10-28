@@ -16,7 +16,7 @@ use super::github::{ApiIssue, LabelEvent};
 use super::model::{CleanNotes, IssueSnapshot, BODY_MAX_BYTES, TITLE_MAX_CHARS};
 use crate::context_pack::fence;
 use crate::project_path::home_dir;
-use crate::redact::{self, known};
+use crate::redact::{self, known, RedactContext};
 use crate::session_chat::home_path::home_to_tilde;
 use crate::worktrees::pr::{render_body, PrFacts};
 
@@ -259,12 +259,18 @@ pub fn card_context(s: &IssueSnapshot, forced: &[String]) -> String {
     lines.join("\n").chars().take(CONTEXT_MAX_CHARS).collect()
 }
 
-/// Made-up names only in the tests. `clean` is what PM does to text before it leaves the PC: known
-/// secrets masked (strict), then the home folder as `~`.
+/// What PM writes into a pull request before it leaves the PC: known secrets and token shapes masked
+/// (strict, which keeps addresses), every e-mail address as `<email>` (`mask_emails`, as the other
+/// outbound sinks do), then the home folder as `~`.
+fn publish_text(text: &str, ctx: &RedactContext, home: Option<&str>) -> String {
+    let masked = redact::mask_emails(redact::strict_with(text, ctx).as_str());
+    home_to_tilde(&masked, home)
+}
+
+/// [`publish_text`] with the saved secrets and the real home folder.
 fn publish_clean(text: &str) -> String {
-    let masked = redact::strict_with(text, &known::context()).into_inner();
     let home = home_dir();
-    home_to_tilde(&masked, home.as_deref().and_then(|p| p.to_str()))
+    publish_text(text, &known::context(), home.as_deref().and_then(|p| p.to_str()))
 }
 
 /// Reword GitHub's closing keywords before an issue reference, so the draft can close nothing.
@@ -526,6 +532,31 @@ mod tests {
             checks: Some("2/2 passed".to_string()),
             ..PrFacts::default()
         }
+    }
+
+    #[test]
+    fn publish_text_masks_addresses_secrets_and_the_home_folder() {
+        let out = publish_text("Mail you@example.com or copy C:\\Users\\you\\app", &RedactContext::default(), None);
+        assert!(!out.contains("you@example.com"), "{out}");
+        assert!(out.contains("<email>"), "{out}");
+        assert!(!out.contains("C:\\Users\\you"), "{out}");
+        assert!(out.contains("~\\app"), "{out}");
+    }
+
+    #[test]
+    fn pr_body_masks_an_e_mail_address_from_the_agent_summary() {
+        let s = snap(PLAIN_TITLE, PLAIN_BODY, "someone");
+        let facts = PrFacts { summary: Some("Asked you@example.com about the fix.".to_string()), ..PrFacts::default() };
+        let body = pr_body_with(&s, &facts, "Test Agent", 30, 45, &|t: &str| publish_text(t, &RedactContext::default(), None));
+        assert!(!body.contains("you@example.com"), "{body}");
+        assert!(body.contains("Asked <email> about the fix."), "{body}");
+    }
+
+    #[test]
+    fn pr_title_masks_an_e_mail_address() {
+        let s = snap("Reply to you@example.com fails", "", "someone");
+        let title = pr_title_with(&s, &|t: &str| publish_text(t, &RedactContext::default(), None));
+        assert_eq!(title, "Reply to <email> fails");
     }
 
     #[test]
