@@ -94,16 +94,18 @@ vi.mock('./components/cockpit/Sidebar', async () => {
     c: { select: (id: string | null) => void; openSettings: (tab?: string) => Promise<void>; registry: { paneList: { info: { id: string } }[] } };
     onOpenDoctor: () => void;
     onOpenMemory: () => void;
+    onOpenScores: () => void;
     onOpenToSide?: (id: string) => void;
   };
   return {
-    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenToSide }: Props) =>
+    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenToSide }: Props) =>
       h(
         'div',
         null,
         h('button', { type: 'button', onClick: onOpenDoctor }, 'Set up agents'),
         h('button', { type: 'button', onClick: () => onOpenToSide?.('p2') }, 'Open p2 to the side'),
         h('button', { type: 'button', onClick: onOpenMemory }, 'Project memory'),
+        h('button', { type: 'button', onClick: onOpenScores }, 'Scores'),
         h('button', { type: 'button', onClick: () => void c.openSettings() }, 'Settings'),
         h('button', { type: 'button', onClick: () => c.select(null) }, 'Inbox'),
         ...c.registry.paneList.map((p) =>
@@ -119,6 +121,10 @@ vi.mock('./components/cockpit/AgentDoctor', async () => {
 vi.mock('./components/cockpit/ProjectMemory', async () => {
   const { createElement: h } = await import('react');
   return { ProjectMemory: () => h('div', null, 'MEMORY VIEW') };
+});
+vi.mock('./components/cockpit/AgentScores', async () => {
+  const { createElement: h } = await import('react');
+  return { AgentScores: ({ project }: { project?: { path: string } | null }) => h('div', null, 'SCORES VIEW ' + (project?.path ?? 'all')) };
 });
 // The split view's own rendering is tested in SplitView.test.tsx; here only its wiring from CockpitApp.
 vi.mock('./components/cockpit/SplitView', async () => {
@@ -375,6 +381,14 @@ describe('Settings in the cockpit', () => {
     clickButton('Settings');
     clickButton('Settings back');
     expect(mainText()).toBe('PANE VIEW p1');
+  });
+
+  it('(8) Scores replaces the open view, for the project of the selected pane', () => {
+    clickButton('Set up agents');
+    clickButton('Scores');
+    expect(mainText()).toBe('SCORES VIEW /proj/p1');
+    clickButton('pane p2');
+    expect(mainText()).toBe('PANE VIEW p2');
   });
 
   it('the last click wins: a pane, Project memory or Set up agents replaces Settings, and Settings replaces them', () => {
