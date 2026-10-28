@@ -5,7 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveNeedsYou } from '../../lib/attention';
 import { fakeCompanionTransport, type CompanionView } from '../../lib/companion';
 import { isLimit, type Question } from '../../lib/questions';
+import { keepGoingContinue, keepGoingSettingsGet, keepGoingTargets, type KeepGoingOffer } from '../../lib/keep-going';
 import { LimitCard } from './LimitCard';
+
+// The picker's API is mocked: the card's tests check what is asked, never a real hand-over.
+vi.mock('../../lib/keep-going', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/keep-going')>()),
+  keepGoingTargets: vi.fn(),
+  keepGoingContinue: vi.fn(),
+  keepGoingSettingsGet: vi.fn(),
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -55,18 +64,17 @@ const buttons = () => [...host.querySelectorAll('button')].map((b) => b.textCont
 const button = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === text);
 
 describe('LimitCard', () => {
-  it('says what happened, when it can continue, and offers exactly two choices', () => {
+  it('says what happened, offers its two choices, and Other agent…', () => {
     render(usage);
     expect(host.querySelector('.ib-title')?.textContent).toBe('Claude Code ran out of usage. It can continue at 14:05.');
     // the one age format, no "ran out" prefix
     expect(host.querySelector('.ib-age')?.textContent).toBe('2m');
-    expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here']);
+    expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here', 'Other agent…']);
     expect(button('Remind me at 14:05')!.className).toContain('ck-btn--primary');
   });
 
-  it('says the hand-off is coming later and has no hand-off button', () => {
+  it('has no hand-off button of its own: the backend choices answer, Other agent… opens the picker', () => {
     render(usage, { onOpenPane: () => {} });
-    expect(host.textContent).toContain('coming in a later update');
     for (const label of buttons()) {
       expect(label).not.toMatch(/hand|continue with|resume|switch|cancel/i);
     }
@@ -106,10 +114,10 @@ describe('LimitCard', () => {
         { id: 'stop', label: 'Stop here' },
       ],
     });
-    expect(buttons()).toEqual(['Remind me in 1 hour', 'Stop here']);
+    expect(buttons()).toEqual(['Remind me in 1 hour', 'Stop here', 'Other agent…']);
   });
 
-  it('a pane without a run has nothing to stop: Dismiss', () => {
+  it('a pane without a run has nothing to stop: Dismiss, and no Other agent…', () => {
     render({ ...usage, choices: [usage.choices[0], { id: 'stop', label: 'Dismiss' }], limit: { ...usage.limit!, has_run: false } });
     expect(buttons()).toEqual(['Remind me at 14:05', 'Dismiss']);
   });
@@ -126,6 +134,49 @@ describe('LimitCard', () => {
     expect(host.querySelector('.ib-age')?.textContent).toBe('2m');
     act(() => button('Got it')!.click());
     expect(onAnswer).toHaveBeenCalledWith({ choice_id: 'ok' });
+  });
+});
+
+describe('Other agent… on a limit card', () => {
+  const offers: KeepGoingOffer[] = [
+    { target: { agent_id: 'codex' }, label: 'Codex', ok: true, whyNot: null },
+    { target: { agent_id: 'cursor' }, label: 'Cursor', ok: false, whyNot: 'Not signed in' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(keepGoingTargets).mockResolvedValue(offers);
+    vi.mocked(keepGoingSettingsGet).mockResolvedValue({ order: [], ask_back: true });
+  });
+
+  it('is not offered when the card has no pane to stop', () => {
+    render({ ...usage, pane_id: undefined });
+    expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here']);
+  });
+
+  it('opens the picker for this pane, with its agents listed', async () => {
+    render(usage);
+    await act(async () => button('Other agent…')!.click());
+    expect(keepGoingTargets).toHaveBeenCalledWith('p-claude');
+    expect(host.querySelector('#ck-keep-going-title')?.textContent).toBe('Continue on another agent');
+    expect(host.querySelector('.ck-keep-going-sheet')).not.toBeNull();
+  });
+
+  it('starts the chosen agent with the saved move-back setting and closes the picker', async () => {
+    vi.mocked(keepGoingContinue).mockResolvedValue(undefined as never);
+    render(usage);
+    await act(async () => button('Other agent…')!.click());
+    await act(async () => button('Continue on Codex')!.click());
+    expect(keepGoingContinue).toHaveBeenCalledWith('p-claude', 'codex', true, 'l1');
+    expect(host.querySelector('.ck-keep-going-sheet')).toBeNull();
+  });
+
+  it('closes the picker with Cancel and starts nothing', async () => {
+    render(usage);
+    await act(async () => button('Other agent…')!.click());
+    await act(async () => button('Cancel')!.click());
+    expect(host.querySelector('.ck-keep-going-sheet')).toBeNull();
+    expect(keepGoingContinue).not.toHaveBeenCalled();
   });
 });
 
@@ -166,14 +217,14 @@ describe('a limit card on a companion\'s pane', () => {
     return transport;
   }
 
-  it('adds "Wake Mochi on…" after the two choices', () => {
+  it('adds "Wake Mochi on…" after the two choices, and no Other agent… (the companion has its own)', () => {
     renderCompanion(companionCard);
     expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here', 'Wake Mochi on…']);
   });
 
-  it('adds nothing for a pane that is not a companion\'s', () => {
+  it('adds no Wake button for a pane that is not a companion\'s; Other agent… is there instead', () => {
     renderCompanion(companionCard, null);
-    expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here']);
+    expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here', 'Other agent…']);
   });
 
   it('adds nothing to the reminder card', () => {

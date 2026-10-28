@@ -1,0 +1,59 @@
+/* Keep going: the "Other agent…" sheet on a usage-limit card. Monochrome, dense. */
+.cockpit .ck-keep-going-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+.cockpit .ck-keep-going-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--label);
+  cursor: pointer;
+}
+.cockpit .ck-keep-going-row:hover {
+  background: var(--fill);
+}
+.cockpit .ck-keep-going-row.is-off {
+  color: var(--label-3);
+  cursor: default;
+}
+.cockpit .ck-keep-going-row.is-off:hover {
+  background: none;
+}
+.cockpit .ck-keep-going-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-keep-going-state {
+  font-size: 11.5px;
+  color: var(--label-2);
+  text-align: right;
+}
+.cockpit .ck-keep-going-row.is-off .ck-keep-going-state {
+  color: var(--label-3);
+}
+.cockpit .ck-keep-going-back {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-keep-going-back .ck-sub {
+  width: 100%;
+  margin: 0;
+  font-size: 11.5px;
+}
+.cockpit .ck-keep-going-copy {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+}
