@@ -10,9 +10,6 @@
 //!
 //! Nothing here types into a pane, answers a prompt, or sends data off the PC.
 
-// The types are used by the later CL tasks. Remove this allow when they are wired (CL-15).
-#![allow(dead_code)]
-
 pub mod model;
 pub mod plan;
 pub mod screens;
@@ -20,3 +17,6 @@ pub mod scrub;
 pub mod steps;
 pub mod store;
 pub mod window;
+
+#[cfg(test)]
+mod guard_tests;

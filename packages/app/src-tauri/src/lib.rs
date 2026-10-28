@@ -170,6 +170,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::new())
         .manage(commands::SessionChatState::default())
+        .manage(clip::store::ClipState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_panes,
             commands::session_chat_open,
@@ -182,6 +183,9 @@ pub fn run() {
             commands::chat_export_html,
             commands::chat_export_markdown,
             commands::chat_export_save,
+            commands::clip_plan,
+            commands::clip_stage,
+            commands::clip_save,
             commands::keep_going_targets,
             commands::keep_going_continue,
             commands::keep_going_lineage,
