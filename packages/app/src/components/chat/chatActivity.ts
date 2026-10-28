@@ -64,10 +64,35 @@ const WORDS: Record<ToolKind, (count: number) => string> = {
   other: (n) => `Used ${plural(n, 'tool')}`,
 };
 
-/** "Read 6 files · Ran 2 commands · Edited 3 files". */
+/** How many rows of each kind ended in an error. A row with no status (read off the screen) never counts. */
+function failedByKind(steps: readonly ToolStep[]): Map<ToolKind, number> {
+  const failed = new Map<ToolKind, number>();
+  for (const step of steps) {
+    if (step.status !== 'error') continue;
+    const kind = kindOfCall(step.call);
+    failed.set(kind, (failed.get(kind) ?? 0) + 1);
+  }
+  return failed;
+}
+
+/** One group of the summary, split so the failed part can be styled: "Ran 2 commands" and "(1 failed)". */
+export interface SummaryPart {
+  text: string;
+  failed: string | null;
+}
+
+export function activitySummaryParts(steps: readonly ToolStep[]): SummaryPart[] {
+  const failed = failedByKind(steps);
+  return countActivity(steps).map((part) => {
+    const n = failed.get(part.kind) ?? 0;
+    return { text: WORDS[part.kind](part.count), failed: n > 0 ? `(${n} failed)` : null };
+  });
+}
+
+/** "Read 6 files · Ran 2 commands (1 failed) · Edited 3 files". */
 export function activitySummary(steps: readonly ToolStep[]): string {
-  return countActivity(steps)
-    .map((part) => WORDS[part.kind](part.count))
+  return activitySummaryParts(steps)
+    .map((part) => (part.failed === null ? part.text : `${part.text} ${part.failed}`))
     .join(' · ');
 }
 
