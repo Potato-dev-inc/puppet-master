@@ -159,6 +159,10 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         // A pane's chat (what the agent said and did) is pane text like a screen: it needs `watch`.
         ("GET", ["panes", _, "chat"]) => Need::Cap(Watch),
 
+        // "Your plans" (`bridge/routes/plans.rs`): what the person's plans did. Read only; a device that cannot watch
+        // does not see it. Written out so the route stays in the list with the other read routes.
+        ("GET", ["plans"]) => Need::Cap(Watch),
+
         ("GET", ["questions"]) => Need::AnyOf(Watch, Answer),
         // The attention list (what needs the person): sentences, not terminal bytes.
         ("GET", ["attention"]) => Need::AnyOf(Watch, Answer),

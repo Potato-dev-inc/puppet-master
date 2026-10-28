@@ -76,6 +76,16 @@
   color: var(--label-3);
   font-variant-numeric: tabular-nums;
 }
+/* Who changed the file last ("Codex helper · 14:02"): a quiet gray line next to the name. */
+.cockpit .ck-changes-blame {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--label-3);
+}
 .cockpit .ck-diff {
   margin: 0;
   padding: 6px 0;
