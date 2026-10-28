@@ -516,6 +516,28 @@ describe('AgentDefinitions approval hardening', () => {
   });
 });
 
+describe('AgentDefinitions: Browse more agents', () => {
+  it('has no Browse more agents button when the host gives no onOpenStore', async () => {
+    await render(mockApi());
+    expect(button('Browse more agents')).toBeUndefined();
+    expect(button('Add with wizard')).toBeTruthy();
+  });
+
+  it('shows Browse more agents next to Add with wizard and calls onOpenStore when clicked', async () => {
+    const onOpenStore = vi.fn();
+    await act(async () => {
+      root.render(<AgentDefinitions api={mockApi()} onOpenStore={onOpenStore} />);
+    });
+    const browse = button('Browse more agents');
+    expect(browse).toBeTruthy();
+    // same row as "Add with wizard", right after it
+    expect(browse?.previousElementSibling).toBe(button('Add with wizard'));
+    expect(onOpenStore).not.toHaveBeenCalled();
+    await click(browse);
+    expect(onOpenStore).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('AgentDefinitions: Add with wizard', () => {
   const F = '`'.repeat(3);
   const WIZ = 'C:/data/agents/fake_agent.toml';
@@ -925,6 +947,21 @@ describe('AgentDefinitions: approved by the wizard', () => {
     expect(nimbus?.querySelector('[data-testid="approved-by-wizard"]')?.textContent).toBe('Approved by the wizard after 9 checks passed');
     expect(Array.from(nimbus?.querySelectorAll('button') ?? []).map((b) => b.textContent)).toEqual(expect.arrayContaining(['Revoke']));
     expect(kilo?.querySelector('[data-testid="approved-by-wizard"]')).toBeNull();
+  });
+
+  it('says on an agent added from the Agent Store that it came from the store, and not on the others', async () => {
+    const listing = rows();
+    listing.definitions[1] = { ...listing.definitions[1], approved_by: 'store', approval_checks: 7 };
+    await render(mockApi(listing));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const items = Array.from(host.querySelectorAll('[data-testid="definition-row"]'));
+    const nimbus = items.find((i) => i.textContent?.includes('nimbus'));
+    const kilo = items.find((i) => i.textContent?.includes('kilo'));
+    expect(kilo?.querySelector('[data-testid="approved-by-store"]')?.textContent).toBe('Added from the Agent Store');
+    expect(kilo?.textContent).not.toContain('Approved by the wizard');
+    expect(nimbus?.querySelector('[data-testid="approved-by-store"]')).toBeNull();
   });
 
   it('opens no approval dialog for what the wizard approved, and says what it left for the person otherwise', () => {
