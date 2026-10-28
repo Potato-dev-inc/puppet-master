@@ -341,7 +341,7 @@ fn chat() -> Caller {
 #[test]
 fn a_chat_answer_is_refused_for_a_trust_gate_a_consent_card_a_budget_and_a_limit() {
     let env = fresh();
-    for (kind, subject) in [(Kind::TrustGate, "t1"), (Kind::Consent, "c1"), (Kind::Budget, "b1"), (Kind::Limit, "l1")] {
+    for (kind, subject) in [(Kind::TrustGate, "t1"), (Kind::Consent, "c1"), (Kind::Budget, "b1"), (Kind::Limit, "l1"), (Kind::Tamper, "x1"), (Kind::Setup, "s1")] {
         env.items.lock().push(question_item(kind, subject));
         let reply = answer(&env, &chat(), &format!("q-{subject}"), &Request { choice: Some("allow_once".into()), ..Request::default() });
         assert_eq!((reply.0, reply.1["error"].as_str()), (403, Some("not_from_chat")), "{kind:?}");
@@ -349,6 +349,25 @@ fn a_chat_answer_is_refused_for_a_trust_gate_a_consent_card_a_budget_and_a_limit
     assert_eq!(env.writes(), 0);
     assert!(env.notes.lock().is_empty(), "nothing was answered, so no receipt");
     assert!(env.audits.lock().is_empty(), "nothing was answered, so no audit line");
+}
+
+#[test]
+fn a_tamper_alert_and_a_setup_step_are_refused_from_a_chat_and_only_decided_on_the_pc() {
+    let env = fresh();
+    env.items.lock().push(question_item(Kind::Tamper, "x1"));
+    env.items.lock().push(question_item(Kind::Setup, "s1"));
+    for subject in ["x1", "s1"] {
+        let id = format!("q-{subject}");
+        let request = Request { choice: Some("ok".into()), ..Request::default() };
+        let from_chat = answer(&env, &chat(), &id, &request);
+        assert_eq!((from_chat.0, from_chat.1["error"].as_str()), (403, Some("not_from_chat")), "{subject}");
+        assert_eq!(from_chat.1["hint"], "Decide this in Puppet Master on the PC.", "{subject}");
+        // The chat guard is what refuses it: the same request from a card is not a chat refusal.
+        let from_card = answer(&env, &all(), &id, &request);
+        assert_ne!(from_card.1["error"].as_str(), Some("not_from_chat"), "{subject}");
+    }
+    assert_eq!(env.writes(), 0);
+    assert!(env.audits.lock().is_empty(), "nothing was answered");
 }
 
 #[test]

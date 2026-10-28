@@ -219,12 +219,12 @@ fn chat_refusal(item: &Item) -> Option<&'static str> {
     match item.kind {
         Kind::TrustGate => Some("Only the person at this PC can pass this."),
         Kind::Consent => Some("An agent wants more control. Decide on the PC."),
-        Kind::Budget | Kind::Limit => Some("Decide this in Puppet Master on the PC."),
+        Kind::Budget | Kind::Limit | Kind::Tamper | Kind::Setup => Some("Decide this in Puppet Master on the PC."),
         Kind::Approval => match item.risk.as_ref().map(|risk| risk.level) {
             Some(Level::Low) => None,
             _ => Some("Only low-risk approvals can be answered from a chat."),
         },
-        Kind::Question | Kind::Tamper | Kind::Setup | Kind::Error | Kind::Stuck | Kind::Review | Kind::Done | Kind::Answer => None,
+        Kind::Question | Kind::Error | Kind::Stuck | Kind::Review | Kind::Done | Kind::Answer => None,
     }
 }
 
