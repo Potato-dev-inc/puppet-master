@@ -58,6 +58,12 @@ describe('ChatIndexSettings', () => {
     expect(text()).toContain('Keep a search index of my chats');
   });
 
+  it('lists the old damaged copies of the index', async () => {
+    spies({ ...SIZED, oldCopies: 2 });
+    await render(makeEnv());
+    expect(text()).toContain('2 old damaged copies');
+  });
+
   it('turning it off saves the switch in Rust and shows it off', async () => {
     const s = spies();
     await render(makeEnv());

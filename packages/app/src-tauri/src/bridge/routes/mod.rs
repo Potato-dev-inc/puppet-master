@@ -52,6 +52,8 @@ pub(super) struct Ctx<'a> {
     pub headers: &'a str,
     /// TCP peer of the request is a loopback address.
     pub peer_loopback: bool,
+    /// Both ends of the connection, when they could be read (`companion::peer`).
+    pub peer: Option<crate::companion::peer::Peer>,
     pub session: Option<&'a str>,
     pub registry: &'a Arc<Mutex<PaneRegistry>>,
     pub app: &'a AppHandle,

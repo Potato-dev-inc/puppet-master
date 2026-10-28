@@ -12,8 +12,10 @@ use sha2::{Digest, Sha256};
 
 use super::brief::Texts;
 use super::files::{file_path, pending_path};
-use super::model::{char_len, cut_chars, CompanionError, CompanionResult, MemoryFile, PendingItem, PendingKind, MEMORY_CAP, PENDING_LINE_CAP};
-use super::store;
+use super::model::{
+    char_len, cut_chars, CompanionError, CompanionResult, MemoryFile, PendingItem, PendingKind, MEMORY_CAP, PENDING_LINE_CAP, SKILL_CAP,
+};
+use super::{skills, store};
 use crate::redact;
 
 pub const LINK_FLAG: &str = "Has a link";
@@ -35,14 +37,21 @@ pub enum OutsideDecision {
     Undo,
 }
 
-/// Parses one line of `memory/pending.md`: `- note: ...`, `- user: ...` or `- forget: ...`.
-/// Anything else returns None (the line is left in place). Control characters are removed, the
-/// text is redacted and cut to `PENDING_LINE_CAP` characters.
-pub fn parse_line(line: &str) -> Option<(PendingKind, String)> {
+/// The word and the text of a `- word: text` line. The word is lower-case.
+fn split_header(line: &str) -> Option<(String, &str)> {
     let line = line.trim_start_matches('\u{feff}').trim();
     let body = line.strip_prefix('-')?.trim_start();
     let (word, text) = body.split_once(':')?;
-    let kind = match word.trim().to_ascii_lowercase().as_str() {
+    Some((word.trim().to_ascii_lowercase(), text))
+}
+
+/// Parses one line of `memory/pending.md`: `- note: ...`, `- user: ...` or `- forget: ...`.
+/// Anything else returns None (the line is left in place). Control characters are removed, the
+/// text is redacted and cut to `PENDING_LINE_CAP` characters. (`- skill:` has a body on the next
+/// lines and is read by `entries`.)
+pub fn parse_line(line: &str) -> Option<(PendingKind, String)> {
+    let (word, text) = split_header(line)?;
+    let kind = match word.as_str() {
         "note" => PendingKind::Note,
         "user" => PendingKind::User,
         "forget" => PendingKind::Forget,
@@ -56,6 +65,78 @@ pub fn parse_line(line: &str) -> Option<(PendingKind, String)> {
     let redacted = redact::text(plain).into_inner();
     let cut = cut_chars(redacted.trim(), PENDING_LINE_CAP);
     if cut.is_empty() { None } else { Some((kind, cut)) }
+}
+
+/// One proposal in `pending.md` with the lines it covers (indexes into the file's lines, both included).
+struct Entry {
+    kind: PendingKind,
+    text: String,
+    body: Option<String>,
+    first: usize,
+    last: usize,
+}
+
+fn trim_eol(line: &str) -> &str {
+    line.trim_end_matches(['\r', '\n'])
+}
+
+fn indent_of(line: &str) -> usize {
+    line.chars().take_while(|c| *c == ' ' || *c == '\t').count()
+}
+
+/// A skill: the `- skill: <title>` line and the indented lines under it (blank lines inside are fine; a
+/// line that is not indented ends it). A skill with no title or no body is not a proposal.
+fn skill_entry(lines: &[&str], at: usize) -> Option<Entry> {
+    let (word, title) = split_header(trim_eol(lines[at]))?;
+    if word != "skill" {
+        return None;
+    }
+    let mut last = at;
+    for (offset, line) in lines[at + 1..].iter().enumerate() {
+        let line = trim_eol(line);
+        if line.trim().is_empty() {
+            continue;
+        }
+        if indent_of(line) == 0 {
+            break;
+        }
+        last = at + 1 + offset;
+    }
+    let raw: Vec<&str> = lines[at + 1..=last].iter().map(|l| trim_eol(l)).collect();
+    let margin = raw.iter().filter(|l| !l.trim().is_empty()).map(|l| indent_of(l)).min().unwrap_or(0);
+    let dedented: Vec<String> = raw.iter().map(|l| l.chars().skip(margin.min(indent_of(l))).collect()).collect();
+    let title = skills::clean_title(title);
+    let body = skills::clean_body(&dedented.join("\n"), SKILL_CAP * 2);
+    if title.is_empty() || body.is_empty() {
+        return None;
+    }
+    Some(Entry { kind: PendingKind::Skill, text: title, body: Some(body), first: at, last })
+}
+
+/// Every proposal in the file, in order.
+fn entries(content: &str) -> Vec<Entry> {
+    let lines: Vec<&str> = content.split_inclusive('\n').collect();
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < lines.len() {
+        if let Some(entry) = skill_entry(&lines, at) {
+            at = entry.last + 1;
+            out.push(entry);
+            continue;
+        }
+        if let Some((kind, text)) = parse_line(trim_eol(lines[at])) {
+            out.push(Entry { kind, text, body: None, first: at, last: at });
+        }
+        at += 1;
+    }
+    out
+}
+
+fn entry_id(entry: &Entry) -> String {
+    match &entry.body {
+        Some(body) => item_id(entry.kind, &format!("{}\n{body}", entry.text)),
+        None => item_id(entry.kind, &entry.text),
+    }
 }
 
 /// First 12 hex characters of sha256(kind + text).
@@ -82,17 +163,20 @@ pub fn flag_for(text: &str) -> Option<String> {
 pub fn read_pending(home: &Path) -> CompanionResult<Vec<PendingItem>> {
     let text = store::read_optional(&pending_path(home))?.unwrap_or_default();
     let mut out: Vec<PendingItem> = Vec::new();
-    for line in text.lines() {
-        let Some((kind, body)) = parse_line(line) else { continue };
-        let id = item_id(kind, &body);
+    for entry in entries(&text) {
+        let id = entry_id(&entry);
         if out.iter().any(|item| item.id == id) {
             continue;
         }
-        let target_line = match kind {
-            PendingKind::Forget => find_forget_target(home, &body)?,
+        let target_line = match entry.kind {
+            PendingKind::Forget => find_forget_target(home, &entry.text)?,
             _ => None,
         };
-        out.push(PendingItem { id, kind, flagged: flag_for(&body), text: body, target_line });
+        let flagged = match &entry.body {
+            Some(body) => flag_for(&format!("{}\n{body}", entry.text)),
+            None => flag_for(&entry.text),
+        };
+        out.push(PendingItem { id, kind: entry.kind, flagged, text: entry.text, body: entry.body, target_line });
     }
     Ok(out)
 }
@@ -123,6 +207,13 @@ pub fn decide(root: &Path, id: &str, home: &Path, item_id: &str, decision: Decis
         .cloned()
         .ok_or_else(|| CompanionError::new("COMPANION_PENDING_STALE", "That item is gone. Look at the list again."))?;
 
+    if item.kind == PendingKind::Skill {
+        // A skill is never kept as a line: Keep makes its own file, and only the person's Keep does.
+        if decision == Decision::Keep {
+            skills::add(root, id, home, &item.text, item.body.as_deref().unwrap_or_default())?;
+        }
+        return remove_pending_line(home, item_id);
+    }
     if decision == Decision::Keep {
         let outside = outside_changes(root, id, home)?;
         for file in apply_keep(home, &item)? {
@@ -153,7 +244,29 @@ fn apply_keep(home: &Path, item: &PendingItem) -> CompanionResult<Vec<MemoryFile
             }
             Ok(Vec::new())
         }
+        PendingKind::Skill => Ok(Vec::new()),
     }
+}
+
+/// Approves a proposed skill after the person edited it: `title` and `body` replace the proposal's.
+pub fn approve_skill(
+    root: &Path,
+    id: &str,
+    home: &Path,
+    item_id: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+) -> CompanionResult<skills::SkillFull> {
+    let items = read_pending(home)?;
+    let item = items
+        .iter()
+        .find(|i| i.id == item_id && i.kind == PendingKind::Skill)
+        .ok_or_else(|| CompanionError::new("COMPANION_PENDING_STALE", "That item is gone. Look at the list again."))?;
+    let title = title.unwrap_or(&item.text);
+    let body = body.or(item.body.as_deref()).unwrap_or_default();
+    let skill = skills::add(root, id, home, title, body)?;
+    remove_pending_line(home, item_id)?;
+    Ok(skill)
 }
 
 fn append_line(home: &Path, file: MemoryFile, text: &str) -> CompanionResult<()> {
@@ -185,23 +298,19 @@ fn remove_first_match(home: &Path, file: MemoryFile, text: &str) -> CompanionRes
     Ok(true)
 }
 
-/// Removes the first pending line whose id is `item_id`. A missing file or no match is not an error.
+/// Removes the first proposal whose id is `item_id` (a skill takes its body lines with it). A missing
+/// file or no match is not an error.
 fn remove_pending_line(home: &Path, item_id: &str) -> CompanionResult<()> {
     let path = pending_path(home);
     let Some(content) = store::read_optional(&path)? else {
         return Ok(());
     };
+    let Some(entry) = entries(&content).into_iter().find(|e| entry_id(e) == item_id) else {
+        return Ok(());
+    };
     let mut lines: Vec<&str> = content.split_inclusive('\n').collect();
-    let matches = |line: &str| parse_line(line).is_some_and(|(kind, body)| item_id_matches(kind, &body, item_id));
-    if let Some(at) = lines.iter().position(|l| matches(l)) {
-        lines.remove(at);
-        write_home(&path, &lines.concat())?;
-    }
-    Ok(())
-}
-
-fn item_id_matches(kind: PendingKind, body: &str, wanted: &str) -> bool {
-    item_id(kind, body) == wanted
+    lines.drain(entry.first..=entry.last);
+    write_home(&path, &lines.concat())
 }
 
 fn full_error() -> CompanionError {
@@ -231,9 +340,10 @@ fn group_thousands(n: usize) -> String {
     out
 }
 
-/// Pending items the keeper keeps on its own when `memory_review` is off: every unflagged one.
+/// Pending items the keeper keeps on its own when `memory_review` is off: every unflagged one except
+/// a skill (a skill is only ever created by the person's own Approve).
 pub fn auto_keep_ids(items: &[PendingItem]) -> Vec<String> {
-    items.iter().filter(|i| i.flagged.is_none()).map(|i| i.id.clone()).collect()
+    items.iter().filter(|i| i.flagged.is_none() && i.kind != PendingKind::Skill).map(|i| i.id.clone()).collect()
 }
 
 /// The memory files whose content differs from the approved copy. A file with no approved copy yet
@@ -306,7 +416,7 @@ fn refresh_approved(root: &Path, id: &str, home: &Path, file: MemoryFile) -> Com
 }
 
 /// Writes a home-folder file atomically (temp file in the same folder, then rename).
-fn write_home(path: &Path, text: &str) -> CompanionResult<()> {
+pub(super) fn write_home(path: &Path, text: &str) -> CompanionResult<()> {
     let tmp = std::path::PathBuf::from(format!("{}.pm-tmp", path.display()));
     let fail = |e: std::io::Error| CompanionError::new("COMPANION_FOLDER_INVALID", format!("Could not write {}: {e}.", path.display()));
     fs::write(&tmp, text).map_err(fail)?;

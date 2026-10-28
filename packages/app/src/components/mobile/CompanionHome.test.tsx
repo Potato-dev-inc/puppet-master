@@ -198,4 +198,12 @@ describe('CompanionHome', () => {
     expect(transport.calls.find((c) => c.method === 'decidePending')?.args).toEqual(['mochi', 'p1', 'keep']);
     expect(host.textContent).not.toContain('Likes tea');
   });
+
+  it('lists the skill titles it has learned, read only, and never asks the PC for the steps', async () => {
+    const skills = [{ slug: 'weekly-report', title: 'Weekly report', chars: 90, unreviewed: false, flagged: null }];
+    const { transport } = await mount({ memory: { skills } });
+    expect(host.textContent).toContain('Skills Mochi has learned');
+    expect(host.textContent).toContain('Weekly report');
+    expect(transport.calls.some((c) => c.method === 'getSkill' || c.method === 'saveSkill' || c.method === 'removeSkill')).toBe(false);
+  });
 });

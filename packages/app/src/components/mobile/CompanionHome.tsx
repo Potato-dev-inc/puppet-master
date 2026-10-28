@@ -9,6 +9,7 @@ import type { PhoneAbilities } from '../../lib/phone-abilities';
 import { Avatar } from '../companion/Avatar';
 import { CompanionFeed, clockLabel, readFeedMark, writeFeedMark } from './CompanionFeed';
 import { CompanionPending } from './CompanionPending';
+import { CompanionSkills } from './CompanionSkills';
 import { PhoneChatView } from './PhoneChatView';
 import '../../styles/ph-companion.css';
 
@@ -154,6 +155,7 @@ export function CompanionHome({ companion, bridge, transport, abilities, chatAll
           busyId={busy}
           onDecide={decide}
         />
+        <CompanionSkills name={name} skills={memory?.skills ?? []} />
         {error && (
           <p className="ph-comp-error" role="alert">
             {error}

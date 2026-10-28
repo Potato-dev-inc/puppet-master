@@ -78,7 +78,8 @@ fn bad(message: &str) -> (u16, Value) {
 fn fail(error: CompanionError) -> (u16, Value) {
     let status = match error.code {
         "COMPANION_NOT_FOUND" => 404,
-        "COMPANION_PENDING_STALE" | "COMPANION_MEMORY_FULL" => 409,
+        "COMPANION_PENDING_STALE" | "COMPANION_MEMORY_FULL" | "COMPANION_SKILLS_FULL" => 409,
+        "COMPANION_SKILL_ON_COMPUTER" => 403,
         "COMPANION_STORE_INVALID" => 500,
         _ => 400,
     };
@@ -218,6 +219,29 @@ mod tests {
         tick(1_000);
         tick(2_000);
         tick(1_000);
+    }
+
+    #[test]
+    fn the_phone_reads_skill_titles_never_their_steps_and_cannot_approve_one() {
+        let (service, _host, dir) = service_with_one();
+        let home = std::path::PathBuf::from(service.folder_of("mochi").unwrap());
+        crate::companion::skills::add(&dir, "mochi", &home, "Tea", "SECRET-STEPS").unwrap();
+        std::fs::write(home.join("memory").join("pending.md"), "- skill: Weekly report
+  SECRET-STEPS two
+").unwrap();
+
+        let (status, memory) = get(&service, "/companions/mochi/memory", None).unwrap();
+        assert_eq!(status, 200);
+        assert!(!memory.to_string().contains("SECRET-STEPS"), "{memory}");
+        let waiting = &memory["pending"][0];
+        assert_eq!((waiting["kind"].as_str(), waiting["text"].as_str()), (Some("skill"), Some("Weekly report")));
+        assert!(waiting.get("body").is_none());
+
+        let path = format!("/companions/mochi/memory/pending/{}", waiting["id"].as_str().unwrap());
+        let (status, body) = post(&service, &path, json!({ "decision": "keep" }), None).unwrap_err();
+        assert_eq!((status, body["code"].as_str()), (403, Some("COMPANION_SKILL_ON_COMPUTER")));
+        assert!(!home.join("skills").join("weekly-report.md").exists());
+        assert_eq!(memory["skills"][0]["title"], "Tea");
     }
 
     #[test]

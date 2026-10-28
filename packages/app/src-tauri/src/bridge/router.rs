@@ -131,6 +131,7 @@ pub(super) fn route(
         request_body,
         headers,
         peer_loopback,
+        peer,
         session,
         registry,
         app,

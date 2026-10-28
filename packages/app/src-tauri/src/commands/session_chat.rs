@@ -23,6 +23,8 @@ pub struct SessionChatState {
     watchers: OnceCell<Arc<Watchers>>,
     /// The search index of every chat read (`None`: it could not be opened, search is off).
     index: OnceCell<Option<Arc<ChatIndex>>>,
+    /// The saved-page exports not yet written (see `session_chat::export_save`).
+    pages: crate::session_chat::export_save::Pages,
 }
 
 impl SessionChatState {
@@ -43,6 +45,11 @@ impl SessionChatState {
     /// The search index of this profile (opened on first use).
     pub fn index(&self, registry: &Arc<Mutex<PaneRegistry>>) -> Option<Arc<ChatIndex>> {
         self.index.get_or_init(|| crate::chat_index::open_default(Arc::new(RegistryPanes(registry.clone())))).clone()
+    }
+
+    /// The chat pages made by "Save as page" and waiting to be written.
+    pub fn pages(&self) -> &crate::session_chat::export_save::Pages {
+        &self.pages
     }
 
     /// The readers, if a chat view has already built them. Reading them never opens a reader.

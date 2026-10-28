@@ -2,17 +2,18 @@
 // side is src-tauri/src/commands/chat_index_settings.rs; the search itself is `chatSearch.ts`.
 import { invoke } from '@tauri-apps/api/core';
 
-/** `items`: chat items kept; `bytes`: the size of the file; `enabled`: the switch the person set. */
+/** `items`: chat items kept; `bytes`: the size of the file; `enabled`: the switch the person set; `oldCopies`: damaged-index copies still on disk. */
 export interface ChatIndexStatus {
   enabled: boolean;
   items: number;
   bytes: number;
+  oldCopies?: number;
 }
 
 const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export async function chatIndexStatus(): Promise<ChatIndexStatus> {
-  if (!isTauri()) return { enabled: true, items: 0, bytes: 0 };
+  if (!isTauri()) return { enabled: true, items: 0, bytes: 0, oldCopies: 0 };
   return invoke<ChatIndexStatus>('chat_index_status');
 }
 
@@ -43,4 +44,11 @@ export function formatBytes(bytes: number): string {
 export function indexSizeText(status: Pick<ChatIndexStatus, 'items' | 'bytes'>): string {
   const count = status.items.toLocaleString('en-US');
   return `${formatBytes(status.bytes)} · ${count} ${status.items === 1 ? 'item' : 'items'}`;
+}
+
+/** The line under "Clear search index": the size, and the old copies of a damaged index when there are any. */
+export function indexStatusText(status: Pick<ChatIndexStatus, 'items' | 'bytes' | 'oldCopies'>): string {
+  const old = status.oldCopies ?? 0;
+  if (old <= 0) return indexSizeText(status);
+  return `${indexSizeText(status)} · ${old} old damaged ${old === 1 ? 'copy' : 'copies'} (removed too)`;
 }
