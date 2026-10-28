@@ -141,26 +141,34 @@ export function MissionCard({
   );
 }
 
+/** The finished missions the Inbox lists under "Ready for you" (the newest five). */
+export function readyMissions(missions: MissionView[]): MissionView[] {
+  return missions.filter((m) => m.state === 'green').slice(0, 5);
+}
+
 /** The Inbox's mission section: cards for missions that need you, then the missions themselves
- *  (each opens its Progress in place), finished ones under "Ready for you". */
+ *  (each opens its Progress in place), finished ones under "Ready for you". `foldReady` (Focus is on)
+ *  hides those finished rows. The cards that need you are never folded. */
 export function MissionsSection({
   missions,
   api = tauriMissionsApi,
   onChanged,
   onOpenPane,
   onNotify,
+  foldReady = false,
 }: {
   missions: MissionView[];
   api?: MissionsApi;
   onChanged?: () => void;
   onOpenPane?: (paneId: string) => void;
   onNotify?: (text: string) => void;
+  foldReady?: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   if (missions.length === 0) return null;
   const cards = missions.filter((m) => m.state === 'needs_you' && m.needs && m.needs !== 'budget');
   const working = missions.filter((m) => isActive(m));
-  const ready = missions.filter((m) => m.state === 'green').slice(0, 5);
+  const ready = foldReady ? [] : readyMissions(missions);
   const row = (m: MissionView) => (
     <li key={m.id} className="ck-mission-list-item">
       <button type="button" className="ck-mission-list-row" aria-expanded={open === m.id} onClick={() => setOpen((v) => (v === m.id ? null : m.id))}>

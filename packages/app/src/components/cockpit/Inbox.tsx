@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectWithCopy } from './shell-labels';
 import { hasEverSpawned } from '../../lib/agent-health';
@@ -21,8 +21,10 @@ import { PaneErrorCard } from './InboxError';
 import { focusWithRing } from './InboxCard';
 import { handleInboxKey, isEditable } from './inbox-keys';
 import { TeamSection } from './team/TeamSection';
-import { MissionsSection } from './mission/MissionCards';
+import { MissionsSection, readyMissions } from './mission/MissionCards';
 import { useMissions } from '../../lib/missions';
+import { useFocus } from '../../hooks/useFocus';
+import { FocusNote } from './FocusNote';
 import type { CompanionTransport, CompanionView } from '../../lib/companion';
 import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './companion/model';
 import { CompanionStoppedCard } from './companion/StoppedCard';
@@ -62,6 +64,10 @@ export function Inbox({
   // The mission cards themselves are drawn by MissionsSection; their count is already in `needs`
   // (CockpitApp passes the missions to useNeedsYouSource), like the tray and the phone's number.
   const missions = useMissions();
+  // Focus on: finished missions wait out of sight until Focus ends. "Show" unfolds them for this Focus only.
+  const focus = useFocus();
+  const [shownSession, setShownSession] = useState<string | null>(null);
+  const folding = focus.view?.on === true && !(shownSession !== null && shownSession === focus.view.sessionId);
   const count = blockingItems(needs).length;
   const waiting = c.registry.paneList.filter((p) => itemsOfKind(needs, 'approval').some((i) => i.paneId === p.info.id));
   const errored = c.registry.paneList.filter((p) => itemsOfKind(needs, 'error').some((i) => i.paneId === p.info.id));
@@ -218,6 +224,13 @@ export function Inbox({
         if (root.current) handleInboxKey(e.nativeEvent, root.current);
       }}
     >
+      <FocusNote
+        view={focus.view}
+        now={focus.now}
+        foldedCount={folding ? readyMissions(missions.missions).length : 0}
+        onShowFinished={() => setShownSession(focus.view?.sessionId ?? null)}
+        onChange={focus.set}
+      />
       <header className="ck-inbox-hero">
         {!firstRun && (
           <div className="ck-doto" aria-label={`${count} ${count === 1 ? 'thing needs' : 'things need'} you`}>
@@ -272,7 +285,7 @@ export function Inbox({
         </ul>
       )}
 
-      <MissionsSection missions={missions.missions} onChanged={missions.reload} onOpenPane={(id) => c.select(id)} onNotify={c.notify} />
+      <MissionsSection missions={missions.missions} onChanged={missions.reload} onOpenPane={(id) => c.select(id)} onNotify={c.notify} foldReady={folding} />
 
       <AskNotices />
       <CanaryNotices />
