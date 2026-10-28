@@ -118,7 +118,7 @@ puppet-master/
     wiki/                   developer/agent handbook (overview, architecture, developing, extending)
   packages/
     app/                    Tauri app
-      src/                  React UI (App.tsx = LEGACY main window, unreachable since PF3; SettingsApp.tsx + lib/settings-entry.ts = Settings window route `?settings=1&tab=`; PwaApp.tsx mobile PWA (agent tabs, components/mobile/, hooks/usePaneViewportLease.ts phone-sized panes, lib/mobile-agent-tabs.ts), PwaLegacyApp.tsx old orchestrator PWA kept at `?pwa=legacy`, TerminalApp.tsx worker window,
+      src/                  React UI (App.tsx = LEGACY main window, unreachable since PF3; SettingsApp.tsx + lib/settings-entry.ts = Settings window route `?settings=1&tab=`; PwaApp.tsx mobile PWA (agent tabs, components/mobile/, hooks/usePaneViewportLease.ts phone-sized panes, lib/mobile-agent-tabs.ts), PwaLegacyApp.tsx old orchestrator PWA kept at `?pwa=legacy`, TerminalApp.tsx worker window, components/point/ (the Point box window, `?pointbox=1`, section 3.8),
                             WorkerHostBootstrap.tsx; components/ (+ settings/{sections,blocks}/, sidebar/,
                             coordination/, pwa/ tabs), hooks/ (usePaneRegistry, useBridge*), lib/ (bridge.ts +
                             bridge-*.ts split, tauri.ts, mcp-tools.ts, mcp-config.ts, pane-state.ts, ...),
@@ -385,6 +385,14 @@ automatically at usage limit" wait is only read (`self_resume_armed`); the vendo
 `%APPDATA%\com.puppetmaster.app\cli` so the command survives cargo clean/rebuilds.
 JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WATCH_USAGE`),
 `index.ts` (dispatch; unknown watch flag -> exit 4 + usage).
+
+### 3.8 Point and Fix (`point/`, being built)
+
+Point and Fix: open your running app in its own preview window, point at an element, say what should change, and send that to an agent pane. Status and limits: `docs/FEATURES.md` section 1a.
+
+| File | Purpose / key items |
+|---|---|
+| `point/` (+ `commands/point.rs`, `lib/point-api.ts`, `lib/composerDraft.ts`, `components/point/` the Point box, `styles/point-box.css`) | `origin.rs`: which URLs may open (only `localhost`, `127.0.0.1`, `[::1]`; the URL comes from `pane_preview` or the pane's job ports, never from the UI; Puppet Master's own ports refused) and the navigation guard (`nav`). `pick.rs`: checks what the page sends (caps, redaction before cut, rect clamped, same origin only). `source.rs`: a file hint from the page counts only if it is a real file in the project. `message.rs`: the text sent to the agent. `shot.rs`: crop, save under `<project>/.puppet-master/shots/` (git-excluded), keep 50. `target.rs`: which agent panes can take the message (labels from the agent registry, never a name match). `session.rs`: up to 3 picks for 10 minutes, and drafts for Edit in Chat. `picker.js`: the script injected only into preview windows; it has no IPC. `capture.rs`: WebView2 `CapturePreview` (Windows only in v1). `window.rs`: preview windows, the pull loop (`eval_with_callback`, 250 ms while focused, 2 s otherwise) and the after-pick steps. `box_window.rs`: the Point box window (label `pointbox`, route `index.html?pointbox=1`). Send goes only through `pane_outbox::Outbox::send`; Point never writes to a PTY. Preview windows (`preview-*`) are in no capability, so page code gets no IPC. UI: `components/point/PointBox.tsx`, `PointBoxApp.tsx`, `point-model.ts`; `ChatComposer` takes a draft from Edit in Chat. Tests sit next to each file (`point/tests/*.rs`, `*.test.ts(x)`). |
 
 ---
 
