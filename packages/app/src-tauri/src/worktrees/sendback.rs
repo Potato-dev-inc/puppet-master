@@ -182,10 +182,10 @@ mod tests {
 
     const SECRET: &str = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
     const EMAIL: &str = "dana.private@example.org";
-    const HOME_LINE: &str = "error at C:\\Users\\dana\\code\\shop\\src\\cart.ts:12";
+    const HOME_LINE: &str = "error at C:\\Users\\you\\code\\shop\\src\\cart.ts:12";
 
     fn publish(text: &str) -> String {
-        crate::issue_intake::text::publish_text(text, &RedactContext::default(), Some("C:\\Users\\dana"))
+        crate::issue_intake::text::publish_text(text, &RedactContext::default(), Some("C:\\Users\\you"))
     }
 
     fn report() -> ChecksReport {
