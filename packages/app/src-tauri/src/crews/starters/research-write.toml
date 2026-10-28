@@ -1,0 +1,13 @@
+# Starter: a helper researches, the lead writes the document from the research notes.
+name = "Research + Write"
+
+[[roles]]
+name = "Writer"
+agent_type = "{default}"
+task = "Write the document the person asks for in {folder}. A Researcher is collecting facts into research-notes.md in the same folder at the same time. Check that file from time to time and use what it says. When the draft is done, say where it is."
+
+[[roles]]
+name = "Researcher"
+agent_type = "{default}"
+parent = "Writer"
+task = "Research the topic the person asks about, using the files in {folder}. Write your findings as short bullet points, each with its source, into research-notes.md in {folder}. Do not write the final document; the Writer does that."
