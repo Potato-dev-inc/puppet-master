@@ -58,6 +58,23 @@ pub struct AgentLimit {
     pub reset_at_ms: Option<i64>,
 }
 
+/// One thing that was said in a companion's chats, found by the search index.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecallHit {
+    pub at_ms: i64,
+    /// `user` (the person) or `assistant` (the companion).
+    pub kind: String,
+    /// Already redacted by the index; the service redacts again before it leaves.
+    pub snippet: String,
+}
+
+/// The answer of a recall search. `enabled` is false when the person turned the index off in Settings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecallAnswer {
+    pub enabled: bool,
+    pub hits: Vec<RecallHit>,
+}
+
 pub trait Host: Send + Sync + 'static {
     /// Epoch milliseconds.
     fn now_ms(&self) -> i64;
@@ -95,6 +112,16 @@ pub trait Host: Send + Sync + 'static {
     }
     /// Lets go of the session-chat reader this companion holds on the pane.
     fn release_reader(&self, pane_id: &str, companion_id: &str);
+
+    /// Whether the chat search index is on (it feeds `companion_recall`). The default says no.
+    fn recall_on(&self) -> bool {
+        false
+    }
+    /// Searches what was said in the chats of exactly these panes, newest first (the chat search index).
+    /// Never looks anywhere else. The default has no index.
+    fn recall(&self, _panes: &[String], _query: &str, _limit: usize) -> RecallAnswer {
+        RecallAnswer { enabled: false, hits: Vec::new() }
+    }
 
     /// The card that says the companion stopped, with `Try again`.
     fn raise_stopped(&self, companion_id: &str, name: &str);

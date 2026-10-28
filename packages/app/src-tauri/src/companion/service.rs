@@ -348,13 +348,14 @@ impl Service {
         Ok(())
     }
 
-    /// Writes the brief into the agent's instruction file (the `today.md` rule only when it is on).
+    /// Writes the brief into the agent's instruction file (the `today.md` rule only when it is on, the `companion_recall` rule only while the search index is on).
     /// Returns the agent's instruction files.
     pub(super) fn write_brief(&self, profile: &CompanionProfile) -> Result<Vec<crate::tui::InstructionFile>, String> {
         let home = Path::new(&profile.folder);
         let texts = memory::snapshot(&self.root, &profile.id, home).map_err(|e| e.to_string())?;
         let instruction_files = self.host.instruction_files(&profile.agent_type);
-        let text = brief::compose_with(&profile.name, &texts, profile.share_today);
+        let rules = brief::Rules { share_today: profile.share_today, recall: self.host.recall_on() };
+        let text = brief::compose_rules(&profile.name, &texts, rules);
         brief::write(home, &text, &instruction_files).map_err(|e| e.to_string())?;
         Ok(instruction_files)
     }

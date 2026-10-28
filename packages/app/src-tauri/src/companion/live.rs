@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 
-use super::host::{AgentLimit, Blocking, FinishedTurn, Host, Reply, SpawnSpec};
+use super::host::{AgentLimit, Blocking, FinishedTurn, Host, RecallAnswer, RecallHit, Reply, SpawnSpec};
 use super::keeper::Pane;
 use super::model::CompanionView;
 use super::service::Service;
@@ -245,6 +245,33 @@ impl Host for LiveHost {
         if self.readers.lock().remove(&format!("{pane_id}|{companion_id}")) {
             if let Some(chat) = self.app.try_state::<SessionChatState>() {
                 chat.watchers(&self.app, &self.registry).close(pane_id, &format!("companion#{companion_id}"));
+            }
+        }
+    }
+
+    fn recall_on(&self) -> bool {
+        crate::chat_index::enabled()
+    }
+
+    fn recall(&self, panes: &[String], query: &str, limit: usize) -> RecallAnswer {
+        let off = RecallAnswer { enabled: false, hits: Vec::new() };
+        if !crate::chat_index::enabled() {
+            return off;
+        }
+        let Some(chat) = self.app.try_state::<SessionChatState>() else { return off };
+        let Some(index) = chat.index(&self.registry) else { return off };
+        match index.search_in(query, limit, panes) {
+            Ok(answer) => RecallAnswer {
+                enabled: answer.enabled,
+                hits: answer
+                    .hits
+                    .into_iter()
+                    .map(|hit| RecallHit { at_ms: hit.at_ms, kind: hit.kind, snippet: hit.snippet })
+                    .collect(),
+            },
+            Err(error) => {
+                tracing::warn!(%error, "companion recall: search failed");
+                RecallAnswer { enabled: true, hits: Vec::new() }
             }
         }
     }

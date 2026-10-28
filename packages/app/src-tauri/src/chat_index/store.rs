@@ -143,16 +143,43 @@ impl Store {
 
     /// The items whose text has every typed word (as a word start), newest first, at most `limit`.
     pub fn search(&self, typed: &str, limit: usize) -> rusqlite::Result<Vec<Hit>> {
+        self.search_where(typed, limit, None, false)
+    }
+
+    /// Like `search`, but only inside the chats of the panes in `panes`, and only what was said (the person's and
+    /// the agent's messages, not the titles of tool calls). No pane given means no hit: an empty list never means
+    /// "everywhere".
+    pub fn search_in(&self, typed: &str, limit: usize, panes: &[String]) -> rusqlite::Result<Vec<Hit>> {
+        if panes.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.search_where(typed, limit, Some(panes), true)
+    }
+
+    fn search_where(&self, typed: &str, limit: usize, panes: Option<&[String]>, said_only: bool) -> rusqlite::Result<Vec<Hit>> {
         let Some(expr) = match_expr(typed) else { return Ok(Vec::new()) };
-        let mut stmt = self.conn.prepare_cached(
+        // ?1 query, ?2 limit, ?3 snippet words, then one placeholder per pane.
+        let mut filter = String::new();
+        if let Some(panes) = panes {
+            let marks: Vec<String> = (0..panes.len()).map(|n| format!("?{}", n + 4)).collect();
+            filter.push_str(&format!(" AND i.pane_id IN ({})", marks.join(", ")));
+        }
+        if said_only {
+            filter.push_str(" AND i.kind IN ('user', 'assistant')");
+        }
+        let sql = format!(
             "SELECT i.pane_id, i.session, i.item_id, i.kind, i.agent, i.folder, i.at_ms,
                     snippet(chat_fts, 0, char(1), char(2), '…', ?3)
              FROM chat_fts JOIN chat_items i ON i.id = chat_fts.rowid
-             WHERE chat_fts MATCH ?1
+             WHERE chat_fts MATCH ?1{filter}
              ORDER BY i.at_ms DESC, i.id DESC
-             LIMIT ?2",
-        )?;
-        let rows = stmt.query_map(params![expr, limit.clamp(1, MAX_HITS) as i64, SNIPPET_WORDS], |row| {
+             LIMIT ?2"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut values: Vec<rusqlite::types::Value> =
+            vec![expr.into(), (limit.clamp(1, MAX_HITS) as i64).into(), SNIPPET_WORDS.into()];
+        values.extend(panes.unwrap_or(&[]).iter().map(|pane| rusqlite::types::Value::from(pane.clone())));
+        let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| {
             let marked: String = row.get(7)?;
             let (snippet, marks) = marks_of(&marked);
             Ok(Hit {

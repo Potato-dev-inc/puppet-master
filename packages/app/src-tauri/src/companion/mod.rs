@@ -24,11 +24,18 @@
 //! - `today`: `today.md`, the day's turns of the person's other agents (opt-in per companion)
 //! - `view`: `CompanionView` for the desktop (with the folder) and the phone (without)
 //!
+//! The foreman side (it finds what was said):
+//!
+//! - `recall`: `companion_recall`, a search of the companion's own past chats (`memory/pending.md` stays
+//!   the only way to remember: there is no second memory path)
+//! - `caller`: is this MCP connection really inside a companion's pane (the process tree, not a header)
+//!
 //! Only `live.rs` starts a thread or a process, and nothing here names an agent. A message to the agent
 //! goes through `pane_outbox` only: the companion never types into a pane or answers its dialogs.
 
 pub mod agents;
 pub mod brief;
+pub mod caller;
 pub mod files;
 pub mod host;
 pub mod keeper;
@@ -38,6 +45,7 @@ pub mod memory;
 pub mod model;
 pub mod moving;
 pub mod personas;
+pub mod recall;
 pub mod schedule;
 pub mod service;
 pub mod store;
@@ -46,6 +54,8 @@ pub mod view;
 
 pub use service::Service;
 
+#[cfg(test)]
+mod foreman_tests;
 #[cfg(test)]
 mod move_tests;
 #[cfg(test)]

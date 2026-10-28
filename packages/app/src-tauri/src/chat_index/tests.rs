@@ -312,3 +312,44 @@ fn the_saved_setting_turns_the_switch_off_and_on() {
     apply_setting(&json!({ "chat_index_enabled": true }));
     assert!(enabled());
 }
+
+fn row_in(pane: &str, id: &str, kind: &'static str, text: &str, at_ms: i64) -> Entry {
+    Entry { pane_id: pane.into(), kind, ..row(id, text, at_ms) }
+}
+
+#[test]
+fn a_scoped_search_stays_inside_the_given_panes_and_skips_tool_titles() {
+    let mut store = Store::open_memory(100).unwrap();
+    store
+        .insert(&[
+            row_in("companion-mochi", "1:0", "user", "I prefer tea over coffee", 10),
+            row_in("companion-mochi", "2:0", "assistant", "Noted: tea in the morning", 20),
+            row_in("companion-mochi", "3:0", "tool", "Bash echo tea", 30),
+            row_in("companion-bit", "1:0", "user", "My tea is green", 40),
+            row_in("pane-9", "1:0", "user", "Tea party at the office", 50),
+        ])
+        .unwrap();
+    let mine = vec!["companion-mochi".to_string()];
+    let hits = store.search_in("tea", 10, &mine).unwrap();
+    let got: Vec<(&str, &str)> = hits.iter().map(|h| (h.pane_id.as_str(), h.kind.as_str())).collect();
+    assert_eq!(got, vec![("companion-mochi", "assistant"), ("companion-mochi", "user")]);
+    // Two panes (a current and a past one) are both searched; the rest still is not.
+    let two = vec!["companion-mochi".to_string(), "companion-bit".to_string()];
+    assert_eq!(store.search_in("tea", 10, &two).unwrap().len(), 3);
+    // No pane means no hit, never "everywhere". A pane id is a value, never SQL.
+    assert!(store.search_in("tea", 10, &[]).unwrap().is_empty());
+    assert!(store.search_in("tea", 10, &["x' OR '1'='1".to_string()]).unwrap().is_empty());
+    // The unscoped search is unchanged.
+    assert_eq!(store.search("tea", 10).unwrap().len(), 5);
+}
+
+#[test]
+fn a_scoped_search_says_nothing_when_the_index_is_off() {
+    let off = Arc::new(AtomicBool::new(false));
+    let index = ChatIndex::start_switched(Store::open_memory(100).unwrap(), Arc::new(Fixed(ctx())), off.clone());
+    let panes = vec!["pane-1".to_string()];
+    let answer = index.search_in("anything", 5, &panes).unwrap();
+    assert!(!answer.enabled && answer.hits.is_empty());
+    off.store(true, Ordering::SeqCst);
+    assert!(index.search_in("anything", 5, &panes).unwrap().enabled);
+}

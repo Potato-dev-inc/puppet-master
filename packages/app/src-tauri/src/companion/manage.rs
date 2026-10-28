@@ -159,6 +159,7 @@ impl Service {
             until_ms: None,
             created_ms: now,
             archived: false,
+            pane_ids: vec![pane_id_of(&id)],
         };
         validate_profile(&profile)?;
         self.check_agent(&profile)?;

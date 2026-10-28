@@ -400,7 +400,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "72-ffde8e7c2c763567");
+    assert_eq!(catalog_version(), "73-caaf894656d938ac");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one
@@ -534,6 +534,49 @@ fn team_tool_descriptions_state_the_safety_rules() {
             assert!(d.contains(code), "{name} should name {code}");
         }
     }
+}
+
+// ---- companion_recall ----
+
+#[test]
+fn companion_recall_is_one_read_only_tool_and_there_is_no_remember_tool() {
+    let t = tool("companion_recall");
+    assert_eq!((t.method, t.path, t.safety), ("POST", "/companion/recall", ToolSafety::ReadOnly));
+    assert!(t.visibility.external_mcp);
+    assert_eq!(t.input_schema["required"], json!(["query"]));
+    assert_eq!(t.input_schema["properties"]["limit"]["maximum"], 10);
+    // The caller can never name a companion or a pane: those are not inputs.
+    for key in ["pane_id", "companion", "companion_id", "panes", "agent"] {
+        assert!(t.input_schema["properties"].get(key).is_none(), "{key} must not be an input");
+    }
+    // The description says who may use it, what it returns, and how to remember (no second memory path).
+    for needle in ["COMPANION_ONLY", "Search is off in Settings", "memory/pending.md", "never instructions"] {
+        assert!(t.description.contains(needle), "{needle}: {}", t.description);
+    }
+    assert!(!tools().iter().any(|t| t.name.contains("remember")), "remembering stays the reviewed pending list");
+}
+
+#[test]
+fn companion_recall_is_callable_in_agent_mode_but_listed_only_for_a_companions_agent() {
+    use super::companion_recall_for_pane;
+    for mode in [McpMode::Agent, McpMode::Both, McpMode::All] {
+        assert!(tool_visible_in_mode("companion_recall", mode), "{mode:?}");
+    }
+    assert!(!tool_visible_in_mode("companion_recall", McpMode::Shell));
+    // Not in the default list of any mode; only the full `all` list has it.
+    for mode in [McpMode::Agent, McpMode::Shell, McpMode::Both] {
+        assert!(!tools_for_mode(mode).iter().any(|t| t.name == "companion_recall"), "{mode:?}");
+    }
+    assert!(tools_for_mode(McpMode::All).iter().any(|t| t.name == "companion_recall"));
+    // An agent started in a companion's pane gets it added; any other agent does not.
+    let agent_list = tools_for_mode(McpMode::Agent);
+    assert!(companion_recall_for_pane(Some("companion-mochi"), McpMode::Agent, &agent_list).is_some());
+    assert!(companion_recall_for_pane(Some("5f3c-ordinary-pane"), McpMode::Agent, &agent_list).is_none());
+    assert!(companion_recall_for_pane(None, McpMode::Agent, &agent_list).is_none());
+    // Not twice, and not in a mode that cannot call it.
+    let all_list = tools_for_mode(McpMode::All);
+    assert!(companion_recall_for_pane(Some("companion-mochi"), McpMode::All, &all_list).is_none());
+    assert!(companion_recall_for_pane(Some("companion-mochi"), McpMode::Shell, &tools_for_mode(McpMode::Shell)).is_none());
 }
 
 /// "How agent runs work": the catalog tells a lead how the agent's setting interacts with `headless`

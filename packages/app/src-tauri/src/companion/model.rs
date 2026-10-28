@@ -96,6 +96,27 @@ pub struct CompanionProfile {
     pub created_ms: i64,
     #[serde(default)]
     pub archived: bool,
+    /// Every pane id this companion's chats were kept under, current and past (`companion-<id>` always, plus any
+    /// older one saved here). `companion_recall` searches these and nothing else.
+    #[serde(default)]
+    pub pane_ids: Vec<String>,
+}
+
+impl CompanionProfile {
+    /// The pane ids whose chats belong to this companion: its own `companion-<id>` and every one saved in
+    /// `pane_ids` (once each). A saved id counts only when it is `companion-<id>` or `companion-<id>-...`: a damaged
+    /// file can never point recall at another companion's chats or at an agent pane.
+    pub fn chat_panes(&self) -> Vec<String> {
+        let own = super::service::pane_id_of(&self.id);
+        let own_prefix = format!("{own}-");
+        let mut panes = vec![own];
+        for pane in &self.pane_ids {
+            if pane.starts_with(&own_prefix) && !panes.contains(pane) {
+                panes.push(pane.clone());
+            }
+        }
+        panes
+    }
 }
 
 /// The agent a companion left when it moved, with the settings that belong to that agent.
