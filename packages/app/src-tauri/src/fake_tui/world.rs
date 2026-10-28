@@ -726,3 +726,158 @@ impl Drop for Session {
         }
     }
 }
+
+/// Keep going (SPEC n32 section 5, KG-10): the limit card answered the way the desktop and a paired phone
+/// answer it, the hand-over records, and the two fake agents' own logs. The real engine does the work; these
+/// only reach for what a window or a phone would read.
+impl Session {
+    /// Like [`Session::script`], but the fake writes its events to `aux/<log_name>` and no earlier log is
+    /// deleted: the old agent's log and the new agent's stay side by side. The next pane plays this script;
+    /// a pane already running keeps the one it started with.
+    pub fn script_with_log(&self, toml: &str, log_name: &str) {
+        let path = self.aux.join("script.toml");
+        let log = self.aux.join(log_name);
+        let _ = std::fs::remove_file(&log);
+        let text = format!("log = '{}'\n{toml}", log.display());
+        std::fs::write(&path, text).expect("write the script");
+        *self.world.script.lock() = Some(path);
+    }
+
+    /// The events of the fake that logs to `aux/<log_name>`.
+    pub fn events_of(&self, log_name: &str) -> Vec<Value> {
+        std::fs::read_to_string(self.aux.join(log_name))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect()
+    }
+
+    /// The pane's working folder as the registry lists it.
+    pub fn pane_cwd(&self, pane_id: &str) -> Option<String> {
+        self.world.registry.lock().list().into_iter().find(|p| p.id == pane_id).map(|p| p.cwd)
+    }
+
+    /// The pid of the agent in `pane_id` (the confirmed child of its host shell), once known.
+    pub fn agent_pid(&self, pane_id: &str) -> Option<u32> {
+        let root = self.world.registry.lock().get(pane_id).map(|pane| pane.info.pid)?;
+        crate::pty::agent_proc::agent_pid(pane_id, root)
+    }
+
+    /// Whether process `pid` is still running.
+    pub fn process_alive(&self, pid: u32) -> bool {
+        crate::proc_util::pid_alive(pid)
+    }
+
+    /// Settings > Agents > Keep going: the order the limit card offers agents in. Also forgets the limits earlier tests
+    /// of this process left behind (a limit note lasts until its reset and would decide what this test is offered).
+    pub fn keep_going_order(&self, agents: &[&str]) {
+        crate::handoff::forget_limit_notes_for_e2e();
+        use crate::handoff::keep_going::model::{Settings, Target};
+        let order = agents.iter().map(|agent| Target::parse(agent).expect("a valid target")).collect();
+        crate::handoff::keep_going::live::save_settings(&Settings { order, ask_back: true }).expect("save the Keep going settings");
+    }
+
+    /// The usage-limit card the pane raised, as the Inbox lists it (`None` while there is none pending).
+    pub fn limit_card(&self, pane_id: &str) -> Option<Value> {
+        self.pending_cards(pane_id).into_iter().find(|card| card["limit"]["kind"] == "usage_limit")
+    }
+
+    /// Every card (question) pending for `pane_id`, as JSON.
+    pub fn pending_cards(&self, pane_id: &str) -> Vec<Value> {
+        crate::questions::store()
+            .list_pending(crate::questions::now_ms())
+            .into_iter()
+            .filter(|q| q.pane_id.as_deref() == Some(pane_id))
+            .filter_map(|q| serde_json::to_value(q).ok())
+            .collect()
+    }
+
+    /// A person's answer to a card in the desktop window (`answered_by: desktop`) or on a paired phone
+    /// (`phone`): the store's own answer, which then asks `handoff` to act.
+    pub fn answer_question(&self, id: &str, choice: &str, answered_by: &str) -> Result<Value, Value> {
+        crate::questions::store()
+            .answer(id, Some(choice), None, answered_by, crate::questions::now_ms())
+            .map(|resolution| json!({ "accepted": resolution.accepted }))
+            .map_err(|error| json!({ "code": error.code, "message": error.message }))
+    }
+
+    /// `POST /questions/{id}/answer` as the bridge routes it: `via_phone` is true only behind the paired-device
+    /// gate. Plain loopback (`false`) is what any local program, an agent's shell included, can reach.
+    pub fn answer_question_route(&self, id: &str, choice: &str, via_phone: bool) -> (u16, Value) {
+        let body = json!({ "choice_id": choice });
+        match crate::questions::routes::handle("POST", &["questions", id, "answer"], &body, None, via_phone, &|| {}) {
+            Some(Ok(reply)) | Some(Err(reply)) => reply,
+            None => (404, json!({ "code": "NO_SUCH_ROUTE" })),
+        }
+    }
+
+    /// A question an agent asked in `pane_id` that nobody answered (`ask_user`): its text may reach a brief.
+    pub fn ask_in_pane(&self, pane_id: &str, question: &str) -> String {
+        let created = crate::questions::store()
+            .create(
+                crate::questions::NewQuestion {
+                    pane_id: Some(pane_id.to_string()),
+                    question: question.to_string(),
+                    allow_free_text: Some(true),
+                    ..Default::default()
+                },
+                crate::questions::now_ms(),
+            )
+            .expect("the question is stored");
+        created.id
+    }
+
+    /// Dismisses a card (cleanup for a test that leaves one behind).
+    pub fn dismiss_question(&self, id: &str) {
+        let _ = crate::questions::store().dismiss(id, crate::questions::now_ms());
+    }
+
+    /// Every hand-over record, newest first, as the private store keeps them.
+    pub fn keep_going_records(&self) -> Vec<Value> {
+        crate::handoff::keep_going::live::records().iter().filter_map(|record| serde_json::to_value(record).ok()).collect()
+    }
+
+    /// The hand-over whose old side is `pane_id`, once its record exists.
+    pub fn keep_going_record_from(&self, pane_id: &str) -> Option<Value> {
+        self.keep_going_records().into_iter().find(|record| record["from"]["pane_id"] == pane_id)
+    }
+
+    /// What the windows are told about the hand-overs of `pane_id` (`keep_going_lineage`), as JSON text.
+    pub fn keep_going_lineage_json(&self, pane_id: &str) -> String {
+        serde_json::to_string(&crate::handoff::keep_going::live::lineage(pane_id)).unwrap_or_default()
+    }
+
+    /// The stored brief of hand-over `id` (the desktop-only `keep_going_brief` command's answer).
+    pub fn keep_going_brief(&self, id: &str) -> Result<String, String> {
+        crate::handoff::keep_going::live::brief_text(id)
+    }
+
+    /// The audit log's Keep going lines (who, summary and detail as one JSON text each), oldest first.
+    pub fn keep_going_audit_lines(&self) -> Vec<String> {
+        let mut lines: Vec<String> = crate::audit::global()
+            .recent(WHOLE_LOG)
+            .into_iter()
+            .filter(|entry| entry.kind.starts_with("keep_going"))
+            .map(|entry| json!({ "who": entry.who, "summary": entry.summary, "detail": entry.detail }).to_string())
+            .collect();
+        lines.reverse();
+        lines
+    }
+
+    /// The folder `<app data>/keep-going`, where the records and briefs live.
+    pub fn keep_going_root(&self) -> PathBuf {
+        crate::app_paths::app_data_dir().join("keep-going")
+    }
+}
+
+impl Session {
+    /// Whether the separate copy (worktree) that holds `cwd` is still open and on disk. `None` when `cwd` is
+    /// not in a copy at all.
+    pub fn worktree_open(&self, cwd: &str) -> Option<bool> {
+        let origin = crate::worktrees::origin_of_cwd(cwd)?;
+        crate::worktrees::list(&origin)
+            .into_iter()
+            .find(|entry| crate::project_path::workspace_covers(Path::new(&entry.worktree.path), Path::new(cwd)))
+            .map(|entry| entry.exists && entry.worktree.closed.is_none())
+    }
+}
