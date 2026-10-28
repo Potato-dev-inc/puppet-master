@@ -84,6 +84,10 @@ pub struct PaneInfo {
     /// when the pane is proven to hold the caller (`bridge::pane_parent`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_pane_id: Option<String>,
+    /// Where a Linux pane runs (`wsl::model::PanePlace`, WSL-11). Windows panes keep `None`, and the
+    /// field is then left out of the JSON, so their JSON stays byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<crate::wsl::model::PanePlace>,
 }
 
 /// Internal handle — owns the PTY master and the reader thread handle.
@@ -387,6 +391,7 @@ impl PaneRegistry {
             account_label: None,
             title: None,
             parent_pane_id: None,
+            place: None,
         };
         PaneState {
             info,
