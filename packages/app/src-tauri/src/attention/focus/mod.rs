@@ -28,6 +28,10 @@ pub mod view;
 mod model_tests;
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod summary_tests;
+#[cfg(test)]
+mod view_tests;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
