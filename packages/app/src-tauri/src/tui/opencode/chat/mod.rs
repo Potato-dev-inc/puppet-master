@@ -5,7 +5,7 @@
 //!
 //! `map` turns messages into chat items; this file asks the server.
 
-mod map;
+pub(super) mod map;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;

@@ -1,0 +1,27 @@
+# expect: session_history_conforms
+# Old chats: the resume template adds an element with a shell character next to the session id.
+schema_version = 1
+
+[agent]
+id = "badoldchat"
+label = "Bad Old Chat"
+
+[binary]
+names = ["bad-fixture-not-installed"]
+install_hint = "fixture only"
+
+[tui]
+argv = []
+
+[session_chat]
+format = "jsonl"
+dir = "{home}/.badoldchat/sessions"
+
+[session_chat.map]
+role = "/role"
+text = "/content"
+
+[session_chat.history]
+roots = ["{home}/.badoldchat/sessions"]
+id_from = "file_stem"
+resume_args = ["--resume", "{session}", "--x;rm"]

@@ -99,6 +99,9 @@ Setup: open `http://localhost:1420/?pwa=1` at phone size, or pair a phone in Set
 - **Legacy.** `?pwa=legacy` still loads the old orchestrator UI.
 - **Headless iPhone check.** Chrome headless over CDP with an iPhone user agent, touch and a fake `visualViewport` whose height drops by the keyboard height: run the steps above and read pane sizes from `/panes`, prompt lines from `.xterm-rows`, and whether the focused input element survives the resize.
 
+### 2.8 Bring All My Chats (fixture home only)
+Never run against the real home. Build the fake home: `node scripts/make-fixture-history-home.mjs D:\pm-night\bc-fixture-home` (add `--extra-claude <file>` and `--extra-codex <file>` for the two real chats from the check's own test pane). Start the app with `PUPPET_MASTER_PROFILE=bc-live` and `PUPPET_MASTER_HISTORY_HOME=D:\pm-night\bc-fixture-home` on its own CDP port, then run `node scripts/verify-bring-chats.mjs D:\pm-night\bc-live --cdp <port> --expect claude=2,codex=3,opencode=2` (fixture counts; add the real counts when the extra files are in). The script checks the card counts, the Codex toggle, "Add N chats", the Ctrl+Shift+F hit for "stripe webhook" with the "Old chat" tag, and the read-only viewer. Still by hand: Remove imported chats, index off, Continue in a pane (Claude and OpenCode), the planted-secret byte check on `chat-index.sqlite` and `-wal`, and `scripts/check-window-monitor.ps1`. The card steps need the cockpit wiring of the card (BC-23).
+
 ## 3. Known flaky tests (collected from the progress log and T37 evidence)
 - `tui::descriptor::descriptor_builds_all_nine` - global registry race (fixed by `registry::test_serial()`; tests that swap/count the global registry must take it).
 - `operations_contract_tests::recovery::startup_recovery_releases_locks_held_by_interrupted_operations` - "Access denied" on Windows; rerun.
