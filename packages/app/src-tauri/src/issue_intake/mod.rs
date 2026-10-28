@@ -6,8 +6,10 @@
 //!
 //! - `model`: the settings, the repo watch, the runs, the error codes and the id validators.
 //! - `store`: the private files under `<app data>/issue-intake/` (config, runs, two empty folders).
-//! - `github`, `filter`, `text`, `pushcheck`: later tasks (GitHub reads, trigger rules, the issue
-//!   text the agent gets, the push check). Empty for now.
+//! - `pushcheck`: the push check (CI files, secret-looking files and lines, home paths, the git
+//!   fingerprint, the reasons on the card).
+//! - `github`, `filter`, `text`: later tasks (GitHub reads, trigger rules, the issue text the agent
+//!   gets). Empty for now.
 //!
 //! Invariants (SPEC n32 section 4; each one is tested where it is built):
 //! - S1: the issue text never goes into a prompt. It is only in a file, as data.
@@ -29,3 +31,7 @@ pub mod pushcheck;
 
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod pushcheck_tests;
+#[cfg(test)]
+mod pushcheck_git_tests;

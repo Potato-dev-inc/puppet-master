@@ -97,6 +97,17 @@ mod tests {
     }
 
     #[test]
+    fn a_uv_install_is_quoted_token_by_token_and_shown_as_typed() {
+        let step = Step {
+            method: Method::Uv,
+            ..argv_step("uv", &["tool", "install", "--python", "3.12", "aider-chat"])
+        };
+        let s = powershell_script(&step);
+        assert!(s.contains("& 'uv' 'tool' 'install' '--python' '3.12' 'aider-chat'"), "{s}");
+        assert!(s.contains("Write-Host '  uv tool install --python 3.12 aider-chat'"), "{s}");
+    }
+
+    #[test]
     fn script_method_downloads_with_irm_and_pipes_to_iex() {
         let step = Step {
             action: Action::Script { url: "https://claude.ai/install.ps1".into() },

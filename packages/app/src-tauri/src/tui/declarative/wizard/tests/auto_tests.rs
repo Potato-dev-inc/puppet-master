@@ -388,7 +388,7 @@ fn running_test(name: &str, autonomous: bool, first: &str) -> Test {
     script_agent(&host, "");
     let (w, i) = (wizard.clone(), id.clone());
     let run = std::thread::spawn(move || call(&w, "visibletest", json!({"session": i, "confirm": true, "plan": plan})));
-    wait_for(10, || (!host.spawned().is_empty()).then_some(())).expect("the test pane is started");
+    wait_for(super::fake_host::PANE_WAIT_SECS, || (!host.spawned().is_empty()).then_some(())).expect("the test pane is started");
     host.set_screen(first);
     Test { wizard, host, id, run: Some(run), _tree: tree }
 }

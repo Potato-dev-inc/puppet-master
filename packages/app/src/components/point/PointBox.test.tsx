@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +10,9 @@ import { PointBox, MAX_PICKS, type PointBoxProps } from './PointBox';
 import { PointBoxApp } from './PointBoxApp';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Layout is not measured in jsdom, so this guards the stylesheet rule that stops the pick list from shrinking to one line.
+const POINT_CSS = readFileSync(path.resolve(__dirname, '../../styles/point-box.css'), 'utf8');
 
 const PICK: PickView = {
   id: 'pick-1',
@@ -27,7 +32,7 @@ const TARGETS: Target[] = [
   { paneId: 'p3', agentLabel: 'Agent C', title: 'proto', sameFolder: false, canSend: false, reason: 'Agent C takes no typed messages yet.' },
 ];
 
-const STATE: PointState = { picks: [PICK], targets: TARGETS, defaultTarget: 'p1', notice: null };
+const STATE: PointState = { picks: [PICK], targets: TARGETS, defaultTarget: 'p1', notice: null, session: 1 };
 
 function props(over: Partial<PointBoxProps> = {}): PointBoxProps {
   return {
@@ -103,6 +108,13 @@ describe('PointBox', () => {
     expect(host.textContent).toContain('1 of 3');
   });
 
+  it('the pick list keeps its height and at least one full pick row (thumbnail included)', () => {
+    const rule = POINT_CSS.match(/\.point-box-picks \{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/flex:\s*0 0 auto;/);
+    const min = Number(/min-height:\s*(\d+)px/.exec(rule)?.[1]);
+    expect(min).toBeGreaterThanOrEqual(60);
+  });
+
   it('shows a grey tile with the reason as a tooltip when there is no screenshot', () => {
     render(props({ state: { ...STATE, picks: [{ ...PICK, thumb: null, noShotReason: 'Screenshots need Windows for now.' }] } }));
     expect(host.querySelector('img')).toBeNull();
@@ -157,6 +169,23 @@ describe('PointBox', () => {
 
     keydown(area(), 'Enter');
     expect(p.onSend).not.toHaveBeenCalled();
+  });
+
+  it('the To list shows the agent label, then the title only when it differs', () => {
+    render(
+      props({
+        state: {
+          ...STATE,
+          targets: [
+            { paneId: 'p1', agentLabel: 'Claude Code', title: 'Claude Code', sameFolder: true, canSend: true },
+            { paneId: 'p2', agentLabel: 'Claude Code', title: 'fix-pricing', sameFolder: false, canSend: true },
+          ],
+        },
+        target: 'p1',
+      }),
+    );
+    const labels = Array.from(select().querySelectorAll('option')).map((o) => o.textContent);
+    expect(labels).toEqual(['Claude Code', 'Claude Code · fix-pricing']);
   });
 
   it('choosing another pane reports it through onTarget', () => {
@@ -227,16 +256,28 @@ describe('PointBox', () => {
 });
 
 describe('PointBoxApp', () => {
+  /** A fake shell. Its own state follows Discard, Send and Edit in Chat: those end the session (no picks left). */
   function fakeApi() {
     let onStateCb: ((s: PointState) => void) | null = null;
+    let shell: PointState = STATE;
+    const ended = async () => {
+      shell = { ...shell, picks: [], session: null };
+    };
     return {
-      state: vi.fn().mockResolvedValue(STATE),
-      send: vi.fn().mockResolvedValue({}),
+      state: vi.fn(async () => shell),
+      send: vi.fn(async () => {
+        await ended();
+        return {};
+      }),
       compose: vi.fn().mockResolvedValue('Please change this in the app: Make it green'),
-      editInChat: vi.fn().mockResolvedValue(undefined),
+      editInChat: vi.fn(async () => {
+        await ended();
+      }),
       arm: vi.fn().mockResolvedValue(undefined),
       removePick: vi.fn().mockResolvedValue({ ...STATE, picks: [] }),
-      discard: vi.fn().mockResolvedValue(undefined),
+      discard: vi.fn(async () => {
+        await ended();
+      }),
       hide: vi.fn().mockResolvedValue(undefined),
       openBlockedLink: vi.fn().mockResolvedValue(undefined),
       onState: vi.fn((cb: (s: PointState) => void) => {
@@ -328,6 +369,101 @@ describe('PointBoxApp', () => {
     expect(host.querySelector('.point-box-pick')).toBeNull();
     expect(area().value).toBe('');
   });
+
+  it('after Discard the next pick opens with an empty box', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    act(() => button('Discard')!.click());
+    await flush();
+    act(() => api.push({ ...STATE, picks: [{ ...PICK, id: 'pick-7' }] }));
+    await flush();
+    expect(host.querySelector('.point-box-pick')).not.toBeNull();
+    expect(area().value).toBe('');
+    expect(text()).not.toContain('Make it green');
+  });
+
+  it('a failed Discard still clears the text, shows the error and reloads what the shell holds', async () => {
+    const api = fakeApi();
+    api.discard.mockRejectedValueOnce('Could not delete a screenshot.');
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    act(() => button('Discard')!.click());
+    await flush();
+    expect(area().value).toBe('');
+    expect(host.querySelector('.point-box-error')!.textContent).toBe('Could not delete a screenshot.');
+    expect(host.querySelector('.point-box-pick')).not.toBeNull();
+  });
+
+  it('after a successful Send the next pick opens with an empty box', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    keydown(area(), 'Enter');
+    await flush();
+    expect(api.send).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('.point-box-pick')).toBeNull();
+    act(() => api.push({ ...STATE, picks: [{ ...PICK, id: 'pick-8' }] }));
+    await flush();
+    expect(host.querySelector('.point-box-pick')).not.toBeNull();
+    expect(area().value).toBe('');
+  });
+
+  it('a new session id clears the text and the notes, and shows only the new picks', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    act(() => api.push({ ...STATE, notice: 'Blocked a link to example.com. The preview only shows your app.' }));
+    typeInto(area(), 'Make it green');
+    expect(host.querySelector('.point-box-notice')).not.toBeNull();
+    act(() => api.push({ ...STATE, session: 2, notice: null, picks: [{ ...PICK, id: 'pick-7' }] }));
+    await flush();
+    expect(area().value).toBe('');
+    expect(host.querySelector('.point-box-notice')).toBeNull();
+    expect(host.querySelectorAll('.point-box-pick')).toHaveLength(1);
+  });
+
+  it('the same session id keeps the text when another element is added', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    act(() => api.push({ ...STATE, picks: [PICK, { ...PICK, id: 'pick-2' }] }));
+    await flush();
+    expect(area().value).toBe('Make it green');
+    expect(host.querySelectorAll('.point-box-pick')).toHaveLength(2);
+  });
+
+  it('a state with no session clears the text', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    act(() => api.push({ ...STATE, picks: [], session: null }));
+    await flush();
+    expect(area().value).toBe('');
+  });
+
+  it('Esc hides the box, the session later expires, and the next pick opens with an empty box', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    keydown(area(), 'Escape');
+    await flush();
+    expect(api.hide).toHaveBeenCalledTimes(1);
+    act(() => api.push({ ...STATE, session: 3, picks: [{ ...PICK, id: 'pick-8' }] }));
+    await flush();
+    expect(area().value).toBe('');
+  });
+
+  it('after Edit in Chat the next pick opens with an empty box', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    act(() => button('Edit in Chat')!.click());
+    await flush();
+    act(() => api.push({ ...STATE, picks: [{ ...PICK, id: 'pick-9' }] }));
+    await flush();
+    expect(area().value).toBe('');
+  });
+
 
   it('Esc calls hide on the window', async () => {
     const api = fakeApi();

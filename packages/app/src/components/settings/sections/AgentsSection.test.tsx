@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriAccountsApi } from '../../../lib/accounts';
 import { tauriAgentDefinitionsApi } from '../../../lib/agentDefinitions';
 import { DEFAULT_STANDBY_CONFIG } from '../../../lib/standby';
+import type { KeepGoingSettings } from '../../../lib/keep-going';
 import { tauri } from '../../../lib/tauri';
 import type { StandbyConfig, StandbyStatus } from '../../../lib/tauri-types';
 import { rowMatches, searchSections, type SectionDef } from '../model';
@@ -17,6 +18,15 @@ vi.mock('../../../lib/tauri', async (importOriginal) => {
   return {
     ...real,
     tauri: { ...real.tauri, standbyGetStatus: vi.fn(async () => null), standbySetConfig: vi.fn(async () => null) },
+  };
+});
+
+vi.mock('../../../lib/keep-going', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../lib/keep-going')>();
+  return {
+    ...real,
+    keepGoingSettingsGet: vi.fn(async () => ({ order: [{ agent_id: 'fake_a' }], ask_back: true })),
+    keepGoingSettingsSet: vi.fn(async (next: KeepGoingSettings) => next),
   };
 });
 
@@ -173,10 +183,18 @@ describe('Agents: every row renders', () => {
     expect(buttonByText(m.host, 'Save changes')).toBeUndefined();
   });
 
-  it('groups the rows: Logins, Speed, Updates, Live updates, then Definitions (whose own block carries the title)', async () => {
+  it('groups the rows: Logins, Speed, Updates, Live updates, Keep going, then Definitions (whose own block carries the title)', async () => {
     await mount();
     const heads = [...m.host.querySelectorAll('section.st-group')].map((g) => g.querySelector(':scope > h2')?.textContent?.trim() ?? '');
-    expect(heads).toEqual(['Logins', 'Speed', 'Updates', 'Live updates', '']);
+    expect(heads).toEqual(['Logins', 'Speed', 'Updates', 'Live updates', 'Keep going', '']);
+  });
+
+  it('Keep going: the block mounts under its own row with the saved order', async () => {
+    await mount();
+    expect(rowOf('keep-going')).toBeTruthy();
+    expect(hasText(m.host, 'When an agent runs out of usage')).toBe(true);
+    expect(byLabel(m.host, 'Ask to move it back when the first agent resets')).toBeTruthy();
+    expect(m.host.querySelector('ol[aria-label="Offer order"] > li')?.getAttribute('data-target-key')).toBe('fake_a');
   });
 });
 
@@ -346,6 +364,11 @@ describe('Agents: search finds the rows', () => {
 
   it('"work" finds Accounts', () => {
     expect(idsFor('work')).toEqual(['accounts']);
+  });
+
+  it('"keep going" finds Keep going, and "runs out" finds it too', () => {
+    expect(idsFor('keep going')).toEqual(['keep-going']);
+    expect(idsFor('runs out')).toEqual(['keep-going']);
   });
 
   it('search is case-insensitive and needs every word to match', () => {

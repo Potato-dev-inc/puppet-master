@@ -161,7 +161,7 @@ impl Fx {
         let (wizard, id, plan) = (self.wizard.clone(), self.id.clone(), self.plan.clone());
         let handle = std::thread::spawn(move || crate::tui::declarative::wizard::api::handle(&wizard, "visibletest", &json!({"session": id, "confirm": true, "plan": plan})));
         let host = self.host.clone();
-        wait_for(10, || host.spawned().first().map(|_| ())).expect("the test pane is started");
+        wait_for(super::fake_host::PANE_WAIT_SECS, || host.spawned().first().map(|_| ())).expect("the test pane is started");
         self.host.set_screen(&Agent { model: "zeta", footer_model: false }.at_rest(""));
         handle.join().unwrap().unwrap_or_else(|e| panic!("{e}"))
     }

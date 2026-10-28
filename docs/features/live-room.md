@@ -4,9 +4,8 @@ Branch `feat/live-room-docs` (task LR-14, SPEC-n32). Code: `packages/app/src-tau
 `commands/live_room.rs`, `packages/app/src/components/cockpit/live/`, `relay/protocol/src/room.rs`,
 `relay/server/src/rooms.rs` and `rooms/routes.rs`, `relay/viewer/`.
 
-**Status.** This branch has the app side, the axum relay and the viewer page. The Cloudflare Worker part
-(LR-11, `relay/worker/src/room.ts`) is on branch `feat/live-room-worker` and is not in this branch yet. Until
-it is merged, a Live Room runs on the axum binary (`relay/server`) only.
+**Status.** The app side, both relays (the axum binary and the Cloudflare Worker) and the viewer page are on
+main. The Worker follows the same rules as the axum binary, with its own tests (`relay/worker/test/room.test.mjs`).
 
 ## What and why
 
@@ -38,7 +37,8 @@ team relay when that is set.
 | Config | `live_room/config.rs` | `live_room.json` in the app data folder. |
 | Crash record | `live_room/active.rs` | `active.json` in the app data folder. Lets the next start end a room a crash left behind. |
 | Relay types | `relay/protocol/src/room.rs` | Shared wire types, room id, read hash, frame checks. MIT. |
-| Relay routes | `relay/server/src/rooms.rs`, `rooms/routes.rs` | In-memory rooms and the HTTP routes. See [`relay/README.md`](../../relay/README.md#live-rooms). |
+| Relay routes (axum) | `relay/server/src/rooms.rs`, `rooms/routes.rs` | In-memory rooms and the HTTP routes. See [`relay/README.md`](../../relay/README.md#live-rooms). |
+| Relay routes (Worker) | `relay/worker/src/room.ts` (Durable Objects `Room` and `RoomIndex`), `roomproto.ts` (shape checks), `index.ts` (`/v1/rooms*`, `/r/`) | One Durable Object per room, SQLite-backed. Same wire protocol and limits as the axum binary. |
 | Viewer page | `relay/viewer/` | Plain TypeScript. Built to `dist/` (committed). Served by the relay at `/r/`. |
 
 ### The link
@@ -175,8 +175,9 @@ file stays for the next start. A clean stop removes the file at once.
   chat away while you check. Tool inputs and outputs are never sent.
 - **Names are not removed from chat text by a rule.** Account labels and folder names are removed. A person's
   name in a message is not.
-- **The Worker is not in this branch.** The Cloudflare Worker's Live Room routes and Durable Objects are in LR-11
-  (`feat/live-room-worker`). Its tests run in a local Worker runtime (`wrangler dev`).
+- **The shared Rust room tests do not run against the Worker.** `relay/server/tests/rooms.rs` runs only on the
+  axum binary. The Worker's test runner runs `relay/worker/test/room.test.mjs` (18 tests) instead, plus the shared
+  protocol tests.
 - **Worker tests do not cover two things.** The tombstone alarm that wipes a room's rows is not tested. A quiet
   viewer seat freeing its place after 40 seconds is not tested. The axum relay tests cover both.
 - **The settings help line is short.** It says `Rooms are end-to-end encrypted. The relay sees only sizes and
@@ -212,6 +213,10 @@ cargo test --lib live_room
 cd relay
 cargo test -p pm-relay-protocol
 cargo test -p pm-relay --test rooms
+
+# Worker: the room tests against two local wrangler dev servers (no Cloudflare account needed).
+cd relay/worker
+npm run test:worker
 
 # Viewer page (vanilla TypeScript).
 cd relay/viewer

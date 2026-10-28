@@ -10,6 +10,7 @@ import { useSessionChat } from '../../hooks/useSessionChat';
 import { ChatComposer } from './ChatComposer';
 import { ChatExportMenu } from './ChatExportMenu';
 import { ClipSheet, type ClipApi } from './ClipSheet';
+import { KeepGoingBanner } from './KeepGoingBanner';
 import { PendingMessages } from './PendingMessages';
 import { lastClippableId, SessionChatView } from './SessionChatView';
 import { useSideQuestion } from './useSideQuestion';
@@ -20,7 +21,7 @@ export interface ChatReply {
   blockedReason: string | null;
 }
 
-export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; clipApi?: ClipApi }) {
+export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOpenPane }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; clipApi?: ClipApi; onOpenPane?: (paneId: string) => void }) {
   const chat = useSessionChat(paneId, true);
   const outbox = usePaneOutbox(tauriOutboxTransport, paneId, !!reply);
   const userTexts = useMemo(() => chat.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [chat.turns]);
@@ -49,6 +50,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi }: { 
         emptyNote={emptyNote}
         headerExtra={chat.state === 'unavailable' ? undefined : side.button}
         headerMenu={hasChat ? <ChatExportMenu paneId={paneId} onMakeClip={lastClippable ? () => setClipFor(lastClippable) : undefined} /> : undefined}
+        banner={<KeepGoingBanner paneId={paneId} onOpenPane={onOpenPane} />}
         canClip={hasChat}
         onMakeClip={setClipFor}
         overlay={side.box}

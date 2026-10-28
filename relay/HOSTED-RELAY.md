@@ -75,8 +75,8 @@ One such team uses about 21,600 requests and about 11,000 GB-s a day: almost all
 Watch the dashboard for a few teams with very high request counts. It is not a bug in the relay, but it is
 the reason to be on the paid plan.
 
-**Live Rooms use more Durable Object time than the team mailbox.** Once the Worker has the Live Room routes (the LR-11
-change), each viewer call costs one `IpGate` write (the per-address counter) and one call to the room's Durable
+**Live Rooms use more Durable Object time than the team mailbox.** The Worker's Live Room routes are on main, and each
+viewer call costs one `IpGate` write (the per-address counter) and one call to the room's Durable
 Object. A viewer on a quiet room long-polls, so it calls about every 25 seconds: about 144 calls an hour, or about
 2,900 Durable Object requests an hour for 10 viewers. A long poll keeps the room's object awake for up to 25 seconds,
 so while a viewer is connected the object is awake most of the time. A busy room calls more often: a viewer waits at

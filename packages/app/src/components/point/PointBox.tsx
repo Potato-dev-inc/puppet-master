@@ -1,8 +1,8 @@
 // The Point box: the small window that opens beside a picked element. It shows state and reports what the person
 // does. PointBoxApp owns the state and the calls (see lib/point-api.ts). Every page-derived string is plain text.
 import { useEffect, useLayoutEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import type { PickView, PointState, Target } from '../../lib/point-api';
-import { MAX_REQUEST, boxKey, groupTargets, sourceLine } from './point-model';
+import type { PickView, PointState } from '../../lib/point-api';
+import { MAX_REQUEST, boxKey, groupTargets, sourceLine, targetLabel } from './point-model';
 
 /** Most elements one message carries (the Rust session keeps the same cap). */
 export const MAX_PICKS = 3;
@@ -28,10 +28,6 @@ export interface PointBoxProps {
   info?: string | null;
   /** A send is in flight. */
   busy?: boolean;
-}
-
-function targetName(t: Target): string {
-  return t.title ? `${t.agentLabel} · ${t.title}` : t.agentLabel;
 }
 
 function PickRow({ pick, onRemove }: { pick: PickView; onRemove: (id: string) => void }): JSX.Element {
@@ -155,7 +151,7 @@ export function PointBox(props: PointBoxProps): JSX.Element {
             <optgroup key={g.label} label={g.label}>
               {g.items.map((t) => (
                 <option key={t.paneId} value={t.paneId} disabled={!t.canSend}>
-                  {targetName(t)}
+                  {targetLabel(t)}
                 </option>
               ))}
             </optgroup>

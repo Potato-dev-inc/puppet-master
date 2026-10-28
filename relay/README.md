@@ -92,8 +92,8 @@ when `PM_RELAY_TEST_URL` is set: that is how the Worker variant is proven (`work
 A Live Room is a read-only, end-to-end encrypted link to some agents' chat (`docs/features/live-room.md`). The
 relay keeps the room and serves the viewer page. It never sees the key, which lives in the link's `#` part. The
 protocol types are in `protocol/src/room.rs`; the routes are in `server/src/rooms.rs` and `server/src/rooms/routes.rs`.
-Room routes are on the same listener as the team routes and have their own limits. The Cloudflare Worker's room
-routes are in the LR-11 change (`worker/src/room.ts`) and are not in every branch yet.
+Room routes are on the same listener as the team routes and have their own limits. The Cloudflare Worker has the
+same room routes (`worker/src/room.ts`, `roomproto.ts`, `index.ts`).
 
 ### Routes
 
@@ -140,15 +140,17 @@ Seats are counted in memory only, and are never logged. The relay writes no log 
 Rooms are in memory only. A restart of the binary ends every room, and the owner's app then sees "ended by the
 relay". Nothing about a room goes to the `--db` SQLite file (that file is for teams).
 
-On the Cloudflare Worker (LR-11) each room is one Durable Object with its own SQLite tables (`room`, `frames`,
+On the Cloudflare Worker each room is one Durable Object with its own SQLite tables (`room`, `frames`,
 `snapshot`). An alarm at the room's end ends it and wipes its frames. A second alarm, 1 hour after the end, wipes
-the rows. One more object counts the open rooms for the cap of 100. The Worker's seats are also in memory only.
+the rows. One more object (`RoomIndex`) counts the open rooms for the cap of 100: a stop frees the slot at once,
+and an expired room frees it when the next room is registered. The Worker's seats are also in memory only.
 
 ### Tests
 
 ```sh
 cargo test -p pm-relay-protocol   # the room types and checks
 cargo test -p pm-relay --test rooms   # register, snapshot, frames, viewer reads, limits, stop and expiry, viewer page headers
+cd worker && npm run test:worker  # the Worker's room tests (test/room.test.mjs) against local wrangler dev
 ```
 
 The viewer page has its own tests (`relay/viewer`, `npm test`). Build it with `npm run build` there when `src/`

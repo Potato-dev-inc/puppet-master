@@ -7,6 +7,7 @@
 //! - `store`: the SQLite file: upsert by (pane, session, item), the cap (newest `MAX_ITEMS` kept), search.
 //! - `filter`: the chips' filters (agent, folder, start time, who spoke) as bound SQL parameters.
 //! - `query`: turns what the person typed into an FTS5 query, and the marked snippet into text plus ranges.
+//! - `import`: brings the old chats of every agent that can list them into the index (opt-in, strict redaction).
 //! - `feeder`: the background writer that `session_chat::Watchers` hands items to (`ItemObserver`), so a reader
 //!   thread never waits on the disk.
 //!
@@ -17,6 +18,9 @@ mod entry;
 mod feeder;
 mod imported;
 mod filter;
+// The allow stays: `DEFAULT_SINCE_DAYS`, `EMIT_EVERY` and `Phase::is_finished` are used only by the importer's tests.
+#[allow(dead_code, unused_imports)]
+pub mod import;
 mod query;
 mod store;
 

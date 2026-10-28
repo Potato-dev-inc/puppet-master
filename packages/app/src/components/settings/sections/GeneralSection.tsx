@@ -12,6 +12,7 @@ import { tauri, type AppInstallInfo, type CoordinationStorageInfo } from '../../
 import { budgetRows } from './BudgetRows';
 import { AmbientSettings } from '../blocks/AmbientSettings';
 import { AskBarSettingsBlock } from '../blocks/AskBarSettings';
+import { AssignIssueSettings } from '../blocks/AssignIssueSettings';
 import { BringChatsSettings } from '../blocks/BringChatsSettings';
 import { ChatIndexSettings } from '../blocks/ChatIndexSettings';
 import { DiagnosticFile } from '../blocks/DiagnosticFile';
@@ -407,6 +408,15 @@ export const generalRows: RowDef[] = [
         onChange={(value) => void env.patch({ missions_enabled: value })}
       />
     ),
+  },
+  {
+    id: 'assign-issue',
+    label: 'Assign an issue',
+    hint: 'Label a GitHub issue and an agent works on it here.',
+    keywords: 'github issue label puppet draft pull request',
+    group: 'Labs',
+    labs: { name: 'Assign an issue', about: 'Start an agent on a GitHub issue when someone on your list labels it.' },
+    render: (env) => <AssignIssueSettings onSaved={env.markSaved} projectPath={env.projectPath} />,
   },
   { id: 'team', label: 'Team', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', labs: { name: 'Team', about: 'Tell teammates when your agent pushes, and see when theirs does.' }, render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'live-room', label: 'Live Room', hint: 'Let people with a link watch a chat. Pick the relay address, how long and how many.', keywords: 'live room share stream watch link relay viewers broadcast default length', group: 'Live Room', render: (env) => <LiveRoomRow onSaved={env.markSaved} /> },

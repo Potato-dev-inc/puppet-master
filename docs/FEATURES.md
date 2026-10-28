@@ -45,7 +45,7 @@ Rows marked **obsolete** describe the legacy main-window UI: still in the tree, 
 | Legacy mobile PWA (orchestrator chat / Panes), kept as a backup at `?pwa=legacy` | `PwaLegacyApp.tsx`, `components/pwa/` | backup; waits for an orchestrator pane nothing starts since PF3 |
 | Mobile pairing/tunnel (cloudflared quick tunnel, new URL on every app start) | `MobilePairingPanel.tsx`; `mobile_pairing/`, `mobile_tunnel.rs`, `pwa_server.rs` | in use (paired Android phone and emulator); a paired phone may type into panes a `run_agent` manages |
 | Crews (team templates): "Save this team" in the session rail's Helpers card turns a pane and its helpers into a crew (agent per role, first task with the folder as `{folder}`, redacted; edited in a sheet), saved as `<app data>/crews/<slug>.toml`; "Start crew…" in the palette starts a crew in a folder, lead first, each helper under its parent's pane, stopping at the first failure; any registered agent, wizard-added ones included; trust and permission questions of started panes are never answered | `crews/`, `commands/crews.rs`; UI `components/cockpit/crews/`, `lib/crews-api.ts` | experimental |
-| Live Room: share the chat of 1 to 6 panes as a read-only link, end-to-end encrypted through a relay, secrets and folders hidden, stops by time, idle, Stop, panic or app quit; the Worker part is not in this branch yet | `live_room/`, `commands/live_room.rs`, `relay/viewer/`; UI `components/cockpit/live/`, `lib/live-room.ts`; doc [`features/live-room.md`](features/live-room.md) | experimental (no live run on a relay yet) |
+| Live Room: share the chat of 1 to 6 panes as a read-only link, end-to-end encrypted through a relay, secrets and folders hidden, stops by time, idle, Stop, panic or app quit; relays: the axum binary and the Cloudflare Worker | `live_room/`, `commands/live_room.rs`, `relay/viewer/`, `relay/worker/src/room.ts`; UI `components/cockpit/live/`, `lib/live-room.ts`; doc [`features/live-room.md`](features/live-room.md) | experimental (no live run on a relay yet) |
 | Home dashboard with an Agents overview card | UI `components/HomeDashboard.tsx`, `AgentsOverviewCard.tsx` | **obsolete** (Overview unreachable) |
 
 ## 1a. Point and Fix (preview, pick, send)
@@ -65,6 +65,15 @@ Point and Fix lets you see your app inside Puppet Master, point at the part that
 | Blocked links: any link or new window that leaves the local app is stopped, with a notice; **Open in browser** only on your click | `point/origin.rs` (`nav`), `point/window.rs` | being built |
 | Privacy: the page never gets Tauri access; form values and password text are never read; page text goes through redaction; the page's words are marked as data in the message | `point/picker.js`, `point/pick.rs`, `point/message.rs`, `capabilities/default.json` | being built (tests pin each rule) |
 | Not in v1: before/after strip, phone Point, image input per agent profile, source maps, preview inside the cockpit, macOS/Linux screenshots | spec section 3.9 | planned (v2) |
+
+## 1b. Text your agents (Telegram) and Clip It
+
+Limits and how to test: the feature pages.
+
+| Feature | Where | Status |
+|---|---|---|
+| Text your agents (Telegram): pair one private chat, see what needs you, answer low-risk questions, send text to agents. Off by default. Telegram's servers can read the message text. | `channels/`, `commands/channels.rs`, `bridge/routes/channels.rs` ([`features/telegram.md`](features/telegram.md)) | **early**: the engine and the commands are in; the Settings block and the phone row are not on any screen yet; not run live with a real bot |
+| Clip It: a 20 to 28 second video of one finished turn, made on the PC. Secrets and folder paths are hidden before drawing. You preview it, then save it to a file you pick. Nothing is uploaded. | `clip/`, `commands/clip.rs`, `lib/clip*.ts`, `components/chat/ClipSheet.tsx` ([`features/clip-it.md`](features/clip-it.md)) | **experimental**: unit tests and fakes only; no live run yet |
 
 ## 2. Orchestrator sidebar and coordination
 

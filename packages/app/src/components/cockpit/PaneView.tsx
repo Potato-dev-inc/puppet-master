@@ -466,7 +466,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           )}
           {tab === 'chat' && chatAllowed && (
             <div className="ck-scroll ck-fade-in" key="chat">
-              <SessionChatPanel paneId={paneId} dock={chatDock} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} />
+              <SessionChatPanel paneId={paneId} dock={chatDock} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} onOpenPane={(id) => c.select(id)} />
             </div>
           )}
           {tab === 'changes' && worktree && (
