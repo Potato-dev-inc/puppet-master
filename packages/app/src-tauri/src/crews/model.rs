@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub const MAX_ROLES: usize = 8;
 /// The only placeholder a task may use: the folder the crew is started in.
 pub const PLACEHOLDER: &str = "{folder}";
+/// The agent of a starter role: the person's default agent, filled in when the crew starts.
+pub const DEFAULT_AGENT: &str = "{default}";
 /// A crew file larger than this is not read.
 pub const MAX_FILE_BYTES: usize = 64 * 1024;
 
