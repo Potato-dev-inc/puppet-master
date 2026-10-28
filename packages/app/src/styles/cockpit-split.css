@@ -28,10 +28,34 @@
 .cockpit .ck-split-side.is-dim {
   opacity: var(--ck-split-dim);
 }
-.cockpit .ck-split-divider {
+/* The left side's width is the ratio of the room both sides share (the cols minus the 9px divider). The clamp keeps
+   each side at 320px (SPLIT_SIDE_MIN_PX in main-view.ts), so a drag or a narrower window never squeezes a side. */
+.cockpit .ck-split-side.ck-split-side-left {
   flex: none;
+  width: clamp(320px, calc((100% - 9px) * var(--ck-split-ratio, 0.5)), calc(100% - 9px - 320px));
+}
+/* A 9px hit area; its 1px line sits in the middle. */
+.cockpit .ck-split-divider {
+  position: relative;
+  flex: none;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.cockpit .ck-split-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
   width: 1px;
   background: var(--sep);
+  transition: background-color 160ms var(--ease);
+}
+.cockpit .ck-split-divider:hover::before,
+.cockpit .ck-split-divider:focus-visible::before {
+  background: var(--label-3);
 }
 .cockpit .ck-split-head {
   flex: none;
@@ -72,7 +96,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cockpit .ck-split-side {
+  .cockpit .ck-split-side,
+  .cockpit .ck-split-divider::before {
     transition: none;
   }
 }

@@ -1,5 +1,6 @@
 //! Runtime half of the ambient tray icon: a small thread that turns pane statuses into the 3x3
-//! dot-matrix glyph, the tooltip and the taskbar badge.
+//! dot-matrix glyph and the taskbar badge. The tooltip is owned by `tray.rs` (`summary_line`), so
+//! there is one writer for it.
 //!
 //! Driven by the status flow (`bridge::push_pane_status_sse` calls [`notify_changed`], and the
 //! `pty://panes-changed` event does too), never by the PTY reader. The thread sleeps on a
@@ -100,7 +101,6 @@ pub(crate) fn aggregate_for<'a>(statuses: impl IntoIterator<Item = &'a str>, blo
 struct Look {
     pattern: glyph::Pattern,
     ink: Ink,
-    tooltip: String,
     badge: u32,
 }
 
@@ -108,7 +108,6 @@ fn apply(app: &AppHandle, look: &Look) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let rgba = raster::render_rgba(&glyph::levels(look.pattern), ICON_PX, look.ink);
         let _ = tray.set_icon(Some(Image::new_owned(rgba, ICON_PX, ICON_PX)));
-        let _ = tray.set_tooltip(Some(look.tooltip.as_str()));
     }
     set_badge(app, look.badge);
 }
@@ -157,7 +156,7 @@ fn run(app: AppHandle) {
             ticker.update(read_aggregate(&app), super::prefs::animated());
         }
         let agg = ticker.aggregate();
-        let look = Look { pattern: ticker.pattern(), ink, tooltip: glyph::tooltip(&agg), badge: agg.attention() };
+        let look = Look { pattern: ticker.pattern(), ink, badge: agg.attention() };
         let cockpit_present = app.get_webview_window(crate::app_windows::COCKPIT_LABEL).is_some();
         if last.as_ref() != Some(&look) || cockpit_present != last_cockpit {
             apply(&app, &look);

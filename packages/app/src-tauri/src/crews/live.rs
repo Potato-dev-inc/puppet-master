@@ -2,6 +2,7 @@
 //! pane the way every in-app run does (`agent_runs::run_agent`, a visible pane that stays open) and then
 //! records the helper link (`pty::pane_parent::set_parent`, the same link an MCP `run_agent` earns).
 
+use super::agents::{pick_default, AgentChoice, Choices};
 use super::draft::{draft, Draft, Env, TreePane};
 use super::model::CrewError;
 use super::start::{StartFailure, Starter, Step};
@@ -29,6 +30,23 @@ pub fn agent_state(agent_type: &str) -> AgentState {
 
 pub fn label_of(agent_type: &str) -> String {
     crate::tui::descriptor_for(agent_type).map(|d| d.label).unwrap_or_else(|| agent_type.to_string())
+}
+
+/// The agents that can take a role here: dispatchable and installed, in registry order.
+pub fn startable_agents() -> Vec<AgentChoice> {
+    crate::tui::registry::snapshot()
+        .iter()
+        .filter(|profile| profile.features().dispatchable && profile.is_installed())
+        .map(|profile| AgentChoice { id: profile.id().to_string(), label: label_of(profile.id()) })
+        .collect()
+}
+
+/// The Start sheet's list and the agent `{default}` stands for (the Ask bar's default, see `agents::pick_default`).
+pub fn choices() -> Choices {
+    let agents = startable_agents();
+    let settings = crate::askbar::settings();
+    let default = pick_default(settings.default_agent.as_deref(), settings.last_agent.as_deref(), &agents);
+    Choices { agents, default }
 }
 
 /// "Save this team" for the pane `root_id` and the helpers under it.

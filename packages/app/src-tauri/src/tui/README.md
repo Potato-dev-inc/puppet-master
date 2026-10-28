@@ -135,6 +135,11 @@ What happens around a gate, the same for every agent:
   If a notice ignores its keys the message waits and the keys are not pressed again for 20 s (`Timing::gate_retry`).
   Every path that types a person's message or a task goes through `deliver_text` / `dispatch_prompt`; raw keys
   (`write_terminal_input`, `press_key`, the terminal itself) are the person's or an explicit raw call and are not.
+- `companion/service.rs` (`close_notice`): the companion keeper does the same for its OWN pane when a dismissible notice
+  is on screen and no message is queued (the pane reads `running`, so a move or a nap would wait for ever). It calls
+  `bridge/startup_gate.rs::press_once` (only the declared keys, never Enter), at most once per 20 s
+  (`pane_outbox::GATE_RETRY`), and looks again on the next tick. A move is allowed while only a dismissible notice is
+  on screen (nothing is cut off). A gate only the user may pass is never touched.
 - Pane status (`pty/registry/spawn.rs` reader + idle watcher, mirrored by `replay/pane.rs`): while `startup_gate`
   reports a gate, the pane never flips to `idle` (and an idle pane a gate draws over leaves `idle`). It reads `running`,
   not `waiting_input`: a dismissible notice is closed by Puppet Master and must not raise an Inbox card. Gates only

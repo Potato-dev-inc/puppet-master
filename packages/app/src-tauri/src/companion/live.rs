@@ -175,6 +175,23 @@ impl Host for LiveHost {
         matches!(verdict.readiness(), Readiness::Gate(gate) if gate.dismiss.is_none())
     }
 
+    fn notice_gate(&self, pane_id: &str) -> bool {
+        // Only a companion's own pane: the keeper never touches another pane.
+        if !super::service::is_pane_id(pane_id) {
+            return false;
+        }
+        let Some(agent) = self.agent_of(pane_id) else { return false };
+        crate::bridge::startup_gate::notice_on_pane(&self.registry, pane_id, &agent)
+    }
+
+    fn dismiss_notice(&self, pane_id: &str) -> bool {
+        if !super::service::is_pane_id(pane_id) {
+            return false;
+        }
+        let Some(agent) = self.agent_of(pane_id) else { return false };
+        crate::bridge::startup_gate::press_on_pane(&self.registry, &self.app, pane_id, &agent)
+    }
+
     fn activity(&self, pane_id: &str) -> Option<String> {
         crate::pane_activity::snapshot().get(pane_id).map(|activity| activity.text.clone())
     }

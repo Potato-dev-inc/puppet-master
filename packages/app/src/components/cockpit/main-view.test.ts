@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clampSplitRatio,
   homeView,
   isSplitShortcut,
+  nudgeSplitRatio,
+  ratioFromLeftPx,
   splitAfterSelect,
   splitFits,
+  splitFocusKey,
   splitPartner,
   splitStillOn,
   viewAfterSelect,
+  SPLIT_SIDE_MIN_PX,
   type MainView,
 } from './main-view';
 
@@ -82,5 +87,58 @@ describe('split view: Ctrl+\\ shortcut', () => {
     expect(isSplitShortcut(press({ shiftKey: true }))).toBe(false);
     expect(isSplitShortcut(press({ altKey: true }))).toBe(false);
     expect(isSplitShortcut(press({ metaKey: true }))).toBe(false);
+  });
+});
+
+describe('split view: resize', () => {
+  // A 1000px split: the divider takes 9px, so the two sides share 991px.
+  const SPAN = 991;
+
+  it('keeps each side at least 320px wide', () => {
+    expect(clampSplitRatio(0.05, SPAN)).toBeCloseTo(SPLIT_SIDE_MIN_PX / SPAN);
+    expect(clampSplitRatio(0.95, SPAN)).toBeCloseTo(1 - SPLIT_SIDE_MIN_PX / SPAN);
+    expect(clampSplitRatio(0.4, SPAN)).toBe(0.4);
+  });
+
+  it('falls back to the even split when there is no room for two minimum sides or the ratio is not a number', () => {
+    expect(clampSplitRatio(0.9, 600)).toBe(0.5);
+    expect(clampSplitRatio(Number.NaN, SPAN)).toBe(0.5);
+  });
+
+  it('an arrow press moves the divider 24px either way, and stops at the minimum', () => {
+    expect(nudgeSplitRatio(0.5, 24, SPAN)).toBeCloseTo(0.5 + 24 / SPAN);
+    expect(nudgeSplitRatio(0.5, -24, SPAN)).toBeCloseTo(0.5 - 24 / SPAN);
+    expect(nudgeSplitRatio(0.33, -24, SPAN)).toBeCloseTo(SPLIT_SIDE_MIN_PX / SPAN);
+    expect(nudgeSplitRatio(0.5, 24, 0)).toBe(0.5);
+  });
+
+  it('a dragged divider maps its left edge to a clamped ratio', () => {
+    expect(ratioFromLeftPx(495.5, SPAN)).toBeCloseTo(0.5);
+    expect(ratioFromLeftPx(10, SPAN)).toBeCloseTo(SPLIT_SIDE_MIN_PX / SPAN);
+    expect(ratioFromLeftPx(900, SPAN)).toBeCloseTo(1 - SPLIT_SIDE_MIN_PX / SPAN);
+    expect(ratioFromLeftPx(100, 0)).toBe(0.5);
+  });
+});
+
+describe('split view: focus keys', () => {
+  const key = (over: Partial<KeyboardEvent>) => ({ key: 'ArrowLeft', ctrlKey: true, metaKey: false, altKey: true, shiftKey: false, ...over });
+
+  it('on Windows, Ctrl+Alt+Left and Ctrl+Alt+Right pick the side', () => {
+    expect(splitFocusKey(key({}), false)).toBe('left');
+    expect(splitFocusKey(key({ key: 'ArrowRight' }), false)).toBe('right');
+  });
+
+  it('on a Mac, Cmd+Alt is the key and Ctrl is not', () => {
+    expect(splitFocusKey(key({ ctrlKey: false, metaKey: true }), true)).toBe('left');
+    expect(splitFocusKey(key({ ctrlKey: false, metaKey: true, key: 'ArrowRight' }), true)).toBe('right');
+    expect(splitFocusKey(key({ ctrlKey: true, metaKey: false }), true)).toBeNull();
+  });
+
+  it('any other modifier, key or missing Alt is not ours', () => {
+    expect(splitFocusKey(key({ altKey: false }), false)).toBeNull();
+    expect(splitFocusKey(key({ shiftKey: true }), false)).toBeNull();
+    expect(splitFocusKey(key({ key: 'ArrowUp' }), false)).toBeNull();
+    expect(splitFocusKey(key({ key: 'a' }), false)).toBeNull();
+    expect(splitFocusKey(key({ ctrlKey: false }), false)).toBeNull();
   });
 });

@@ -15,20 +15,26 @@ pub fn clean(text: &str, ctx: &RedactContext) -> String {
 /// The first `max` lines of `text`, cleaned, and how many lines were left out. The whole text is redacted before it
 /// is cut into lines: a secret that spans lines (a private key body) is only found as a whole.
 pub fn lines(text: &str, ctx: &RedactContext, max: usize) -> (Vec<String>, usize) {
+    let (shown, more) = cut_lines(text, ctx, max);
+    (shown.iter().map(|line| escape(line)).collect(), more)
+}
+
+/// Like `lines`, but not escaped: for Markdown, which escapes what it needs (`export_md`).
+pub fn cut_lines(text: &str, ctx: &RedactContext, max: usize) -> (Vec<String>, usize) {
     let cleaned = cut_paths(text, ctx);
     let all: Vec<&str> = cleaned.lines().collect();
-    let shown = all.iter().take(max).map(|line| escape(line)).collect();
+    let shown = all.iter().take(max).map(|line| line.to_string()).collect();
     (shown, all.len().saturating_sub(max))
 }
 
 /// Plain text for a file that is not HTML: redacted in strict mode, then with its paths cut down to their last names.
-/// Not HTML-escaped, so the caller must not put it into markup without escaping.
+/// Not HTML-escaped, so the caller must not put it into markup without escaping. Reuses `cut_paths`.
 pub fn plain(text: &str, ctx: &RedactContext) -> String {
     cut_paths(text, ctx)
 }
 
-/// `text` redacted in strict mode, then with its paths cut down.
-fn cut_paths(text: &str, ctx: &RedactContext) -> String {
+/// `text` redacted in strict mode, then with its paths cut down (home folder first, then folder paths).
+pub fn cut_paths(text: &str, ctx: &RedactContext) -> String {
     strip_paths(redact::strict_with(text, ctx).as_str(), ctx.home.as_deref())
 }
 
