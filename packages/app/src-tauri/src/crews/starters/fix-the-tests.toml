@@ -1,0 +1,13 @@
+# Starter: the lead runs the tests and fixes them, a helper writes a short summary for the person.
+name = "Fix the tests"
+
+[[roles]]
+name = "Fixer"
+agent_type = "{default}"
+task = "In {folder}, run the test suite. Read the failures, fix the code (change a test only if the test itself is clearly wrong), and run the tests again until they pass. Keep each fix small. At the end, say which tests failed and what you changed."
+
+[[roles]]
+name = "Summarizer"
+agent_type = "{default}"
+parent = "Fixer"
+task = "In {folder}, another agent (the Fixer) is fixing the failing tests right now. Watch its test runs and the git diff from time to time. When the Fixer is done, write a short summary for the person: what was broken, what was changed, and what still fails. Keep it under 10 lines. Do not edit any file."
