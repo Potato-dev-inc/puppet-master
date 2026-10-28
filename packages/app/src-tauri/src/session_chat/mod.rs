@@ -10,6 +10,7 @@ mod claims;
 pub mod declared;
 pub mod detail;
 pub mod export;
+pub mod export_md;
 pub mod export_save;
 mod export_style;
 mod export_text;

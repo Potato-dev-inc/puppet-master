@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-// "Save as page" in the chat's header menu: the menu offers it, the preview shows the page in a frame with no scripts
-// and the same text that gets saved, a cancelled dialog saves nothing, and a failure says so.
+// "Save as page" and "Save as Markdown" in the chat's header menu: the menu offers both, the preview shows the page in
+// a frame with no scripts (or the Markdown as plain text), the format switch shows and saves only the text of the
+// format on it, a cancelled dialog saves nothing, and a failure says so.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,10 +9,19 @@ import { chatPageFileName } from '../../lib/chatExport';
 import { ChatExportMenu, type ChatExportApi } from './ChatExportMenu';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// The format switch (SegTabs) measures itself with a ResizeObserver, which jsdom does not have.
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 
 const TOKEN = 'one-time-token';
 const PAGE = '<!doctype html><html><body><p>hello</p></body></html>';
-const PICKED = 'C:\Users\you\Downloads\chat.html';
+const MD_TOKEN = 'markdown-token';
+const MD = '# Test Agent\n\n**You**\n\nhello\n';
+const PICKED = 'C:/Users/you/Downloads/chat.html';
+const PICKED_MD = 'C:/Users/you/Downloads/chat.md';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -19,6 +29,7 @@ let root: Root;
 function fakeApi(over: Partial<ChatExportApi> = {}): ChatExportApi {
   return {
     html: vi.fn(async () => ({ html: PAGE, token: TOKEN })),
+    markdown: vi.fn(async () => ({ markdown: MD, token: MD_TOKEN })),
     save: vi.fn(async (_token: string, path: string) => path),
     pickPath: vi.fn(async () => PICKED),
     ...over,
@@ -36,15 +47,21 @@ function clickable(label: string): HTMLButtonElement {
   return found;
 }
 
+function tab(label: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.trim() === label);
+  if (!found) throw new Error(`no tab named ${label}`);
+  return found;
+}
+
 function render(api: ChatExportApi) {
   act(() => {
     root.render(<ChatExportMenu paneId="pane-1" api={api} />);
   });
 }
 
-async function openPreview() {
+async function openPreview(item = 'Save as page') {
   act(() => clickable('Chat menu').click());
-  act(() => clickable('Save as page').click());
+  act(() => clickable(item).click());
   await flush();
 }
 
@@ -60,12 +77,12 @@ afterEach(() => {
 });
 
 describe('ChatExportMenu', () => {
-  it('the chat menu offers Save as page and nothing else', () => {
+  it('the chat menu offers Save as page and Save as Markdown and nothing else', () => {
     render(fakeApi());
     expect(document.querySelector('[role="menu"]')).toBeNull();
     act(() => clickable('Chat menu').click());
     const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((el) => el.textContent?.trim());
-    expect(items).toEqual(['Save as page']);
+    expect(items).toEqual(['Save as page', 'Save as Markdown']);
     expect(clickable('Chat menu').getAttribute('aria-expanded')).toBe('true');
   });
 
@@ -88,6 +105,7 @@ describe('ChatExportMenu', () => {
     expect(frame?.getAttribute('sandbox')).toBe('');
     expect(frame?.getAttribute('srcdoc')).toBe(PAGE);
     expect(api.html).toHaveBeenCalledWith('pane-1');
+    expect(api.markdown).not.toHaveBeenCalled();
   });
 
   it('saving writes the same page that the preview showed', async () => {
@@ -96,7 +114,7 @@ describe('ChatExportMenu', () => {
     await openPreview();
     await act(async () => clickable('Save as page…').click());
     await flush();
-    expect(api.pickPath).toHaveBeenCalledWith(chatPageFileName());
+    expect(api.pickPath).toHaveBeenCalledWith(chatPageFileName(), 'page');
     expect(api.save).toHaveBeenCalledWith(TOKEN, PICKED);
     const status = document.querySelector('[role="status"]')?.textContent ?? '';
     expect(status).toContain(`Saved to ${PICKED}`);
@@ -104,7 +122,11 @@ describe('ChatExportMenu', () => {
   });
 
   it('sends the one-time token and the path, never the page, and gets a new page for the next save', async () => {
-    const html = vi.fn().mockResolvedValueOnce({ html: PAGE, token: 'first' }).mockResolvedValueOnce({ html: PAGE, token: 'second' });
+    const html = vi
+      .fn()
+      .mockResolvedValueOnce({ html: PAGE, token: 'first' })
+      .mockResolvedValueOnce({ html: PAGE, token: 'second' })
+      .mockResolvedValueOnce({ html: PAGE, token: 'third' });
     const api = fakeApi({ html });
     render(api);
     await openPreview();
@@ -115,6 +137,7 @@ describe('ChatExportMenu', () => {
     await act(async () => clickable('Save as page…').click());
     await flush();
     expect(api.save).toHaveBeenLastCalledWith('second', PICKED);
+    expect(html).toHaveBeenCalledTimes(3);
     for (const call of vi.mocked(api.save).mock.calls) expect(call).toHaveLength(2);
   });
 
@@ -152,5 +175,67 @@ describe('ChatExportMenu', () => {
     expect(document.querySelector('iframe')).not.toBeNull();
     act(() => clickable('Close').click());
     expect(document.querySelector('iframe')).toBeNull();
+  });
+});
+
+describe('ChatExportMenu format switch', () => {
+  it('Save as Markdown opens the sheet on Markdown', async () => {
+    const api = fakeApi();
+    render(api);
+    await openPreview('Save as Markdown');
+    expect(tab('Markdown').getAttribute('aria-selected')).toBe('true');
+    expect(tab('Page').getAttribute('aria-selected')).toBe('false');
+    expect(api.markdown).toHaveBeenCalledWith('pane-1');
+    expect(api.html).not.toHaveBeenCalled();
+  });
+
+  it('switching to Markdown shows the Markdown as plain text, with no frame', async () => {
+    const api = fakeApi();
+    render(api);
+    await openPreview();
+    act(() => tab('Markdown').click());
+    await flush();
+    expect(document.querySelector('iframe')).toBeNull();
+    expect(document.querySelector('.ck-chat-export-text')?.textContent).toBe(MD);
+    expect(clickable('Save as Markdown…')).not.toBeNull();
+  });
+
+  it('saving on Markdown saves the Markdown token as a .md file', async () => {
+    const api = fakeApi({ pickPath: vi.fn(async () => PICKED_MD) });
+    render(api);
+    await openPreview();
+    act(() => tab('Markdown').click());
+    await flush();
+    await act(async () => clickable('Save as Markdown…').click());
+    await flush();
+    expect(api.pickPath).toHaveBeenCalledWith(chatPageFileName(new Date(), 'markdown'), 'markdown');
+    expect(api.save).toHaveBeenCalledWith(MD_TOKEN, PICKED_MD);
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(`Saved to ${PICKED_MD}`);
+  });
+
+  it('switching back to Page shows the page and saves with the page token, never the Markdown one', async () => {
+    const api = fakeApi();
+    render(api);
+    await openPreview();
+    act(() => tab('Markdown').click());
+    await flush();
+    act(() => tab('Page').click());
+    await flush();
+    expect(document.querySelector('iframe[title="Chat page preview"]')?.getAttribute('srcdoc')).toBe(PAGE);
+    expect(document.querySelector('.ck-chat-export-text')).toBeNull();
+    await act(async () => clickable('Save as page…').click());
+    await flush();
+    expect(api.save).toHaveBeenCalledWith(TOKEN, PICKED);
+  });
+
+  it('a Markdown that cannot be made says so and cannot be saved', async () => {
+    const api = fakeApi({ markdown: vi.fn(async () => Promise.reject(new Error('Chat is not available for this pane.'))) });
+    render(api);
+    await openPreview();
+    act(() => tab('Markdown').click());
+    await flush();
+    expect(document.body.textContent).toContain('Chat is not available for this pane.');
+    expect(clickable('Save as Markdown…').disabled).toBe(true);
+    expect(document.querySelector('.ck-chat-export-text')).toBeNull();
   });
 });

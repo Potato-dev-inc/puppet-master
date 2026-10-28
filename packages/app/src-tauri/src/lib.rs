@@ -171,6 +171,7 @@ pub fn run() {
             commands::chat_index_set_enabled,
             commands::chat_index_clear,
             commands::chat_export_html,
+            commands::chat_export_markdown,
             commands::chat_export_save,
             commands::pane_message_send,
             commands::pane_message_cancel,
