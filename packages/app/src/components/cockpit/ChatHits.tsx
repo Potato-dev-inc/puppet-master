@@ -4,6 +4,8 @@ import { snippetParts, kindText, whenText, type ChatHit } from '../../lib/chatSe
 
 export const SEARCH_CHATS_TITLE = 'Search all chats';
 export const SEARCH_CHATS_HINT = 'Ctrl+Shift+F';
+/** Marks a hit in an old chat the person brought in (see "Bring my old chats"). */
+export const OLD_CHAT_TAG = 'Old chat';
 
 function Snippet({ hit }: { hit: ChatHit }) {
   return (
@@ -21,8 +23,9 @@ function Snippet({ hit }: { hit: ChatHit }) {
   );
 }
 
+/** The meta line: "Old chat" first for an imported hit, then the agent, the folder and when. */
 function metaText(hit: ChatHit, agentName: string, now: number): string {
-  return [agentName, hit.folder, whenText(hit.atMs, now)].filter(Boolean).join(' · ');
+  return [hit.imported ? OLD_CHAT_TAG : '', agentName, hit.folder, whenText(hit.atMs, now)].filter(Boolean).join(' · ');
 }
 
 export function ChatHitRows({

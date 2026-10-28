@@ -7,6 +7,14 @@ import type { CockpitApi } from '../../hooks/useCockpit';
 import * as chatSearch from '../../lib/chatSearch';
 import type { ChatHit } from '../../lib/chatSearch';
 import { clearChatJump, useChatJump, type ChatJump } from '../../lib/chatJump';
+import {
+  clearBringChatsRequest,
+  clearImportedChatRequest,
+  useBringChatsRequest,
+  useImportedChatRequest,
+  type BringChatsRequest,
+  type ImportedChatRequest,
+} from '../../lib/chatImport';
 import { Palette } from './Palette';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -93,12 +101,22 @@ function JumpProbe() {
   return null;
 }
 
+// The old-chat and "Bring my old chats" requests, read the way the cockpit reads them.
+let importedReq: ImportedChatRequest | null = null;
+let bringReq: BringChatsRequest | null = null;
+function ImportProbe() {
+  importedReq = useImportedChatRequest();
+  bringReq = useBringChatsRequest();
+  return null;
+}
+
 function open(c: CockpitApi, onClose = vi.fn()) {
   act(() =>
     root.render(
       <>
         <Palette c={c} onClose={onClose} initialMode="chats" />
         <JumpProbe />
+        <ImportProbe />
       </>,
     ),
   );
@@ -214,6 +232,70 @@ describe('Palette: Search all chats', () => {
     expect(host.textContent).toContain('Search is off — turn it on in Settings');
     expect(host.textContent).not.toContain('No matches');
     expect(options()).toHaveLength(0);
+  });
+});
+
+describe('Palette: old chats', () => {
+  const oldHit = (extra: Partial<ChatHit> = {}) => hit({ paneId: 'import:codex', session: 'old-session-1', itemId: '70:0', imported: true, ...extra });
+
+  afterEach(() => {
+    if (importedReq) act(() => clearImportedChatRequest(importedReq!));
+    if (bringReq) act(() => clearBringChatsRequest(bringReq!));
+    importedReq = null;
+    bringReq = null;
+  });
+
+  it('an old chat hit says "Old chat" in its meta line; an ordinary hit does not', async () => {
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([oldHit(), hit()]));
+    open(cockpit());
+    type('deploy');
+    await settle();
+    const rows = options();
+    expect(rows[0].querySelector('.ck-hit-meta')?.textContent).toBe('Old chat · Codex CLI · shop · 5 min ago');
+    expect(rows[1].querySelector('.ck-hit-meta')?.textContent).toBe('Codex CLI · shop · 5 min ago');
+  });
+
+  it('Enter on an old chat hit closes the palette and asks for that chat at the message, not a closed card', async () => {
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([oldHit()]));
+    const c = cockpit();
+    const onClose = open(c);
+    type('deploy');
+    await settle();
+    press('Enter');
+    expect(onClose).toHaveBeenCalled();
+    expect(c.select).not.toHaveBeenCalled();
+    expect(jump).toBeNull();
+    expect(host.textContent).not.toContain('This chat is closed, so this is all that was kept.');
+    expect(importedReq).toMatchObject({ agent: 'codex', session: 'old-session-1', itemId: '70:0' });
+  });
+
+  it('a click on an old chat hit does the same', async () => {
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([oldHit()]));
+    const onClose = open(cockpit());
+    type('deploy');
+    await settle();
+    act(() => options()[0].click());
+    expect(onClose).toHaveBeenCalled();
+    expect(importedReq).toMatchObject({ agent: 'codex', session: 'old-session-1' });
+  });
+
+  it('the commands list has "Bring my old chats": choosing it closes the palette and asks for the Bring panel', () => {
+    const onClose = vi.fn();
+    act(() =>
+      root.render(
+        <>
+          <Palette c={cockpit()} onClose={onClose} />
+          <ImportProbe />
+        </>,
+      ),
+    );
+    const row = options().find((r) => r.querySelector('.ck-palette-title')?.textContent === 'Bring my old chats')!;
+    expect(row).toBeTruthy();
+    expect(bringReq).toBeNull();
+    act(() => row.click());
+    expect(onClose).toHaveBeenCalled();
+    expect(bringReq).not.toBeNull();
+    expect(importedReq).toBeNull();
   });
 });
 
