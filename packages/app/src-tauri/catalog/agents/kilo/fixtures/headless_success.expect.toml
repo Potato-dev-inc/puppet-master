@@ -1,0 +1,4 @@
+result = "pong"
+session = "ses_FIXTURE_SUCCESS"
+model = "stealth/glyph-cluster"
+done = true

@@ -1,0 +1,28 @@
+schema_version = 1
+
+[store]
+id = "kiro"
+tagline = "Kiro command line agent from AWS."
+tier = "verified"
+builtin = false
+categories = ["general", "cloud_account"]
+status = "active"
+replaced_by = ""
+ambiguous_name = false
+first_listed = "2026-10-28"
+
+[vendor]
+name = "AWS"
+homepage = "https://kiro.dev/"
+license = "Proprietary"
+license_kind = "proprietary"
+
+[sign_in]
+kind = "account"
+summary = "Run kiro-cli login once before the first run."
+
+[checked]
+date = "2026-10-12"
+version = "2.29.1"
+how = "vendor_docs"
+windows_tested = false

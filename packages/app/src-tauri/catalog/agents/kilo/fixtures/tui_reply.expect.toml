@@ -1,0 +1,6 @@
+busy = false
+menu = false
+prompt_kind = ""
+model = "Nemotron 3 Ultra (free)"
+chrome_lines = ["9% used", "$0.00 spent", "22,450 tokens"]
+not_chrome_lines = ["The variable name is SECRET_FIXTURE_VALUE."]
