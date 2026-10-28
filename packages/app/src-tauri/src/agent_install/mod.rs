@@ -143,6 +143,7 @@ pub fn start(
             pane_id: None,
             read_only: false,
             account: None,
+            guard_env: None,
         },
     )?;
     INSTALL_PANES.lock().insert(pane_id.clone());

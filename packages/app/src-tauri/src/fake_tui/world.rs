@@ -361,6 +361,7 @@ impl Session {
                 pane_id: None,
                 read_only: false,
                 account: None,
+                guard_env: None,
             },
         )
     }
@@ -547,6 +548,7 @@ impl Session {
                 pane_id: Some(pane_id.clone()),
                 read_only: false,
                 account: None,
+                guard_env: None,
             },
         );
         if spawned.is_err() {

@@ -259,3 +259,28 @@ fn the_mcp_run_agent_tool_advertises_isolation_none_as_its_default_and_worktree_
     assert_eq!(isolation["default"], "none");
     assert_eq!(isolation["enum"], json!(["none", "worktree"]));
 }
+
+#[test]
+fn guard_env_in_a_request_body_is_ignored() {
+    // Only Rust code inside the app sets the guard: an MCP or bridge body cannot ask for one (or
+    // turn the field into a way to probe guard names).
+    for body in [
+        json!({"task":"inspect","guard_env":"no_push"}),
+        json!({"task":"inspect","guard_env":"nope"}),
+        json!({"task":"inspect","guard_env":null}),
+    ] {
+        let request: AgentRunRequest = serde_json::from_value(body.clone()).unwrap();
+        assert_eq!(request.guard_env, None, "{body}");
+        assert_eq!(parse_run_request(body).guard_env, None);
+    }
+}
+
+#[test]
+fn guard_env_is_not_written_out_with_a_request() {
+    let mut request: AgentRunRequest = serde_json::from_value(json!({"task":"inspect"})).unwrap();
+    request.guard_env = Some("no_push".into());
+    let out = serde_json::to_value(&request).unwrap();
+    assert!(out.get("guard_env").is_none(), "{out}");
+    let back: AgentRunRequest = serde_json::from_value(out).unwrap();
+    assert_eq!(back.guard_env, None);
+}

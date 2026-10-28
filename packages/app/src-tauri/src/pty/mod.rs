@@ -5,6 +5,7 @@ pub mod agent_stop;
 pub mod agents;
 pub mod ansi;
 pub mod env_guard;
+pub mod guard_launch;
 pub mod hidden;
 pub mod kill_worker;
 pub mod keys;

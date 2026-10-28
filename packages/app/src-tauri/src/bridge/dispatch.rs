@@ -198,6 +198,9 @@ fn assign_pane(
     mut pane_assignment_guard: PaneAssignmentGuard,
 ) -> Result<(String, bool, bool), OperationError> {
     let project_path = std::path::PathBuf::from(&operation.project_path);
+    // A guarded run (env guard, SPEC n32 3.4) always spawns its own pane: a forced pane id is
+    // refused, and no existing pane or standby is looked at.
+    check_guarded_pane_request(operation)?;
     if let Some(requested_id) = operation.pane_id.clone() {
         if agent_type == "opencode_native" {
             drop(pane_assignment_guard);
@@ -330,7 +333,7 @@ fn assign_pane(
             return Err(error);
         }
         (requested_id, false)
-    } else if let Some(pane) = existing_panes.iter().find(eligible) {
+    } else if let Some(pane) = existing_panes.iter().find(|pane| may_reuse_pane(operation) && eligible(pane)) {
         (pane.id.clone(), false)
     } else if let Some(claim) = pool_key
         .as_ref()
@@ -366,6 +369,7 @@ fn assign_pane(
                 pane_id: None,
                 read_only: operation.read_only,
                 account: operation.worker.account.clone(),
+                guard_env: operation.worker.guard_env.clone(),
             },
             Duration::from_secs(45),
         )?;
@@ -417,11 +421,35 @@ fn assign_pane(
     Ok((pane_id, pane_created, standby))
 }
 
+/// False for a guarded run: it never takes an existing pane or a warm standby, because those were
+/// started without its env guard. It always spawns.
+fn may_reuse_pane(operation: &OperationSnapshot) -> bool {
+    operation.worker.guard_env.is_none()
+}
+
+/// A guarded run that was handed a pane id is refused: it would land in a pane that was started
+/// without its env guard.
+fn check_guarded_pane_request(operation: &OperationSnapshot) -> Result<(), OperationError> {
+    if may_reuse_pane(operation) || operation.pane_id.is_none() {
+        return Ok(());
+    }
+    let mut error = OperationError::new(
+        "PANE_NOT_ELIGIBLE",
+        "a guarded run starts its own pane; it cannot reuse an existing one",
+        false,
+    );
+    error.context = json!({"pane_id": operation.pane_id});
+    Err(error)
+}
+
 /// The pool key this run would claim: only a run that spawns its own visible pane for a backend
 /// with a standby mode has one.
 fn standby_key(operation: &OperationSnapshot, agent_type: &str) -> Option<crate::standby::PoolKey> {
     if operation.worker.worktree.is_some() {
         return None; // warm workers are launched in the project folder, not a worktree
+    }
+    if !may_reuse_pane(operation) {
+        return None; // a warm worker was launched without the run's env guard
     }
     crate::standby::key_for_run(
         agent_type,
@@ -1094,6 +1122,86 @@ pub(super) fn park_on_unknown_screen(
         ParkEnd::TimedOut { why, screen } => {
             Err(crate::agent_runs::readiness::not_ready_error(profile.id(), &why, &screen, pane_id))
         }
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+
+    fn operation(guard: Option<&str>, pane: Option<&str>) -> OperationSnapshot {
+        let project = std::env::temp_dir().join(format!("pm-guard-dispatch-{}", uuid::Uuid::new_v4()));
+        let request = crate::operations::DelegateWorkRequest {
+            project_path: project.to_string_lossy().into_owned(),
+            task: "inspect".into(),
+            agent_type: "codex".into(),
+            pane_id: pane.map(str::to_string),
+            idempotency_key: uuid::Uuid::new_v4().to_string(),
+            acceptance_criteria: None,
+            task_id: None,
+            exclusive: false,
+            locks: vec![],
+            timeout_ms: 60_000,
+            read_only: false,
+            keep_pane: false,
+            placement: None,
+            owner_session_id: None,
+            worker_has_mcp_tools: false,
+            agent_run_id: None,
+            turn_index: 0,
+            worker: crate::operations::WorkerPersist { guard_env: guard.map(str::to_string), ..Default::default() },
+            context_policy: None,
+            checks: Vec::new(),
+        };
+        crate::operations::create_operation(request).unwrap().0
+    }
+
+    /// The agent used for the standby checks: the first registered one that supports a visible standby.
+    fn standby_agent() -> Option<&'static str> {
+        ["codex", "claude", "opencode", "cursor"]
+            .into_iter()
+            .find(|id| crate::tui::profile_for(id).standby_support().visible)
+    }
+
+    #[test]
+    fn a_guarded_run_never_reuses_a_pane() {
+        assert!(may_reuse_pane(&operation(None, None)));
+        assert!(!may_reuse_pane(&operation(Some("no_push"), None)));
+    }
+
+    #[test]
+    fn a_guarded_run_with_a_forced_pane_id_is_refused() {
+        let error = check_guarded_pane_request(&operation(Some("no_push"), Some("pane-1"))).unwrap_err();
+        assert_eq!(error.code, "PANE_NOT_ELIGIBLE");
+        assert_eq!(error.context["pane_id"], "pane-1");
+        assert!(!error.recoverable);
+    }
+
+    #[test]
+    fn a_guarded_run_without_a_pane_id_and_every_unguarded_run_pass_the_pane_check() {
+        assert!(check_guarded_pane_request(&operation(Some("no_push"), None)).is_ok());
+        assert!(check_guarded_pane_request(&operation(None, None)).is_ok());
+        assert!(check_guarded_pane_request(&operation(None, Some("pane-1"))).is_ok(), "the pane rules of unguarded runs are unchanged");
+    }
+
+    /// A warm standby that a run of this agent could claim is never even looked up for a guarded
+    /// run: there is no pool key, so `claim_visible` is never called.
+    #[test]
+    fn a_guarded_run_has_no_standby_key_while_the_same_run_unguarded_does() {
+        let agent = standby_agent().expect("a registered agent with a visible standby");
+        assert!(standby_key(&operation(None, None), agent).is_some(), "control: {agent} can claim a standby");
+        assert!(standby_key(&operation(Some("no_push"), None), agent).is_none());
+    }
+
+    #[test]
+    fn the_spawn_passes_the_run_guard_on_and_existing_panes_are_skipped() {
+        // The assign step reads the guard from the worker record and hands it to the spawn; the
+        // existing-pane pick is gated on `may_reuse_pane`.
+        let src = include_str!("dispatch.rs");
+        let body = src.split("fn assign_pane(").nth(1).unwrap().split("fn standby_key(").next().unwrap();
+        assert!(body.contains("guard_env: operation.worker.guard_env.clone()"));
+        assert!(body.contains("may_reuse_pane(operation) && eligible(pane)"));
+        assert!(body.contains("check_guarded_pane_request(operation)?"));
     }
 }
 

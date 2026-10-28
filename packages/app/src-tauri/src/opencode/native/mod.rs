@@ -303,6 +303,7 @@ pub fn restart_native_pane(
             pane_id: Some(pane_id.to_string()),
             read_only: crate::tui::opencode::read_only::is_enforced(pane_id),
             account: None,
+            guard_env: None,
         }
     };
     crate::opencode::keys::apply_active_auth()?;
