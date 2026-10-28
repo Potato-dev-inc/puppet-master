@@ -1,0 +1,22 @@
+# Qwen Code (QwenLM/qwen-code), starter. The npm install command, the Node.js 22 requirement and
+# the /auth sign-in step come from the project README (https://github.com/QwenLM/qwen-code), read
+# 2026-10-28. The vendor's PowerShell script is left out: its exact URL could not be confirmed.
+# Not run on Windows yet, so the card says so.
+schema_version = 1
+
+[agent]
+id = "qwen"
+label = "Qwen Code"
+icon = "QW"
+description = "Qwen Code from the Qwen team, run in a visible pane."
+kind = "generic"
+experimental = true
+
+[binary]
+names = ["qwen"]
+
+[install.windows]
+source = "https://github.com/QwenLM/qwen-code"
+order = ["npm"]
+npm = "@qwen-code/qwen-code"
+note = "Needs Node.js 22 or newer."
