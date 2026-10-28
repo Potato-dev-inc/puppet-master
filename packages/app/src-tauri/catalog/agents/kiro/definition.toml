@@ -10,6 +10,7 @@ id = "kiro"
 label = "Kiro"
 icon = "KI"
 description = "Kiro CLI (AWS), headless runs through its stream-json event output."
+experimental = true
 
 [binary]
 names = ["kiro-cli"]

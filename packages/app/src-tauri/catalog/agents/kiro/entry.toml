@@ -3,7 +3,7 @@ schema_version = 1
 [store]
 id = "kiro"
 tagline = "Kiro command line agent from AWS."
-tier = "verified"
+tier = "starter"
 builtin = false
 categories = ["general", "cloud_account"]
 status = "active"

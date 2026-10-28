@@ -188,3 +188,6 @@ notes = ["Model is chosen as provider/model, for example kilo/kilo-auto/free."]
 # Kilo loads AGENTS.md from the project root (kilo.ai/docs/customize/agents-md).
 [instructions]
 file = "AGENTS.md"
+
+[profile]
+tested = ">=7.8, <8"

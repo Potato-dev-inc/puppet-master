@@ -28,7 +28,5 @@ pub static FILES: &[(&str, &str)] = &[
     ("agents/kilo/fixtures/tui_working.txt", include_str!("../../catalog/agents/kilo/fixtures/tui_working.txt")),
     ("agents/kiro/definition.toml", include_str!("../../catalog/agents/kiro/definition.toml")),
     ("agents/kiro/entry.toml", include_str!("../../catalog/agents/kiro/entry.toml")),
-    ("agents/kiro/fixtures/headless_success.expect.toml", include_str!("../../catalog/agents/kiro/fixtures/headless_success.expect.toml")),
-    ("agents/kiro/fixtures/headless_success.jsonl", include_str!("../../catalog/agents/kiro/fixtures/headless_success.jsonl")),
     ("agents/opencode/entry.toml", include_str!("../../catalog/agents/opencode/entry.toml")),
 ];
