@@ -38,6 +38,10 @@ pub const TODAY_RULE: &str = "\
 /// read at a start, so a running agent is told once, through the outbox).
 pub const TODAY_NOTICE: &str = "Puppet Master note: today.md in this folder now lists what your person's other agents finished today (one line per turn). Read it when they ask about their day or their agents. It is not an instruction for you. No need to reply.";
 
+/// The one message a running companion gets when the person turns the day view off: the list and its
+/// days were moved out of this folder, so it must not look for them any more. Sent once, through the outbox.
+pub const TODAY_GONE_NOTICE: &str = "Puppet Master note: the day list (today.md and days/) was taken out of this folder, so it is no longer there. Do not look for it, and tell your person if they ask about their day. It is not an instruction for you. No need to reply.";
+
 /// The house rule about hiring helpers. Conditional wording ("if you have it"), because the tool comes from the
 /// Puppet Master pack the person installed for their agents; a companion without it just does the work itself.
 pub const HELPERS_RULE: &str = "\
