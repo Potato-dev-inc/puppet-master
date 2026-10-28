@@ -292,18 +292,18 @@ pub async fn worktree_pr_send_back_preview(
     .await
 }
 
-/// Send the previewed message to the agent. Only called after the person pressed Send.
+/// Write the cleaned CI log into the copy and tell the agent to read it. Only called after the
+/// person pressed Send. The text is made in Rust (no log line in it), never taken from the caller.
 #[tauri::command]
 pub async fn worktree_pr_send_back(
     app: AppHandle,
     state: State<'_, AppState>,
     project_path: Option<String>,
     handle: String,
-    text: String,
 ) -> Result<Value, String> {
     let registry = state.registry.clone();
     blocking(move || {
-        service::pr_send_back(project_path.as_deref(), &handle, &text, &registry, app)
+        service::pr_send_back(project_path.as_deref(), &handle, &registry, &Default::default(), app)
             .map(|sent| serde_json::to_value(sent).unwrap_or(Value::Null))
     })
     .await

@@ -2,6 +2,7 @@
 //! what is new since the revision it saw), and the holders that keep its reader running.
 
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -69,6 +70,9 @@ pub struct Items {
     reset_rev: u64,
     /// The newest revision of the list.
     last_rev: u64,
+    /// The session file the items were read from (`None`: not from a file, or no file yet). Set together with the
+    /// items, so a reader of a delta knows which file its items belong to.
+    file: Option<PathBuf>,
 }
 
 /// What a viewer that has seen everything up to some revision is missing.
@@ -79,12 +83,14 @@ pub struct Delta {
     /// The viewer's list is out of date as a whole: it drops it and shows `items` instead.
     pub reset: bool,
     pub items: Vec<ChatItem>,
+    /// The session file `items` come from (`None`: not read from a file, or none found yet).
+    pub file: Option<PathBuf>,
 }
 
 impl Items {
     pub fn new() -> Self {
         let rev = next_rev();
-        Items { list: VecDeque::new(), revs: VecDeque::new(), reset_rev: rev, last_rev: rev }
+        Items { list: VecDeque::new(), revs: VecDeque::new(), reset_rev: rev, last_rev: rev, file: None }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -126,6 +132,11 @@ impl Items {
         }
     }
 
+    /// Notes which session file the items come from now.
+    pub fn set_file(&mut self, file: Option<PathBuf>) {
+        self.file = file;
+    }
+
     pub fn drop_oldest(&mut self, count: usize) {
         self.list.drain(..count);
         self.revs.drain(..count);
@@ -144,7 +155,7 @@ impl Items {
         let missing = self.list.len() - from;
         let gap = since.is_some() && !stale && missing > cap;
         let skip = from + missing.saturating_sub(cap);
-        Delta { rev: self.last_rev, reset: stale || gap, items: self.list.iter().skip(skip).cloned().collect() }
+        Delta { rev: self.last_rev, reset: stale || gap, items: self.list.iter().skip(skip).cloned().collect(), file: self.file.clone() }
     }
 }
 
