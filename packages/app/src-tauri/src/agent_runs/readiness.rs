@@ -241,6 +241,8 @@ pub enum Decider {
     Device(String),
     /// A paired phone's lock-screen button (the device id).
     LockScreen(String),
+    /// A person's tap or reply in a chat channel (the channel name, e.g. `telegram`).
+    Channel(String),
 }
 
 impl Decider {
@@ -249,6 +251,7 @@ impl Decider {
             Self::Desktop => "desktop",
             Self::Device(_) => "device",
             Self::LockScreen(_) => "lock_screen",
+            Self::Channel(_) => "channel",
         }
     }
 }

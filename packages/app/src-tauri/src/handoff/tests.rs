@@ -731,13 +731,14 @@ fn a_usage_limit_mid_turn_parks_the_run_as_waiting_input_and_raises_one_card() {
     assert_eq!(env.published.borrow().len(), 1, "the new state is published once");
     assert!(env.marks.borrow().iter().any(|m| m.starts_with("limit:detected window session limit")), "{:?}", env.marks.borrow());
 
-    // One Inbox card: what happened, when it can continue, two choices, and the hand-off is later.
+    // One Inbox card: what happened, when it can continue, two choices. No other agent is offered
+    // until Keep going is wired in (KG-8), so there is no context line either.
     let cards = env.pending();
     assert_eq!(cards.len(), 1);
     let card = &cards[0];
     assert_eq!(card.question, "Claude Code ran out of usage. It can continue at 17:00.");
     assert_eq!(card.choices.iter().map(|c| (c.id.as_str(), c.label.as_str())).collect::<Vec<_>>(), vec![("remind", "Remind me at 17:00"), ("stop", "Stop here")]);
-    assert!(card.context.as_deref().unwrap().contains("coming in a later update"), "{:?}", card.context);
+    assert!(card.context.is_none(), "{:?}", card.context);
     assert!(!card.allow_free_text);
     let info = card.limit.as_ref().expect("a limit card");
     assert!(info.has_run && !info.self_resume_armed);
@@ -1108,7 +1109,7 @@ fn the_handoff_module_has_no_way_to_write_to_a_pane() {
 #[test]
 fn plain_loopback_http_cannot_answer_a_limit_card_but_a_phone_can() {
     let env = TestEnv::new();
-    let card = super::card::limit_card(&usage("z"), "Claude Code", PANE, true, env.clock());
+    let card = super::card::limit_card(&usage("z"), "Claude Code", PANE, true, env.clock(), &super::keep_going::model::KeepGoingOffer::NotHere);
     // The routes use the process-wide store.
     let created = crate::questions::store().create(card, crate::questions::now_ms()).unwrap();
     let path = format!("/questions/{}/answer", created.id);
@@ -1136,7 +1137,7 @@ fn an_agent_cannot_raise_a_limit_card_through_ask_user() {
 #[test]
 fn a_limit_card_outlives_the_hour_an_agent_question_may_wait() {
     let env = TestEnv::new();
-    let card = super::card::limit_card(&usage("z"), "Claude Code", PANE, true, env.clock());
+    let card = super::card::limit_card(&usage("z"), "Claude Code", PANE, true, env.clock(), &super::keep_going::model::KeepGoingOffer::NotHere);
     let created = env.store.create(card, env.now()).unwrap();
     assert!(created.expires_at_ms - created.created_at_ms > 3_600_000);
     let plain = crate::questions::NewQuestion { question: "q".into(), timeout_s: Some(7_200), ..Default::default() };
@@ -1146,7 +1147,7 @@ fn a_limit_card_outlives_the_hour_an_agent_question_may_wait() {
 #[test]
 fn the_wire_shape_of_a_limit_card_is_what_the_inbox_reads() {
     let env = TestEnv::new();
-    let card = super::card::limit_card(&usage("z"), "Claude Code", PANE, true, env.clock());
+    let card = super::card::limit_card(&usage("z"), "Claude Code", PANE, true, env.clock(), &super::keep_going::model::KeepGoingOffer::NotHere);
     let created = env.store.create(card, env.now()).unwrap();
     let json = serde_json::to_value(&created).unwrap();
     assert_eq!(json["limit"]["kind"], "usage_limit");
