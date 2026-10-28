@@ -759,3 +759,15 @@ mod imported_tests {
         assert_eq!(store.count().unwrap(), 0);
     }
 }
+
+#[test]
+fn a_wsl_mount_user_folder_becomes_a_tilde_and_never_a_cut_drive() {
+    // `/mnt/c/Users/<name>` loses the name and keeps the rest of the path (never `/mnt/c~`).
+    let e = entry(user("5:0", None, "open /mnt/c/Users/you/proj/a.rs now"));
+    assert!(!e.text.contains("you"), "{}", e.text);
+    assert!(!e.text.contains("/mnt/c~"), "{}", e.text);
+    assert!(e.text.contains("~/proj/a.rs"), "{}", e.text);
+    // A pane in the WSL home folder shows as `~`.
+    let home = PaneContext::of("agent-x", "/mnt/c/Users/you", None);
+    assert_eq!(home.folder, "~");
+}

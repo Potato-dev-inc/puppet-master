@@ -117,8 +117,10 @@ static SHAPES: Lazy<Vec<(Regex, String)>> = Lazy::new(|| {
 /// rules drawn with `=` or `-` survive).
 static LONG_RUN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[A-Za-z0-9+/=_\-]{40,}").expect("long run"));
 
+/// A user folder: `C:\Users\<name>`, `/home/<name>`, `/users/<name>`, or `home\<name>` after a separator, which
+/// covers the `\\wsl.localhost\<distro>\home\<name>` form (either slash, any case).
 static USER_DIR: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)([A-Za-z]:[\\/]+users[\\/]+|/home/|/users/)[^\\/\s]+").expect("user dir"));
+    Lazy::new(|| Regex::new(r"(?i)([A-Za-z]:[\\/]+users[\\/]+|/home/|/users/|[\\/]home[\\/]+)[^\\/\s]+").expect("user dir"));
 
 /// Case-insensitive (ASCII) occurrences of `needle` in `hay_lower`, which is `hay` lowercased
 /// byte-for-byte (`to_ascii_lowercase` keeps every offset).

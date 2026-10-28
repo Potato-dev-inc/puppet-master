@@ -149,3 +149,15 @@ fn email_addresses_become_a_placeholder_and_host_paths_stay() {
         assert_eq!(super::mask_emails(same), same);
     }
 }
+
+#[test]
+fn strict_mode_loses_the_user_name_in_a_wsl_home_path() {
+    // `\wsl.localhost\<distro>\home\<name>` and `\wsl$\...` (either slash): the name is masked, the rest stays.
+    let line = r"open \wsl.localhost\Ubuntu\home\you\proj\a.rs and //wsl$/Ubuntu-Test/home/someone/x";
+    let strict = strict_with(line, &ctx());
+    assert!(!strict.as_str().contains("you\\"), "{strict}");
+    assert!(!strict.as_str().contains("someone"), "{strict}");
+    assert!(strict.as_str().contains(r"\wsl.localhost\Ubuntu\home\USER\proj\a.rs"), "{strict}");
+    // Transcripts keep paths (the default strength), as they do for `C:\Users\<name>`.
+    assert_eq!(text_with(line, &ctx()).as_str(), line);
+}
