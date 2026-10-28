@@ -12,10 +12,11 @@ import { IconInfo, IconMore } from '../Icons';
 import { Sheet } from '../Sheet';
 import { CheckInsCard } from './CheckInsCard';
 import { MemoryCard } from './MemoryCard';
+import { AgentRow } from './AgentRow';
 import { PendingCard } from './PendingCard';
 import { ShareTodayToggle } from './ShareTodayToggle';
 import { StartAtSignInHint } from './StartAtSignInHint';
-import { isValidName, stateLineOf } from './model';
+import { isValidName, movesWhenFree, stateLineOf } from './model';
 import '../../../styles/cockpit-companion.css';
 
 export interface CompanionPageProps {
@@ -122,6 +123,7 @@ export function CompanionPage(props: CompanionPageProps) {
               </button>
             )}
             <p className="ck-sub ck-companion-stateline">{stateLineOf(companion, stateWord(companion.state))}</p>
+            {companion.queuedMove && <p className="ck-sub ck-companion-stateline">{movesWhenFree(name)}</p>}
             {companion.needs && (
               <button type="button" className="ck-btn ck-btn--sm ck-btn--secondary ck-companion-open-card" onClick={onOpenCard}>
                 Open card
@@ -233,8 +235,7 @@ export function CompanionPage(props: CompanionPageProps) {
               Setup
             </h2>
             <dl className="ck-kv">
-              <dt>Agent</dt>
-              <dd>{companion.agentLabel}</dd>
+              <AgentRow companion={companion} transport={transport} onChanged={onChanged} onNotify={onNotify} />
               <dt>Folder</dt>
               <dd className="ck-mono">{companion.folderName}</dd>
             </dl>

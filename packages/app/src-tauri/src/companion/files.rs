@@ -132,6 +132,8 @@ mod tests {
             share_today: false,
             nap_at: Some(HhMm { h: 4, m: 0 }),
             checkins: vec![],
+            previous_agent: None,
+            until_ms: None,
             created_ms: 1,
             archived: false,
         }

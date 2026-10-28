@@ -98,6 +98,16 @@ describe('CompanionHome', () => {
     expect(host.querySelector('svg[role="img"]')?.getAttribute('aria-label')).toBe('Mochi, Working');
   });
 
+  it('shows the agent it runs on now, and when a move ends', async () => {
+    await mount({ companion: { agentLabel: 'Codex' } });
+    expect(host.querySelector('.ph-comp-agent')?.textContent).toBe('On Codex');
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await mount({ companion: { agentLabel: 'Codex', previousAgent: 'claude', untilMs: new Date(2026, 9, 28, 17, 0, 0).getTime() } });
+    // "17:00" today, "Wed 17:00" on another day: the phone's feed clock.
+    expect(host.querySelector('.ph-comp-agent')?.textContent).toMatch(/^On Codex until (\w{3} )?17:00$/);
+  });
+
   it('Open card opens the card the companion waits on', async () => {
     const { onOpenCard } = await mount({ companion: { state: 'needs_you', needs: { itemId: 'card-9', title: 'Run tests?' } } });
     act(() => buttonByText('Open card')!.click());

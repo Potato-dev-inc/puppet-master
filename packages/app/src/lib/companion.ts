@@ -70,6 +70,20 @@ export interface CompanionView {
   pushReplies?: boolean;
   /** Whether the companion sees what the person's other agents did today. Missing on an older view: off. */
   shareToday?: boolean;
+  /** The id of the agent it moved from. Missing or null: it was never moved. */
+  previousAgent?: string | null;
+  /** That agent's display name. */
+  previousAgentLabel?: string | null;
+  /** When a timed move ends and it goes back (epoch ms). Null: it stays. */
+  untilMs?: number | null;
+  /** A move that waits until the companion is free ("Moves when Mochi is free"). */
+  queuedMove?: QueuedMove | null;
+}
+
+export interface QueuedMove {
+  agentType: string;
+  agentLabel: string;
+  untilMs: number | null;
 }
 
 export type PendingKind = 'note' | 'user' | 'forget';
@@ -84,7 +98,7 @@ export interface PendingItem {
   targetLine: string | null;
 }
 
-export type FeedKind = 'reply' | 'checkin' | 'missed' | 'woke' | 'slept' | 'napped' | 'restarted' | 'needs_you' | 'memory';
+export type FeedKind = 'reply' | 'checkin' | 'missed' | 'woke' | 'slept' | 'napped' | 'restarted' | 'needs_you' | 'memory' | 'moved';
 
 export interface FeedItem {
   id: string;
@@ -128,7 +142,12 @@ export interface CompanionDraft {
   checkins?: CheckIn[];
 }
 
-export type CompanionPatch = Partial<CompanionDraft>;
+/**
+ * What `companion_update` changes. A new `agentType` is a move: it runs at once when the companion is free and
+ * waits ("Moves when Mochi is free") when it is working or has a card open. `untilMs` (with a move): when it
+ * goes back to the agent it left; null or missing means it stays.
+ */
+export type CompanionPatch = Partial<CompanionDraft> & { untilMs?: number | null };
 
 export interface CompanionTransport {
   list(): Promise<CompanionView[]>;
@@ -366,7 +385,26 @@ export function fakeCompanionTransport(seed: FakeCompanionSeed = {}): FakeCompan
         if (patch.persona !== undefined) next.persona = patch.persona;
         if (patch.pushReplies !== undefined) next.pushReplies = patch.pushReplies;
         if (patch.shareToday !== undefined) next.shareToday = patch.shareToday;
-        if (patch.agentType !== undefined) next.agentType = patch.agentType;
+        if (patch.agentType !== undefined && patch.agentType !== next.agentType) {
+          // The fake moves at once. (The real one waits while the companion is busy: see Rust `moving.rs`.)
+          const timedStay = next.previousAgent != null && next.untilMs != null;
+          if (patch.agentType === next.previousAgent) {
+            next.previousAgent = null;
+            next.previousAgentLabel = null;
+            next.untilMs = null;
+          } else {
+            if (!timedStay) {
+              next.previousAgent = next.agentType;
+              next.previousAgentLabel = next.agentLabel;
+            }
+            next.untilMs = patch.untilMs ?? null;
+          }
+          next.agentType = patch.agentType;
+          next.agentLabel = agents.find((a) => a.id === patch.agentType)?.label ?? patch.agentType;
+          next.queuedMove = null;
+        } else if (patch.agentType !== undefined) {
+          next.queuedMove = null;
+        }
         if (patch.folder !== undefined) next.folder = patch.folder;
         if (patch.autoStart !== undefined) next.autoStart = patch.autoStart;
         return put(next);

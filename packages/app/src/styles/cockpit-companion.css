@@ -413,3 +413,38 @@
   white-space: nowrap;
   font-weight: 500;
 }
+
+/* ---------- agent picker (move to another agent) ---------- */
+.cockpit .ck-companion-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cockpit .ck-companion-move {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cockpit .ck-companion-move-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cockpit .ck-companion-move-until {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cockpit .ck-companion-move-hint,
+.cockpit .ck-companion-move-reason {
+  margin: 0;
+  font-size: 11.5px;
+}
+.cockpit .ck-companion-move-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12px;
+}

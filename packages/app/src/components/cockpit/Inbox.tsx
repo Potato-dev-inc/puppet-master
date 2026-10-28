@@ -21,7 +21,8 @@ import { handleInboxKey, isEditable } from './inbox-keys';
 import { TeamSection } from './team/TeamSection';
 import { MissionsSection } from './mission/MissionCards';
 import { useMissions } from '../../lib/missions';
-import type { CompanionView } from '../../lib/companion';
+import type { CompanionTransport, CompanionView } from '../../lib/companion';
+import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './companion/model';
 import { CompanionStoppedCard } from './companion/StoppedCard';
 
 /** One card in the Inbox's single list: where it sorts, and how to draw it. */
@@ -37,12 +38,15 @@ export function Inbox({
   onSetUp,
   companions,
   onRestartCompanion,
+  companionTransport,
 }: {
   c: CockpitApi;
   /** The companions, so a stopped one gets its card (absent: none). */
   companions?: CompanionView[] | null;
   /** The card's "Try again": the desktop calls `companion_restart`. */
   onRestartCompanion?: (id: string) => Promise<unknown> | void;
+  /** Moves a companion to another agent: the usage-limit card of a companion's pane offers it. */
+  companionTransport?: Pick<CompanionTransport, 'agents' | 'update'>;
   onOpenDoctor?: () => void;
   /**
    * "Set up your agents" on the empty Inbox. The cockpit sends the first-run welcome here while it was
@@ -98,7 +102,17 @@ export function Inbox({
           kind: 'limit',
           since: q.created_at_ms,
           quick: true,
-          render: () => <LimitCard q={q} paneName={paneName} now={c.now} onAnswer={answer(q.id)} onOpenPane={open(q.pane_id)} />,
+          render: () => (
+            <LimitCard
+              q={q}
+              paneName={paneName}
+              now={c.now}
+              onAnswer={answer(q.id)}
+              onOpenPane={open(q.pane_id)}
+              companion={q.pane_id && isCompanionPaneId(q.pane_id) ? companions?.find((x) => x.id === q.pane_id!.slice(COMPANION_PANE_PREFIX.length)) : undefined}
+              companionTransport={companionTransport}
+            />
+          ),
         });
       } else {
         out.push({

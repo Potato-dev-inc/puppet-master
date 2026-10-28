@@ -51,6 +51,13 @@ pub struct FinishedTurn {
     pub sentence: String,
 }
 
+/// An agent that is known to be at its usage limit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AgentLimit {
+    /// When it can be used again (epoch ms), when it said so.
+    pub reset_at_ms: Option<i64>,
+}
+
 pub trait Host: Send + Sync + 'static {
     /// Epoch milliseconds.
     fn now_ms(&self) -> i64;
@@ -98,6 +105,11 @@ pub trait Host: Send + Sync + 'static {
     fn agent_label(&self, agent_type: &str) -> String;
     /// The agent's declared instruction files (empty for an agent that declares none).
     fn instruction_files(&self, agent_type: &str) -> Vec<InstructionFile>;
+    /// Whether this agent is known to be at its usage limit right now (the hand-off detector saw it and
+    /// it has not recovered). The default knows none.
+    fn agent_limit(&self, _agent_type: &str) -> Option<AgentLimit> {
+        None
+    }
 
     /// Something changed: `companion://changed` (with folders) and the phone event (without).
     fn publish(&self, views: &[CompanionView]);

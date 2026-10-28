@@ -61,7 +61,11 @@ pub struct Patch {
     pub name: Option<String>,
     pub avatar: Option<String>,
     pub persona: Option<String>,
+    /// Another agent than the current one is a move (`moving.rs`): it waits until the companion is free.
     pub agent_type: Option<String>,
+    /// With a move: when it goes back to the agent it left (epoch ms). `null` = it stays.
+    #[serde(default, deserialize_with = "double_option")]
+    pub until_ms: Option<Option<i64>>,
     pub launch_args: Option<Vec<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub account: Option<Option<String>>,
@@ -151,6 +155,8 @@ impl Service {
             share_today: draft.share_today.unwrap_or(false),
             nap_at: draft.nap_at.unwrap_or(Some(HhMm { h: 4, m: 0 })),
             checkins,
+            previous_agent: None,
+            until_ms: None,
             created_ms: now,
             archived: false,
         };
@@ -175,6 +181,8 @@ impl Service {
         let mut inner = self.inner.lock();
         let index = index_of(&inner, id)?;
         let before = inner.profiles[index].clone();
+        // A new agent is a move, not an edit: checked first, run last (it may wait until the companion is free).
+        let move_ask = self.check_move(&before, patch.agent_type.as_deref(), patch.until_ms, now)?;
         let mut next = before.clone();
         if let Some(name) = patch.name {
             next.name = name;
@@ -184,9 +192,6 @@ impl Service {
         }
         if let Some(persona) = patch.persona {
             next.persona = persona;
-        }
-        if let Some(agent_type) = patch.agent_type {
-            next.agent_type = agent_type;
         }
         if let Some(args) = patch.launch_args {
             next.launch_args = args;
@@ -219,8 +224,7 @@ impl Service {
             next.checkins = checkins;
         }
         validate_profile(&next)?;
-        let launch_changed = next.agent_type != before.agent_type
-            || next.launch_args != before.launch_args
+        let launch_changed = next.launch_args != before.launch_args
             || next.account != before.account
             || next.folder != before.folder;
         if launch_changed {
@@ -245,6 +249,9 @@ impl Service {
             self.restart_locked(&mut inner, index, now);
         } else if next.share_today != before.share_today {
             self.share_today_changed(&mut inner, index, now);
+        }
+        if let Some(ask) = move_ask {
+            self.request_move(&mut inner, index, now, ask)?;
         }
         Ok(self.finish(&mut inner, id, now))
     }
@@ -331,6 +338,11 @@ impl Service {
     }
 
     fn restart_locked(&self, inner: &mut Inner, index: usize, now: i64) {
+        self.restart_core(inner, index, now, Some("Restarted."));
+    }
+
+    /// Closes the pane the keeper's way and starts it again at once. `note`: the feed line, if any.
+    pub(super) fn restart_core(&self, inner: &mut Inner, index: usize, now: i64, note: Option<&str>) {
         let profile = inner.profiles[index].clone();
         let pane_id = pane_id_of(&profile.id);
         if let Some(slot) = inner.slots.get_mut(&profile.id) {
@@ -344,7 +356,9 @@ impl Service {
         self.host.kill(&pane_id);
         self.host.release_reader(&pane_id, &profile.id);
         self.host.clear_stopped(&profile.id);
-        self.feed(&profile, FeedKind::Restarted, now, "Restarted.");
+        if let Some(note) = note {
+            self.feed(&profile, FeedKind::Restarted, now, note);
+        }
         self.tick_one(inner, index, now);
     }
 
@@ -518,7 +532,7 @@ impl Service {
     // ---- shared -----------------------------------------------------------------------------------
 
     /// The agent can be used here: no bypass flags, the spawn gate and the chat rules pass.
-    fn check_agent(&self, profile: &CompanionProfile) -> CompanionResult<()> {
+    pub(super) fn check_agent(&self, profile: &CompanionProfile) -> CompanionResult<()> {
         agents::check_launch_args(&profile.launch_args)?;
         self.host
             .agent_ok(&profile.agent_type, &profile.folder)

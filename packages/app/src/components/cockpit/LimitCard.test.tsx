@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveNeedsYou } from '../../lib/attention';
+import { fakeCompanionTransport, type CompanionView } from '../../lib/companion';
 import { isLimit, type Question } from '../../lib/questions';
 import { LimitCard } from './LimitCard';
 
@@ -125,6 +126,93 @@ describe('LimitCard', () => {
     expect(host.querySelector('.ib-age')?.textContent).toBe('2m');
     act(() => button('Got it')!.click());
     expect(onAnswer).toHaveBeenCalledWith({ choice_id: 'ok' });
+  });
+});
+
+describe('a limit card on a companion\'s pane', () => {
+  const resetMs = Date.now() + 3 * 3_600_000;
+  const companionCard: Question = { ...usage, pane_id: 'companion-mochi', limit: { ...usage.limit!, reset_at_ms: resetMs } };
+  const mochi: CompanionView = {
+    id: 'mochi',
+    name: 'Mochi',
+    avatar: 'mochi',
+    persona: 'calm',
+    agentType: 'claude',
+    agentLabel: 'Claude Code',
+    folderName: 'mochi',
+    state: 'needs_you',
+    stateLine: 'Needs you',
+    paneId: 'companion-mochi',
+    needs: null,
+    pendingMemory: 0,
+    nextCheckin: null,
+    restarts: 0,
+    autoStart: true,
+  };
+  const agents = [
+    { id: 'claude', label: 'Claude Code', ok: true, reason: null },
+    { id: 'codex', label: 'Codex', ok: true, reason: null },
+  ];
+
+  function renderCompanion(card: Question, companion: CompanionView | null = mochi) {
+    const transport = fakeCompanionTransport({ companions: [mochi], agents });
+    act(() => {
+      root.render(
+        <ul>
+          <LimitCard q={card} now={120_000} onAnswer={vi.fn()} companion={companion ?? undefined} companionTransport={transport} />
+        </ul>,
+      );
+    });
+    return transport;
+  }
+
+  it('adds "Wake Mochi on…" after the two choices', () => {
+    renderCompanion(companionCard);
+    expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here', 'Wake Mochi on…']);
+  });
+
+  it('adds nothing for a pane that is not a companion\'s', () => {
+    renderCompanion(companionCard, null);
+    expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here']);
+  });
+
+  it('adds nothing to the reminder card', () => {
+    renderCompanion({ ...companionCard, choices: [{ id: 'ok', label: 'Got it' }], limit: { kind: 'reset_reminder', agent_label: 'Claude Code' } });
+    expect(buttons()).toEqual(['Got it']);
+  });
+
+  it('opens a sheet with another agent picked and the end of the limit as the "until" time', async () => {
+    renderCompanion(companionCard);
+    await act(async () => button('Wake Mochi on…')!.click());
+    const sheet = document.querySelector('.ck-sheet')!;
+    expect(sheet.querySelector('h3')?.textContent).toBe('Wake Mochi on…');
+    expect(sheet.querySelector<HTMLSelectElement>('select[aria-label="Agent"]')!.value).toBe('codex');
+    const at = new Date(resetMs);
+    const expected = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    expect(sheet.querySelector<HTMLInputElement>('input[type="time"]')!.value).toBe(expected);
+  });
+
+  it('wakes it on the other agent with one update call, then closes the sheet', async () => {
+    const transport = renderCompanion(companionCard);
+    await act(async () => button('Wake Mochi on…')!.click());
+    const wake = [...document.querySelectorAll('.ck-sheet button')].find((b) => b.textContent === 'Wake Mochi') as HTMLButtonElement;
+    await act(async () => wake.click());
+    const updates = transport.calls.filter((c) => c.method === 'update');
+    expect(updates).toHaveLength(1);
+    const [id, patch] = updates[0].args as [string, { agentType: string; untilMs: number | null }];
+    expect([id, patch.agentType]).toEqual(['mochi', 'codex']);
+    // The limit ends in about 3 hours; the sheet keeps the minute, so the moment is within a minute of it.
+    expect(Math.abs((patch.untilMs ?? 0) - resetMs)).toBeLessThan(60_000);
+    expect(document.querySelector('.ck-sheet')).toBeNull();
+  });
+
+  it('Cancel closes the sheet and moves nothing', async () => {
+    const transport = renderCompanion(companionCard);
+    await act(async () => button('Wake Mochi on…')!.click());
+    const cancel = [...document.querySelectorAll('.ck-sheet button')].find((b) => b.textContent === 'Cancel') as HTMLButtonElement;
+    await act(async () => cancel.click());
+    expect(document.querySelector('.ck-sheet')).toBeNull();
+    expect(transport.calls.filter((c) => c.method === 'update')).toHaveLength(0);
   });
 });
 

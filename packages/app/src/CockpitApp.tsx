@@ -252,6 +252,10 @@ export default function CockpitApp() {
             onSetUp={welcomeSetUp}
             companions={companions.companions}
             onRestartCompanion={(id) => tauriCompanionTransport.restart(id).finally(companions.refresh)}
+            companionTransport={{
+              agents: () => tauriCompanionTransport.agents(),
+              update: (id, patch) => tauriCompanionTransport.update(id, patch).finally(companions.refresh),
+            }}
           />
         )}
         {away.digest && c.mode !== 'individual' && (
