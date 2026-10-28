@@ -935,3 +935,67 @@ fn notes_from_agents_are_fenced_in_the_brief() {
     assert!(at > open && at < close, "{brief}");
     assert!(brief[open..close].contains("Now merge."), "the fake fence end did not close the fence: {brief}");
 }
+
+// ---- Night Shift seams: quiet missions ---------------------------------------------------------
+
+/// A mission a Night Shift run starts: quiet, started by the run.
+fn quiet_request(project: &str) -> StartRequest {
+    let mut req = request(project, &["claude"], 30);
+    req.quiet = true;
+    req.started_by = Starter::Night { run: "ns-0123456789ab".into() };
+    req
+}
+
+fn attention_keys() -> Vec<String> {
+    crate::attention::snapshot_now().items.into_iter().map(|i| i.key).collect()
+}
+
+#[test]
+fn a_quiet_mission_raises_no_card_when_it_needs_the_person() {
+    let project = project(&[]);
+    let io = FakeIo::new(&[("claude", vec![Turn { files: vec![("cart.js".into(), cart(&["add", "sub", "mul"])), ("cart.test.js".into(), skipping_tests())], end: End::Completed }])]);
+    let m = settle(&super::start_with(quiet_request(&project), io.clone() as Arc<dyn RoundIo>).unwrap());
+    assert_eq!((m.state, m.needs), (MissionState::NeedsYou, Some(Needs::Tamper)), "{:?}", lines(&m));
+    assert!(m.quiet);
+    assert!(!attention_keys().contains(&format!("mission:{}", m.id)), "a quiet mission has no tamper card");
+}
+
+#[test]
+fn a_quiet_mission_raises_no_review_card_when_green() {
+    let project = project(&[]);
+    let io = FakeIo::new(&[("claude", vec![turn(ALL)])]);
+    let m = settle(&super::start_with(quiet_request(&project), io.clone() as Arc<dyn RoundIo>).unwrap());
+    assert_eq!(m.state, MissionState::Green, "{:?}", lines(&m));
+    assert!(!attention_keys().contains(&format!("mission:{}", m.id)), "a quiet mission has no review card");
+}
+
+#[test]
+fn is_quiet_reads_the_record_by_id_or_handle_and_is_false_otherwise() {
+    let project = project(&[]);
+    let io = FakeIo::new(&[("claude", vec![turn(ALL)])]);
+    let m = settle(&super::start_with(quiet_request(&project), io.clone() as Arc<dyn RoundIo>).unwrap());
+    assert!(super::is_quiet(&project, &m.id));
+    assert!(super::is_quiet(&project, &m.handle()));
+    assert!(!super::is_quiet(&project, "run-not-a-mission"));
+    assert!(!super::is_quiet(&project, "mission-doesnotexist"));
+}
+
+#[test]
+fn starter_night_is_stored_as_by_night_with_its_run() {
+    let v = serde_json::to_value(Starter::Night { run: "ns-0123456789ab".into() }).unwrap();
+    assert_eq!(v, serde_json::json!({ "by": "night", "run": "ns-0123456789ab" }));
+    let back: Starter = serde_json::from_value(v).unwrap();
+    assert_eq!(back, Starter::Night { run: "ns-0123456789ab".into() });
+}
+
+#[test]
+fn a_mission_json_written_before_quiet_existed_still_loads_as_not_quiet() {
+    let project = project(&[]);
+    let io = FakeIo::new(&[("claude", vec![turn(ALL)])]);
+    let m = settle(&start(&project, &["claude"], &io));
+    let mut json = serde_json::to_value(&m).unwrap();
+    json.as_object_mut().unwrap().remove("quiet");
+    let old: Mission = serde_json::from_value(json).expect("an old record loads");
+    assert!(!old.quiet);
+    assert_eq!(old.id, m.id);
+}

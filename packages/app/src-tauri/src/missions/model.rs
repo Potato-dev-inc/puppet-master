@@ -344,6 +344,8 @@ pub struct Event {
 pub enum Starter {
     Desktop,
     Agent { session: Option<String>, label: String },
+    /// Started by a Night Shift run (`night_shift`); `run` is that run's id.
+    Night { run: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -410,6 +412,9 @@ pub struct Mission {
     #[serde(default)]
     pub events: Vec<Event>,
     pub started_by: Starter,
+    /// Night Shift missions: no cards, pushes or sounds while they run (the night report tells).
+    #[serde(default)]
+    pub quiet: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests_accepted: Option<Accepted>,
     /// The caller's key for an identical retry of the start.
