@@ -9,7 +9,7 @@ use crate::chat_index::{self, Status};
 
 /// The status when the index could not be opened (it holds nothing, search is off for the chats).
 fn nothing_kept() -> Status {
-    Status { enabled: chat_index::enabled(), items: 0, bytes: 0 }
+    Status { enabled: chat_index::enabled(), items: 0, bytes: 0, old_copies: 0 }
 }
 
 /// What the index holds and whether it is on: `{ enabled, items, bytes }`.

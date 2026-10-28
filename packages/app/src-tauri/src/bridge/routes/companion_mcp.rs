@@ -6,23 +6,26 @@
 //! - every paired phone, every request that carries a forwarder header, a foreign `Host` or a foreign
 //!   `Origin` (the bridge-auth invariant: `Caller::Local` only),
 //! - every caller without an MCP session, and
-//! - every MCP session whose process is not inside a live companion pane. The check is the process tree
-//!   (`companion::caller`), not the `X-Puppet-Master-Pane` header: saying you are Mochi gets you nothing.
-//!   Where the process table cannot be read the answer is no.
+//! - every connection whose process is not inside a live companion pane. The check is the process that owns
+//!   the TCP connection, walked up the process tree (`companion::peer::recall_caller_pane`), not a header the
+//!   caller writes: neither `X-Puppet-Master-Pane` nor `X-Puppet-Master-Pid` gets you anything. Where the
+//!   connection's owner or the process table cannot be read (another OS today) the answer is no.
 //!
 //! The pane that passes the check is the only thing handed to the search: a caller cannot name another
 //! companion, another pane or a wider scope.
 
 use super::{Ctx, RouteResult};
 use crate::companion::model::CompanionError;
+use crate::companion::peer::{self, Peer};
 use crate::mobile_pairing::Caller;
 use serde_json::{json, Value};
 
 /// What the route needs from the app. The live one is [`LiveRecall`]; tests use a recording fake to prove
 /// which callers get as far as the search at all.
 pub(crate) trait RecallBackend {
-    /// The companion pane this MCP session verifiably runs in.
-    fn caller_pane(&self, session: &str) -> Option<String>;
+    /// The companion pane the process on the other end of this connection verifiably runs in. Decided from the
+    /// TCP connection (`peer`), never from a process id the caller sends.
+    fn caller_pane(&self, peer: Option<Peer>) -> Option<String>;
     fn recall(&self, pane_id: &str, query: &str, limit: Option<usize>) -> Result<Value, CompanionError>;
 }
 
@@ -31,8 +34,8 @@ pub(crate) struct LiveRecall<'a> {
 }
 
 impl RecallBackend for LiveRecall<'_> {
-    fn caller_pane(&self, session: &str) -> Option<String> {
-        crate::companion::caller::of_session(self.registry, session).verified
+    fn caller_pane(&self, peer: Option<Peer>) -> Option<String> {
+        peer::recall_caller_pane(self.registry, &peer::SystemTcp, &crate::pty::agent_proc::snapshot, peer)
     }
 
     fn recall(&self, pane_id: &str, query: &str, limit: Option<usize>) -> Result<Value, CompanionError> {
@@ -49,6 +52,7 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
         &cx.request_body,
         cx.headers,
         cx.peer_loopback,
+        cx.peer,
         cx.session,
         &LiveRecall { registry: cx.registry },
     )
@@ -65,6 +69,7 @@ pub(crate) fn handle_request(
     body: &Value,
     headers: &str,
     peer_loopback: bool,
+    peer: Option<Peer>,
     session: Option<&str>,
     backend: &dyn RecallBackend,
 ) -> Option<RouteResult> {
@@ -80,13 +85,13 @@ pub(crate) fn handle_request(
             ))
         }
     }
-    let Some(session) = session.filter(|s| !s.trim().is_empty()) else {
+    if session.filter(|s| !s.trim().is_empty()).is_none() {
         return Some(refuse(400, "SESSION_REQUIRED", "companion_recall needs an MCP session id."));
-    };
+    }
     if method != "POST" {
         return Some(refuse(405, "METHOD_NOT_ALLOWED", "Use POST."));
     }
-    let Some(pane) = backend.caller_pane(session) else {
+    let Some(pane) = backend.caller_pane(peer) else {
         return Some(refuse(
             403,
             "COMPANION_ONLY",
@@ -126,7 +131,7 @@ mod tests {
     }
 
     impl RecallBackend for Spy {
-        fn caller_pane(&self, _session: &str) -> Option<String> {
+        fn caller_pane(&self, _peer: Option<Peer>) -> Option<String> {
             self.pane.map(str::to_string)
         }
         fn recall(&self, pane_id: &str, query: &str, limit: Option<usize>) -> Result<Value, CompanionError> {
@@ -138,7 +143,7 @@ mod tests {
     const LOCAL: &str = "Host: 127.0.0.1:17321\r\nContent-Type: application/json\r\n";
 
     fn call(spy: &Spy, headers: &str, loopback: bool, session: Option<&str>, body: Value) -> RouteResult {
-        handle_request("POST", &["companion", "recall"], &body, headers, loopback, session, spy).expect("a companion/recall route")
+        handle_request("POST", &["companion", "recall"], &body, headers, loopback, None, session, spy).expect("a companion/recall route")
     }
 
     fn refused_with(result: RouteResult, status: u16, code: &str) {
@@ -191,7 +196,7 @@ mod tests {
         let spy = Spy::new(Some("companion-mochi"));
         refused_with(call(&spy, LOCAL, true, Some("s1"), json!({})), 400, "INVALID_ARGUMENT");
         for segments in [&["companion"][..], &["companions", "recall"], &["companion", "recall", "x"], &["panes"]] {
-            assert!(handle_request("POST", segments, &json!({}), LOCAL, true, Some("s1"), &spy).is_none(), "{segments:?}");
+            assert!(handle_request("POST", segments, &json!({}), LOCAL, true, None, Some("s1"), &spy).is_none(), "{segments:?}");
         }
         assert!(spy.calls.borrow().is_empty());
     }

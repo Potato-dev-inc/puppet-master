@@ -27,6 +27,9 @@ mod tests;
 pub use host::{Attempt, Host, Look, PaneKind};
 pub use live::{global, redacted, LiveHost};
 pub use model::{OutboxMessage, State, MAX_CHARS, MAX_WAITING};
+/// The one decision per look, for the live checks that ask it of a real screen.
+#[cfg(test)]
+pub(crate) use worker::{decide, Step};
 
 use model::*;
 use parking_lot::Mutex;
@@ -44,6 +47,9 @@ pub struct Timing {
     /// After a message went in, the next one waits this long even if the pane still reads ready (the agent
     /// may not have drawn the start of its turn yet).
     pub after_send: Duration,
+    /// After a startup notice ignored its own dismiss keys, the next try to close it waits this long (the keys are
+    /// not pressed again every poll).
+    pub gate_retry: Duration,
 }
 
 impl Default for Timing {
@@ -53,6 +59,7 @@ impl Default for Timing {
             give_up: Duration::from_secs(2 * 60 * 60),
             keep: Duration::from_secs(120),
             after_send: Duration::from_millis(1500),
+            gate_retry: Duration::from_secs(20),
         }
     }
 }
@@ -62,6 +69,8 @@ struct PaneQueue {
     entries: Vec<model::Entry>,
     worker: bool,
     last_sent: Option<Instant>,
+    /// When delivery last came back blocked by a startup screen (`Attempt::Gate`).
+    gate_tried: Option<Instant>,
 }
 
 struct Inner {

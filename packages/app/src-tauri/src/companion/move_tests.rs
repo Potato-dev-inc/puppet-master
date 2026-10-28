@@ -250,7 +250,7 @@ fn it_stays_when_the_old_agent_is_still_out_of_usage_and_says_so() {
     service.update("mochi", move_until(AWAY, until)).unwrap();
     boot(&service, &host);
     let reset = until + 40 * MIN;
-    host.limits.lock().insert(HOME.into(), Some(reset));
+    host.limits.lock().insert((HOME.into(), None), Some(reset));
 
     host.set_now(until + MIN);
     service.tick();
@@ -274,10 +274,31 @@ fn a_limit_without_a_reset_time_is_asked_again_in_half_an_hour() {
     let until = host.now() + HOUR;
     service.update("mochi", move_until(AWAY, until)).unwrap();
     boot(&service, &host);
-    host.limits.lock().insert(HOME.into(), None);
+    host.limits.lock().insert((HOME.into(), None), None);
     host.set_now(until + MIN);
     service.tick();
     assert_eq!(mochi(&service).until_ms, Some(until + MIN + super::moving::STILL_LIMITED_RETRY_MS));
+}
+
+#[test]
+fn a_limit_on_another_plan_of_the_old_agent_does_not_keep_it_away() {
+    let (service, host, root) = fresh();
+    boot(&service, &host);
+    // It runs on plan A of the home agent; plan B of that agent is the one at its limit.
+    service.update("mochi", Patch { account: Some(Some("acct-a".into())), ..Patch::default() }).unwrap();
+    boot(&service, &host);
+    let until = host.now() + HOUR;
+    service.update("mochi", move_until(AWAY, until)).unwrap();
+    boot(&service, &host);
+    host.limits.lock().insert((HOME.into(), Some("acct-b".into())), Some(until + 5 * HOUR));
+
+    host.set_now(until + MIN);
+    service.tick();
+    tick_after(&service, &host, 1_000);
+    // (The first start, the restart for the account change, the timed move, then the move back.)
+    assert_eq!(agents_spawned(&host).last().map(String::as_str), Some(HOME), "plan A is free: it goes back");
+    assert_eq!(mochi(&service).agent_type, HOME);
+    assert!(moved_lines(&root).iter().all(|l| !l.contains("still out of usage")), "{:?}", moved_lines(&root));
 }
 
 #[test]

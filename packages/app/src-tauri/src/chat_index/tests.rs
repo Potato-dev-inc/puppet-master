@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::entry::{entries_of, entry_of, folder_name, Entry, MAX_TEXT_CHARS};
+use super::feeder::Labels;
 use super::query::{marks_of, match_expr};
 use super::store::Store;
 use super::*;
@@ -352,4 +353,145 @@ fn a_scoped_search_says_nothing_when_the_index_is_off() {
     assert!(!answer.enabled && answer.hits.is_empty());
     off.store(true, Ordering::SeqCst);
     assert!(index.search_in("anything", 5, &panes).unwrap().enabled);
+}
+
+fn temp_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("pm-chat-index-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn names(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_string()).collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn the_account_name_in_a_message_a_tool_title_and_the_folder_becomes_a_tilde() {
+    let e = entry(user("1:0", None, r"open C:\Users\you two\notes\todo.txt and /home/you/x.rs"));
+    assert!(!e.text.contains("you"), "{}", e.text);
+    assert!(e.text.contains("~"));
+    let t = entry(tool("2:0", "Read", r"C:\Users\you\proj\a.rs"));
+    assert!(!t.text.contains("you"), "{}", t.text);
+    // A pane that runs in the home folder shows as `~`, not as the account name.
+    let home = PaneContext::of("agent-x", r"C:\Users\you", None);
+    assert_eq!(home.folder, "~");
+    assert_eq!(entry_of("p", &home, &user("3:0", None, "hi"), 1).unwrap().folder, "~");
+    // A folder inside it keeps its own name.
+    assert_eq!(PaneContext::of("a", r"C:\Users\you\projects\shop", None).folder, "shop");
+    assert_eq!(PaneContext::of("a", "/home/you", None).folder, "~");
+}
+
+#[test]
+fn moving_a_file_aside_takes_its_wal_and_shm_along() {
+    let dir = temp_dir();
+    let path = dir.join(FILE_NAME);
+    std::fs::write(&path, b"old main").unwrap();
+    std::fs::write(dir.join(format!("{FILE_NAME}-wal")), b"old log with old chat text").unwrap();
+    std::fs::write(dir.join(format!("{FILE_NAME}-shm")), b"old shared memory").unwrap();
+    let aside = super::aside::move_aside(&path, 42).unwrap();
+    assert_eq!(names(&dir), vec!["chat-index.bad-42", "chat-index.bad-42-shm", "chat-index.bad-42-wal"]);
+    assert_eq!(std::fs::read(&aside).unwrap(), b"old main");
+    assert_eq!(super::aside::count(&path), 1, "a copy counts once, not once per file");
+    assert_eq!(super::aside::remove_all(&path), 3);
+    assert!(names(&dir).is_empty());
+}
+
+#[test]
+fn a_damaged_file_is_replaced_by_a_working_index_and_counted_as_an_old_copy() {
+    let dir = temp_dir();
+    let path = dir.join(FILE_NAME);
+    std::fs::write(&path, b"this is not a database file at all, just text that is long enough to be read as a header, so sqlite refuses it").unwrap();
+    std::fs::write(dir.join(format!("{FILE_NAME}-wal")), b"stale log").unwrap();
+    let mut store = open_store(&path, 10).expect("a new index");
+    store.insert(&[row("1:0", "fresh words", 1)]).unwrap();
+    assert_eq!(store.search("fresh", 5).unwrap().len(), 1);
+    assert_eq!(store.integrity().unwrap(), "ok");
+    assert_eq!(store.old_copies(), 1);
+}
+
+#[test]
+fn clear_removes_the_old_copies_and_the_status_counts_them() {
+    let dir = temp_dir();
+    let path = dir.join(FILE_NAME);
+    for stamp in [1, 2] {
+        std::fs::write(dir.join(format!("chat-index.bad-{stamp}")), b"old chat text").unwrap();
+        std::fs::write(dir.join(format!("chat-index.bad-{stamp}-wal")), b"old chat text").unwrap();
+    }
+    std::fs::write(dir.join("other-file.bad-1"), b"not ours").unwrap();
+    let index = ChatIndex::start(open_store(&path, 100).unwrap(), Arc::new(Fixed(ctx())));
+    assert_eq!(index.status().unwrap().old_copies, 2);
+    index.clear().unwrap();
+    assert_eq!(index.status().unwrap().old_copies, 0);
+    let left = names(&dir);
+    assert!(!left.iter().any(|n| n.starts_with("chat-index.bad-")), "{left:?}");
+    assert!(left.contains(&"other-file.bad-1".to_string()), "only the index's own copies go");
+    assert!(left.contains(&FILE_NAME.to_string()));
+}
+
+#[test]
+fn an_in_memory_index_has_no_old_copies() {
+    let index = ChatIndex::start(Store::open_memory(10).unwrap(), Arc::new(Fixed(ctx())));
+    assert_eq!(index.status().unwrap().old_copies, 0);
+}
+
+fn with_session(mut e: Entry, session: &str) -> Entry {
+    e.session = session.into();
+    e
+}
+
+#[test]
+fn an_item_seen_before_and_after_its_session_id_is_one_row() {
+    let mut store = Store::open_memory(100).unwrap();
+    store.insert(&[with_session(row("1:0", "first look at the plan", 10), "")]).unwrap();
+    assert_eq!(store.count().unwrap(), 1);
+    // The same item again, now with the session id: it replaces the empty-session row and keeps its time.
+    store.insert(&[with_session(row("1:0", "first look at the plan", 99), "sess-9")]).unwrap();
+    assert_eq!(store.count().unwrap(), 1);
+    let hits = store.search("plan", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].session.as_str(), hits[0].at_ms), ("sess-9", 10));
+    // And a late batch with no session id yet joins the row it already has.
+    store.insert(&[with_session(row("1:0", "first look at the plan, longer now", 120), "")]).unwrap();
+    assert_eq!(store.count().unwrap(), 1);
+    let hits = store.search("longer", 10).unwrap();
+    assert_eq!((hits.len(), hits[0].session.as_str()), (1, "sess-9"));
+}
+
+#[test]
+fn two_real_sessions_of_one_pane_stay_apart() {
+    let mut store = Store::open_memory(100).unwrap();
+    store.insert(&[with_session(row("1:0", "alpha words", 1), "s1"), with_session(row("1:0", "beta words", 2), "s2")]).unwrap();
+    assert_eq!(store.count().unwrap(), 2);
+}
+
+#[test]
+fn the_labels_of_a_pane_that_is_gone_are_dropped_after_the_second_miss() {
+    struct Gone;
+    impl ContextLookup for Gone {
+        fn context(&self, _pane: &str) -> Option<PaneContext> {
+            None
+        }
+    }
+    let mut labels = Labels::default();
+    // Seen once while the pane lived.
+    assert_eq!(labels.of(&Fixed(ctx()), "p").folder, "shop");
+    assert_eq!(labels.len(), 1);
+    // The first batch after it closed still gets its labels, the second one too, then the entry is gone.
+    assert_eq!(labels.of(&Gone, "p").folder, "shop");
+    assert_eq!(labels.len(), 1);
+    assert_eq!(labels.of(&Gone, "p").folder, "shop");
+    assert_eq!(labels.len(), 0);
+    // A pane never seen gets empty labels and no entry.
+    assert_eq!(labels.of(&Gone, "other"), PaneContext::default());
+    assert_eq!(labels.len(), 0);
+}
+
+#[test]
+fn a_session_id_seen_before_stays_while_the_lookup_has_none_yet() {
+    let mut labels = Labels::default();
+    labels.of(&Fixed(ctx()), "p");
+    let later = PaneContext { session: String::new(), ..ctx() };
+    assert_eq!(labels.of(&Fixed(later), "p").session, "sess-1");
 }

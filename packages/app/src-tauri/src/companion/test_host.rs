@@ -49,8 +49,8 @@ pub struct FakeHost {
     pub pushed: Mutex<Vec<(String, String, String, bool)>>,
     /// The turns `finished_turns` lists (the turn summaries).
     pub turns: Mutex<Vec<FinishedTurn>>,
-    /// Agents at a usage limit: id -> when it ends.
-    pub limits: Mutex<HashMap<String, Option<i64>>>,
+    /// Agents at a usage limit: (id, account) -> when it ends.
+    pub limits: Mutex<HashMap<(String, Option<String>), Option<i64>>>,
     /// Agents `agent_ok` refuses (by id), besides the single `agent_error` for all.
     pub refused: Mutex<Vec<String>>,
     /// The chat search index: on or off, what it holds (pane, hit), and the pane lists it was asked about.
@@ -237,8 +237,8 @@ impl Host for FakeHost {
         self.files.lock().clone()
     }
 
-    fn agent_limit(&self, agent_type: &str) -> Option<AgentLimit> {
-        self.limits.lock().get(agent_type).map(|reset_at_ms| AgentLimit { reset_at_ms: *reset_at_ms })
+    fn agent_limit(&self, agent_type: &str, account: Option<&str>) -> Option<AgentLimit> {
+        self.limits.lock().get(&(agent_type.to_string(), account.map(str::to_string))).map(|reset_at_ms| AgentLimit { reset_at_ms: *reset_at_ms })
     }
 
     fn publish(&self, views: &[CompanionView]) {

@@ -20,12 +20,18 @@ pub enum Step {
     Fail(&'static str),
 }
 
-/// Every branch but one moves away from `Deliver`: only a ready agent, an input box that is empty (or that the
-/// profile cannot read) and a pane status of idle give it. A dialog or question is never answered here.
+/// Every branch but two moves away from `Deliver`: a ready agent, an input box that is empty (or that the
+/// profile cannot read) and a pane status of idle give it, and so does a startup notice that declares its own
+/// dismiss keys. That one is closed by the same step every typed task goes through (`delivery::await_ready`, which
+/// presses only the declared keys, then looks again), so the message is never typed into the notice; if the
+/// notice ignores its keys, the attempt comes back as `Gate` and the message waits. The pane status is not asked
+/// for there: a screen showing a notice is not a screen the status heuristics read. A dialog or question
+/// (a gate with no keys, a prompt) is never answered here.
 pub fn decide(look: &Look) -> Step {
     let has_text = look.composer == ComposerState::HasText;
     match &look.readiness {
         Readiness::HostShell(_) => Step::Fail(FAIL_NOT_RUNNING),
+        Readiness::Gate(gate) if gate.dismiss.is_some() => Step::Deliver,
         Readiness::Gate(_) => Step::Wait(WAIT_GATE),
         Readiness::Busy => Step::Wait(WAIT_BUSY),
         Readiness::Unknown if has_text => Step::Wait(WAIT_DRAFT),
@@ -129,7 +135,17 @@ fn tick(inner: &Arc<Inner>, pane_id: &str) -> bool {
                     .get(pane_id)
                     .and_then(|queue| queue.last_sent)
                     .is_some_and(|at| at.elapsed() < inner.timing.after_send);
-                if cooling {
+                // A notice that did not react to its keys is left alone for a while (one Esc per poll is a spam).
+                let gate_cooling = matches!(look.readiness, Readiness::Gate(_))
+                    && inner
+                        .panes
+                        .lock()
+                        .get(pane_id)
+                        .and_then(|queue| queue.gate_tried)
+                        .is_some_and(|at| at.elapsed() < inner.timing.gate_retry);
+                if gate_cooling {
+                    Step::Wait(WAIT_GATE)
+                } else if cooling {
                     Step::Wait(WAIT_BUSY)
                 } else if inner.host.run_controls(pane_id) {
                     Step::Wait(WAIT_RUN)
@@ -189,6 +205,7 @@ fn deliver(inner: &Inner, pane_id: &str, id: &str, text: &str) {
     if matches!(attempt, Attempt::Sent) {
         queue.last_sent = Some(Instant::now());
     }
+    queue.gate_tried = matches!(attempt, Attempt::Gate).then(Instant::now);
     if let Some(entry) = queue.entries.iter_mut().find(|e| e.message.id == id) {
         match attempt {
             Attempt::Sent => entry.finish(State::Sent, None),

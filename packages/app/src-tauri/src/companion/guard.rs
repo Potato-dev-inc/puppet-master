@@ -55,10 +55,36 @@ pub fn is_card_route(method: &str, path: &str) -> bool {
     match parts.as_slice() {
         ["questions", _, "answer" | "dismiss", ..] => true,
         ["panes", _, "input" | "key" | "messages", ..] => true,
-        ["panes", _, "opencode", ..] => true,
+        // Any reply route of a pane (a native agent's permission or question reply): by the verb, not by the agent.
+        ["panes", _, rest @ ..] if rest.contains(&"reply") => true,
         ["agents", "answer", ..] => true,
         _ => false,
     }
+}
+
+/// Routes that decide what a companion remembers or whether it runs: keeping or dropping a pending memory line
+/// (the person's review gate: kept lines go into the brief of every later start), waking and sleeping it. For a
+/// local caller they are plain loopback requests, so a companion's shell could `curl` them; `peer.rs` checks who is
+/// on the other end. The person uses the desktop window (Tauri commands) or the paired phone (a token).
+pub const COMPANION_REVIEW_ROUTES: &[(&str, &str)] = &[
+    ("POST", "/companions/{id}/memory/pending/{item}"),
+    ("POST", "/companions/{id}/wake"),
+    ("POST", "/companions/{id}/sleep"),
+];
+
+/// Whether this request changes a companion (any write under `/companions/...`, so a route added later is covered
+/// too). Reads are not: a companion may read its own memory.
+pub fn is_companion_review_route(method: &str, path: &str) -> bool {
+    if matches!(method, "GET" | "HEAD" | "OPTIONS") {
+        return false;
+    }
+    let route = path.split('?').next().unwrap_or(path);
+    matches!(route.trim_matches('/').split('/').next(), Some("companions"))
+}
+
+/// Every loopback request `peer.rs` looks at: the card routes and the companion review routes.
+pub fn is_loopback_guarded_route(method: &str, path: &str) -> bool {
+    is_card_route(method, path) || is_companion_review_route(method, path)
 }
 
 /// The refusal a companion gets.
@@ -158,6 +184,22 @@ mod tests {
     }
 
     #[test]
+    fn the_companion_review_routes_are_guarded_for_a_loopback_caller() {
+        for (method, template) in COMPANION_REVIEW_ROUTES {
+            let path = template.replace("{id}", "mochi").replace("{item}", "abc");
+            assert!(is_companion_review_route(method, &path), "{method} {path}");
+            assert!(is_loopback_guarded_route(method, &path), "{method} {path}");
+        }
+        // Any other write under /companions counts; reads and other routes do not.
+        for (method, path) in [("POST", "/companions/mochi/skills/x"), ("DELETE", "/companions/mochi"), ("PUT", "/companions/mochi/memory")] {
+            assert!(is_companion_review_route(method, path), "{method} {path}");
+        }
+        for (method, path) in [("GET", "/companions"), ("GET", "/companions/mochi/memory"), ("POST", "/companion/recall"), ("POST", "/agents/run")] {
+            assert!(!is_companion_review_route(method, path), "{method} {path}");
+        }
+    }
+
+    #[test]
     fn the_loopback_card_routes_are_known_next_to_the_mcp_ones() {
         for (method, path) in [
             ("POST", "/questions/q1/answer"),
@@ -170,6 +212,7 @@ mod tests {
             ("POST", "/panes/p1/input/x"),
             ("POST", "/panes/p1/opencode/question/reply"),
             ("POST", "/questions/q1/answer/x"),
+            ("POST", "/panes/p1/some-agent/permissions/r1/reply"),
         ] {
             assert!(is_card_route(method, path), "{method} {path}");
         }

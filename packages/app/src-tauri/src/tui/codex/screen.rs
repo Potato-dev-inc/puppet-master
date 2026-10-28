@@ -380,6 +380,9 @@ mod tests {
     const LIVE_WORKING: &str = include_str!("fixtures/working_live.txt");
     const LIVE_PASTED: &str = include_str!("fixtures/composer_pasted_live.txt");
     const LIVE_UPDATE_MENU: &str = include_str!("fixtures/update_prompt_live.txt");
+    /// Codex 0.162.1 -> 0.164.0 (retyped from a live screenshot): the selected row carries the glyph and
+    /// the "Update now" row wraps onto a second line.
+    const LIVE_UPDATE_MENU_0_164: &str = include_str!("fixtures/update_prompt_0_164_live.txt");
     const LIVE_READY_BANNER: &str = include_str!("fixtures/standby_ready_live.txt");
     const LIVE_TRUST_FOLDER: &str = include_str!("fixtures/trust_folder_live.txt");
 
@@ -436,6 +439,22 @@ mod tests {
         // Esc is the menu's own "esc skip": never Enter (that runs "Update now") and never the
         // "Skip until next version" row (that writes a setting).
         assert_eq!(gate.dismiss, Some("\u{1b}"));
+    }
+
+    #[test]
+    fn the_0_164_update_menu_is_the_same_dismissible_gate_and_never_a_composer() {
+        for menu in [LIVE_UPDATE_MENU, LIVE_UPDATE_MENU_0_164] {
+            let gate = startup_gate(menu).expect("the update menu is a startup gate");
+            assert_eq!((gate.id, gate.dismiss), ("update_available", Some("\u{1b}")));
+            // The selected row starts with the composer's glyph; it is not an input box, and no screen
+            // reader may call this pane ready or idle.
+            assert_eq!(composer_state(menu), ComposerState::Unknown);
+            assert_ne!(standby_screen(menu), StandbyScreen::Ready);
+            assert!(crate::pty::status::startup_gate_visible("codex", menu));
+            assert!(crate::pane_prompt::dispatch_blocker("codex", menu).is_none(), "delivery closes it, then types");
+        }
+        // The same words once the menu is gone and the banner sits above a ready composer: no gate.
+        assert!(!crate::pty::status::startup_gate_visible("codex", LIVE_READY_BANNER));
     }
 
     #[test]

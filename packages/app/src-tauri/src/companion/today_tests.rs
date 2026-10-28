@@ -63,8 +63,14 @@ fn it_is_off_by_default_and_writes_nothing() {
     assert!(!home(&root).join("days").exists());
 }
 
+/// The archive folders of the companion (`companions/mochi/archive/<stamp>/`), one per time it was turned off.
+fn archive_dirs(root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root.join("companions").join("mochi").join("archive")) else { return Vec::new() };
+    entries.flatten().map(|e| e.path()).collect()
+}
+
 #[test]
-fn the_toggle_off_again_stops_writing_and_keeps_what_was_written() {
+fn the_toggle_off_moves_the_list_out_of_the_folder_and_writes_nothing_more() {
     let (service, host, root) = setup();
     turn_on(&service);
     host.turns.lock().push(turn("pane-1", 1, start_ms() - HOUR, "Changed 2 files."));
@@ -73,11 +79,58 @@ fn the_toggle_off_again_stops_writing_and_keeps_what_was_written() {
     assert!(before.contains("Changed 2 files."));
 
     service.update("mochi", Patch { share_today: Some(false), ..Patch::default() }).unwrap();
+    assert!(today_text(&root).is_none(), "the agent's folder no longer holds today.md");
+    let archived = archive_dirs(&root);
+    assert_eq!(archived.len(), 1, "one archive folder for this turn-off");
+    assert_eq!(std::fs::read_to_string(archived[0].join("today.md")).unwrap(), before, "kept for the person, not deleted");
+
     host.turns.lock().push(turn("pane-2", 1, start_ms() + 1_000, "Ran the tests."));
     for _ in 0..3 {
         tick(&service, &host, 3_000);
     }
-    assert_eq!(today_text(&root).unwrap(), before, "nothing added while off, nothing deleted");
+    assert!(today_text(&root).is_none(), "nothing written while off");
+    assert!(!home(&root).join("days").exists());
+}
+
+#[test]
+fn the_toggle_off_moves_old_days_into_the_archive_too() {
+    let (service, host, root) = setup();
+    turn_on(&service);
+    host.turns.lock().push(turn("pane-1", 1, start_ms() - HOUR, "Evening work."));
+    tick(&service, &host, 3_000);
+    host.set_now(start_ms() + 16 * HOUR + 5 * 60_000);
+    tick(&service, &host, 3_000);
+    assert!(home(&root).join("days").join("2026-10-28.md").exists());
+
+    service.update("mochi", Patch { share_today: Some(false), ..Patch::default() }).unwrap();
+    assert!(!home(&root).join("days").exists(), "no day file left in the agent's folder");
+    let moved = archive_dirs(&root).remove(0).join("days").join("2026-10-28.md");
+    assert!(std::fs::read_to_string(moved).unwrap().contains("Evening work."));
+}
+
+#[test]
+fn a_running_agent_is_told_once_that_the_list_is_gone() {
+    let (service, host, _root) = setup();
+    turn_on(&service);
+    tick(&service, &host, 1_000);
+    host.set_pane("companion-mochi", super::keeper::Pane::Alive(super::keeper::Status::Idle));
+    tick(&service, &host, 1_000);
+    service.update("mochi", Patch { share_today: Some(false), ..Patch::default() }).unwrap();
+    tick(&service, &host, 1_000);
+    tick(&service, &host, 1_000);
+    let texts = host.sent_texts();
+    assert_eq!(texts.iter().filter(|t| *t == brief::TODAY_GONE_NOTICE).count(), 1, "{texts:?}");
+}
+
+#[test]
+fn turning_it_off_with_no_list_yet_moves_nothing_and_tells_nobody() {
+    let (service, host, root) = setup();
+    service.update("mochi", Patch { share_today: Some(true), ..Patch::default() }).unwrap();
+    service.update("mochi", Patch { share_today: Some(false), ..Patch::default() }).unwrap();
+    assert!(archive_dirs(&root).is_empty());
+    host.set_pane("companion-mochi", super::keeper::Pane::Alive(super::keeper::Status::Idle));
+    tick(&service, &host, 1_000);
+    assert!(!host.sent_texts().iter().any(|t| t == brief::TODAY_GONE_NOTICE));
 }
 
 #[test]

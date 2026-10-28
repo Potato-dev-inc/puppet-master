@@ -32,12 +32,16 @@ pub struct Answer {
     pub hits: Vec<Hit>,
 }
 
-/// What the index holds now: whether it is on, how many items, how many bytes the file takes.
+/// What the index holds now: whether it is on, how many items, how many bytes the file takes, and how many old copies
+/// of a damaged index are left on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Status {
     pub enabled: bool,
     pub items: usize,
     pub bytes: u64,
+    /// Old copies of a damaged index (they hold old chat text; "Clear search index" removes them).
+    pub old_copies: usize,
 }
 
 struct Job {
@@ -101,13 +105,18 @@ impl ChatIndex {
 
     /// The items kept, the bytes the file takes and whether the index is on.
     pub fn status(&self) -> Result<Status, String> {
-        let (items, bytes) = self.store.lock().usage().map_err(|error| format!("INTERNAL: chat index: {error}"))?;
-        Ok(Status { enabled: self.enabled(), items, bytes })
+        let store = self.store.lock();
+        let (items, bytes) = store.usage().map_err(|error| format!("INTERNAL: chat index: {error}"))?;
+        Ok(Status { enabled: self.enabled(), items, bytes, old_copies: store.old_copies() })
     }
 
-    /// Removes every item and its text from the file (see `Store::clear`). The index stays on or off as it was.
+    /// Removes every item and its text from the file (see `Store::clear`), and the old copies of a damaged index
+    /// next to it. The index stays on or off as it was.
     pub fn clear(&self) -> Result<(), String> {
-        self.store.lock().clear().map_err(|error| format!("INTERNAL: chat index: {error}"))
+        let mut store = self.store.lock();
+        store.clear().map_err(|error| format!("INTERNAL: chat index: {error}"))?;
+        store.remove_old_copies();
+        Ok(())
     }
 
     /// Items written so far (tests wait on it).
@@ -137,9 +146,50 @@ impl ItemObserver for ChatIndex {
     }
 }
 
+/// The labels last seen per pane: a batch that arrives after its pane closed still gets them. A pane that the app no
+/// longer knows is forgotten after its second miss, so the cache does not grow by one entry per pane for the whole run.
+#[derive(Default)]
+pub(super) struct Labels {
+    known: HashMap<String, (PaneContext, u8)>,
+}
+
+/// Misses (lookups that found no pane) after which a pane's labels are dropped.
+const FORGET_AFTER: u8 = 2;
+
+impl Labels {
+    /// Panes whose labels are kept (tests).
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.known.len()
+    }
+
+    /// The labels for `pane_id` now. A session id that was known before stays when the lookup has none (yet).
+    pub(super) fn of(&mut self, lookup: &dyn ContextLookup, pane_id: &str) -> PaneContext {
+        match lookup.context(pane_id) {
+            Some(mut ctx) => {
+                if let Some((before, _)) = self.known.get(pane_id) {
+                    if ctx.session.is_empty() {
+                        ctx.session = before.session.clone();
+                    }
+                }
+                self.known.insert(pane_id.to_string(), (ctx.clone(), 0));
+                ctx
+            }
+            None => {
+                let Some((ctx, misses)) = self.known.get_mut(pane_id) else { return PaneContext::default() };
+                *misses += 1;
+                let ctx = ctx.clone();
+                if *misses >= FORGET_AFTER {
+                    self.known.remove(pane_id);
+                }
+                ctx
+            }
+        }
+    }
+}
+
 fn write_loop(rx: Receiver<Job>, store: Arc<Mutex<Store>>, lookup: Arc<dyn ContextLookup>, on: Arc<AtomicBool>) {
-    // The last context seen per pane: a batch that arrives after its pane closed still gets its labels.
-    let mut known: HashMap<String, PaneContext> = HashMap::new();
+    let mut labels = Labels::default();
     while let Ok(first) = rx.recv() {
         let mut jobs = vec![first];
         while let Ok(more) = rx.try_recv() {
@@ -152,10 +202,7 @@ fn write_loop(rx: Receiver<Job>, store: Arc<Mutex<Store>>, lookup: Arc<dyn Conte
         let now = now_ms();
         let mut entries = Vec::new();
         for job in jobs {
-            if let Some(ctx) = lookup.context(&job.pane_id) {
-                known.insert(job.pane_id.clone(), ctx);
-            }
-            let ctx = known.get(&job.pane_id).cloned().unwrap_or_default();
+            let ctx = labels.of(lookup.as_ref(), &job.pane_id);
             entries.extend(entries_of(&job.pane_id, &ctx, &job.items, now));
         }
         if let Err(error) = store.lock().insert(&entries) {
@@ -170,8 +217,8 @@ pub fn open_store(path: &Path, cap: usize) -> Result<Store, String> {
     match Store::open(path, cap) {
         Ok(store) => Ok(store),
         Err(first) => {
-            let aside = path.with_extension(format!("bad-{}", now_ms()));
-            std::fs::rename(path, &aside).map_err(|_| format!("chat index: {first}"))?;
+            // The log and shared-memory files go with it: left behind they would be replayed into the new file.
+            super::aside::move_aside(path, now_ms()).map_err(|_| format!("chat index: {first}"))?;
             Store::open(path, cap).map_err(|error| format!("chat index: {error}"))
         }
     }

@@ -14,7 +14,7 @@ use super::model::{
 use super::service::{pane_id_of, Inner, OutKind, Outgoing, Service, Slot};
 use super::store::{self, Runtime};
 use super::skills::{self, SkillFull, SkillRef};
-use super::{agents, brief, files, memory, view};
+use super::{agents, brief, files, memory, today, view};
 
 /// `null` and "missing" are different in a patch: `Some(None)` clears the value.
 fn double_option<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
@@ -261,16 +261,34 @@ impl Service {
     }
 
     /// The day view was turned on or off. The brief is rewritten so the next start reads the right rule;
-    /// a running agent is told once through the outbox when it was turned on. Nothing is deleted.
+    /// a running agent is told once through the outbox. Turned off, the day list is moved out of the
+    /// companion's folder (`archive_today`), so the agent cannot read it any more; nothing is deleted.
     fn share_today_changed(&self, inner: &mut Inner, index: usize, now: i64) {
         let profile = inner.profiles[index].clone();
         if let Err(reason) = self.write_brief(&profile) {
             tracing::warn!(companion = %profile.id, %reason, "could not rewrite the brief after the day view changed");
         }
+        let moved = !profile.share_today && self.archive_today(&profile, now);
         let Some(slot) = inner.slots.get_mut(&profile.id) else { return };
         slot.outgoing.retain(|o| o.kind != OutKind::Notice);
         if profile.share_today {
             slot.outgoing.push(Outgoing { kind: OutKind::Notice, text: brief::TODAY_NOTICE.to_string(), queued_ms: now });
+        } else if moved {
+            slot.outgoing.push(Outgoing { kind: OutKind::Notice, text: brief::TODAY_GONE_NOTICE.to_string(), queued_ms: now });
+        }
+    }
+
+    /// Moves `today.md` and `days/` out of the companion's home folder into its archive under the app
+    /// data (`companions/<id>/archive/<stamp>/`). True when something was moved.
+    fn archive_today(&self, profile: &CompanionProfile, now: i64) -> bool {
+        let Ok(dir) = store::companion_dir(&self.root, &profile.id) else { return false };
+        let to = dir.join(today::ARCHIVE_DIR).join(today::archive_name(now));
+        match today::move_out(Path::new(&profile.folder), &to) {
+            Ok(moved) => moved,
+            Err(e) => {
+                tracing::warn!(companion = %profile.id, error = %e, "could not move the day list out of the companion folder");
+                false
+            }
         }
     }
 
