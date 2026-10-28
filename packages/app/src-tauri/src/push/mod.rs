@@ -11,6 +11,7 @@
 
 pub mod companion_replies;
 pub mod hub;
+pub mod night;
 pub mod routes;
 pub mod sender;
 pub mod store;
@@ -391,6 +392,22 @@ pub fn notify_question(question: &crate::questions::Question) {
     });
 }
 
+/// Hook for the morning push of a Night Shift run (`NightIo::push_morning`). `line` is the counts line
+/// only ("4 of 5 done, tests green. 1 needs you."). `enabled` is false when the person already opened
+/// the Morning page or the push went out before; the caller decides that. Blocks on the push service,
+/// so call it from the thread that waits for the run's end.
+// Nothing calls it until the Night Shift runner (NS-10) is wired.
+#[allow(dead_code)]
+pub fn notify_night(line: &str, enabled: bool) {
+    let Some(ctx) = CTX.get() else { return };
+    if !enabled || !ctx.hub.has_subscribers() {
+        return;
+    }
+    let message = night::Message { line: line.to_string() };
+    let deliveries = ctx.hub.night_deliveries(&message, now_ms());
+    send_deliveries(&ctx.hub, deliveries);
+}
+
 /// What kind of notification a question is, who is speaking, and the fact its first line adds.
 fn classify_question(question: &crate::questions::Question, label: String) -> (Kind, String, Option<String>) {
     use triggers::truncate_chars;
@@ -528,6 +545,61 @@ pub fn send_deliveries(hub: &PushHub, deliveries: Vec<hub::Delivery>) {
             }
             other => tracing::warn!(?other, "push service did not accept the notification"),
         }
+    }
+}
+
+#[cfg(test)]
+mod quiet_tests {
+    use super::*;
+    use crate::night_shift::quiet::{mute_pane, unmute_run};
+
+    /// A pending question from one pane, built the way the store shape reads it.
+    fn question(id: &str, pane_id: Option<&str>) -> crate::questions::Question {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "pane_id": pane_id,
+            "question": "Which branch should I use?",
+            "choices": [{ "id": "a", "label": "main" }],
+            "allow_free_text": false,
+            "urgency": "normal",
+            "created_at_ms": 0,
+            "expires_at_ms": 900_000,
+            "state": "pending",
+        }))
+        .expect("question fixture")
+    }
+
+    fn was_pushed(id: &str) -> bool {
+        NOTIFIED_QUESTIONS.lock().iter().any(|x| x == id)
+    }
+
+    // The global hub is installed by one test only, so the pane-status and operation hooks cannot be
+    // observed here. The question hook records before it returns, so it can be.
+
+    #[test]
+    fn a_question_from_a_night_shift_pane_is_not_pushed_while_the_run_lasts() {
+        mute_pane("ns-pushquiet1", "pane-pushquiet-1");
+        notify_question(&question("q-pushquiet-1", Some("pane-pushquiet-1")));
+        assert!(!was_pushed("q-pushquiet-1"), "a quiet pane's question waits for the morning report");
+        unmute_run("ns-pushquiet1");
+    }
+
+    #[test]
+    fn an_unrelated_pane_and_a_pane_less_question_are_still_pushed() {
+        mute_pane("ns-pushquiet2", "pane-pushquiet-2");
+        notify_question(&question("q-pushquiet-2", Some("pane-pushquiet-other")));
+        notify_question(&question("q-pushquiet-3", None));
+        assert!(was_pushed("q-pushquiet-2"), "another pane is not quiet");
+        assert!(was_pushed("q-pushquiet-3"), "a question without a pane is not quiet");
+        unmute_run("ns-pushquiet2");
+    }
+
+    #[test]
+    fn a_pane_is_pushed_again_once_its_run_has_finished() {
+        mute_pane("ns-pushquiet3", "pane-pushquiet-4");
+        unmute_run("ns-pushquiet3");
+        notify_question(&question("q-pushquiet-4", Some("pane-pushquiet-4")));
+        assert!(was_pushed("q-pushquiet-4"), "after the run, the pane is an ordinary pane");
     }
 }
 

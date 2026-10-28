@@ -437,6 +437,34 @@ impl PushHub {
         }
         deliveries
     }
+
+    /// The morning push of a Night Shift run: one message per phone that may watch (`watch` ability)
+    /// and is not looking at the PWA. Same rules as `companion_deliveries`; counts only, not urgent.
+    pub fn night_deliveries(&self, message: &super::night::Message, now_ms: u64) -> Vec<Delivery> {
+        let mut deliveries = Vec::new();
+        for (device_id, subscription, hide_details) in self.store.lock().all_with_preferences() {
+            // Read at send time, like the companion replies: a phone that lost `watch` or was unpaired gets nothing.
+            if !self.directory.device_exists(&device_id) || !self.directory.device_can_watch(&device_id) || self.is_visible(&device_id, now_ms) {
+                continue;
+            }
+            let title = crate::redact::text(&message.title());
+            let body = crate::redact::text(&message.body(hide_details));
+            let mut extra = serde_json::Map::new();
+            extra.insert("v".into(), json!(2));
+            extra.insert("kind".into(), json!(Kind::NightShift.as_str()));
+            extra.insert("tag".into(), json!("pm-night"));
+            let payload = super::sender::PushPayload::new(&title, &body, extra);
+            deliveries.push(Delivery {
+                device_id,
+                subscription,
+                payload,
+                urgent: false,
+                pane_id: None,
+                kind: Kind::NightShift,
+            });
+        }
+        deliveries
+    }
 }
 
 #[cfg(test)]
