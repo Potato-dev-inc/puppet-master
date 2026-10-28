@@ -177,3 +177,8 @@ fn a_clock_that_moves_back_across_a_month_boundary_does_not_break_the_chain() {
     assert_eq!(report.entries, 2);
     assert!(!log.dir().join("2026-10.jsonl").exists(), "nothing went back into October's file");
 }
+
+#[test]
+fn keep_going_hand_over_has_its_own_audit_kind() {
+    assert_eq!(Kind::KeepGoing.as_str(), "keep_going.handed_over");
+}
