@@ -19,6 +19,10 @@ pub mod offers;
 pub mod copy;
 pub mod view;
 pub mod live;
+pub mod live_io;
+pub mod live_app;
 
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod engine_tests;

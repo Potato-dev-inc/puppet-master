@@ -409,3 +409,153 @@ fn links_inside_the_copy_are_never_written_or_deleted() {
     assert!(!report.failed.is_empty(), "paths through the link are reported: {report:?}");
     assert!(report.failed.iter().all(|p| p.starts_with("sub/")), "{report:?}");
 }
+
+// ---- a branch of a branch: the source folder is itself a copy ----------------------------------
+
+/// A source pane working in copy `a` (its save points live in that copy's own shadow).
+fn source_copy_with_save_point(t: &Tmp, lim: &Limits) -> (PathBuf, PathBuf, engine::Checkpoint) {
+    let repo = repo_in(t);
+    put(&repo, "origin.txt", "origin");
+    let a = copy_in(&repo, "a");
+    put(&a, "a.txt", "1");
+    let first = snap(&a, "p1", Kind::Before, 1_000, lim);
+    put(&a, "a.txt", "2");
+    put(&a, "later.txt", "later");
+    snap(&a, "p1", Kind::After, 2_000, lim);
+    (repo, a, first)
+}
+
+#[test]
+fn a_copy_of_a_copy_reads_the_source_copys_save_points_and_writes_a_new_copy_under_the_origin() {
+    if !needs_git() {
+        return;
+    }
+    let t = Tmp::new("copy-of-copy");
+    let lim = Limits::default();
+    let (repo, a, first) = source_copy_with_save_point(&t, &lim);
+    let b = copy_in(&repo, "b");
+    put(&b, "a.txt", "9");
+    put(&b, "later.txt", "later");
+    let origin_before = tree_hashes(&repo);
+    let source_before = tree_hashes(&a);
+    let store = a.join(".puppet-master").join("checkpoints.git");
+    let refs_before = git_out(&store, &["for-each-ref", "refs/pm"]);
+
+    let report = export_into(&a, "p1", &first.id, &b, &lim).expect("export into a sibling copy");
+    assert_eq!(get(&b, "a.txt").as_deref(), Some("1"));
+    assert!(!b.join("later.txt").exists());
+    assert_eq!((report.written, report.removed), (1, 1), "{report:?}");
+    assert!(report.failed.is_empty(), "{report:?}");
+    // S4: neither the origin nor the source copy changed, and the source's save points are the same.
+    assert_eq!(tree_hashes(&a), source_before, "the source copy is untouched");
+    assert_eq!(git_out(&store, &["for-each-ref", "refs/pm"]), refs_before);
+    assert!(no_temp_index(&store));
+    let mut origin_after = tree_hashes(&repo);
+    // The new copy's files are inside the origin's `.puppet-master`, which the hash skips.
+    assert_eq!(origin_after.remove("origin.txt"), origin_before.get("origin.txt").cloned());
+    assert_eq!(origin_after, origin_before.into_iter().filter(|(k, _)| k != "origin.txt").collect());
+}
+
+#[test]
+fn a_copy_of_a_copy_still_refuses_the_source_the_origin_and_the_worktrees_folder() {
+    if !needs_git() {
+        return;
+    }
+    let t = Tmp::new("copy-of-copy-refuse");
+    let lim = Limits::default();
+    let (repo, a, first) = source_copy_with_save_point(&t, &lim);
+    let worktrees = repo.join(".puppet-master").join("worktrees");
+    put(&a, "inner/keep.txt", "keep");
+    put(&repo, "elsewhere/keep.txt", "keep");
+    let other = t.p().join("other").join(".puppet-master").join("worktrees").join("c");
+    std::fs::create_dir_all(&other).unwrap();
+
+    refused_because(export_into(&a, "p1", &first.id, &a, &lim), "the source copy itself");
+    refused_because(export_into(&a, "p1", &first.id, &repo, &lim), "the origin");
+    refused_because(export_into(&a, "p1", &first.id, &worktrees, &lim), "the worktrees folder");
+    refused_because(export_into(&a, "p1", &first.id, &a.join("inner"), &lim), "a folder inside the source copy");
+    refused_because(export_into(&a, "p1", &first.id, &repo.join("elsewhere"), &lim), "a folder of the origin");
+    refused_because(export_into(&a, "p1", &first.id, &other, &lim), "a copy folder of some other project");
+    assert_eq!(get(&a, "a.txt").as_deref(), Some("2"));
+    assert_eq!(get(&a, "inner/keep.txt").as_deref(), Some("keep"));
+    assert_eq!(get(&repo, "elsewhere/keep.txt").as_deref(), Some("keep"));
+}
+
+// ---- a project that is a sub-folder of a git repo: the copy's cwd is below the copy folder -----
+
+#[test]
+fn a_prefixed_copy_cwd_inside_a_copy_folder_is_accepted() {
+    if !needs_git() {
+        return;
+    }
+    let t = Tmp::new("prefixed");
+    let lim = Limits::default();
+    let repo = repo_in(&t);
+    put(&repo, "a.txt", "1");
+    let first = snap(&repo, "p1", Kind::Before, 1_000, &lim);
+    put(&repo, "a.txt", "2");
+    snap(&repo, "p1", Kind::After, 2_000, &lim);
+    // A copy of a repo whose project is `sub`: the copy folder holds `.git`, the agent runs in `sub`.
+    let copy = copy_in(&repo, "x");
+    put(&copy, ".git", "gitdir: elsewhere");
+    let cwd = copy.join("sub");
+    put(&cwd, "a.txt", "9");
+    put(&copy, "outside-the-prefix.txt", "keep");
+
+    let report = export_into(&repo, "p1", &first.id, &cwd, &lim).expect("export into the prefixed cwd");
+    assert_eq!(get(&cwd, "a.txt").as_deref(), Some("1"));
+    assert_eq!(get(&copy, "outside-the-prefix.txt").as_deref(), Some("keep"), "only the prefixed folder is written");
+    assert!(report.failed.is_empty(), "{report:?}");
+}
+
+#[test]
+fn a_folder_inside_something_that_is_not_a_checked_out_copy_is_refused() {
+    if !needs_git() {
+        return;
+    }
+    let t = Tmp::new("prefixed-refuse");
+    let lim = Limits::default();
+    let repo = repo_in(&t);
+    put(&repo, "a.txt", "1");
+    let first = snap(&repo, "p1", Kind::Before, 1_000, &lim);
+    // No `.git` in the copy folder: a deeper folder is not a copy's cwd.
+    let copy = copy_in(&repo, "x");
+    put(&copy, "sub/keep.txt", "keep");
+    refused_because(export_into(&repo, "p1", &first.id, &copy.join("sub"), &lim), "no checkout");
+    assert_eq!(get(&copy, "sub/keep.txt").as_deref(), Some("keep"));
+}
+
+#[test]
+fn a_branch_of_a_branch_with_a_prefix_never_writes_into_the_copy_it_reads_from() {
+    if !needs_git() {
+        return;
+    }
+    let t = Tmp::new("prefixed-chain");
+    let lim = Limits::default();
+    let repo = repo_in(&t);
+    let a = copy_in(&repo, "a");
+    put(&a, ".git", "gitdir: elsewhere");
+    let a_cwd = a.join("sub");
+    put(&a_cwd, "a.txt", "1");
+    let first = snap(&a_cwd, "p1", Kind::Before, 1_000, &lim);
+    let b = copy_in(&repo, "b");
+    put(&b, ".git", "gitdir: elsewhere");
+    let b_cwd = b.join("sub");
+    put(&b_cwd, "a.txt", "9");
+    put(&a_cwd, "other/keep.txt", "keep");
+
+    export_into(&a_cwd, "p1", &first.id, &b_cwd, &lim).expect("export into the other copy's cwd");
+    assert_eq!(get(&b_cwd, "a.txt").as_deref(), Some("1"));
+    // Same copy folder, other sub-folder, the copy folder itself: all refused.
+    refused_because(export_into(&a_cwd, "p1", &first.id, &a_cwd.join("other"), &lim), "inside the source");
+    refused_because(export_into(&a_cwd, "p1", &first.id, &a, &lim), "the source's copy folder");
+    refused_because(export_into(&a_cwd, "p1", &first.id, &a_cwd, &lim), "the source cwd");
+    assert_eq!(get(&a_cwd, "other/keep.txt").as_deref(), Some("keep"));
+}
+
+fn refused_because(result: Result<ExportReport, CheckpointError>, why: &str) {
+    match result {
+        Err(CheckpointError::Other(m)) => assert_eq!(m, "not a separate copy", "{why}"),
+        other => panic!("expected a refusal ({why}), got {other:?}"),
+    }
+}
