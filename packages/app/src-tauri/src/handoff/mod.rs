@@ -29,6 +29,8 @@ pub mod reset;
 pub mod watch;
 
 #[cfg(test)]
+mod card_tests;
+#[cfg(test)]
 mod tests;
 
 pub use detect::LimitHit;
@@ -256,7 +258,15 @@ impl Engine {
             }
         }
         let now = env.clock().now_ms().max(0) as u64;
-        let card = card::limit_card(hit, &ctx.agent_label, pane_id, operation_id.is_some(), env.clock());
+        // Keep going's offer is wired in KG-8; until then the card has no "Continue on" choice.
+        let card = card::limit_card(
+            hit,
+            &ctx.agent_label,
+            pane_id,
+            operation_id.is_some(),
+            env.clock(),
+            &keep_going::model::KeepGoingOffer::NotHere,
+        );
         if let Some(created) = card::raise(env.questions(), card, now) {
             self.cards.insert(pane_id.to_string(), CardRef { card_id: created.id, project: ctx.project, operation_id });
         }
@@ -304,6 +314,11 @@ impl Engine {
                 env.mark(&pane_id, &format!("limit:remind due={due_ms}"));
             }
             card::Decision::StopRun { pane_id } => self.stop_run(env, &pane_id),
+            // Keep going hand-overs start in `keep_going::live` (KG-8); nothing to do here yet.
+            card::Decision::Continue { .. }
+            | card::Decision::ComeBack { .. }
+            | card::Decision::Stay { .. }
+            | card::Decision::Retry { .. } => {}
             card::Decision::Nothing => {}
         }
         if let Some(pane) = question.pane_id.as_deref() {
