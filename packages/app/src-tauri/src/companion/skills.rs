@@ -198,9 +198,23 @@ pub fn add(root: &Path, id: &str, home: &Path, title: &str, body: &str) -> Compa
         ));
     }
     let taken_refs: Vec<&str> = taken.iter().map(String::as_str).collect();
-    let slug = unique_slug(&title, &taken_refs);
+    let slug = file_safe(unique_slug(&title, &taken_refs), &taken_refs);
     write_skill(root, id, home, &slug, &title, &body)?;
     get(root, id, home, &slug)
+}
+
+/// A file name Windows keeps for devices (`con.md` is `CON`) gets a `-skill` suffix. Everything else is kept.
+fn file_safe(slug: String, taken: &[&str]) -> String {
+    let device = matches!(slug.as_str(), "con" | "prn" | "aux" | "nul")
+        || ["com", "lpt"].iter().any(|p| slug.strip_prefix(p).is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit()));
+    if !device {
+        return slug;
+    }
+    let first = format!("{slug}-skill");
+    if !taken.contains(&first.as_str()) {
+        return first;
+    }
+    (2..).map(|n| format!("{slug}-skill-{n}")).find(|c| !taken.contains(&c.as_str())).unwrap_or(first)
 }
 
 /// The desktop edit of an existing skill. The slug (and so the path the brief lists) stays.

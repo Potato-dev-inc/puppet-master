@@ -254,6 +254,14 @@ fn the_thirty_first_skill_is_refused() {
 }
 
 #[test]
+fn a_title_that_is_a_windows_device_name_still_makes_a_normal_file() {
+    let fx = fixture();
+    for (title, slug) in [("Con", "con-skill"), ("AUX", "aux-skill"), ("com1", "com1-skill"), ("Lpt9", "lpt9-skill"), ("com10", "com10")] {
+        assert_eq!(skills::add(&fx.root, "bit", &fx.home, title, "steps").unwrap().slug, slug);
+    }
+}
+
+#[test]
 fn an_empty_title_or_body_is_invalid() {
     let fx = fixture();
     assert_eq!(skills::add(&fx.root, "bit", &fx.home, "  ", "steps").unwrap_err().code, "COMPANION_SKILL_INVALID");
