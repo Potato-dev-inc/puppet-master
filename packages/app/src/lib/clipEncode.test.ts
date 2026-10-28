@@ -214,6 +214,12 @@ function bytesOf(blob: Blob): Promise<Uint8Array> {
 
 const ascii = (bytes: Uint8Array, at: number, len: number) => String.fromCharCode(...bytes.subarray(at, at + len));
 
+// A full 28 s render draws 840 frames and gives the event loop a turn every 10 frames (84 setTimeout(0)
+// yields). On Windows each yield can wait a whole timer tick (about 15-20 ms), so one render takes over a
+// second even on an idle PC and several seconds on a busy one. The default 5 s limit is too tight for that.
+// Only the tests that render the whole clip get this longer limit; the short renders keep the default.
+const FULL_RENDER_MS = 30_000;
+
 beforeEach(() => {
   FakeEncoder.supported = new Set(['avc1.640028']);
   FakeEncoder.instances = [];
@@ -254,7 +260,7 @@ describe('renderClip on the H.264 path', () => {
     expect(enc.encoded[1]!.key).toBe(false);
     expect(enc.configs[0]).toMatchObject({ codec: 'avc1.640028', width: 1280, height: 720, framerate: 30 });
     expect(enc.closed).toBe(true);
-  });
+  }, FULL_RENDER_MS);
 
   it('writes an MP4 whose first box is ftyp and whose second box is moov', async () => {
     const result = await renderClip(args());
@@ -264,7 +270,7 @@ describe('renderClip on the H.264 path', () => {
     expect(ascii(bytes, ftypSize + 4, 4)).toBe('moov');
     // 840 samples of 6 bytes each plus the boxes: the file is well above a kilobyte.
     expect(bytes.length).toBeGreaterThan(1000);
-  });
+  }, FULL_RENDER_MS);
 
   it('reports progress from 0 to 1 and does not keep drawing after an abort', async () => {
     const controller = new AbortController();
@@ -299,7 +305,7 @@ describe('renderClip on the H.264 path', () => {
     const dirty = await renderClip(args({ plan: plan(`Use ${SECRET} please`) }));
     expect(dirty.guardHits).toBeGreaterThan(0);
     expect(dirty.guardHits).toBeLessThan(10);
-  });
+  }, FULL_RENDER_MS);
 });
 
 describe('renderClip fallback', () => {
@@ -379,5 +385,5 @@ describe('renderClip limits', () => {
       }),
     );
     expect(fonts).toBe(1);
-  });
+  }, FULL_RENDER_MS);
 });
