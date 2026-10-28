@@ -2,8 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Digest } from '../../lib/cockpit-api';
-import { AwayDigest } from './AwayDigest';
+import type { Digest, DigestFocus } from '../../lib/cockpit-api';
+import { AwayDigest, isFocusEmpty } from './AwayDigest';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -35,6 +35,15 @@ function digest(over: Partial<Digest> = {}): Digest {
     ],
     needsYou: [],
     ...over,
+  };
+}
+
+function focusSummary(over: Partial<DigestFocus['counts']> = {}): DigestFocus {
+  return {
+    line: 'While you focused (45 min): 4 turns done, 1 failed, 2 asked for you. 1 still waits.',
+    minutes: 45,
+    endedBy: 'timer',
+    counts: { turnsDone: 4, agents: 2, failed: 1, asked: 2, urgent: 0, stillWaiting: 1, held: 3, ...over },
   };
 }
 
@@ -175,5 +184,76 @@ describe('AwayDigest', () => {
     });
     click(button('Open Inbox'));
     expect(h.onOpenInbox).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AwayDigest, end of Focus', () => {
+  it('keeps the normal title and sentence when the digest has no focus summary', () => {
+    render({ digest: digest({ focus: undefined }) });
+    expect(host.querySelector('h1')?.textContent).toBe('While you were away');
+    expect(text()).not.toContain('While you focused');
+    expect(host.querySelector('.ck-sub')?.textContent).toContain('agents worked');
+  });
+
+  it('shows the "While you focused" title and the focus line as the sub line', () => {
+    const focus = focusSummary();
+    render({ digest: digest({ focus }) });
+    expect(host.querySelector('h1')?.textContent).toBe('While you focused');
+    expect(host.querySelector('section')?.getAttribute('aria-label')).toBe('While you focused');
+    expect(host.querySelector('.ck-sub')?.textContent).toBe(focus.line);
+    expect(text()).not.toContain('While you were away');
+  });
+
+  it('still lists the agent lines and the Needs you rows under the focus line', () => {
+    render({
+      digest: digest({
+        focus: focusSummary(),
+        needsYou: [{ paneId: 'p3', agent: 'Gemini', status: 'waiting_input', prompt: 'Proceed?' }],
+      }),
+    });
+    expect(host.querySelectorAll('.ck-away-line')).toHaveLength(2);
+    expect(text()).toContain('Needs you');
+    expect(host.querySelector('.ck-away-need')?.textContent).toContain('Gemini');
+  });
+
+  it('shows a summary that only has something still waiting', () => {
+    render({ digest: digest({ focus: focusSummary({ turnsDone: 0, agents: 0, failed: 0, asked: 0, held: 0, stillWaiting: 1 }) }) });
+    expect(host.querySelector('h1')?.textContent).toBe('While you focused');
+  });
+
+  it('"Got it" calls onDismiss on a focus digest', () => {
+    const h = render({ digest: digest({ focus: focusSummary() }) });
+    click(button('Got it'));
+    expect(h.onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape calls onDismiss on a focus digest', () => {
+    const h = render({ digest: digest({ focus: focusSummary() }) });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(h.onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('an empty focus summary shows nothing and is cleared at once', () => {
+    const h = render({ digest: digest({ focus: focusSummary({ turnsDone: 0, agents: 0, failed: 0, asked: 0, stillWaiting: 0, held: 0 }) }) });
+    expect(host.querySelector('.ck-away')).toBeNull();
+    expect(text()).toBe('');
+    expect(h.onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape does nothing extra when an empty focus summary is shown as nothing', () => {
+    const h = render({ digest: digest({ focus: focusSummary({ turnsDone: 0, agents: 0, failed: 0, asked: 0, stillWaiting: 0, held: 0 }) }) });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(h.onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('isFocusEmpty is true only when every count is zero', () => {
+    expect(isFocusEmpty(focusSummary({ turnsDone: 0, agents: 0, failed: 0, asked: 0, urgent: 0, stillWaiting: 0, held: 0 }))).toBe(true);
+    expect(isFocusEmpty(focusSummary({ turnsDone: 0, agents: 0, failed: 0, asked: 0, urgent: 0, stillWaiting: 0, held: 1 }))).toBe(false);
+    expect(isFocusEmpty(focusSummary({ turnsDone: 1, agents: 1, failed: 0, asked: 0, urgent: 0, stillWaiting: 0, held: 0 }))).toBe(false);
+    expect(isFocusEmpty(focusSummary({ turnsDone: 0, agents: 0, failed: 0, asked: 0, urgent: 1, stillWaiting: 0, held: 0 }))).toBe(false);
   });
 });

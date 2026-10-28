@@ -4,6 +4,7 @@ import type { HarnessScenario } from './types';
 import {
   EXAMPLE_CHECKPOINTS,
   EXAMPLE_DIGEST,
+  EXAMPLE_FOCUS_DIGEST,
   EXAMPLE_TURN_SUMMARIES,
   EXAMPLE_FILE_CHANGES,
   EXAMPLE_PANES,
@@ -123,7 +124,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'turn_summaries':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_TURN_SUMMARIES : [];
         case 'away_digest_pending':
-          return scenario.awayDigest ? EXAMPLE_DIGEST : null;
+          return scenario.awayFocus ? EXAMPLE_FOCUS_DIGEST : scenario.awayDigest ? EXAMPLE_DIGEST : null;
         case 'away_digest_dismiss':
         case 'presence_cockpit_focus':
           return null;
