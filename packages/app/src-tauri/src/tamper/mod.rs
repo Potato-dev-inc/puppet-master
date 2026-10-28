@@ -29,6 +29,7 @@ mod facts;
 pub mod http;
 mod lexer;
 mod model;
+mod paths;
 mod protect;
 mod rules;
 mod signals;
@@ -41,7 +42,8 @@ mod undo;
 use std::path::Path;
 
 #[allow(unused_imports)]
-pub use model::{CheckKind, Finding, Kind, Report, RunCounts, Severity, Snapshot};
+pub use model::{CheckKind, Finding, Kind, Report, Role, RunCounts, Severity, Snapshot};
+pub use paths::path_role;
 pub use signals::CheckOptions;
 pub use snapshot::SnapshotOptions;
 pub use store::TamperError;
