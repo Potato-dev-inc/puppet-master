@@ -547,7 +547,7 @@ fn ensure_questions_bridge() {
                         serde_json::from_slice(&raw[header_end..]).unwrap_or_else(|_| json!({}));
                     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
                     // The notices tests also need a bridge that answers the worker listing.
-                    let reply = if path.starts_with("/team/agent/") {
+                    let reply = if path.starts_with("/team/agent/") || path == "/companion/recall" {
                         // The Team tools' routes: scripted by `team_tests.rs`.
                         Ok(team_tests::mock(path, &head, &body))
                     } else if method == "GET" && path.starts_with("/agents") {

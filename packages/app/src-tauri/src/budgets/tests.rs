@@ -524,3 +524,43 @@ fn a_runs_turns_and_busy_time_come_from_its_operation_records() {
     let expected = finished.finished_at_ms.unwrap() - finished.started_at_ms.unwrap();
     assert_eq!(own.busy_ms, expected, "only the finished turn adds busy time");
 }
+
+// ---- a companion's helpers -----------------------------------------------------------------
+
+#[test]
+fn a_helper_started_by_a_companion_gets_twenty_turns_unless_the_person_set_a_limit() {
+    let project = project();
+    let (a, b, c, d, e) = (handle(), handle(), handle(), handle(), handle());
+    // Nothing set anywhere: 20 turns, as a default (not as something the caller asked for).
+    let rec = admit(&project, &a, &Asked::default(), with_companion_default(Defaults::default(), true), T0).unwrap().unwrap();
+    assert_eq!((rec.turns, rec.minutes, rec.source), (Some(20), None, Source::Default));
+    assert_eq!(rec.turns, Some(crate::companion::delegate::HELPER_TURNS));
+    // An agent that is not a companion's keeps today's behaviour: no budget.
+    assert!(admit(&project, &b, &Asked::default(), with_companion_default(Defaults::default(), false), T0).unwrap().is_none());
+    // The person's own Settings default wins.
+    let own = Defaults { turns: Some(5), minutes: None };
+    let rec = admit(&project, &c, &Asked::default(), with_companion_default(own, true), T0).unwrap().unwrap();
+    assert_eq!(rec.turns, Some(5));
+    // So does a limit on the run itself.
+    let rec = admit(&project, &d, &asked(Some(7), None), with_companion_default(Defaults::default(), true), T0).unwrap().unwrap();
+    assert_eq!((rec.turns, rec.source), (Some(7), Source::Argument));
+    // A time limit in Settings stays, and the turn limit is still filled in.
+    let minutes = Defaults { turns: None, minutes: Some(60) };
+    let rec = admit(&project, &e, &Asked::default(), with_companion_default(minutes, true), T0).unwrap().unwrap();
+    assert_eq!((rec.turns, rec.minutes), (Some(20), Some(60)));
+}
+
+#[test]
+fn the_companions_twenty_turn_helper_is_paused_before_turn_twenty_one() {
+    let project = project();
+    let h = handle();
+    admit(&project, &h, &Asked::default(), with_companion_default(Defaults::default(), true), T0).unwrap().unwrap();
+    for index in 0..20 {
+        check_next_turn_at(&project, &h, T0).unwrap_or_else(|e| panic!("turn {index} may start: {}", e.message));
+        let turn = start_turn(&project, &h, index);
+        finish(&project, &turn);
+    }
+    let error = check_next_turn_at(&project, &h, T0).unwrap_err();
+    assert_eq!(error.code, "BUDGET_EXHAUSTED");
+    assert_eq!(error.context["turns_limit"], 20);
+}

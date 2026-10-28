@@ -77,6 +77,8 @@ const ADVANCED: &[&str] = &[
     "team_events",
     "team_wait",
     "team_notify",
+    // Companions only: listed by the shim for an agent started in a companion pane, callable by name elsewhere (and refused there).
+    "companion_recall",
     // Prompt rendering only; run_agent / delegate_work start the work.
     "delegate_task",
 ];

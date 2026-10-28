@@ -136,6 +136,7 @@ mod tests {
             until_ms: None,
             created_ms: 1,
             archived: false,
+            pane_ids: Vec::new(),
         }
     }
 

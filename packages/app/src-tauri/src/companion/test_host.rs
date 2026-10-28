@@ -10,7 +10,7 @@ use chrono::TimeZone;
 use parking_lot::Mutex;
 use serde_json::json;
 
-use super::host::{AgentLimit, Blocking, FinishedTurn, Host, Reply, SpawnSpec};
+use super::host::{AgentLimit, Blocking, FinishedTurn, Host, RecallAnswer, RecallHit, Reply, SpawnSpec};
 use super::keeper::{Pane, Status};
 use super::manage::Draft;
 use super::model::CompanionView;
@@ -53,6 +53,10 @@ pub struct FakeHost {
     pub limits: Mutex<HashMap<String, Option<i64>>>,
     /// Agents `agent_ok` refuses (by id), besides the single `agent_error` for all.
     pub refused: Mutex<Vec<String>>,
+    /// The chat search index: on or off, what it holds (pane, hit), and the pane lists it was asked about.
+    pub recall_enabled: AtomicBool,
+    pub recall_hits: Mutex<Vec<(String, RecallHit)>>,
+    pub recall_asked: Mutex<Vec<Vec<String>>>,
 }
 
 impl FakeHost {
@@ -83,6 +87,9 @@ impl FakeHost {
             turns: Mutex::new(Vec::new()),
             limits: Mutex::new(HashMap::new()),
             refused: Mutex::new(Vec::new()),
+            recall_enabled: AtomicBool::new(false),
+            recall_hits: Mutex::new(Vec::new()),
+            recall_asked: Mutex::new(Vec::new()),
         })
     }
 
@@ -182,6 +189,23 @@ impl Host for FakeHost {
 
     fn release_reader(&self, pane_id: &str, _companion_id: &str) {
         self.released.lock().push(pane_id.to_string());
+    }
+
+    fn recall_on(&self) -> bool {
+        self.recall_enabled.load(Ordering::SeqCst)
+    }
+
+    /// Like the real index: only the chats of the panes asked for, newest first, at most `limit`.
+    fn recall(&self, panes: &[String], _query: &str, limit: usize) -> RecallAnswer {
+        self.recall_asked.lock().push(panes.to_vec());
+        if !self.recall_enabled.load(Ordering::SeqCst) {
+            return RecallAnswer { enabled: false, hits: Vec::new() };
+        }
+        let mut hits: Vec<RecallHit> =
+            self.recall_hits.lock().iter().filter(|(pane, _)| panes.contains(pane)).map(|(_, hit)| hit.clone()).collect();
+        hits.sort_by_key(|hit| std::cmp::Reverse(hit.at_ms));
+        hits.truncate(limit);
+        RecallAnswer { enabled: true, hits }
     }
 
     fn raise_stopped(&self, companion_id: &str, _name: &str) {

@@ -1104,6 +1104,24 @@ mod pane_parent {
     }
 
     #[test]
+    fn a_helper_started_from_a_companions_pane_is_nested_under_the_companion() {
+        // The companion's pane is `companion-<id>`; its helper gets it as `parent_pane_id` like any parent pane.
+        let (registry, _parent, child) = registry(std::process::id());
+        let companion = "companion-mochi".to_string();
+        {
+            let mut reg = registry.lock();
+            let mut stub = PaneRegistry::test_pane_stub(&companion);
+            stub.info.pid = std::process::id();
+            reg.panes.insert(companion.clone(), stub);
+        }
+        let session = uuid::Uuid::new_v4().to_string();
+        crate::mcp_sessions::note_session_pane(&session, &companion);
+        crate::mcp_sessions::note_session_pid(&session, std::process::id());
+        note_pane_parent(&registry, Some(&session), &child);
+        assert_eq!(parent_of(&registry, &child).as_deref(), Some(companion.as_str()));
+    }
+
+    #[test]
     fn a_connection_that_runs_outside_the_named_pane_is_not_nested() {
         // The named pane's process is not an ancestor of the caller: someone else's pane id.
         let (registry, parent, child) = registry(u32::MAX - 7);

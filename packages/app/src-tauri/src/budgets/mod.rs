@@ -32,7 +32,7 @@ mod tests;
 
 pub(crate) use accounting::counts_as_turn;
 pub use adjust::{add_minutes, add_turns, step_minutes, step_turns, stop};
-pub use admit::{admit, discard, validate};
+pub use admit::{admit, discard, validate, with_companion_default};
 pub use card::{on_answered, Outcome, KIND as CARD_KIND};
 pub use gate::{check_next_turn, turn_ended};
 pub use model::{Asked, Defaults, PARENT_ENV};

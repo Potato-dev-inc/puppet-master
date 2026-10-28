@@ -89,6 +89,16 @@ impl ChatIndex {
         Ok(Answer { enabled: true, hits })
     }
 
+    /// What was said (the person's and the agent's messages) in the chats of `panes` only, newest first. Nothing
+    /// outside those panes is returned, and no pane means no hit. Nothing is searched when the index is off.
+    pub fn search_in(&self, query: &str, limit: usize, panes: &[String]) -> Result<Answer, String> {
+        if !self.enabled() {
+            return Ok(Answer { enabled: false, hits: Vec::new() });
+        }
+        let hits = self.store.lock().search_in(query, limit, panes).map_err(|error| format!("INTERNAL: chat search: {error}"))?;
+        Ok(Answer { enabled: true, hits })
+    }
+
     /// The items kept, the bytes the file takes and whether the index is on.
     pub fn status(&self) -> Result<Status, String> {
         let (items, bytes) = self.store.lock().usage().map_err(|error| format!("INTERNAL: chat index: {error}"))?;
