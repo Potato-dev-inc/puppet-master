@@ -4,8 +4,18 @@ use crate::session_chat::{cut_to, home_to_tilde, ChatItem};
 
 /// Longest text kept per item, in characters (a longer one is cut with a trailing "…").
 pub const MAX_TEXT_CHARS: usize = 4000;
+/// Longest text kept per item of an old chat that is imported (live chats keep `MAX_TEXT_CHARS`).
+pub const MAX_IMPORTED_TEXT_CHARS: usize = 2000;
 /// Longest tool title kept (name and one-line summary).
 const MAX_TITLE_CHARS: usize = 300;
+
+/// How hard a text is cleaned before it is kept. `Secrets` is for live chats (known secrets and token shapes).
+/// `Strict` is for old chats that are imported: also long opaque runs, the person's folder name and email addresses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strength {
+    Secrets,
+    Strict,
+}
 
 /// What the app knows about the pane an item came from.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -31,6 +41,8 @@ pub struct Entry {
     /// When the item happened, in milliseconds since the epoch (the time it was read when the item has none).
     pub at_ms: i64,
     pub text: String,
+    /// True for an item of an old chat that was imported (`chat_items.imported = 1`).
+    pub imported: bool,
 }
 
 /// The last part of a folder path, for either kind of separator; empty for a root.
@@ -57,19 +69,39 @@ pub fn is_kept(item: &ChatItem) -> bool {
 }
 
 /// The row for one item, or `None` for an item the index does not keep (tool output, usage, notices...) or one with
-/// no text. Every string goes through `redact::text` first.
+/// no text. A live item: `Secrets` strength, `MAX_TEXT_CHARS`.
 pub fn entry_of(pane_id: &str, ctx: &PaneContext, item: &ChatItem, now_ms: i64) -> Option<Entry> {
+    entry_of_with(pane_id, ctx, item, now_ms, Strength::Secrets, false, MAX_TEXT_CHARS)
+}
+
+/// The row for one item at a given strength. Every string (text, folder) goes through the redaction first, then the
+/// home folder becomes `~`, then the text is cut to `max_chars` (tool titles to their own, shorter limit).
+/// `Strict` also masks email addresses. Imported rows are built with `imported = true`.
+pub fn entry_of_with(
+    pane_id: &str,
+    ctx: &PaneContext,
+    item: &ChatItem,
+    now_ms: i64,
+    strength: Strength,
+    imported: bool,
+    max_chars: usize,
+) -> Option<Entry> {
     let (kind, at, raw, limit) = match item {
-        ChatItem::User { at, text, .. } => ("user", at, text.clone(), MAX_TEXT_CHARS),
-        ChatItem::Assistant { at, text, .. } => ("assistant", at, text.clone(), MAX_TEXT_CHARS),
-        ChatItem::ToolCall { at, name, summary, .. } => ("tool", at, format!("{name} {summary}"), MAX_TITLE_CHARS),
+        ChatItem::User { at, text, .. } => ("user", at, text.clone(), max_chars),
+        ChatItem::Assistant { at, text, .. } => ("assistant", at, text.clone(), max_chars),
+        ChatItem::ToolCall { at, name, summary, .. } => ("tool", at, format!("{name} {summary}"), MAX_TITLE_CHARS.min(max_chars)),
         _ => return None,
     };
     let redact_ctx = crate::redact::known::context();
     let home = redact_ctx.home.as_deref();
-    // Redacted first, then the home folder becomes `~` (the account name is not kept), then cut to size.
-    let text = clean(&home_to_tilde(crate::redact::text_with(raw.trim(), &redact_ctx).as_str(), home));
-    let text = cut_to(text.trim(), limit);
+    let scrub = |raw: &str| -> String {
+        let redacted = match strength {
+            Strength::Secrets => crate::redact::text_with(raw, &redact_ctx).into_inner(),
+            Strength::Strict => crate::redact::rules::mask_emails(crate::redact::strict_with(raw, &redact_ctx).as_str()),
+        };
+        clean(&home_to_tilde(&redacted, home))
+    };
+    let text = cut_to(scrub(raw.trim()).trim(), limit);
     if text.is_empty() {
         return None;
     }
@@ -79,9 +111,10 @@ pub fn entry_of(pane_id: &str, ctx: &PaneContext, item: &ChatItem, now_ms: i64) 
         item_id: item.id().to_string(),
         kind,
         agent: ctx.agent.clone(),
-        folder: clean(&home_to_tilde(crate::redact::text_with(&ctx.folder, &redact_ctx).as_str(), home)),
+        folder: scrub(ctx.folder.as_str()),
         at_ms: at_ms(at, now_ms),
         text,
+        imported,
     })
 }
 
