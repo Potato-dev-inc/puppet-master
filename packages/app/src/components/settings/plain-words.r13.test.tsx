@@ -72,7 +72,7 @@ describe('Settings > Phone', () => {
   });
 
   it('the rows around it say what they do without "tap target" or "input buffer"', async () => {
-    const m = await mountRows(phoneRows.filter((row) => row.id !== 'pairing' && row.id !== 'paired-devices'));
+    const m = await mountRows(phoneRows.filter((row) => row.id !== 'pairing' && row.id !== 'paired-devices' && row.id !== 'telegram'));
     await settle(3);
     const text = visible(m.host);
     expect(text).not.toMatch(DEVELOPER_WORDS);

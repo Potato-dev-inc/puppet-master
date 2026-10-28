@@ -71,7 +71,7 @@ describe('groups inside the sections', () => {
 
   it('Phone starts with Pair a phone, then the paired phones, then the settings, then the public address', () => {
     const heads = groupRows(section('phone').rows).map((g) => g.head);
-    expect(heads.filter(Boolean)).toEqual(['Pair a phone', 'Your phones', 'On the phone', 'Public address']);
+    expect(heads.filter(Boolean)).toEqual(['Pair a phone', 'Your phones', 'On the phone', 'Public address', 'Telegram (early)']);
     expect(section('phone').rows[0].id).toBe('pairing');
   });
 
