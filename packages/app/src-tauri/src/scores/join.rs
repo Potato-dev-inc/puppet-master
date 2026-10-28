@@ -87,6 +87,11 @@ fn checks_of_op(op: &OperationSnapshot) -> Option<bool> {
     }
     match op.status {
         OperationStatus::Failed if op.error.as_ref().is_some_and(|e| e.code == "ACCEPTANCE_FAILED") => Some(false),
+        // A Completed record with a failed check result is not reachable: `operations/finish.rs` runs
+        // the checks before it completes a turn and turns any failure into `Failed` with
+        // `ACCEPTANCE_FAILED` (the same reasoning as `receipt_outcome`, which never calls it proven).
+        // So a failed result here cannot come from this app. It is left out (`None`), not counted as
+        // failed, and never as green, so a record that is not what it says cannot inflate Checks green.
         OperationStatus::Completed => {
             let all = op.check_results.len() >= op.checks.len() && op.check_results.iter().all(|r| r.passed);
             all.then_some(true)

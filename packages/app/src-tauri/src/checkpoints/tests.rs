@@ -402,6 +402,57 @@ fn runtime_restore_refuses_a_running_pane_and_undo_last_turn_works() {
 }
 
 #[test]
+fn a_successful_restore_is_noted_once_with_the_target_kind_and_time() {
+    use super::runtime::take_noted_restores;
+    let t = Tmp::new("notenote");
+    let env = FakeEnv::new(t.p());
+    let rt = Runtime::new(env.clone());
+    take_noted_restores();
+    t.write("a.txt", "v1");
+    assert!(matches!(rt.capture("p1", Kind::Before, None), Outcome::Created(_)));
+    t.write("a.txt", "v2");
+    env.advance(DEBOUNCE_MS + 1);
+    assert!(matches!(rt.capture("p1", Kind::After, None), Outcome::Created(_)));
+    let items = rt.list("p1").unwrap();
+    let before = items.iter().find(|c| c.kind == "before").unwrap().clone();
+    let after = items.iter().find(|c| c.kind == "after").unwrap().clone();
+    t.write("a.txt", "v3");
+
+    env.advance(5_000);
+    rt.restore("p1", &before.id).expect("restore to the before checkpoint");
+    let now = env.now_ms();
+    assert_eq!(take_noted_restores(), vec![("p1".to_string(), "before".to_string(), before.at_ms, now)]);
+    assert_eq!(t.read("a.txt").as_deref(), Some("v1"));
+
+    // An "after" target is noted with its own kind and time, once more.
+    rt.restore("p1", &after.id).expect("restore to the after checkpoint");
+    assert_eq!(take_noted_restores(), vec![("p1".to_string(), "after".to_string(), after.at_ms, now)]);
+    assert_eq!(t.read("a.txt").as_deref(), Some("v2"));
+}
+
+#[test]
+fn a_refused_restore_is_not_noted() {
+    use super::runtime::take_noted_restores;
+    let t = Tmp::new("notrefused");
+    let env = FakeEnv::new(t.p());
+    let rt = Runtime::new(env.clone());
+    take_noted_restores();
+    t.write("a.txt", "v1");
+    assert!(matches!(rt.capture("p1", Kind::Before, None), Outcome::Created(_)));
+    let first = rt.list("p1").unwrap()[0].id.clone();
+    t.write("a.txt", "v2");
+
+    // The pane is running: refused by the engine.
+    env.set_status("p1", "running");
+    assert!(matches!(rt.restore("p1", &first), Err(CheckpointError::Running)));
+    // The pane is running and an agent run is still open: refused before the engine.
+    env.run_open.store(true, Ordering::SeqCst);
+    assert!(matches!(rt.restore("p1", &first), Err(CheckpointError::RunOpen)));
+    assert!(take_noted_restores().is_empty(), "a refused Undo is not in the undo log");
+    assert_eq!(t.read("a.txt").as_deref(), Some("v2"), "nothing is touched");
+}
+
+#[test]
 fn two_panes_in_one_folder_keep_separate_refs() {
     let t = Tmp::new("twopanes");
     t.write("a.txt", "1");
