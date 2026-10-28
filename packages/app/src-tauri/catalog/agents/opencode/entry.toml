@@ -1,0 +1,28 @@
+schema_version = 1
+
+[store]
+id = "opencode"
+tagline = "The OpenCode command line agent."
+tier = "verified"
+builtin = true
+categories = ["general", "open_source", "bring_your_key"]
+status = "active"
+replaced_by = ""
+ambiguous_name = false
+first_listed = "2026-10-28"
+
+[vendor]
+name = "SST"
+homepage = "https://opencode.ai/docs/"
+license = "MIT"
+license_kind = "open_source"
+
+[sign_in]
+kind = "either"
+summary = "Open it and type /connect."
+
+[checked]
+date = "2026-10-14"
+version = "not recorded"
+how = "vendor_docs"
+windows_tested = false

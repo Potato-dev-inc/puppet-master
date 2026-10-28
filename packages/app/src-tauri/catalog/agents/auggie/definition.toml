@@ -1,0 +1,18 @@
+# Auggie CLI (npm package `@augmentcode/auggie`), a generic experimental definition. It runs
+# `auggie` in a visible pane and reads the screen with shared heuristics only. The npm registry
+# entry names the binary but gives no repository, so this definition has no install step.
+schema_version = 1
+
+[agent]
+id = "auggie"
+label = "Auggie"
+icon = "AU"
+kind = "generic"
+description = "Auggie CLI by Augment Code, run in a pane."
+experimental = true
+
+[binary]
+names = ["auggie"]
+windows_extensions = ["exe", "cmd"]
+version_args = ["--version"]
+install_hint = "install auggie and make sure it is on PATH"

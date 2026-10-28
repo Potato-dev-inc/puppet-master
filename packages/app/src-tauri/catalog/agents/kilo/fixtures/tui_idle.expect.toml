@@ -1,0 +1,3 @@
+busy = false
+prompt_kind = ""
+chrome_lines = ["tab agents  ctrl+p commands"]

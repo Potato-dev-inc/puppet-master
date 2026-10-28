@@ -17,6 +17,8 @@ interface Props {
   initialRow?: string;
   onBack: () => void;
   onPageChange?: (page: SettingsPageId) => void;
+  /** "Browse more agents" in Settings > Agents opens the Agent Store. */
+  onOpenStore?: () => void;
   /** Tests pass fakes for the panel's load/patch/subscribe. */
   api?: SettingsApi;
 }
@@ -31,7 +33,7 @@ function isEditing(target: EventTarget | null): target is HTMLElement {
   return !['checkbox', 'radio', 'button', 'submit', 'range'].includes(target.type);
 }
 
-export function SettingsView({ initialTab, initialRow, onBack, onPageChange, api }: Props) {
+export function SettingsView({ initialTab, initialRow, onBack, onPageChange, onOpenStore, api }: Props) {
   const { projectPath, setProjectPath } = useProjectPath();
   const appUpdate = useAppUpdateCheck(true);
   const host = useRef<HTMLDivElement>(null);
@@ -73,6 +75,7 @@ export function SettingsView({ initialTab, initialRow, onBack, onPageChange, api
         updateChecking={appUpdate.checking}
         onOpenRelease={() => void appUpdate.openRelease()}
         onClose={onBack}
+        onOpenStore={onOpenStore}
         api={api}
       />
       <UpdateAvailableBanner update={appUpdate} />

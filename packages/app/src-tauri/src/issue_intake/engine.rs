@@ -388,16 +388,39 @@ impl<I: Io + 'static> Engine<I> {
         let forced = filter::forced_reasons(repo, me, cfg, &snapshot, &runs);
         let mut run = new_run(snapshot, RunState::Queued { why: "Waiting for a free slot".to_string() }, forced.clone());
         if repo.ask_before_start || !forced.is_empty() {
-            let Some(question_id) = self.raise_start_card(&run) else {
-                return false;
-            };
-            run.state = RunState::Asking { question_id };
-            self.io.audit("asked", "auto", &format!("Asked about issue #{}", run.issue.number), run_detail(&run));
-        } else {
-            run.approved_by = Some("auto".to_string());
-            self.io.audit("auto_approved", "auto", &format!("Queued issue #{}", run.issue.number), run_detail(&run));
+            // The record is stored as `Asking` before the card can be seen, so an answer always finds its run.
+            // When the card cannot be raised the record stays and `resume` raises it again.
+            let (saved, raised) = self.store_then_ask(&mut run, false);
+            if saved && raised {
+                self.io.audit("asked", "auto", &format!("Asked about issue #{}", run.issue.number), run_detail(&run));
+            }
+            return saved;
         }
+        run.approved_by = Some("auto".to_string());
+        self.io.audit("auto_approved", "auto", &format!("Queued issue #{}", run.issue.number), run_detail(&run));
         self.save_new(&run)
+    }
+
+    /// Store `run` as `Asking` on a card id picked now, THEN raise the start card under that id. The card is
+    /// never visible before its run record is stored (a fast answer, or a look at the list, finds it).
+    /// Returns `(saved, raised)`. When the card fails: `restore` puts the old state back and stores it again;
+    /// otherwise the `Asking` record stays and `resume` asks again.
+    pub(super) fn store_then_ask(&self, run: &mut IssueRun, restore: bool) -> (bool, bool) {
+        let before = run.state.clone();
+        let id = uuid::Uuid::new_v4().to_string();
+        run.state = RunState::Asking { question_id: id.clone() };
+        if !self.save_new(run) {
+            run.state = before;
+            return (false, false);
+        }
+        if self.raise_start_card(run, Some(id)).is_some() {
+            return (true, true);
+        }
+        if restore {
+            run.state = before;
+            self.put(run);
+        }
+        (true, false)
     }
 
     fn save_new(&self, run: &IssueRun) -> bool {
@@ -410,8 +433,9 @@ impl<I: Io + 'static> Engine<I> {
 
     // ------------------------------------------------------------------------- cards
 
-    /// The start card: `Start on #42 "..." with the agent?`. Returns the question id.
-    pub(super) fn raise_start_card(&self, run: &IssueRun) -> Option<String> {
+    /// The start card: `Start on #42 "..." with the agent?`. Returns the question id. `id` is the id the run
+    /// record already holds (see [`Self::store_then_ask`]); `None` lets the question store pick one.
+    pub(super) fn raise_start_card(&self, run: &IssueRun, id: Option<String>) -> Option<String> {
         let label: String = run.agent_label.chars().take(60).collect();
         let new = NewQuestion {
             question: text::card_question(&run.issue, &run.agent_label),
@@ -427,7 +451,11 @@ impl<I: Io + 'static> Engine<I> {
             kind: Some(CARD_KIND_START.to_string()),
             ..NewQuestion::default()
         };
-        self.io.ask(new).map_err(|message| tracing::warn!(%message, "issue-intake: could not raise a card")).ok()
+        let asked = match id {
+            Some(id) => self.io.ask_as(new, &id),
+            None => self.io.ask(new),
+        };
+        asked.map_err(|message| tracing::warn!(%message, "issue-intake: could not raise a card")).ok()
     }
 
     /// A plain card with one `Got it` button (nothing is acted on). Not a person-only kind.
@@ -552,10 +580,7 @@ impl<I: Io + 'static> Engine<I> {
                     if let Some(repo) = self.repo_of(&run) {
                         run.forced_ask = filter::forced_reasons(&repo, me, cfg, &run.issue, &self.io.store().runs());
                     }
-                    if let Some(id) = self.raise_start_card(&run) {
-                        run.state = RunState::Asking { question_id: id };
-                        self.put(&run);
-                    }
+                    self.store_then_ask(&mut run, true);
                 }
             },
             RunState::AskPush { question_id, facts } => match self.io.question(&question_id) {

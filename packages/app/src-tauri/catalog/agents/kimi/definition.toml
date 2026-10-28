@@ -1,0 +1,22 @@
+# Kimi Code (MoonshotAI/kimi-code), starter. The PowerShell install script, the Git for Windows
+# note and the /login sign-in step come from the project README
+# (https://github.com/MoonshotAI/kimi-code), read 2026-10-28. The npm package is left out: the
+# README does not name it. Not run on Windows yet, so the card says so.
+schema_version = 1
+
+[agent]
+id = "kimi"
+label = "Kimi Code"
+icon = "KM"
+description = "Kimi Code CLI from Moonshot AI, run in a visible pane."
+kind = "generic"
+experimental = true
+
+[binary]
+names = ["kimi"]
+
+[install.windows]
+source = "https://github.com/MoonshotAI/kimi-code"
+order = ["script"]
+script_url = "https://code.kimi.com/kimi-code/install.ps1"
+note = "On Windows, install Git for Windows before first launch."

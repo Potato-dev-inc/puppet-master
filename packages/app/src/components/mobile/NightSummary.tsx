@@ -1,5 +1,6 @@
-// Night Shift on the phone (SPEC n32 3.10.4): a read-only card above the Agents list. It shows the summary line
-// of the current (or last) night and one row per task, from `GET /night`, which is the redacted view: no project
+// Night Shift on the phone (SPEC n32 3.10.4): a read-only card under the Agents title, inside its scrolling list
+// (AgentsOverview takes it as the `night` slot). It shows the summary line of the current (or last) night and
+// the first three task rows, then "and N more" to show them all, from `GET /night`, which is the redacted view: no project
 // names, no paths, no pane ids, no agent sentences. Stop shows only with the `control` cap, while the night runs,
 // and asks once more. Keep and Throw away are on the computer, never here.
 import { useCallback, useEffect, useState } from 'react';
@@ -10,6 +11,8 @@ import { mergeBridgeHeaders } from '../../lib/mobile-pairing-auth';
 
 /** A row shows the first characters of the task title (the view already cut it to 80). */
 export const ROW_TITLE_CHARS = 60;
+/** The task rows shown at first; the rest sit behind an "and N more" button. */
+export const TASK_ROWS_FIRST = 3;
 /** The read repeats this often while the card is up (a night starts or ends on the PC at any time). */
 const REFRESH_MS = 10_000;
 const STOP_FAILED = 'Could not stop Night Shift. Try again.';
@@ -75,6 +78,7 @@ export function NightSummary({
   const [stopping, setStopping] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     if (!api) return;
@@ -118,6 +122,8 @@ export function NightSummary({
 
   if (!view) return null;
   const canStop = canControl && view.state === 'running' && !stopping;
+  const shown = showAll ? view.tasks : view.tasks.slice(0, TASK_ROWS_FIRST);
+  const hidden = view.tasks.length - shown.length;
 
   return (
     <div className="ph-night" data-night-state={view.state}>
@@ -152,7 +158,7 @@ export function NightSummary({
       {view.tasks.length > 0 && (
         <section aria-label="Night Shift tasks">
           <ul className="ph-group">
-            {view.tasks.map((task) => (
+            {shown.map((task) => (
               <li key={task.id} data-task-state={task.state}>
                 <div className="ph-row">
                   <span className="ph-glyph" aria-hidden="true">
@@ -166,6 +172,20 @@ export function NightSummary({
               </li>
             ))}
           </ul>
+          {(hidden > 0 || (showAll && view.tasks.length > TASK_ROWS_FIRST)) && (
+            <div className="ph-appr-actions">
+              {hidden > 0 && (
+                <button type="button" className="ph-btn ph-btn--plain" aria-expanded={false} onClick={() => setShowAll(true)}>
+                  {`and ${hidden} more`}
+                </button>
+              )}
+              {showAll && view.tasks.length > TASK_ROWS_FIRST && (
+                <button type="button" className="ph-btn ph-btn--plain" aria-expanded={true} onClick={() => setShowAll(false)}>
+                  Show fewer
+                </button>
+              )}
+            </div>
+          )}
         </section>
       )}
       <p className="ph-foot">{COMPUTER_ONLY}</p>

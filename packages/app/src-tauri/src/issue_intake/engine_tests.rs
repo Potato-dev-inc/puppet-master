@@ -63,6 +63,8 @@ struct FakeState {
     pr_result: Result<PrRef, OperationError>,
     audits: Vec<(String, String, String)>,
     changed: u32,
+    /// For every card asked: was the run record already stored as `Asking` on that card's id?
+    stored_before_card: Vec<bool>,
 }
 
 struct Fake {
@@ -123,6 +125,7 @@ impl Fx {
             }),
             audits: Vec::new(),
             changed: 0,
+            stored_before_card: Vec::new(),
         };
         Fx(Arc::new(Fake {
             store: Store::at(root),
@@ -179,7 +182,7 @@ impl Fx {
         self.route(events_path(REPO, n, 1), event.to_string());
         self.route(
             format!("repos/{REPO}/issues/{n}"),
-            json!({"number": n, "state": "open", "labels": [{"name": "puppet"}]}).to_string(),
+            json!({"number": n, "title": title, "body": body, "state": "open", "labels": [{"name": "puppet"}]}).to_string(),
         );
     }
 
@@ -373,6 +376,11 @@ impl Io for Fx {
     fn ask(&self, new: NewQuestion) -> Result<String, String> {
         self.0.q.create(new, self.now_ms()).map(|q| q.id).map_err(|e| e.message)
     }
+    fn ask_as(&self, new: NewQuestion, id: &str) -> Result<String, String> {
+        let stored = self.0.store.by_question(id).is_some();
+        self.0.s.lock().stored_before_card.push(stored);
+        self.0.q.create_as(new, Some(id), self.now_ms()).map(|q| q.id).map_err(|e| e.message)
+    }
     fn question(&self, id: &str) -> Option<Question> {
         self.0.q.get(id, self.now_ms())
     }
@@ -496,6 +504,23 @@ fn nothing_happens_while_the_switch_is_off_or_gh_is_not_ready() {
     engine.tick();
     assert!(runs(&fx).is_empty() && fx.pending().is_empty());
     assert!(fx.0.s.lock().api_log.iter().all(|(path, _)| !path.starts_with("repos/")), "no repo is polled while gh is signed out");
+}
+
+/// The record must exist, as `Asking` on the card's id, when the card appears (a fast answer finds its run).
+#[test]
+fn the_run_record_is_stored_before_the_start_card_is_raised() {
+    let (fx, engine) = world(true, true);
+    fx.label(42, "someone", "you", "Click the button.");
+    engine.tick();
+    assert_eq!(fx.0.s.lock().stored_before_card, [true], "the card was raised before its run was stored");
+    let card = fx.only_card();
+    assert!(matches!(&the_run(&fx).state, RunState::Asking { question_id } if *question_id == card.id));
+    // The same holds when the person asks again after a no.
+    fx.answer(&engine, &card.id, CHOICE_NOT_NOW, "desktop");
+    let run_id = the_run(&fx).id;
+    engine.act(&run_id, "ask_again", "desktop").expect("ask again");
+    assert_eq!(fx.0.s.lock().stored_before_card, [true, true]);
+    assert_eq!(state_tag(&the_run(&fx)), "asking");
 }
 
 #[test]
@@ -944,6 +969,75 @@ fn a_clean_change_asks_by_default_then_pushes_on_yes() {
     assert!(body.contains("- Started after the person said yes"), "{body}");
     assert!(body.contains("Agent fake-agent \u{b7} 12 turns \u{b7} 9 min"), "{body}");
     assert!(!body.contains("Work on GitHub issue"), "the task is not in the body");
+}
+
+/// The single-issue answer GitHub gives now (what the engine reads when the agent is done).
+fn issue_now(fx: &Fx, n: u64, title: &str, body: &str, state: &str, labels: &[&str]) {
+    let labels: Vec<Value> = labels.iter().map(|name| json!({"name": name})).collect();
+    fx.route(
+        format!("repos/{REPO}/issues/{n}"),
+        json!({"number": n, "title": title, "body": body, "state": state, "labels": labels}).to_string(),
+    );
+}
+
+#[test]
+fn an_issue_edited_after_the_yes_says_so_on_the_push_card_even_when_the_repo_does_not_ask() {
+    let (fx, engine) = started_world(false);
+    // The person said yes to "Click the button." The issue now asks for something else.
+    issue_now(&fx, 42, "Login button does nothing", "Delete every user.", "open", &["puppet"]);
+    fx.agent_done("completed");
+    engine.tick();
+    assert!(fx.0.s.lock().prs.is_empty(), "a changed issue never pushes by itself");
+    let card = fx.only_card();
+    assert_eq!(card.question, "Draft PR ready for #42?");
+    let context = card.context.clone().unwrap();
+    assert!(context.contains("The issue changed after you said yes."), "{context}");
+    assert!(!context.contains("You asked Puppet Master to check each push first."), "the repo does not ask: {context}");
+    assert!(!context.contains("Delete every user."), "the new issue text is not shown: {context}");
+    let ids: Vec<&str> = card.choices.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, [CHOICE_PUSH, CHOICE_LOOK, CHOICE_THROW], "the person may still decide");
+    // The sentence survives Look first (the facts are saved with the run).
+    fx.answer(&engine, &card.id, CHOICE_LOOK, "desktop");
+    let again = fx.only_card();
+    assert!(again.context.unwrap().contains("The issue changed after you said yes."));
+    // A new title counts too, a closed issue and a removed label as well.
+    for (title, state, labels) in [("Another title", "open", vec!["puppet"]), ("Login button does nothing", "closed", vec!["puppet"]), ("Login button does nothing", "open", vec![])] {
+        let (fx, engine) = started_world(false);
+        issue_now(&fx, 42, title, "Click the button.", state, &labels);
+        fx.agent_done("completed");
+        engine.tick();
+        let context = fx.only_card().context.unwrap();
+        assert!(context.contains("The issue changed after you said yes."), "{title} {state} {labels:?}: {context}");
+    }
+}
+
+#[test]
+fn an_issue_that_did_not_change_or_cannot_be_read_adds_nothing_to_the_push_card() {
+    // Same text: asks (the repo asks), says nothing about a change.
+    let (fx, engine) = started_world(true);
+    issue_now(&fx, 42, "Login button does nothing", "Click the button.", "open", &["puppet"]);
+    fx.agent_done("completed");
+    engine.tick();
+    let context = fx.only_card().context.unwrap();
+    assert!(!context.contains("changed after you said yes"), "{context}");
+    // GitHub cannot be read (no route): no claim either, and the repo's own ask still shows.
+    let (fx, engine) = started_world(true);
+    fx.0.s.lock().api.remove(&format!("repos/{REPO}/issues/42"));
+    fx.agent_done("completed");
+    engine.tick();
+    let context = fx.only_card().context.unwrap();
+    assert!(!context.contains("changed after you said yes") && context.contains("You asked Puppet Master"), "{context}");
+}
+
+#[test]
+fn a_hidden_comment_added_to_the_issue_does_not_count_as_a_change() {
+    // The agent never sees an html comment: the cleaned text is what was approved, and it is unchanged.
+    let (fx, engine) = started_world(true);
+    issue_now(&fx, 42, "Login button does nothing", "Click the button.<!-- note -->", "open", &["puppet"]);
+    fx.agent_done("completed");
+    engine.tick();
+    let context = fx.only_card().context.unwrap();
+    assert!(!context.contains("changed after you said yes"), "{context}");
 }
 
 #[test]

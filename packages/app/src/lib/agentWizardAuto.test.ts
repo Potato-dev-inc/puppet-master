@@ -6,6 +6,9 @@ import {
   AiLooks,
   buildClassifierPrompt,
   buildMenuPrompt,
+  CLASSIFIER_PREFIX,
+  isScreenLook,
+  MENU_PREFIX,
   MENU_KEYS,
   parseMenuReply,
   decisionText,
@@ -996,5 +999,65 @@ describe('runAutonomous', () => {
     }).done;
     expect(out).toMatchObject({ status: 'finished', approved: true, rounds: 2 });
     expect(w.api.visibletest).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runAutonomous with dryRun (the Agent Store check)', () => {
+  const dry = (w: World, over: Partial<Parameters<typeof runAutonomous>[0]> = {}) =>
+    runAutonomous({
+      api: w.api,
+      start: { ...start, version: { ok: true, args: ['--version'], text: 'nimbus 0.4.1', number: '0.4.1' } },
+      probe,
+      drafter,
+      ask: async (prompt) => (isScreenLook(prompt) ? 'ready_for_input' : reply(GOOD)),
+      onEvent: () => undefined,
+      onDecision: () => undefined,
+      signal: new AbortController().signal,
+      timings: TIMINGS,
+      clock: fakeClock(),
+      dryRun: true,
+      ...over,
+    });
+
+  it('returns the report before finish: nothing is saved or approved', async () => {
+    const w = world();
+    w.api.visibletest = vi.fn(async () => ({ ...visibleOk(), version: '0.4.1' }));
+    const out = await dry(w);
+    expect(out).toMatchObject({ status: 'tested', checks: 7, total: 7, version: '0.4.1', rounds: 1 });
+    expect(w.api.finish).not.toHaveBeenCalled();
+  });
+
+  it('takes the version from the program when the test did not read one', async () => {
+    const w = world();
+    const out = await dry(w);
+    expect(out).toMatchObject({ status: 'tested', version: '0.4.1' });
+  });
+
+  it('counts the one-task stages with the visible checks', async () => {
+    const w = world();
+    const stage = (status: 'passed' | 'failed') => ({ name: 's', label: 'S', status, args: [], exit: 0, duration_ms: 1, timed_out: false, result: null, session: null, error_code: null, problems: [], note: null, stdout: '', stderr: '' });
+    w.api.verify = vi.fn(async (_s: string, toml: string) => ({ ...verifyOk(toml), planned: { fingerprint: 'live-A', stages: [{ label: 'One', args: ['run'] }] } as never }));
+    w.api.livetest = vi.fn(async () => ({ ok: true, state: 'tested', stages: [stage('passed'), stage('passed')], errors: [], text: '', tested_version: '0.4.2', fixtures: [] }));
+    const out = await dry(w);
+    expect(out).toMatchObject({ status: 'tested', checks: 9, total: 9 });
+    expect(w.api.finish).not.toHaveBeenCalled();
+  });
+
+  it('a stop writes no debug file', async () => {
+    const w = world({}, (v) => (v === 'sign_in_or_payment' ? { decision: 'stop', stop: { code: 'WIZARD_SIGN_IN_NEEDED', message: 'Sign in to nimbus (or finish its setup), then press Retry.' } } : {}));
+    w.api.captureDump = vi.fn(async () => ({ path: 'C:\Temp\wizard-debug.json' }));
+    const out = await dry(w, { ask: async () => 'sign_in_or_payment' });
+    expect(out).toEqual({ status: 'sign_in', message: 'Sign in to nimbus (or finish its setup), then press Retry.' });
+    expect(w.api.captureDump).not.toHaveBeenCalled();
+  });
+});
+
+describe('the look prompts', () => {
+  it('start with the exported prefixes, and a drafting prompt is not a look', () => {
+    expect(buildClassifierPrompt('nimbus', 's').startsWith(CLASSIFIER_PREFIX)).toBe(true);
+    expect(buildMenuPrompt('nimbus', 's').startsWith(MENU_PREFIX)).toBe(true);
+    expect(isScreenLook(buildClassifierPrompt('nimbus', 's'))).toBe(true);
+    expect(isScreenLook(buildMenuPrompt('nimbus', 's'))).toBe(true);
+    expect(isScreenLook('You write agent definitions.')).toBe(false);
   });
 });

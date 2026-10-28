@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CockpitApp from './CockpitApp';
 import { requestGoLive, type LiveStatus } from './lib/live-room';
 import { requestBringChats, requestImportedChat } from './lib/chatImport';
+import { runStoreCheck } from './lib/agentStoreCheck';
 
 // Mutable per-test input for the digest (away) path.
 const away = vi.hoisted(() => ({ digest: null as null | object }));
@@ -26,6 +27,8 @@ const live = vi.hoisted(() => ({
 }));
 // The Bring my old chats sheets: the pane start the (mocked) registry does.
 const imp = vi.hoisted(() => ({ spawnPane: (async () => 'p2') as (a: unknown) => Promise<string> }));
+// The runner the Store page was given (the mocked StoreHost records it).
+const store = vi.hoisted(() => ({ runCheck: undefined as unknown }));
 // Rust's "show Settings in this window" event (cockpit://settings).
 const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
 
@@ -129,10 +132,11 @@ vi.mock('./components/cockpit/Sidebar', async () => {
     onOpenMemory: () => void;
     onOpenScores: () => void;
     onOpenMorning?: () => void;
+    onOpenStore?: () => void;
     onOpenToSide?: (id: string) => void;
   };
   return {
-    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenMorning, onOpenToSide }: Props) =>
+    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenMorning, onOpenStore, onOpenToSide }: Props) =>
       h(
         'div',
         null,
@@ -141,6 +145,8 @@ vi.mock('./components/cockpit/Sidebar', async () => {
         h('button', { type: 'button', onClick: onOpenMemory }, 'Project memory'),
         h('button', { type: 'button', onClick: onOpenScores }, 'Scores'),
         h('button', { type: 'button', onClick: onOpenMorning }, 'Night Shift chip'),
+        // The "More agents…" row of the "+" menu (its own wiring is tested in NewAgentMenu.test.tsx).
+        h('button', { type: 'button', onClick: onOpenStore }, 'More agents…'),
         h('button', { type: 'button', onClick: () => void c.openSettings() }, 'Settings'),
         h('button', { type: 'button', onClick: () => c.select(null) }, 'Inbox'),
         ...c.registry.paneList.map((p) =>
@@ -150,8 +156,12 @@ vi.mock('./components/cockpit/Sidebar', async () => {
   };
 });
 vi.mock('./components/cockpit/AgentDoctor', async () => {
-  const { createElement: h } = await import('react');
-  return { AgentDoctor: () => h('div', null, 'DOCTOR VIEW') };
+  const { createElement: h, Fragment } = await import('react');
+  // The link sits beside the view (not inside it), so the view's own text stays 'DOCTOR VIEW'.
+  return {
+    AgentDoctor: ({ onOpenStore }: { onOpenStore?: () => void }) =>
+      h(Fragment, null, h('div', null, 'DOCTOR VIEW'), h('button', { type: 'button', onClick: onOpenStore }, 'Doctor browse')),
+  };
 });
 vi.mock('./components/cockpit/ProjectMemory', async () => {
   const { createElement: h } = await import('react');
@@ -174,6 +184,16 @@ vi.mock('./components/cockpit/night/MorningPage', async () => {
 vi.mock('./components/cockpit/AgentScores', async () => {
   const { createElement: h } = await import('react');
   return { AgentScores: ({ project }: { project?: { path: string } | null }) => h('div', null, 'SCORES VIEW ' + (project?.path ?? 'all')) };
+});
+vi.mock('./components/store/StoreHost', async () => {
+  const { createElement: h } = await import('react');
+  type Props = { onBack: () => void; onOpenAgent: (id: string) => void; runCheck?: unknown };
+  return {
+    StoreHost: ({ onBack, onOpenAgent, runCheck }: Props) => {
+      store.runCheck = runCheck;
+      return h('div', null, 'STORE VIEW', h('button', { type: 'button', onClick: onBack }, 'Store back'), h('button', { type: 'button', onClick: () => onOpenAgent('qwen') }, 'Store open qwen'));
+    },
+  };
 });
 // The split view's own rendering is tested in SplitView.test.tsx; here only its wiring from CockpitApp.
 vi.mock('./components/cockpit/SplitView', async () => {
@@ -215,9 +235,9 @@ vi.mock('./components/cockpit/Inbox', async () => {
 let settingsMounts = 0;
 vi.mock('./components/cockpit/SettingsView', async () => {
   const { createElement: h, useEffect } = await import('react');
-  type Props = { initialTab?: string; onBack: () => void; onPageChange?: (page: string) => void };
+  type Props = { initialTab?: string; onBack: () => void; onPageChange?: (page: string) => void; onOpenStore?: () => void };
   return {
-    SettingsView: ({ initialTab, onBack, onPageChange }: Props) => {
+    SettingsView: ({ initialTab, onBack, onPageChange, onOpenStore }: Props) => {
       useEffect(() => {
         settingsMounts += 1;
         onPageChange?.(initialTab ?? 'agents');
@@ -228,6 +248,7 @@ vi.mock('./components/cockpit/SettingsView', async () => {
         'SETTINGS VIEW tab=' + initialTab + ';',
         h('button', { type: 'button', onClick: onBack }, 'Settings back'),
         h('button', { type: 'button', onClick: () => onPageChange?.('keys') }, 'Go to Keys'),
+        h('button', { type: 'button', onClick: onOpenStore }, 'Settings browse'),
       );
     },
   };
@@ -245,7 +266,10 @@ vi.mock('./components/cockpit/SpawnView', async () => {
 });
 vi.mock('./components/cockpit/Palette', async () => {
   const { createElement: h } = await import('react');
-  return { Palette: ({ initialMode }: { initialMode?: string }) => h('div', { 'data-testid': 'palette', 'data-mode': initialMode }) };
+  return {
+    Palette: ({ initialMode, onOpenStore }: { initialMode?: string; onOpenStore?: () => void }) =>
+      h('div', { 'data-testid': 'palette', 'data-mode': initialMode }, h('button', { type: 'button', onClick: onOpenStore }, 'Open Agent Store')),
+  };
 });
 // The old chat sheet is stubbed: this test is about the host in the cockpit, not the sheet.
 vi.mock('./components/history/ImportedChatSheet', async () => {
@@ -405,6 +429,64 @@ describe('CockpitApp main view precedence', () => {
     expect(mainText()).toContain('SETTINGS VIEW');
     clickButton('Settings back');
     expect(mainText()).toBe('SPAWN VIEW');
+  });
+});
+
+describe('CockpitApp Agent Store wiring', () => {
+  it('"More agents…" in the "+" menu opens the store over the pane, and Back returns to the pane', () => {
+    clickButton('More agents…');
+    expect(mainText()).toContain('STORE VIEW');
+    clickButton('Store back');
+    expect(mainText()).toBe('PANE VIEW p1');
+  });
+
+  it('the palette command "Open Agent Store" opens it', () => {
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true })));
+    clickButton('Open Agent Store');
+    expect(mainText()).toContain('STORE VIEW');
+  });
+
+  it('Set up agents and Settings > Agents can open it, and Back returns to the resting view', () => {
+    clickButton('Set up agents');
+    clickButton('Doctor browse');
+    expect(mainText()).toContain('STORE VIEW');
+    clickButton('Store back');
+    expect(mainText()).toBe('PANE VIEW p1');
+    clickButton('Settings');
+    clickButton('Settings browse');
+    expect(mainText()).toContain('STORE VIEW');
+    clickButton('Store back');
+    expect(mainText()).toBe('PANE VIEW p1');
+  });
+
+  it('Back returns to a starting agent when one is on screen', () => {
+    ui.spawn = { failed: null };
+    act(() => root.render(createElement(CockpitApp)));
+    clickButton('More agents…');
+    expect(mainText()).toContain('STORE VIEW');
+    clickButton('Store back');
+    expect(mainText()).toBe('SPAWN VIEW');
+  });
+
+  it('picking a pane, or the inbox, leaves the store', () => {
+    clickButton('More agents…');
+    clickButton('pane p2');
+    expect(mainText()).toBe('PANE VIEW p2');
+    clickButton('More agents…');
+    clickButton('Inbox');
+    expect(mainText()).toContain('INBOX VIEW');
+  });
+
+  it('the Store page gets the real "Check it works" runner', () => {
+    clickButton('More agents…');
+    expect(store.runCheck).toBe(runStoreCheck);
+  });
+
+  it('Individual mode never shows the store', () => {
+    cockpit.mode = 'individual';
+    act(() => root.render(createElement(CockpitApp)));
+    clickButton('More agents…');
+    expect(mainText()).toContain('Individual mode');
   });
 });
 

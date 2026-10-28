@@ -4,6 +4,7 @@
 //! - `runs.json`: issue runs, newest first, at most `RECORDS_CAP`.
 //! - `empty-hooks/`: an empty folder for `core.hooksPath` on PM's own git calls (3.5).
 //! - `gh-empty/`: an empty `GH_CONFIG_DIR` for panes that must not see the person's gh login (3.4).
+//! - `push-blocked-hooks/`: `core.hooksPath` for those panes; its one `pre-push` hook refuses every push.
 //!
 //! Every write goes through `secure_file::write_private` (atomic, owner-only on unix). A bad id is
 //! refused before any file is touched, so a hostile id never makes a file (S15). A missing or
@@ -105,6 +106,14 @@ impl Store {
     /// The empty `GH_CONFIG_DIR` for guarded panes. Created private; PM never puts a file in it.
     pub fn gh_empty_dir(&self) -> Result<PathBuf, String> {
         self.empty_dir("gh-empty")
+    }
+
+    /// The folder `core.hooksPath` points at for guarded panes: one `pre-push` hook that refuses every
+    /// push. Created private; the hook is written again at every call, so an edit does not last.
+    pub fn push_block_hooks_dir(&self) -> Result<PathBuf, String> {
+        let dir = self.empty_dir("push-blocked-hooks")?;
+        crate::pty::env_guard::write_push_block_hook(&dir)?;
+        Ok(dir)
     }
 
     fn empty_dir(&self, name: &str) -> Result<PathBuf, String> {

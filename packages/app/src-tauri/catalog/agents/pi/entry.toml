@@ -1,0 +1,31 @@
+schema_version = 1
+
+[store]
+id = "pi"
+tagline = "Terminal coding agent that connects to a provider with /login."
+tier = "starter"
+builtin = false
+categories = ["general", "open_source", "bring_your_key"]
+status = "active"
+replaced_by = ""
+ambiguous_name = true
+first_listed = "2026-10-28"
+
+[vendor]
+name = "Pi (pi-mono project)"
+homepage = "https://github.com/badlogic/pi-mono"
+license = "MIT"
+license_kind = "open_source"
+
+[sign_in]
+kind = "either"
+summary = "Start Pi and type /login to connect a subscription or an API key."
+
+[checked]
+date = "2026-10-28"
+version = "not stated"
+how = "vendor_docs"
+windows_tested = false
+
+[publisher]
+script_hosts = []

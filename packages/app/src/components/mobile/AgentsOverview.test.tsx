@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaneInfo } from '@puppet-master/shared';
@@ -83,6 +83,7 @@ async function mount(
     stuck: Map<string, LoopSignalInfo>;
     questionsRevision: number;
     attention: AttentionSnapshot | null;
+    night: ReactNode;
   }> = {},
 ) {
   const onOpen = props.onOpen ?? vi.fn();
@@ -99,6 +100,7 @@ async function mount(
         stuck={props.stuck}
         questionsRevision={props.questionsRevision}
         attention={props.attention}
+        night={props.night}
       />,
     );
   });
@@ -217,5 +219,29 @@ describe('phone AgentsOverview', () => {
     await mount({ bridgeReady: false });
     expect(host.textContent).toContain('Connecting to your PC');
     expect(host.querySelector('h1')).toBeNull();
+  });
+
+  it('draws the night slot under the Agents title, inside the scrolling list, above the agent groups', async () => {
+    await mount({ night: <div data-testid="night-slot">Night card</div> });
+    const slot = host.querySelector('[data-testid="night-slot"]')!;
+    expect(slot).not.toBeNull();
+    expect(host.querySelector('.ph-scroll')!.contains(slot)).toBe(true);
+    const title = host.querySelector('h1')!;
+    expect(title.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(slot.compareDocumentPosition(host.querySelector('.ph-sec')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(host.querySelectorAll('[data-testid="night-slot"]')).toHaveLength(1);
+  });
+
+  it('draws the night slot on the empty screen too, inside the scrolling list', async () => {
+    await mount({ panes: [], night: <div data-testid="night-slot">Night card</div> });
+    const slot = host.querySelector('[data-testid="night-slot"]')!;
+    expect(host.querySelector('.ph-scroll')!.contains(slot)).toBe(true);
+    expect(host.textContent).toContain('No agents running');
+  });
+
+  it('keeps the night slot up while the bridge reconnects', async () => {
+    await mount({ bridgeReady: false, night: <div data-testid="night-slot">Night card</div> });
+    expect(host.querySelector('[data-testid="night-slot"]')).not.toBeNull();
+    expect(host.textContent).toContain('Connecting to your PC');
   });
 });

@@ -115,6 +115,6 @@ export const agentsRows: RowDef[] = [
     label: 'Agent definitions',
     hint: 'Add your own agents with a small settings file. A new or changed one stays off until you review and approve it.',
     keywords: 'toml consent project sources drafts import export fixtures revoke approve review extra directories generic agent reload',
-    render: () => <AgentDefinitions />,
+    render: (env) => <AgentDefinitions onOpenStore={env.openStore} />,
   },
 ];

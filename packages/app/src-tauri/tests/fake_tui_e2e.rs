@@ -1208,3 +1208,13 @@ mod safety_net;
 
 #[path = "fake_tui_keep_going.rs"]
 mod keep_going;
+
+// ---- Night Shift: a night of four tasks on two fake plans, a stop time, Keep and Throw away (zero tokens) -------------
+
+#[path = "fake_tui_night.rs"]
+mod night;
+
+// ---- Assign an issue: a labeled issue, a guarded copy, a draft PR (fake gh, local bare remote, zero tokens) -----------
+
+#[path = "fake_tui_issue_intake.rs"]
+mod issue_intake;

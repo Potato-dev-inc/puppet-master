@@ -25,6 +25,20 @@ pub struct CatalogEntry {
     pub fixtures: Vec<(String, String)>,
 }
 
+impl CatalogEntry {
+    /// The name a card and an install title show: the definition's `agent.label` when it has one,
+    /// else the vendor's name (a built-in agent has no definition).
+    pub fn label(&self) -> String {
+        let defined = self
+            .definition_text
+            .as_deref()
+            .and_then(|text| parse_definition(text).ok())
+            .map(|definition| definition.agent.label.trim().to_string())
+            .filter(|label| !label.is_empty());
+        defined.unwrap_or_else(|| self.entry.vendor.name.clone())
+    }
+}
+
 /// What `load` made of a list of files.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Loaded {
@@ -175,7 +189,12 @@ pub fn embedded_definition(id: &str) -> Option<&'static str> {
 
 /// The Windows install spec from the shipped definition, only when it passes `validate`.
 pub fn install_spec(id: &str) -> Option<InstallSpec> {
-    windows_spec(embedded_definition(id)?)
+    install_spec_of(get(id)?)
+}
+
+/// The Windows install spec of one entry (see `install_spec`).
+pub fn install_spec_of(entry: &CatalogEntry) -> Option<InstallSpec> {
+    windows_spec(entry.definition_text.as_deref()?)
 }
 
 /// The `[install.windows]` table of one definition text, when it is present and valid.

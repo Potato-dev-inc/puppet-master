@@ -20,7 +20,8 @@ fn hooks() -> Vec<(String, String)> {
 }
 
 fn guard() -> LaunchEnv {
-    env_guard::launch_env(env_guard::NO_PUSH, std::path::Path::new("C:/app/gh-empty")).expect("guard")
+    env_guard::launch_env(env_guard::NO_PUSH, std::path::Path::new("C:/app/gh-empty"), std::path::Path::new("C:/app/push-blocked-hooks"))
+        .expect("guard")
 }
 
 fn value_of(env: &LaunchEnv, key: &str) -> Option<String> {
@@ -47,7 +48,7 @@ fn a_guarded_env_is_account_then_hooks_then_guard() {
     assert_eq!(value_of(&env, crate::pty::PANE_ID_ENV).as_deref(), Some("pane-1"));
     // The guard wins over the account: GH_CONFIG_DIR is the guard's empty folder.
     assert_eq!(value_of(&env, "GH_CONFIG_DIR").as_deref(), Some("C:/app/gh-empty"));
-    assert_eq!(value_of(&env, "GIT_CONFIG_COUNT").as_deref(), Some("4"));
+    assert_eq!(value_of(&env, "GIT_CONFIG_COUNT").as_deref(), Some("6"));
     // The guard's sets are after the account's and the hooks' in the list.
     let at = |name: &str| env.set.iter().position(|(k, _)| k == name).unwrap();
     assert!(at("GH_CONFIG_DIR") > at("ACCOUNT_HOME"));

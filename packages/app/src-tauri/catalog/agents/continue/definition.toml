@@ -1,0 +1,20 @@
+# Continue CLI (npm package `@continuedev/cli`), a generic experimental definition. It runs `cn`
+# in a visible pane and reads the screen with shared heuristics only. `cn` is a short name that
+# another program may use, so the Store asks the person to confirm the program it finds.
+# The npm registry entry names the binary but no working repository, so this definition has no
+# install step.
+schema_version = 1
+
+[agent]
+id = "continue"
+label = "Continue"
+icon = "CN"
+kind = "generic"
+description = "Continue CLI (cn), a customizable coding agent run in a pane."
+experimental = true
+
+[binary]
+names = ["cn"]
+windows_extensions = ["exe", "cmd"]
+version_args = ["--version"]
+install_hint = "install the Continue CLI (cn) and make sure it is on PATH"
