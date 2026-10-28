@@ -35,6 +35,7 @@ function row(over: Partial<ScoreRow>): ScoreRow {
     askedYou: NONE,
     perMerged: null,
     waitingReview: 0,
+    brokeTests: 0,
     turnMsMedian: null,
     linesMedian: null,
     ahead: [],
@@ -230,6 +231,32 @@ describe('AgentScores', () => {
   it('shows the typical turn line and the waiting count under the agent name', async () => {
     await mount(fakeApi(FULL));
     expect(host.querySelector('.ck-scores-detail')?.textContent).toBe('Typical turn 4 min · 38 lines · 2 waiting for review');
+  });
+
+  it('shows the broke-the-tests line in the agent cell only when the count is above 0', async () => {
+    const broke = row({ agentId: 'beta', agentLabel: 'Beta', turns: 10, enough: true, endedOk: rate(9, 10, 'steady'), brokeTests: 2 });
+    await mount(fakeApi({ ...FULL, rows: [ALPHA, broke] }));
+    expect(host.querySelectorAll('.ck-scores-broke')).toHaveLength(1);
+    const line = host.querySelector('.ck-scores-broke');
+    expect(line?.textContent).toBe('Broke the tests 2 times');
+    expect(line?.closest('th')?.textContent).toContain('Beta');
+    expect(host.querySelectorAll('tbody tr')[0].querySelector('.ck-scores-broke')).toBeNull();
+  });
+
+  it('uses the singular for one broken turn', async () => {
+    const once = row({ turns: 10, enough: true, endedOk: rate(9, 10, 'steady'), brokeTests: 1 });
+    await mount(fakeApi({ ...FULL, rows: [once] }));
+    expect(host.querySelector('.ck-scores-broke')?.textContent).toBe('Broke the tests 1 time');
+  });
+
+  it('does not change the ahead chips or the cells when the count is set', async () => {
+    const plain = row({ turns: 10, enough: true, endedOk: rate(9, 10, 'steady'), ahead: ['endedOk'] });
+    await mount(fakeApi({ ...FULL, rows: [plain] }));
+    const before = host.querySelectorAll('.ck-scores-ahead').length;
+    const cellsBefore = cells(0).map((td) => td.textContent);
+    await mount(fakeApi({ ...FULL, rows: [{ ...plain, brokeTests: 3 }] }));
+    expect(host.querySelectorAll('.ck-scores-ahead')).toHaveLength(before);
+    expect(cells(0).map((td) => td.textContent)).toEqual(cellsBefore);
   });
 
   it('shows the per merged change, or a dash when it needs 3 merged runs', async () => {
