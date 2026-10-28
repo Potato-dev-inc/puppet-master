@@ -22,6 +22,10 @@ export const companionIdOf = (tab: string): string | null => (isCompanionTab(tab
 /** True for the pane that a companion keeps alive. The tab bar shows the companion's own tab instead. */
 export const isCompanionPane = (paneId: string): boolean => paneId.startsWith(COMPANION_PANE_PREFIX);
 
+/** The tab that shows a pane: its own id, or the companion's tab for a companion's pane (`companion-<id>`). */
+export const tabOfPane = (paneId: string): string =>
+  isCompanionPane(paneId) ? companionTab(paneId.slice(COMPANION_PANE_PREFIX.length)) : paneId;
+
 export interface StatusMeta {
   label: string;
   dot: string;

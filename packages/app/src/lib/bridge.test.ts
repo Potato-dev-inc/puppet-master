@@ -36,6 +36,16 @@ describe('makeBridgeClient session routes', () => {
     await expect(bridge.killPane('p-1')).rejects.toThrow(/403/);
   });
 
+  it('searches every chat through GET /chats/search with the words and the limit', async () => {
+    const answer = { enabled: true, hits: [] };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => answer });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const bridge = makeBridgeClient('http://127.0.0.1:17321');
+    await expect(bridge.searchChats?.('license key', 30)).resolves.toEqual(answer);
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:17321/chats/search?q=license+key&limit=30', expect.objectContaining({ method: 'GET' }));
+  });
+
   it('fetches MCP registry tools', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
