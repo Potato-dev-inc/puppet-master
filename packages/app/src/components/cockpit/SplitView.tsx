@@ -1,7 +1,7 @@
 // Split view: two agent chats side by side (like split editors). The left side is the selected pane, the
 // right side is the pane opened "to the side". The side with focus is full strength; the other is dimmed.
 // The session rail on the right follows the focused side. Each side has its own message box (SessionChatPanel).
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { SessionChatPanel } from '../chat/SessionChatPanel';
 import { composerBlock } from '../../lib/paneOutbox';
@@ -11,6 +11,7 @@ import { helperOfLabel } from '../../lib/pane-helpers';
 import '../../styles/cockpit-split.css';
 import { DockedCards } from './DockedCards';
 import { DotSpinner } from './DotSpinner';
+import { SplitDivider } from './SplitDivider';
 import { HelperQuestions, helperQuestionIds } from './HelperQuestions';
 import { IconClose, IconRail } from './Icons';
 import { dockItems } from './pane-chrome';
@@ -20,6 +21,11 @@ import { helperRows } from './rail/helperRows';
 import { useRailLayout } from './rail/useRailLayout';
 import type { SplitSide } from './main-view';
 import { paneHeading } from './titles';
+
+/** Moves the keyboard focus into a side's message box (Ctrl+Alt+Left / Right, see CockpitApp). */
+export function focusSideComposer(side: SplitSide) {
+  document.querySelector<HTMLTextAreaElement>(`.ck-split-side[data-split-side="${side}"] textarea`)?.focus();
+}
 
 /** The window's width, kept current (the split view turns off below a width, see main-view.ts). */
 export function useWindowWidth(): number {
@@ -37,17 +43,23 @@ export function SplitView({
   leftId,
   rightId,
   focus,
+  ratio,
   onFocus,
+  onRatio,
   onClose,
 }: {
   c: CockpitApi;
   leftId: string;
   rightId: string;
   focus: SplitSide;
+  /** The left side's share of the room (see main-view.ts). The CSS keeps each side at its minimum width. */
+  ratio: number;
   onFocus: (side: SplitSide) => void;
+  onRatio: (ratio: number) => void;
   onClose: () => void;
 }) {
   const rail = useRailLayout();
+  const colsRef = useRef<HTMLDivElement>(null);
   const focusedId = focus === 'right' ? rightId : leftId;
   const fp = c.registry.panes.get(focusedId);
   const agentName = c.names.get(focusedId) ?? fp?.info.agent_type ?? '';
@@ -56,9 +68,9 @@ export function SplitView({
   const chatAllowed = listing.agents.find((a) => a.id === agentType)?.kind !== 'shell';
   return (
     <div className="ck-split">
-      <div className="ck-split-cols">
+      <div ref={colsRef} className="ck-split-cols" style={{ ['--ck-split-ratio' as string]: String(ratio) } as CSSProperties}>
         <SplitSideView c={c} paneId={leftId} side="left" focused={focus === 'left'} onFocus={onFocus} onClose={onClose} />
-        <div className="ck-split-divider" aria-hidden="true" />
+        <SplitDivider colsRef={colsRef} ratio={ratio} onRatio={onRatio} />
         <SplitSideView
           c={c}
           paneId={rightId}
@@ -157,7 +169,8 @@ function SplitSideView({
 
   return (
     <section
-      className={`ck-split-side${focused ? ' is-focused' : ' is-dim'}`}
+      className={`ck-split-side${side === 'left' ? ' ck-split-side-left' : ''}${focused ? ' is-focused' : ' is-dim'}`}
+      data-split-side={side}
       aria-label={`${side === 'left' ? 'Left' : 'Right'} chat: ${heading.primary}`}
       aria-current={focused ? 'true' : undefined}
       onMouseDownCapture={() => onFocus(side)}

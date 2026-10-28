@@ -98,6 +98,16 @@ pub trait Host: Send + Sync + 'static {
     fn blocking(&self, pane_id: &str) -> Option<Blocking>;
     /// The pane shows a startup screen only the person may pass (sign-in) that has no card of its own.
     fn sign_in_gate(&self, pane_id: &str) -> bool;
+    /// A startup notice that declares its own dismiss keys (an update menu) is on the pane. Looks only.
+    /// The default sees none.
+    fn notice_gate(&self, _pane_id: &str) -> bool {
+        false
+    }
+    /// Presses the dismiss keys of that notice once (only the keys its profile declares, never Enter, never
+    /// "update now") and returns at once. True when keys went in. Only for the companion's own pane.
+    fn dismiss_notice(&self, _pane_id: &str) -> bool {
+        false
+    }
     /// The pane's activity phrase ("Reading notes.md").
     fn activity(&self, pane_id: &str) -> Option<String>;
 
