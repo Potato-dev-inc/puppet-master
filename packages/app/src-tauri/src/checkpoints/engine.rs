@@ -154,7 +154,7 @@ pub struct RestoreReport {
 
 static LOCKS: Lazy<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-fn lock_for(shadow: &Shadow) -> Arc<Mutex<()>> {
+pub(super) fn lock_for(shadow: &Shadow) -> Arc<Mutex<()>> {
     LOCKS.lock().entry(shadow.git_dir.clone()).or_default().clone()
 }
 
@@ -199,7 +199,7 @@ pub fn list(project: &Path, pane: &str) -> Result<Vec<Checkpoint>, CheckpointErr
     list_in(&shadow, pane)
 }
 
-fn list_in(shadow: &Shadow, pane: &str) -> Result<Vec<Checkpoint>, CheckpointError> {
+pub(super) fn list_in(shadow: &Shadow, pane: &str) -> Result<Vec<Checkpoint>, CheckpointError> {
     let prefix = format!("refs/pm/{}/", pane_key(pane));
     let out = shadow.run(
         &[
@@ -281,7 +281,7 @@ fn label_for(kind: Kind, turn: u32) -> String {
 
 /// Untracked + modified files (per the pane index): those over the per-file limit, and a guard
 /// on the total size of the rest.
-fn scan(shadow: &Shadow, index: &Path, limits: &Limits) -> Result<Vec<String>, CheckpointError> {
+pub(super) fn scan(shadow: &Shadow, index: &Path, limits: &Limits) -> Result<Vec<String>, CheckpointError> {
     let out = shadow.run(&["ls-files", "-z", "-o", "-m", "--exclude-standard"], Some(index), None, &[])?;
     let mut big = Vec::new();
     let mut total = 0_u64;
@@ -306,7 +306,7 @@ fn scan(shadow: &Shadow, index: &Path, limits: &Limits) -> Result<Vec<String>, C
     Ok(big)
 }
 
-fn stage_all(shadow: &Shadow, index: &Path, big: &[String]) -> Result<(), CheckpointError> {
+pub(super) fn stage_all(shadow: &Shadow, index: &Path, big: &[String]) -> Result<(), CheckpointError> {
     let run = || -> Result<(), GitError> {
         if big.is_empty() {
             shadow.run(&["add", "-A"], Some(index), None, &[])?;
@@ -499,7 +499,7 @@ fn prune_locked(shadow: &Shadow, pane: &str, keep: usize) -> usize {
     removed
 }
 
-fn find(items: &[Checkpoint], id: &str) -> Result<usize, CheckpointError> {
+pub(super) fn find(items: &[Checkpoint], id: &str) -> Result<usize, CheckpointError> {
     items.iter().position(|c| c.id == id).ok_or(CheckpointError::NotFound)
 }
 
@@ -607,7 +607,7 @@ pub fn last_turn_patch(project: &Path, pane: &str, max_bytes: usize) -> Result<O
     Ok(Some(TurnPatch { turn, patch, truncated }))
 }
 
-fn name_status(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(char, String)>, CheckpointError> {
+pub(super) fn name_status(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(char, String)>, CheckpointError> {
     let out = shadow.run(&["diff-tree", "-r", "-z", "--name-status", "--no-renames", from, to], None, None, &[])?;
     let parts: Vec<String> = out.stdout.split(|b| *b == 0).map(|p| String::from_utf8_lossy(p).to_string()).collect();
     let mut rows = Vec::new();
@@ -621,7 +621,7 @@ fn name_status(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(char, Strin
     Ok(rows)
 }
 
-fn safe_relative(path: &str) -> Option<PathBuf> {
+pub(super) fn safe_relative(path: &str) -> Option<PathBuf> {
     let p = Path::new(path);
     if !path.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_))) {
         Some(p.to_path_buf())
@@ -630,7 +630,7 @@ fn safe_relative(path: &str) -> Option<PathBuf> {
     }
 }
 
-fn remove_file_forced(path: &Path) -> std::io::Result<()> {
+pub(super) fn remove_file_forced(path: &Path) -> std::io::Result<()> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
