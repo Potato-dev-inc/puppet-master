@@ -4,11 +4,13 @@
 //! - `screen` — the interactive TUI's menus and selectors
 //! - `transcript` — how the conversation is drawn (message rows, tool rows, the input box, the sidebar)
 //! - `chat` — the same conversation read from OpenCode's local HTTP API, with tool input, output and diffs
+//! - `history` — old chats, read from OpenCode's own SQLite database (read-only), for "Bring all my chats"
 //!
 //! The HTTP API client (keys, quota, messages) is a protocol backend, not a screen-scraped TUI,
 //! and stays in `crate::opencode`.
 
 mod chat;
+mod history;
 pub mod read_only;
 mod screen;
 mod transcript;
@@ -126,6 +128,11 @@ impl TuiProfile for OpenCode {
 
     fn instruction_files(&self) -> Vec<InstructionFile> {
         agents_md()
+    }
+
+    /// OpenCode's old chats: its database under `~/.local/share/opencode` (or `XDG_DATA_HOME`), read-only (`history.rs`).
+    fn session_history(&self) -> Option<&'static dyn crate::session_chat::SessionHistory> {
+        Some(&history::HISTORY)
     }
 
     /// Visible panes only: the TUI takes its task typed into the pane, not on stdin.
