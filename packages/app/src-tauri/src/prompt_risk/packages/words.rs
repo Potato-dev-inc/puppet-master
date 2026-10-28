@@ -101,6 +101,14 @@ pub fn lookalike_line(popular: &str, how: How) -> String {
     format!("Looks like {popular} ({})", how_text(how))
 }
 
+/// The risk headline of an install with a look-alike name (`prompt_risk::assess`).
+pub const LOOKALIKE_RISK_HEADLINE: &str = "Install a package with a look-alike name";
+
+/// The risk reason of an install with a look-alike name: "lodahs looks like the popular package lodash (...)".
+pub fn lookalike_risk_reason(name: &str, popular: &str, how: How) -> String {
+    format!("{name} looks like the popular package {popular} ({}). Check the name before you allow it.", how_text(how))
+}
+
 /// Look closer: "Not found on npm. The name may be made up."
 pub fn not_found_line(registry: &str) -> String {
     format!("Not found on {registry}. The name may be made up.")

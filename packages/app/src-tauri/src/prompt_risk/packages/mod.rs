@@ -20,6 +20,9 @@ pub(crate) mod lookalike;
 pub(crate) mod parse;
 pub(crate) mod popular;
 
+#[cfg(test)]
+mod assess_tests;
+
 use std::collections::HashSet;
 
 use crate::redact;
