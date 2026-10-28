@@ -96,7 +96,8 @@ export function ImportChatsCard({ api = chatImportApi, isWelcomeDone = welcomeDo
       </ul>
       {panel && (
         <Sheet labelledBy={BRING_CHATS_TITLE_ID} role="dialog" onClose={closePanel}>
-          <BringChatsPanel api={api} onClose={closePanel} />
+          {/* The card's "Find my chats" is the consent: the panel starts looking without a second press. */}
+          <BringChatsPanel api={api} onClose={closePanel} startLooking />
         </Sheet>
       )}
     </>

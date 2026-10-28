@@ -3,7 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ImportApi, ImportState } from '../../lib/chatImport';
+import type { ImportApi, ImportFound, ImportState } from '../../lib/chatImport';
 import { ImportChatsCard, IMPORT_CARD_BODY, IMPORT_CARD_TITLE } from './ImportChatsCard';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -45,6 +45,29 @@ function fakeApi(st: ImportState = state()): ImportApi {
     open: vi.fn(),
     resumePlan: vi.fn(),
   } as unknown as ImportApi;
+}
+
+const FOUND: ImportFound = {
+  id: 'claude',
+  label: 'Claude Code',
+  fromDefinition: false,
+  chats: 412,
+  bytes: 38 * 1024 * 1024,
+  oldestMs: null,
+  newestMs: null,
+  already: 0,
+  tooBig: 0,
+  places: ['~/.claude/projects'],
+  canContinue: true,
+};
+
+/** Lets the pending reads and the effects they start run. */
+async function flush() {
+  for (let i = 0; i < 4; i++) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
 }
 
 /** Renders the card and lets its async reads finish. */
@@ -114,15 +137,22 @@ describe('first-start card: Bring my old chats', () => {
     expect(card()!.querySelector('.ib-note')?.textContent).toBe('The settings file is locked.');
   });
 
-  it('"Find my chats" opens the Bring panel in a sheet and still reads nothing by itself', async () => {
+  it('"Find my chats" opens the Bring panel and looks once, with no second press', async () => {
     const api = fakeApi();
+    api.look = vi.fn(async () => [FOUND]);
     await mount(api, true);
     await act(async () => buttonNamed('Find my chats')!.click());
-    const sheet = host.querySelector('[aria-modal="true"]');
+    await flush();
+    const sheet = host.querySelector<HTMLElement>('[aria-modal="true"]');
     expect(sheet).not.toBeNull();
     expect(sheet?.getAttribute('aria-labelledby')).toBe('bc-panel-title');
     expect(sheet?.querySelector('#bc-panel-title')?.textContent).toBe('Bring my old chats');
-    expect(api.look).not.toHaveBeenCalled();
+    // The look ran from the card's press: the list is there and the panel's own intro button is not.
+    expect(api.look).toHaveBeenCalledTimes(1);
+    expect(api.look).toHaveBeenCalledWith(365);
+    expect(sheet?.textContent).toContain('Claude Code · 412 chats');
+    expect(Array.from(sheet?.querySelectorAll('button') ?? []).some((b) => b.textContent === 'Find my chats')).toBe(false);
+    expect(api.start).not.toHaveBeenCalled();
   });
 
   it('closing the panel re-reads the answer, so a started run hides the card', async () => {
