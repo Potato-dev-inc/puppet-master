@@ -577,6 +577,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&project);
     }
 
+    /// No summary in flight: the dispose must not go to sleep waiting for one. This checks the code
+    /// path (the summary wait never blocked), not elapsed time. The dispose also kills the pane's
+    /// process, which is a `taskkill` subprocess on Windows: 0.5-2 s under load, so a wall-clock bound
+    /// on the whole call failed in a few of 30 loaded runs, while the summary wait took ~1 ms.
     #[test]
     fn automatic_dispose_does_not_wait_when_no_summary_is_in_flight() {
         let project = std::env::temp_dir()
@@ -590,9 +594,13 @@ mod tests {
             .panes
             .insert(pane_id.to_string(), PaneRegistry::test_pane_stub(pane_id));
         let snapshot = snapshot_with_pane(&project, pane_id, true, false);
-        let started = std::time::Instant::now();
+        let blocked_before = crate::turn_summary::blocked_waits(pane_id);
         maybe_dispose_after_terminal(&snapshot, &registry).unwrap();
-        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert_eq!(
+            crate::turn_summary::blocked_waits(pane_id),
+            blocked_before,
+            "the dispose waited for a turn summary that was not in flight"
+        );
         assert!(!registry.lock().panes.contains_key(pane_id));
         let _ = std::fs::remove_dir_all(&project);
     }

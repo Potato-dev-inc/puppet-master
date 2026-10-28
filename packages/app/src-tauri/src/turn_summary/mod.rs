@@ -111,6 +111,12 @@ pub fn wait_for_summary(pane_id: &str, timeout: Duration) -> bool {
     PENDING.wait(pane_id, timeout)
 }
 
+/// Test only: how many waits for `pane_id` went to sleep because a summary of it was in flight.
+#[cfg(test)]
+pub fn blocked_waits(pane_id: &str) -> u32 {
+    PENDING.blocked_waits(pane_id)
+}
+
 static TRACKER: Lazy<Tracker> = Lazy::new(|| Tracker::new(Arc::new(LiveEnv)));
 
 pub fn tracker() -> &'static Tracker {
