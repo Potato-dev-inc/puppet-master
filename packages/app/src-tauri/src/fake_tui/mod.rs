@@ -15,12 +15,15 @@
 mod canary_rig;
 mod chat;
 mod profile;
+mod store_rig;
 mod team;
 mod wizard_rig;
 mod world;
 
 pub use canary_rig::CanaryRig;
 pub use chat::ChatProbe;
+pub use store_rig::StoreRig;
+pub(crate) use store_rig::catalog_files as store_catalog_files;
 pub use wizard_rig::{Answers, WizardRig};
 pub use team::{leak_check, Person, Remote};
 pub use world::{Session, World};

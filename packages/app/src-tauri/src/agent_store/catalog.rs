@@ -160,7 +160,20 @@ fn read_folder(id: &str, members: &[(&str, &str)]) -> Result<CatalogEntry, Vec<S
 /// The shipped catalog, parsed once from the files the build embeds.
 fn shipped() -> &'static Loaded {
     static SHIPPED: OnceLock<Loaded> = OnceLock::new();
-    SHIPPED.get_or_init(|| load(embedded::FILES))
+    SHIPPED.get_or_init(|| {
+        let mut loaded = load(embedded::FILES);
+        // The end-to-end tests add one made-up agent (`nimbus`); the app and the unit tests never see it.
+        #[cfg(all(feature = "dev-fake-tui", not(test)))]
+        {
+            let files = crate::fake_tui::store_catalog_files();
+            let refs: Vec<(&str, &str)> = files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
+            let extra = load(&refs);
+            loaded.entries.extend(extra.entries);
+            loaded.problems.extend(extra.problems);
+            loaded.entries.sort_by(|a, b| a.entry.store.id.cmp(&b.entry.store.id));
+        }
+        loaded
+    })
 }
 
 /// Every valid shipped entry, sorted by id.

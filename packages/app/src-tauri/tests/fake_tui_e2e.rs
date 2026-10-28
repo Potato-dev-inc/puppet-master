@@ -1194,6 +1194,11 @@ mod no_windows;
 #[path = "fake_tui_canary.rs"]
 mod canary;
 
+// ---- the Agent Store: add, run, edit, remove and restore a made-up agent (zero tokens) -------------------------------
+
+#[path = "fake_tui_store.rs"]
+mod store;
+
 // ---- the Chat tab's message box: a message waits for the agent and goes in once (zero tokens) ------------------------
 
 #[path = "fake_tui_chat_reply.rs"]
