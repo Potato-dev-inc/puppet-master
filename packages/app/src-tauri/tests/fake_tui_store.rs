@@ -7,8 +7,8 @@
 //!    pane starts, the Chat tab reads the screen, and a permission question becomes a card. Nothing answers it
 //!    except the test, playing the person.
 //! 2. Add with the program missing is refused (`ADD_PROGRAM_MISSING`) and writes nothing.
-//! 3. A file the person edited is `approval_stale`, the card asks for a review, a run is refused and Remove leaves the
-//!    file alone.
+//! 3. A file the person edited is `approval_stale`, the card says it is the person's own version, a run is refused and
+//!    Remove leaves the file alone.
 //! 4. Remove moves the files to `.removed/`; Settings' restore and the Store's own Add both bring the agent back.
 //!
 //! Included from `fake_tui_e2e.rs` (one test binary, one World per process).
@@ -169,11 +169,12 @@ fn a_file_edited_after_the_add_needs_review_and_is_never_run_or_removed_by_the_s
 
     let row = rig.definition_row();
     assert_eq!(row["state"], "approval_stale", "{row}");
-    // The card is never `ready`. (A stale definition is not registered, so `state::detect_at` finds no registry row
-    // for it and the card reads `found_on_pc`, not the `needs_review` row of SPEC 3.4; Add then says the file is
-    // already there. Reported with AS-22; the assertion keeps the safe part.)
+    // The bytes differ from the shipped copy, so the card is the person's own version (SPEC 3.4 `own_version`, checked
+    // before the approval). The review row is for a Store file whose bytes are unchanged (see state.rs tests).
+    // Add still refuses: the id is taken.
     let card = rig.card();
-    assert_ne!(state_of(&card), "ready", "an edited file is never `ready`: {card}");
+    assert_eq!(state_of(&card), "own_version", "{card}");
+    assert_eq!(card["state_reason"], "You have your own nimbus definition, so the Store leaves it alone.", "{card}");
     assert!(rig.add(false).expect_err("add never overwrites").starts_with("AGENT_DEF_DUPLICATE_ID"));
 
     // A run is refused at the spawn gate and nothing starts.
