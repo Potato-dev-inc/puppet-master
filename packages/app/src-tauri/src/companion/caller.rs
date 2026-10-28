@@ -4,8 +4,9 @@
 //! Two answers, for two different questions:
 //!
 //! - `verified`: the shim's process sits inside the process tree of a live companion pane
-//!   (`pty::pane_parent::descends_from`). Nothing the caller says decides it. This is what lets a call
-//!   through (`companion_recall`). Where the process table cannot be read it is `None`: fail closed.
+//!   (`pty::pane_parent::descends_from`), for the process id `decide` is given. From an MCP session that id is
+//!   a header the caller writes, so `verified` there is not proof: a call is let through only on the id of the
+//!   real TCP owner (`peer::recall_caller_pane`). Where the process table cannot be read it is `None`.
 //! - `suspected`: `verified`, or the pane the connection CLAIMS to run in (`X-Puppet-Master-Pane`) is a
 //!   companion pane. This is what keeps a call out (answering a helper's card, the default budget): a
 //!   forged claim can only refuse the forger more, never let it do more.
@@ -69,7 +70,42 @@ pub fn companion_panes(registry: &Arc<Mutex<PaneRegistry>>) -> Vec<CompanionPane
         .collect()
 }
 
-/// The verdict for an MCP connection, from the live registry and the process table.
+/// A companion's whole territory: its own pane, and every pane started under it (the `parent_pane_id` chain, so
+/// its helpers and their helpers). One entry per pane of the territory, named by the companion pane at the top,
+/// so a process in a helper's tree is placed in the companion's. Not for `companion_recall`: a helper is not the
+/// companion and must not read its chats (`companion_panes` stays the narrow answer for that).
+pub fn territory_panes(registry: &Arc<Mutex<PaneRegistry>>) -> Vec<CompanionPane> {
+    let reg = registry.lock();
+    let mut out = Vec::new();
+    for (id, pane) in reg.panes.iter() {
+        let Some(top) = companion_above(id, |pane_id| reg.panes.get(pane_id).and_then(|p| p.info.parent_pane_id.clone())) else { continue };
+        let mut roots = vec![pane.info.pid];
+        if let Some(serve) = pane.opencode.as_ref().and_then(|link| link.serve_pid()) {
+            roots.push(serve);
+        }
+        out.push(CompanionPane { id: top, roots, exited: *pane.exited.lock() });
+    }
+    out
+}
+
+/// The companion pane at or above `pane` in the parent chain, if any. Ends on a loop.
+fn companion_above(pane: &str, parent_of: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let mut current = pane.to_string();
+    for _ in 0..16 {
+        if is_pane_id(&current) {
+            return Some(current);
+        }
+        match parent_of(&current) {
+            Some(parent) if parent != current => current = parent,
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// The verdict for an MCP connection, from the live registry and the process table. The process id is the one the
+/// caller SENT (`X-Puppet-Master-Pid`): good enough for `suspected` (a forged claim only refuses the forger more),
+/// never for letting a call through. `companion_recall` uses the real TCP owner instead (`peer::recall_caller_pane`).
 pub fn of_session(registry: &Arc<Mutex<PaneRegistry>>, session: &str) -> Verdict {
     let hint = crate::mcp_sessions::claimed_session_pane(session);
     let pid = crate::mcp_sessions::session_pid(session);
@@ -142,5 +178,39 @@ mod tests {
         let mut dead = pane("companion-mochi", 100);
         dead.exited = true;
         assert_eq!(decide(&[dead], Some(&table()), Some(102), None).verified, None);
+    }
+
+    #[test]
+    fn the_territory_holds_the_companion_and_every_pane_under_it() {
+        let registry = Arc::new(Mutex::new(PaneRegistry::new()));
+        {
+            let mut reg = registry.lock();
+            let mut add = |id: &str, pid: u32, parent: Option<&str>| {
+                let mut pane = PaneRegistry::test_pane_stub(id);
+                pane.info.pid = pid;
+                pane.info.parent_pane_id = parent.map(str::to_string);
+                reg.panes.insert(id.to_string(), pane);
+            };
+            add("companion-mochi", 100, None);
+            add("helper", 400, Some("companion-mochi"));
+            add("grand-helper", 410, Some("helper"));
+            add("ordinary", 300, None);
+            add("ordinary-child", 310, Some("ordinary"));
+            add("loop-a", 500, Some("loop-b"));
+            add("loop-b", 510, Some("loop-a"));
+        }
+        let mut roots: Vec<(String, Vec<u32>)> = territory_panes(&registry).into_iter().map(|p| (p.id, p.roots)).collect();
+        roots.sort();
+        assert_eq!(
+            roots,
+            vec![
+                ("companion-mochi".to_string(), vec![100]),
+                ("companion-mochi".to_string(), vec![400]),
+                ("companion-mochi".to_string(), vec![410]),
+            ]
+        );
+        // The narrow answer (for recall) is only the companion's own pane.
+        let narrow: Vec<Vec<u32>> = companion_panes(&registry).into_iter().map(|p| p.roots).collect();
+        assert_eq!(narrow, vec![vec![100]]);
     }
 }
