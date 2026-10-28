@@ -414,6 +414,8 @@ pub fn run() {
             commands::plain_send,
             commands::crews_list,
             commands::crews_get,
+            commands::crews_starters,
+            commands::crews_agents,
             commands::crews_draft,
             commands::crews_save,
             commands::crews_remove,
