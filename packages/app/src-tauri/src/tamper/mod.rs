@@ -41,7 +41,7 @@ mod undo;
 use std::path::Path;
 
 #[allow(unused_imports)]
-pub use model::{CheckKind, Finding, Kind, Report, RunCounts, Severity, Snapshot};
+pub use model::{CheckKind, Finding, Kind, Report, Role, RunCounts, Severity, Snapshot};
 pub use signals::CheckOptions;
 pub use snapshot::SnapshotOptions;
 pub use store::TamperError;
