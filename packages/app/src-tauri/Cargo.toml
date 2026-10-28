@@ -81,6 +81,8 @@ iana-time-zone = "0.1"
 # HKDF-SHA256 + ChaCha20-Poly1305) seals team keys and join requests to one device; HMAC proves an
 # invite code. Signatures use the ed25519-dalek above.
 chacha20poly1305 = "0.10"
+# AES-256-GCM seals Live Room frames (live_room/seal.rs). Same RustCrypto `aead` family as above.
+aes-gcm = "0.10"
 hpke = { version = "0.12", default-features = false, features = ["alloc", "x25519"] }
 hmac = "0.12"
 subtle = "2"

@@ -17,6 +17,7 @@ COPY protocol protocol
 COPY server server
 COPY worker/wasm worker/wasm
 COPY worker/LICENSE worker/LICENSE
+COPY viewer/dist viewer/dist
 COPY Cargo.toml Cargo.lock LICENSE ./
 RUN cargo build --release --locked -p pm-relay
 

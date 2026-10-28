@@ -1,12 +1,12 @@
 {
-  "placeholder": true,
-  "note": "LR-4 placeholder. LR-3 replaces nonce and ct with the sealed frame and sets placeholder to false; the vector test then runs.",
+  "placeholder": false,
+  "note": "Shared vector (LR-3, packages/app/src-tauri/src/live_room/seal.rs). Key 0x07 x 32, salt 01 02 03 04, counter 1, seq 1, kind delta, plaintext {\"v\":1} padded to a 1 KiB bucket. The app's test checks this file; the viewer test opens it.",
   "keyB64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
   "room": "aaaaaaaaaaaaaaaaaaaaaaaaaa",
   "seq": 1,
   "kind": "delta",
-  "nonce": "",
-  "ct": "",
+  "nonce": "AQIDBAAAAAAAAAAB",
+  "ct": "yCrrzsskb5VwEB7YXzk-8YRKYSTJY7_VMObwg2-QfuNHrio24RBVBBDrv-JltEAR2wed7dzN8Miz1WxOFrfP5wygZoikDqWw9AVlrBtInE50qXqjIxzNGxZd1541r1xiv9QGpIbNqTlTs5Fb24rbxG2vTZKlAhC6ODjqB80r7bQAazhUBZr4jAp4QOUxOvB7Fx473b7zSmipJRotf9SmJrEAlRkAbPmsAjKgFv2EBgVcyZqYlVFzytuzgHjS_GW4NoQLzP0fNZm0JB8sWpnNQSNsfhbH9pjctti7ooGJayn54zCT-XNWldt8UTiPN_ry4fv91tu8_Y5jqQT9kaRMuHBvNW3v5YDeiGn0TXXGifNXSqgMqKEG8pTwyf_UxDvRFVU8BXATL1R8W9c1NbN-fOTbXTceWGINR4DGmydp4-S0qk98l5bsD3qQqGnDMMXcHfXk_ILccA6j6cbwVa_wvddaQUu2cDyoQa9_vw1CoDUVoRNYErH7Ilj-Tr3hAvuZ2IH7rOiqeBrrFdLNQ2awpp1Hcu_tFNpz9YsJU5TGDpm8PBQEBoseB3W3XjM0dWelk6l2yTUt5HVeFy9e5PmYuVoB1fXOtBUZ9iV-BywuhzhS39Vt1-BF8dqgcS_ve1jHHkoUE9_BG280H-C-WYrh15pLeRIOYEsvqvQmXaWcgh9EPSyulpoPcSy4j61kYyh67s-U9uRyG8K99FTSEhGVjmkMn3WKd4xMeEKiPfIsitNCvcixqZcGiNZ3V42LuC_yYXBD6DOsTLZN3DKAmWNpErt8iHKVoTv3OJVx73Bm3sjlhcKQxfVUpmTbW_liUCfgmG0UPeU6Xtdy6uKI5cih2BeH1ig2XHZAi7c8wKU5Yg6IiAX9mtL7Y-ngOlz3O3KCfKqLYMbcYhAK0E-bm16CWiQ-1VOGy52BSJoDfjD28uTcLoQ-Ob6dvI5lqveovi700oVVhZHVISKjdCbNNOHu7emeAzXYbZkJY9698NNDYgkLGL_iQYfTX6RHQnd7pwJ7ESKNVU5JUV23N8BG4LizkgElhxKjJU4HWxWUybqq0zKwnAVP7YJAn-Uoubflw7czEpgUzfaN2i1c7Ff2HjaHEMeU6f36cZf4hVI-2a85fKXf80eLE-AAqn4Z2bQN6FHIa5kOmRFrhcjYNxneaJhaEa1Tu1ocYe7aYiWXb_UFnEFww2OACMje_SnPYcFgcCpcytbEyDdCd4SP5JLG0JrtwU0py2hT_n1pMKOxF_GbgzqtmA8PZMyGGrhFHzxKROvC8W6QkqYpdQTN7GtpyrUiSonLC43yb7uiP9prEdRzBiIlV0eKuftP67jpXcSuH6H4jZ6oWncSjN7Lj43AffNnwbQekRyyjrNOVubIdbjjYwU",
   "plaintext": {
     "v": 1
   }
