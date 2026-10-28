@@ -5,7 +5,8 @@
 //! - Every `https://`, `git@` and `ssh://` push URL is rewritten to a remote helper that does not
 //!   exist, so the push fails before anything is sent.
 //! - No stored git credential is handed out (`credential.helper` is reset) and git never prompts.
-//! - Token, secret and password variables the app inherited are removed from the pane.
+//! - GitHub variables (`GITHUB_*`, `GH_*`, except the two the guard sets) and token, secret,
+//!   password and `_PAT` variables the app inherited are removed from the pane.
 //!
 //! Residual, documented in Settings: the agent still runs as the person and can read files on disk.
 //! `*_API_KEY` variables are kept, because agents use them to log in. This module is generic: it
@@ -46,8 +47,16 @@ pub const REMOVE: &[&str] = &[
     "CLOUDFLARE_API_TOKEN",
 ];
 
+/// Any variable whose name starts with one of these is removed too (case-insensitive): the GitHub
+/// CLI and GitHub variables, so no GitHub login or token reaches the pane under another name.
+const REMOVE_PREFIXES: &[&str] = &["GITHUB_", "GH_"];
+
+/// The variables the guard sets itself. They start with `GH_`, so they are exempt from the prefix
+/// rule (the set is applied before the removes, so a removal would undo them).
+const GUARD_SETS: &[&str] = &["GH_CONFIG_DIR", "GH_PROMPT_DISABLED"];
+
 /// Any variable whose name ends with one of these is removed too (case-insensitive).
-const REMOVE_SUFFIXES: &[&str] = &["_TOKEN", "_SECRET", "_PASSWORD"];
+const REMOVE_SUFFIXES: &[&str] = &["_TOKEN", "_SECRET", "_PASSWORD", "_PAT"];
 
 /// Kept even when a suffix above would match: LLM keys are how agents log in.
 const KEEP_SUFFIX: &str = "_API_KEY";
@@ -66,6 +75,12 @@ const GIT_OVERRIDES: &[(&str, &str)] = &[
 pub fn removable(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     if REMOVE.iter().any(|r| r.eq_ignore_ascii_case(name)) {
+        return true;
+    }
+    if GUARD_SETS.iter().any(|g| g.eq_ignore_ascii_case(name)) {
+        return false;
+    }
+    if REMOVE_PREFIXES.iter().any(|p| upper.starts_with(p)) {
         return true;
     }
     if upper.ends_with(KEEP_SUFFIX) {
@@ -175,6 +190,29 @@ mod tests {
             assert!(removable(name), "{name} not removable");
         }
         assert_eq!(REMOVE.len(), 24);
+    }
+
+    #[test]
+    fn removes_github_gh_and_pat_names_but_not_the_guards_own_variables() {
+        for name in ["GITHUB_PAT", "GH_PAT", "GITHUB_ENTERPRISE_TOKEN", "gh_custom", "github_custom", "Gh_Other"] {
+            assert!(removable(name), "{name} must be removed");
+        }
+        let inherited = env_of(&[("GITHUB_PAT", "x"), ("GH_PAT", "x"), ("gh_custom", "x")]);
+        let env = launch_env_from(NO_PUSH, &dir(), &inherited).expect("guard");
+        for name in ["GITHUB_PAT", "GH_PAT", "gh_custom"] {
+            assert!(env.remove.iter().any(|r| r == name), "{name} not in remove list");
+        }
+        // The guard's own variables survive: set and never removed.
+        assert!(!removable("GH_CONFIG_DIR"));
+        assert!(!removable("gh_config_dir"), "case-insensitive match keeps it too");
+        assert!(!removable("GH_PROMPT_DISABLED"));
+        assert!(!env.remove.iter().any(|r| r == "GH_CONFIG_DIR"));
+        assert!(!env.remove.iter().any(|r| r == "GH_PROMPT_DISABLED"));
+        assert_eq!(set_value(&env, "GH_CONFIG_DIR"), Some(dir().display().to_string().as_str()));
+        assert_eq!(set_value(&env, "GH_PROMPT_DISABLED"), Some("1"));
+        // Other names are not touched by the new rules.
+        assert!(!removable("PATH_EXTRA"));
+        assert!(!removable("OPENAI_API_KEY"));
     }
 
     #[test]
