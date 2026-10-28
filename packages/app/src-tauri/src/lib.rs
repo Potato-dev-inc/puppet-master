@@ -445,6 +445,7 @@ pub fn run() {
             commands::night_report_save,
             commands::night_settings_get,
             commands::night_settings_set,
+            commands::night_get,
             commands::worktree_list,
             commands::worktree_diff,
             commands::second_opinion_agents,

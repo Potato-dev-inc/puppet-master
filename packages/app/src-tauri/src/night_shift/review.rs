@@ -9,6 +9,7 @@
 //!
 //! The git side is behind [`CopyOps`], so the tests run without a repository.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -196,6 +197,36 @@ pub fn throw_away_with(
     save(store, &mut run)
 }
 
+/// Whether "Keep all that pass" keeps this task (before any conflict): ready, not reviewed yet, with a
+/// copy, and no try still open. The Morning view counts the same tasks for its button (`keepAll`).
+pub fn keeps_in_bulk(task: &Task) -> bool {
+    task.review == Review::Pending
+        && task
+            .outcome
+            .as_ref()
+            .is_some_and(|o| o.class == Class::Ready && o.copy.is_some())
+        && task.attempts.iter().all(|a| a.end.is_some())
+}
+
+/// The branch Keep would merge a project's copy into: the project's current branch, read the way
+/// `worktrees::merge_keep` reads it. None when the project is not a folder with git or is detached.
+/// Read only.
+pub fn keep_target(project: &str) -> Option<String> {
+    if !Path::new(project).is_dir() {
+        return None;
+    }
+    let out = crate::proc_util::hidden_command("git")
+        .args(["symbolic-ref", "-q", "--short", "HEAD"])
+        .current_dir(project)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!branch.is_empty()).then_some(branch)
+}
+
 /// Keep every ready task that has no review yet, in list order, stopping at the first one that does
 /// not merge. Each result is returned with its task id.
 pub fn keep_all_ready_with(
@@ -208,11 +239,7 @@ pub fn keep_all_ready_with(
     let ready: Vec<String> = run
         .tasks
         .iter()
-        .filter(|task| {
-            task.review == Review::Pending
-                && task.outcome.as_ref().is_some_and(|o| o.class == Class::Ready)
-                && task.attempts.iter().all(|a| a.end.is_some())
-        })
+        .filter(|task| keeps_in_bulk(task))
         .map(|task| task.spec.id.clone())
         .collect();
     let mut done = Vec::new();
@@ -586,6 +613,58 @@ mod tests {
         };
         throw_away_with(&store, &fake, "nt-00000001", "you", 7).expect("still thrown away");
         assert_eq!(review_of(&store, "nt-00000001"), Review::Discarded { at_ms: 7 });
+    }
+
+    #[test]
+    fn throw_away_accepts_a_task_whose_keep_conflicted() {
+        let scratch = Scratch::new();
+        let mut conflicted = finished("nt-00000001", Class::Ready, &["mission-a1", "mission-a2"]);
+        conflicted.review = Review::KeepFailed {
+            at_ms: 4,
+            sentence: "This conflicts with a task you already kept (src/cart.ts).".into(),
+        };
+        let store = saved(&scratch, vec![conflicted]);
+        let fake = Fake::default();
+        throw_away_with(&store, &fake, "nt-00000001", "you", 8).expect("a conflicted copy can be thrown away");
+        assert_eq!(fake.discards.borrow().as_slice(), ["mission-a1", "mission-a2"]);
+        assert_eq!(review_of(&store, "nt-00000001"), Review::Discarded { at_ms: 8 });
+    }
+
+    #[test]
+    fn keeps_in_bulk_is_ready_pending_with_a_copy_and_no_open_try() {
+        let ready = finished("nt-00000001", Class::Ready, &["mission-a"]);
+        assert!(keeps_in_bulk(&ready));
+        for class in [Class::NeedsLook, Class::NoChecks, Class::NoChanges, Class::DidntRun] {
+            assert!(!keeps_in_bulk(&finished("nt-00000002", class, &["mission-b"])), "{class:?}");
+        }
+        let mut open = finished("nt-00000003", Class::Ready, &["mission-c"]);
+        open.attempts[0].end = None;
+        assert!(!keeps_in_bulk(&open), "a try still open");
+        let mut copyless = finished("nt-00000004", Class::Ready, &["mission-d"]);
+        copyless.outcome.as_mut().expect("outcome").copy = None;
+        assert!(!keeps_in_bulk(&copyless), "no copy to merge");
+        let mut conflicted = finished("nt-00000005", Class::Ready, &["mission-e"]);
+        conflicted.review = Review::KeepFailed { at_ms: 1, sentence: "x".into() };
+        assert!(!keeps_in_bulk(&conflicted), "already tried and conflicted");
+    }
+
+    #[test]
+    fn keep_target_is_the_current_branch_and_none_when_detached() {
+        let scratch = Scratch::new();
+        let project = scratch.0.join("app");
+        fs::create_dir_all(&project).expect("project");
+        git(&project, &["init", "-q"]);
+        git(&project, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+        git(&project, &["config", "user.email", "night@example.com"]);
+        git(&project, &["config", "user.name", "Night Test"]);
+        fs::write(project.join("cart.ts"), "total = 1\n").expect("file");
+        git(&project, &["add", "-A"]);
+        git(&project, &["commit", "-q", "-m", "base"]);
+        let text = project.to_string_lossy().into_owned();
+        assert_eq!(keep_target(&text).as_deref(), Some("main"));
+        git(&project, &["checkout", "-q", "--detach"]);
+        assert_eq!(keep_target(&text), None, "a detached project has no branch to merge into");
+        assert_eq!(keep_target(&scratch.0.join("missing").to_string_lossy()), None);
     }
 
     #[test]

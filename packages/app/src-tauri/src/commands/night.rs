@@ -181,9 +181,10 @@ fn current(store: &Store) -> Result<NightRun, OperationError> {
         .ok_or_else(|| OperationError::new("NO_NIGHT", "No Night Shift yet. Plan tonight from the + menu.", false))
 }
 
+/// The view the desktop shows for the current run. Pending copies name the branch Keep would merge into.
 fn view_of_run(run: &NightRun) -> NightView {
     let ctx = redact::known::context();
-    view::view_of(run, &ctx, offset_min())
+    view::view_of_with(run, &ctx, offset_min(), &|project: &str| review::keep_target(project))
 }
 
 fn save(store: &Store, run: &mut NightRun) -> Result<(), OperationError> {
@@ -492,6 +493,26 @@ pub async fn night_keep_all_ready(app: AppHandle, state: State<'_, AppState>) ->
     .await
 }
 
+/// One night from the history list, for the Morning page's switcher. The current run (when the id is
+/// its own) keeps its buttons; an older night is read only. Desktop only: no bridge route.
+#[tauri::command]
+pub async fn night_get(id: String) -> Result<NightView, OperationError> {
+    off_thread(move || night_now(&id)).await
+}
+
+fn night_now(id: &str) -> Result<NightView, OperationError> {
+    let store = store();
+    if let Some(run) = store.load().filter(|run| run.id == id) {
+        return Ok(view_of_run(&run));
+    }
+    let run = store
+        .get(id)
+        .ok_or_else(|| OperationError::new("NO_SUCH_NIGHT", "That night is not in your history.", false))?;
+    let mut view = view::view_of(&run, &redact::known::context(), offset_min());
+    view.read_only();
+    Ok(view)
+}
+
 /// The person opened the Morning page: the held morning push is not sent.
 #[tauri::command]
 pub async fn night_seen(app: AppHandle) -> Result<(), OperationError> {
@@ -603,6 +624,14 @@ mod tests {
         );
         let back: Settings = serde_json::from_value::<NightSettingsView>(text).expect("back").into();
         assert_eq!(back, Settings::default());
+    }
+
+    #[test]
+    fn night_get_refuses_a_bad_or_unknown_id_in_plain_words() {
+        for id in ["", "../run", "ns-zzzzzzzzzzzz"] {
+            let error = night_now(id).expect_err("refused");
+            assert_eq!(error.code, "NO_SUCH_NIGHT", "{id}");
+        }
     }
 
     #[test]

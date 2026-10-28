@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use super::model::{Attempt, AttemptEnd, Class, Counts, Event, NightRun, Review, RunState, Task, TaskState};
 use super::report;
+use super::review;
 use crate::redact::RedactContext;
 use crate::session_chat::export_text::{cut_paths, folder_of};
 
@@ -37,7 +38,7 @@ pub struct NightView {
     pub needs_you: u32,
     pub didnt_run: u32,
     pub no_changes: u32,
-    /// How many tasks "Keep all that pass" would keep.
+    /// How many tasks "Keep all that pass" would keep (`review::keeps_in_bulk`, before any conflict).
     pub keep_all: u32,
     /// Local start time, "23:10".
     pub from: String,
@@ -90,7 +91,8 @@ pub struct TaskView {
     /// "pending" | "kept" | "discarded" | "keep_failed"
     pub review: String,
     pub review_text: Option<String>,
-    /// The branch a kept copy merged into.
+    /// The branch a kept copy merged into, or the branch Keep would merge a pending copy into.
+    /// None on the bridge and when the project has no branch (detached or not git).
     pub into: Option<String>,
     pub can_keep: bool,
     pub can_throw_away: bool,
@@ -144,10 +146,26 @@ pub struct PlanView {
     pub tried_here: std::collections::BTreeMap<String, bool>,
 }
 
-/// The view of a run for the UI. `offset_min` is the local offset east of UTC in minutes.
+/// The view of a run for the bridge and the tests. Pending copies get no `into` (no git lookup here).
+/// `offset_min` is the local offset east of UTC in minutes.
 pub fn view_of(run: &NightRun, ctx: &RedactContext, offset_min: i32) -> NightView {
+    view_of_with(run, ctx, offset_min, &|_| None)
+}
+
+/// The view of a run for the desktop. `into_of` gives the branch Keep would merge a project's copy
+/// into (the caller reads it from git, see `review::keep_target`), used for pending copies only.
+pub fn view_of_with(
+    run: &NightRun,
+    ctx: &RedactContext,
+    offset_min: i32,
+    into_of: &dyn Fn(&str) -> Option<String>,
+) -> NightView {
     let summary = report::summary(run);
-    let tasks: Vec<TaskView> = run.tasks.iter().map(|task| task_view(task, ctx, offset_min)).collect();
+    let tasks: Vec<TaskView> = run
+        .tasks
+        .iter()
+        .map(|task| task_view(task, ctx, offset_min, into_of))
+        .collect();
 
     let mut by_plan: Vec<PlanCount> = Vec::new();
     for label in tasks.iter().filter_map(|task| task.plan.as_ref()) {
@@ -174,7 +192,7 @@ pub fn view_of(run: &NightRun, ctx: &RedactContext, offset_min: i32) -> NightVie
         needs_you: summary.needs_you,
         didnt_run: summary.didnt_run,
         no_changes: summary.no_changes,
-        keep_all: tasks.iter().filter(|task| task.can_keep).count() as u32,
+        keep_all: run.tasks.iter().filter(|task| review::keeps_in_bulk(task)).count() as u32,
         from: report::hhmm(run.start_at_ms, offset_min),
         to: run.finished_ms.map(|ms| report::hhmm(ms, offset_min)),
         turns,
@@ -186,6 +204,16 @@ pub fn view_of(run: &NightRun, ctx: &RedactContext, offset_min: i32) -> NightVie
 }
 
 impl NightView {
+    /// An older night, shown for reading only: Keep and Throw away act on the current run, so an older
+    /// night has no buttons and no "Keep all".
+    pub fn read_only(&mut self) {
+        self.keep_all = 0;
+        for task in &mut self.tasks {
+            task.can_keep = false;
+            task.can_throw_away = false;
+        }
+    }
+
     /// The same view for `GET /night`: no project names, no pane ids, no turn sentences, no agent
     /// questions, titles already cut to 80 characters, event text cut to 80.
     pub fn redacted_for_bridge(&self) -> NightView {
@@ -234,15 +262,27 @@ pub fn cut_chars(text: &str, max: usize) -> String {
     out
 }
 
-fn task_view(task: &Task, ctx: &RedactContext, offset_min: i32) -> TaskView {
+fn task_view(task: &Task, ctx: &RedactContext, offset_min: i32, into_of: &dyn Fn(&str) -> Option<String>) -> TaskView {
     let outcome = task.outcome.as_ref();
     let last = task.attempts.last();
     let (state, state_text, until) = state_parts(&task.state, ctx, offset_min);
-    let (review, review_text, into) = review_parts(&task.review, ctx);
+    let (review, review_text) = review_parts(&task.review, ctx);
+    let has_copy = outcome.is_some_and(|o| o.copy.is_some());
+    let into = match &task.review {
+        Review::Pending if has_copy => into_of(&task.spec.project).map(|branch| clean(&branch, ctx)),
+        Review::Kept { into, .. } => Some(clean(into, ctx)),
+        _ => None,
+    };
     let can_keep = matches!(task.review, Review::Pending)
         && outcome.is_some_and(|o| {
             o.copy.is_some() && matches!(o.class, Class::Ready | Class::NoChecks | Class::NeedsLook)
         });
+    // A conflicted copy can still be thrown away (Keep failed; the copy stays, SPEC 3.7).
+    let can_throw_away = match task.review {
+        Review::Pending => matches!(task.state, TaskState::Finished),
+        Review::KeepFailed { .. } => true,
+        Review::Kept { .. } | Review::Discarded { .. } => false,
+    };
     TaskView {
         id: task.spec.id.clone(),
         title: title_of(&task.spec.text, ctx),
@@ -270,7 +310,7 @@ fn task_view(task: &Task, ctx: &RedactContext, offset_min: i32) -> TaskView {
         review_text,
         into,
         can_keep,
-        can_throw_away: matches!(task.review, Review::Pending) && matches!(task.state, TaskState::Finished),
+        can_throw_away,
         pane_id: last.and_then(|a| a.pane_ids.first().cloned()),
     }
 }
@@ -294,19 +334,12 @@ fn state_parts(state: &TaskState, ctx: &RedactContext, offset_min: i32) -> (Stri
     }
 }
 
-fn review_parts(review: &Review, ctx: &RedactContext) -> (String, Option<String>, Option<String>) {
+fn review_parts(review: &Review, ctx: &RedactContext) -> (String, Option<String>) {
     match review {
-        Review::Pending => ("pending".into(), None, None),
-        Review::Kept { into, .. } => {
-            let into = clean(into, ctx);
-            (
-                "kept".into(),
-                Some(format!("Kept · merged into {into}")),
-                Some(into),
-            )
-        }
-        Review::Discarded { .. } => ("discarded".into(), Some("Thrown away".into()), None),
-        Review::KeepFailed { sentence, .. } => ("keep_failed".into(), Some(clean(sentence, ctx)), None),
+        Review::Pending => ("pending".into(), None),
+        Review::Kept { into, .. } => ("kept".into(), Some(format!("Kept · merged into {}", clean(into, ctx)))),
+        Review::Discarded { .. } => ("discarded".into(), Some("Thrown away".into())),
+        Review::KeepFailed { sentence, .. } => ("keep_failed".into(), Some(clean(sentence, ctx))),
     }
 }
 
