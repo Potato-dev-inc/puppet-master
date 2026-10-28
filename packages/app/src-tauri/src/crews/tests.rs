@@ -1,6 +1,6 @@
 use super::draft::{draft, Env, TreePane};
 use super::model::{parse, to_toml, Crew, Role, MAX_ROLES};
-use super::start::{run, start_order, StartFailure, Starter, Step};
+use super::start::{run, start_order, StartFailure, StartGuard, Starter, Step};
 use super::store;
 use super::validate::{validate, AgentState};
 
@@ -302,14 +302,20 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
 fn saving_listing_loading_and_removing_a_crew() {
     let dir = temp_dir("store");
     let c = parse(FILE).unwrap();
-    let slug = store::save(&dir, &c, &state).unwrap();
+    let slug = store::save(&dir, &c, false, &state).unwrap();
     assert_eq!(slug, "review-team");
-    // Same name again: the same file is replaced.
-    assert_eq!(store::save(&dir, &c, &state).unwrap(), "review-team");
+    // Same name again without `replace`: refused, the file is left as it was.
+    let taken = store::save(&dir, &c, false, &state).unwrap_err();
+    assert_eq!(taken[0].code, "CREW_NAME_TAKEN");
+    assert_eq!(taken[0].message, "A crew with this name exists. Replace it?");
+    // With `replace`, the same file is replaced.
+    assert_eq!(store::save(&dir, &c, true, &state).unwrap(), "review-team");
     // Another crew whose name gives the same slug does not overwrite it.
     let mut other = c.clone();
     other.name = "Review team!".into();
-    assert_eq!(store::save(&dir, &other, &state).unwrap(), "review-team-2");
+    assert_eq!(store::save(&dir, &other, false, &state).unwrap(), "review-team-2");
+    assert_eq!(store::save(&dir, &other, true, &state).unwrap(), "review-team-2");
+    assert_eq!(store::load(&dir, "review-team").unwrap(), c);
     let listed = store::list(&dir, &state);
     assert_eq!(listed.len(), 2);
     assert_eq!(listed[0].roles, 2);
@@ -324,10 +330,10 @@ fn saving_listing_loading_and_removing_a_crew() {
 fn an_invalid_crew_is_not_written_and_a_gone_agent_flags_the_row() {
     let dir = temp_dir("invalid");
     let bad = crew(vec![role("Lead", "ghost", None)]);
-    let errors = store::save(&dir, &bad, &state).unwrap_err();
+    let errors = store::save(&dir, &bad, false, &state).unwrap_err();
     assert_eq!(errors[0].code, "CREW_AGENT_UNKNOWN");
     assert!(store::list(&dir, &state).is_empty());
-    let slug = store::save(&dir, &parse(FILE).unwrap(), &state).unwrap();
+    let slug = store::save(&dir, &parse(FILE).unwrap(), false, &state).unwrap();
     let after_removal = |id: &str| if id == "alpha" { AgentState::Unknown } else { AgentState::Ready };
     let listed = store::list(&dir, &after_removal);
     assert_eq!(listed[0].slug, slug);
@@ -361,4 +367,48 @@ fn a_crew_start_key_asks_the_dispatcher_for_a_pane_of_its_own() {
     assert_ne!(super::start_key("1f", 1), super::start_key("1f", 2));
     assert!(!super::wants_new_pane("mission-1f-2"));
     assert!(!super::wants_new_pane(""));
+}
+
+#[test]
+fn a_new_name_never_takes_a_file_that_is_another_crew() {
+    let dir = temp_dir("slots");
+    let c = parse(FILE).unwrap();
+    // Every slot of "review team" is taken by a crew with another name: no free slot is left.
+    std::fs::create_dir_all(&dir).unwrap();
+    for n in 1..100 {
+        let slug = if n == 1 { "review-team".to_string() } else { format!("review-team-{n}") };
+        std::fs::write(dir.join(format!("{slug}.toml")), format!("name = \"Other {n}\"\n")).unwrap();
+    }
+    let full = store::save(&dir, &c, true, &state).unwrap_err();
+    assert_eq!(full[0].code, "CREW_NAME_FULL");
+    // The last slot keeps its own crew: nothing was written over it.
+    assert_eq!(store::load(&dir, "review-team-99").unwrap().name, "Other 99");
+    assert_eq!(store::load(&dir, "review-team").unwrap().name, "Other 1");
+}
+
+#[test]
+fn a_full_slot_list_still_finds_the_crew_it_replaces() {
+    let dir = temp_dir("slots-replace");
+    let c = parse(FILE).unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
+    // Slots 1 to 98 hold other crews; the same crew sits in the last slot. The search reaches it.
+    for n in 1..99 {
+        let slug = if n == 1 { "review-team".to_string() } else { format!("review-team-{n}") };
+        std::fs::write(dir.join(format!("{slug}.toml")), format!("name = \"Other {n}\"\n")).unwrap();
+    }
+    std::fs::write(dir.join("review-team-99.toml"), to_toml(&c).unwrap()).unwrap();
+    let taken = store::save(&dir, &c, false, &state).unwrap_err();
+    assert_eq!(taken[0].code, "CREW_NAME_TAKEN");
+    assert_eq!(store::save(&dir, &c, true, &state).unwrap(), "review-team-99");
+    assert_eq!(store::list(&dir, &state).len(), 99);
+}
+
+#[test]
+fn a_crew_that_is_starting_cannot_start_again_until_it_ends() {
+    let first = StartGuard::claim("guard-crew-one").unwrap();
+    let again = StartGuard::claim("guard-crew-one").unwrap_err();
+    assert_eq!(again.code, "CREW_STARTING");
+    assert!(StartGuard::claim("guard-crew-two").is_ok(), "another crew is not held");
+    drop(first);
+    assert!(StartGuard::claim("guard-crew-one").is_ok(), "released when the start ends");
 }

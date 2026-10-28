@@ -100,6 +100,8 @@ pub struct ReplayPane {
     last_change: Duration,
     last_resize: Option<Duration>,
     busy: Option<bool>,
+    /// The screen shows a startup gate (the reader's `gate_up`).
+    gate: bool,
     status: PaneStatus,
     pending: Vec<(Duration, Vec<u8>)>,
     fired: Vec<bool>,
@@ -135,6 +137,7 @@ impl ReplayPane {
             last_change: Duration::ZERO,
             last_resize: None,
             busy: None,
+            gate: false,
             status,
             pending: Vec::new(),
             fired,
@@ -242,10 +245,11 @@ impl ReplayPane {
             return;
         }
         self.last_change = self.now;
-        let busy = status::busy_marker(&self.agent, &snapshot);
+        self.gate = status::startup_gate_visible(&self.agent, &snapshot);
+        let busy = if self.gate { None } else { status::busy_marker(&self.agent, &snapshot) };
         self.busy = busy;
         let observed = status::classify_agent_observation(&self.agent, &snapshot, "");
-        let settled = status::settle_status_after_resize(self.status, observed, busy, self.recently_resized());
+        let settled = status::settle_status_after_resize(self.status, observed, busy, !self.gate && self.recently_resized());
         if settled != self.status {
             self.status = settled;
             self.transitions.push((self.now, settled));
@@ -260,7 +264,8 @@ impl ReplayPane {
 
     /// The idle watcher thread: a running pane whose screen held still long enough is idle.
     fn idle_watch(&mut self) {
-        if self.status != PaneStatus::Running {
+        // A startup gate on screen is a pane that waits, never one that rests.
+        if self.status != PaneStatus::Running || self.gate {
             return;
         }
         let profile = profile_for(&self.agent);
@@ -390,6 +395,45 @@ mod tests {
             from += at + call.len();
         }
         assert!(reader.contains("idle_clock.idle_due("), "the idle watcher changed");
+    }
+
+    /// A cast of an agent's pane: each frame replaces the screen at its time.
+    fn cast_of(agent: &str, frames: &[(f64, &str)]) -> Cast {
+        let mut text = format!("{}\n", serde_json::json!({"version": 2, "width": 120, "height": 24, "pm": {"agent": agent}}));
+        for (at, screen) in frames {
+            let data = format!("\u{1b}[2J\u{1b}[H{}", screen.replace('\n', "\r\n"));
+            text.push_str(&format!("{}\n", serde_json::json!([at, "o", data])));
+        }
+        Cast::parse("gate", &text).unwrap()
+    }
+
+    /// The pane that showed Codex's update menu read `idle` after a quiet spell, and the sidebar said "Idle" over
+    /// a menu that swallows whatever is typed next. A startup gate on screen is never idle, however long it holds
+    /// still; the status moves on when the screen does.
+    #[test]
+    fn a_pane_showing_a_startup_gate_never_reads_idle() {
+        let menu = include_str!("../tui/codex/fixtures/update_prompt_0_164_live.txt");
+        let ready = include_str!("../tui/codex/fixtures/standby_ready_live.txt");
+        let mut pane = ReplayPane::new(cast_of("codex", &[(0.2, menu), (300.0, ready)]));
+        pane.run_to(Duration::from_secs(1));
+        assert_eq!(pane.status(), PaneStatus::Running);
+        pane.run_to(Duration::from_secs(250));
+        assert_eq!(pane.status(), PaneStatus::Running, "minutes of a menu on screen is still not idle");
+        assert!(pane.transitions.iter().all(|(_, status)| *status != PaneStatus::Idle), "{:?}", pane.transitions);
+        // The menu is closed: the ready composer is idle after the usual quiet spell.
+        pane.run_to(Duration::from_secs(400));
+        assert_eq!(pane.status(), PaneStatus::Idle);
+    }
+
+    #[test]
+    fn an_idle_pane_that_a_startup_gate_covers_stops_reading_idle() {
+        let menu = include_str!("../tui/codex/fixtures/update_prompt_0_164_live.txt");
+        let ready = include_str!("../tui/codex/fixtures/standby_ready_live.txt");
+        let mut pane = ReplayPane::new(cast_of("codex", &[(0.2, ready), (100.0, menu)]));
+        pane.run_to(Duration::from_secs(60));
+        assert_eq!(pane.status(), PaneStatus::Idle);
+        pane.run_to(Duration::from_secs(200));
+        assert_eq!(pane.status(), PaneStatus::Running, "a menu drew over the composer");
     }
 
     #[test]

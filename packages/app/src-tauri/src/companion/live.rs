@@ -305,8 +305,8 @@ impl Host for LiveHost {
         crate::tui::profile_for(agent_type).instruction_files()
     }
 
-    fn agent_limit(&self, agent_type: &str) -> Option<AgentLimit> {
-        crate::handoff::agent_limit(agent_type).map(|reset| AgentLimit { reset_at_ms: reset.and_then(|r| i64::try_from(r).ok()) })
+    fn agent_limit(&self, agent_type: &str, account: Option<&str>) -> Option<AgentLimit> {
+        crate::handoff::agent_limit(agent_type, account).map(|reset| AgentLimit { reset_at_ms: reset.and_then(|r| i64::try_from(r).ok()) })
     }
 
     fn publish(&self, views: &[CompanionView]) {

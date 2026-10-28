@@ -136,6 +136,16 @@ pub fn busy_marker(agent_type: &str, screen: &str) -> Option<bool> {
     crate::tui::profile_for(agent_type).busy_marker(&visible_tail)
 }
 
+/// Whether the screen shows a startup gate (`TuiProfile::startup_gate`): a notice, trust question or sign-in the
+/// agent draws before it can take any task. Such a pane is not idle: the sidebar must not say "Idle" over a menu
+/// that swallows whatever is typed next.
+pub fn startup_gate_visible(agent_type: &str, screen: &str) -> bool {
+    if is_shell_agent(agent_type) {
+        return false;
+    }
+    crate::tui::profile_for(agent_type).startup_gate(&strip_ansi(screen)).is_some()
+}
+
 /// The status to publish for a freshly classified screen. `classify_agent_observation` can only
 /// say `running` for a screen that is not a prompt, so every redraw of an idle pane (a resize
 /// reprint, a clock tick, typing into the input box) used to flip it to `running` until the idle

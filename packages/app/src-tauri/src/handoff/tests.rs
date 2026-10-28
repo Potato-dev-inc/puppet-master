@@ -804,18 +804,18 @@ fn a_limit_in_a_pane_without_a_run_still_raises_a_card_but_has_nothing_to_stop()
 fn an_agent_stays_known_as_limited_after_its_pane_is_gone_until_the_reset() {
     let env = TestEnv::new();
     let mut engine = Engine::default();
-    assert_eq!(engine.agent_limit("claude", env.now()), None, "nothing seen yet");
+    assert_eq!(engine.agent_limit("claude", Some("acct-work"), env.now()), None, "nothing seen yet");
     hit_the_limit(&env, &mut engine, &claude_screen("usage_session_window"));
-    let reset = engine.agent_limit("claude", env.now()).expect("limited").expect("it printed a reset time");
+    let reset = engine.agent_limit("claude", Some("acct-work"), env.now()).expect("limited").expect("it printed a reset time");
     assert_eq!(when_iso(reset as i64, env.clock()), "2026-10-15T17:00");
-    assert_eq!(engine.agent_limit("other", env.now()), None, "only that agent");
+    assert_eq!(engine.agent_limit("other", Some("acct-work"), env.now()), None, "only that agent");
 
     // The pane is closed (a companion moved away from it): the tracker forgets the pane, the agent stays known.
     engine.tick(&env, &|_| false);
-    assert!(engine.agent_limit("claude", env.now()).is_some());
+    assert!(engine.agent_limit("claude", Some("acct-work"), env.now()).is_some());
 
     // At the reset it is not limited any more.
-    assert_eq!(engine.agent_limit("claude", reset), None);
+    assert_eq!(engine.agent_limit("claude", Some("acct-work"), reset), None);
 }
 
 #[test]
@@ -823,14 +823,14 @@ fn an_agent_is_not_limited_any_more_once_a_pane_of_it_carries_on() {
     let env = TestEnv::new();
     let mut engine = Engine::default();
     hit_the_limit(&env, &mut engine, &claude_screen("usage_session_window"));
-    assert!(engine.agent_limit("claude", env.now()).is_some());
+    assert!(engine.agent_limit("claude", Some("acct-work"), env.now()).is_some());
     // The limit text is gone from the screen: the agent works again.
     let claude = profile_for("claude");
     env.advance(1_000);
     engine.observe(&env, PANE, claude.as_ref(), "> hello
 ");
     engine.tick(&env, &alive);
-    assert_eq!(engine.agent_limit("claude", env.now()), None);
+    assert_eq!(engine.agent_limit("claude", Some("acct-work"), env.now()), None);
 }
 
 #[test]
@@ -838,8 +838,8 @@ fn a_limit_that_prints_no_reset_is_remembered_for_an_hour() {
     let env = TestEnv::new();
     let mut engine = Engine::default();
     hit_the_limit(&env, &mut engine, &claude_screen("usage_opus_no_reset"));
-    assert_eq!(engine.agent_limit("claude", env.now()), Some(None));
-    assert_eq!(engine.agent_limit("claude", env.now() + card::REMIND_FALLBACK_MS + 1), None);
+    assert_eq!(engine.agent_limit("claude", Some("acct-work"), env.now()), Some(None));
+    assert_eq!(engine.agent_limit("claude", Some("acct-work"), env.now() + card::REMIND_FALLBACK_MS + 1), None);
 }
 
 #[test]
@@ -1380,4 +1380,44 @@ fn a_limit_is_logged_with_its_agent_and_account_and_logged_again_when_it_is_over
     let _ = engine.observe(&env, PANE, claude.as_ref(), "");
     let logged = env.limit_log.borrow().clone();
     assert!(matches!(logged.last(), Some(Entry::End { pane, .. }) if pane == PANE), "{logged:?}");
+}
+
+fn hit_the_limit_on(env: &TestEnv, engine: &mut Engine, pane: &str, screen: &str) {
+    let claude = profile_for("claude");
+    assert_eq!(engine.observe(env, pane, claude.as_ref(), screen), Standing::Pending);
+    env.advance(1_900);
+    engine.tick(env, &alive);
+    env.advance(200);
+    engine.tick(env, &alive);
+}
+
+#[test]
+fn a_limit_on_one_account_does_not_show_for_another_account_of_the_same_agent() {
+    let env = TestEnv::new();
+    let mut engine = Engine::default();
+    hit_the_limit(&env, &mut engine, &claude_screen("usage_session_window"));
+    assert!(engine.agent_limit("claude", Some("acct-work"), env.now()).is_some());
+    // Another plan of Claude (or the agent's own login) is not at its limit.
+    assert_eq!(engine.agent_limit("claude", Some("acct-home"), env.now()), None);
+    assert_eq!(engine.agent_limit("claude", None, env.now()), None);
+}
+
+#[test]
+fn a_pane_that_carries_on_forgets_only_its_own_limit() {
+    let env = TestEnv::new();
+    let mut engine = Engine::default();
+    hit_the_limit_on(&env, &mut engine, "pane-1", &claude_screen("usage_session_window"));
+    hit_the_limit_on(&env, &mut engine, "pane-2", &claude_screen("usage_session_window"));
+    let reset = engine.agent_limit("claude", Some("acct-work"), env.now()).expect("limited").expect("a reset time");
+    // The second pane is back at work: the first pane's limit (same agent, same account) still holds.
+    let claude = profile_for("claude");
+    env.advance(1_000);
+    engine.observe(&env, "pane-2", claude.as_ref(), "> hello\n");
+    engine.tick(&env, &alive);
+    assert_eq!(engine.agent_limit("claude", Some("acct-work"), env.now()), Some(Some(reset)), "pane-1 is still limited");
+    // The first pane carries on too: now nothing is known.
+    env.advance(1_000);
+    engine.observe(&env, "pane-1", claude.as_ref(), "> hello\n");
+    engine.tick(&env, &alive);
+    assert_eq!(engine.agent_limit("claude", Some("acct-work"), env.now()), None);
 }

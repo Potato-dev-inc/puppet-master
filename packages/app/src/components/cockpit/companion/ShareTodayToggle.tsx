@@ -42,6 +42,7 @@ export function ShareTodayToggle({
         <span className="ck-companion-push-text">
           <span>{label}</span>
           <span className="ck-sub">A short list of what they finished, kept in its folder.</span>
+          <span className="ck-sub">The list is sent to the AI service of this agent.</span>
         </span>
         <button
           type="button"

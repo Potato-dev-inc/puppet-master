@@ -37,10 +37,12 @@ pub async fn crews_draft(state: State<'_, AppState>, pane_id: String) -> Result<
     tauri::async_runtime::spawn_blocking(move || live::draft_for_pane(&registry, &pane_id)).await.map_err(internal)?.map_err(text)
 }
 
-/// Save a crew. Problems come back in `errors` (nothing is written then), each naming its role.
+/// Save a crew. Problems come back in `errors` (nothing is written then), each naming its role. A crew
+/// with the same name is refused (`CREW_NAME_TAKEN`) unless `replace` is true.
 #[tauri::command]
-pub async fn crews_save(crew: Crew) -> Result<SaveOutcome, String> {
-    tauri::async_runtime::spawn_blocking(move || match store::save(&store::dir(), &crew, &live::agent_state) {
+pub async fn crews_save(crew: Crew, replace: Option<bool>) -> Result<SaveOutcome, String> {
+    let replace = replace.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || match store::save(&store::dir(), &crew, replace, &live::agent_state) {
         Ok(slug) => SaveOutcome { slug: Some(slug), errors: Vec::new() },
         Err(errors) => SaveOutcome { slug: None, errors },
     })
@@ -54,10 +56,13 @@ pub async fn crews_remove(slug: String) -> Result<(), String> {
 }
 
 /// Start a crew in `folder`, one role at a time. Returns who started, and which role failed (if one did).
+/// A second start of the same crew while one runs is refused (`CREW_STARTING`), so a double click does
+/// not start two sets of panes.
 #[tauri::command]
 pub async fn crews_start(app: AppHandle, state: State<'_, AppState>, slug: String, folder: String) -> Result<start::Outcome, String> {
     let registry = state.registry.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _starting = start::StartGuard::claim(&slug).map_err(text)?;
         let crew = store::load(&store::dir(), &slug).map_err(text)?;
         let problems = crate::crews::validate::validate(&crew, &live::agent_state);
         if let Some(first) = problems.into_iter().next() {

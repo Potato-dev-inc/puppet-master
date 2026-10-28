@@ -302,3 +302,58 @@ fn live_permit_codex_fresh_screen_reads_ready_or_a_gate() {
     println!("{:?} {}\n{}", verdict.readiness(), verdict.why(), verdict.screen());
     assert!(verdict.is_ready() || verdict.gate().is_some(), "{}", verdict.screen());
 }
+
+/// The gate adapter for a live pane: the dismissal step the outbox and every run use, over the real CLI.
+#[cfg(windows)]
+impl crate::bridge::startup_gate::GateIo for LivePane {
+    fn screen(&mut self) -> String {
+        self.text()
+    }
+    fn observe(&mut self) -> Observation {
+        DeliveryIo::observe(self)
+    }
+    fn write(&mut self, permit: &readiness::GatePermit) -> Result<(), String> {
+        DeliveryIo::write(self, WriteOrigin::Gate(permit), permit.keys(), false)
+    }
+    fn pause(&mut self, duration: Duration) {
+        thread::sleep(duration);
+    }
+}
+
+/// Codex, zero tokens, nothing typed but the product's own fixed dismiss key: when the installed release shows its
+/// "Update available" menu, the pane is a startup gate (never ready, never idle), the status heuristics do not
+/// call it idle-able, and the one gate step closes it with Esc only. Skips (passes) when no menu is shown.
+/// `PM_LIVE_CWD=D:/pm-tour/fresh-1 cargo test --lib live_permit_codex_update_menu -- --ignored --nocapture`
+#[cfg(windows)]
+#[test]
+#[ignore = "live: starts the real codex CLI (no turn); presses only Esc on its update menu"]
+fn live_permit_codex_update_menu_is_a_gate_that_one_esc_closes() {
+    let mut pane = LivePane::start("codex", AgentType::Codex);
+    let first = pane.wait_until(60, |v| v.is_ready() || v.gate().is_some());
+    pane.capture("codex_update_menu_live.txt");
+    println!("first: {:?} {}\n{}", first.readiness(), first.why(), first.screen());
+    let Some(gate) = first.gate().filter(|gate| gate.id == "update_available") else {
+        println!("no update menu on this release; nothing to check");
+        return;
+    };
+    assert_eq!(gate.dismiss, Some("\u{1b}"));
+    // Status: a gate on screen is never ready and never idle-eligible.
+    assert!(!first.is_ready());
+    assert_eq!(first.composer(), ComposerState::Unknown);
+    assert!(crate::pty::status::startup_gate_visible("codex", first.screen()));
+    assert_ne!(crate::pty::status::classify_agent_observation("codex", first.screen(), ""), crate::pty::status::PaneStatus::Idle);
+    // The outbox hands it to delivery rather than waiting for ever.
+    let look = crate::pane_outbox::Look::from_verdict(&first, true);
+    assert_eq!(crate::pane_outbox::decide(&look), crate::pane_outbox::Step::Deliver);
+    // The gate step: Esc, then the screen changes and shows the composer.
+    let profile = pane.profile_arc();
+    let report = crate::bridge::startup_gate::dismiss_startup_gates(&mut pane, profile.as_ref());
+    println!("report: {report:?}\nwritten: {:?}", pane.written);
+    pane.capture("codex_after_esc_live.txt");
+    assert_eq!(report.dismissed, vec!["update_available"]);
+    assert_eq!(report.blocked, None);
+    assert_eq!(pane.written, vec!["\u{1b}".to_string()], "only the declared key went in");
+    let after = pane.wait_until(30, |v| v.is_ready());
+    assert!(after.is_ready(), "{:?} {}\n{}", after.readiness(), after.why(), after.screen());
+    assert!(!crate::pty::status::startup_gate_visible("codex", after.screen()));
+}
