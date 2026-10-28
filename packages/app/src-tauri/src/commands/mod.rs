@@ -59,6 +59,7 @@ mod toolbelt;
 mod agent_pack;
 mod point;
 mod channels;
+mod live_room;
 mod night;
 
 pub use agent_install::*;
@@ -113,6 +114,7 @@ pub use toolbelt::*;
 pub use agent_pack::*;
 pub use point::*;
 pub use channels::*;
+pub use live_room::*;
 pub use night::*;
 
 use crate::pty::agents::AgentType;

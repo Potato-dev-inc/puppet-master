@@ -45,6 +45,7 @@ Rows marked **obsolete** describe the legacy main-window UI: still in the tree, 
 | Legacy mobile PWA (orchestrator chat / Panes), kept as a backup at `?pwa=legacy` | `PwaLegacyApp.tsx`, `components/pwa/` | backup; waits for an orchestrator pane nothing starts since PF3 |
 | Mobile pairing/tunnel (cloudflared quick tunnel, new URL on every app start) | `MobilePairingPanel.tsx`; `mobile_pairing/`, `mobile_tunnel.rs`, `pwa_server.rs` | in use (paired Android phone and emulator); a paired phone may type into panes a `run_agent` manages |
 | Crews (team templates): "Save this team" in the session rail's Helpers card turns a pane and its helpers into a crew (agent per role, first task with the folder as `{folder}`, redacted; edited in a sheet), saved as `<app data>/crews/<slug>.toml`; "Start crew…" in the palette starts a crew in a folder, lead first, each helper under its parent's pane, stopping at the first failure; any registered agent, wizard-added ones included; trust and permission questions of started panes are never answered | `crews/`, `commands/crews.rs`; UI `components/cockpit/crews/`, `lib/crews-api.ts` | experimental |
+| Live Room: share the chat of 1 to 6 panes as a read-only link, end-to-end encrypted through a relay, secrets and folders hidden, stops by time, idle, Stop, panic or app quit; relays: the axum binary and the Cloudflare Worker | `live_room/`, `commands/live_room.rs`, `relay/viewer/`, `relay/worker/src/room.ts`; UI `components/cockpit/live/`, `lib/live-room.ts`; doc [`features/live-room.md`](features/live-room.md) | experimental (no live run on a relay yet) |
 | Home dashboard with an Agents overview card | UI `components/HomeDashboard.tsx`, `AgentsOverviewCard.tsx` | **obsolete** (Overview unreachable) |
 
 ## 1a. Point and Fix (preview, pick, send)
@@ -73,6 +74,25 @@ Limits and how to test: the feature pages.
 |---|---|---|
 | Text your agents (Telegram): pair one private chat, see what needs you, answer low-risk questions, send text to agents. Off by default. Telegram's servers can read the message text. | `channels/`, `commands/channels.rs`, `bridge/routes/channels.rs` ([`features/telegram.md`](features/telegram.md)) | **early**: the engine and the commands are in; the Settings block and the phone row are not on any screen yet; not run live with a real bot |
 | Clip It: a 20 to 28 second video of one finished turn, made on the PC. Secrets and folder paths are hidden before drawing. You preview it, then save it to a file you pick. Nothing is uploaded. | `clip/`, `commands/clip.rs`, `lib/clip*.ts`, `components/chat/ClipSheet.tsx` ([`features/clip-it.md`](features/clip-it.md)) | **experimental**: unit tests and fakes only; no live run yet |
+
+## 1c. Search across chats and old chats (Bring All My Chats)
+
+Full page: [`features/bring-all-my-chats.md`](features/bring-all-my-chats.md).
+
+| Feature | Where | Status |
+|---|---|---|
+| Ctrl+Shift+F search across chats that were open while the app ran (FTS5, redacted, newest 50 000 items) | `chat_index/`, `commands/session_chat.rs` (`chat_search`), `components/cockpit/Palette.tsx` | stable |
+| "Bring my old chats": opt-in import of the chats each agent kept on this PC (Find my chats, per-agent switches, time window, progress, Stop, Look again) | `chat_index/import/`, `commands/chat_import.rs`, `components/history/BringChatsPanel.tsx` | experimental (fixtures only; no live run on this branch) |
+| Claude Code old chats (`~/.claude/projects`, `CLAUDE_CONFIG_DIR`); sidechains skipped | `tui/claude/history.rs`, `session_chat/history/file.rs` | experimental |
+| Codex old chats (`~/.codex/sessions`, `CODEX_HOME`; plain file preferred over `.zst`) | `tui/codex/history.rs` | experimental |
+| OpenCode old chats from its SQLite database (read-only; parent sessions only) | `tui/opencode/history.rs` | experimental; table names from the installed OpenCode 1.19.0 binary, not a live database |
+| TOML agents bring old chats with `[session_chat.history]` (off by default until switched on) | `session_chat/declared/history*.rs`, `docs/specs/agent-definitions/DEFINITION-FORMAT.md` 6.1 | experimental |
+| Old chat hits in search carry the "Old chat" tag; choosing one opens a read-only view at the message | `components/cockpit/ChatHits.tsx`, `components/history/ImportedChatSheet.tsx` | experimental |
+| "Continue in a pane" for an old chat: starts the agent with its own resume option (Claude, Codex, OpenCode, TOML agents that declare one); nothing is typed | `session_chat/history/open.rs` (`resume_plan`), `components/history/ImportHost.tsx` | experimental |
+| Remove imported chats (Settings > General and the panel); "Clear search index" removes them too | `commands/chat_import.rs` (`chat_import_clear`), `components/settings/blocks/BringChatsSettings.tsx` | stable |
+| Old chats are never in the companion's recall, MCP, team or bridge answers (companion uses `search_in`) | `chat_index/store.rs` (`search_in`), guard tests in `session_chat/history/guard.rs` | stable |
+| Phone search (`GET /chats/search`) never shows old chats (`search_live`, `Reach::LiveOnly`) | `bridge/routes/chats.rs`, `chat_index/store.rs` | done |
+| First-start card "Read my old chats on this PC" | branch `feat/bc-card` (BC-13), not merged into this branch | **gap** (not in this branch) |
 
 ## 2. Orchestrator sidebar and coordination
 
@@ -180,4 +200,6 @@ The tray **New pane** submenu is built from the registry (`tray.rs`; headless-on
 `scripts/pm-regression.mjs` (+`scripts/pm-regression/`: live regression + bench, 28 scenario runs), `scripts/pm-regression/readonly-check.mjs` (read-only enforcement parity), `scripts/check-window-monitor.ps1` (fails if any Puppet Master window is on the primary monitor), `scripts/perf-latency.mjs` / `perf-summarize.mjs` / `perf-frames.mjs` / `perf-compare.mjs` (latency baseline, `docs/perf/`), `scripts/with-cargo-path.mjs` (cargo on PATH for `tauri dev`; reads `pm-dev.local.json` into `PM_WINDOW_ANCHOR`), `scripts/build-rust-mcp.mjs`, `scripts/test-mcp-operations.mjs`, `scripts/test-mcp-package.mjs`.
 
 ## 8. Known gaps (summary)
+
+Old chats (section 1c): the first-start card is not on this branch yet.
 Tray icon/menu clicking not verified by a human (model unit-tested, tray creation logged); `visible_failed` fallback proven by unit tests only, not live; pm-regression `cursor_agent timeout` can fail `WORKER_STOP_FAILED` (known flaky headless process-tree kill). Older: Env/stdin in declarative launches; `[mcp_host]` has no route; SPEC Q6 cost/concurrency note and Q7 second proof agent unscheduled; T29 skipped; `extract_model` parity; recorder has no bridge route; visible declarative results are inferred; remote/tunnel behaviour only tested with headers on loopback.

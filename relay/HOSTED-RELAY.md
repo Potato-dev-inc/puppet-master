@@ -75,6 +75,15 @@ One such team uses about 21,600 requests and about 11,000 GB-s a day: almost all
 Watch the dashboard for a few teams with very high request counts. It is not a bug in the relay, but it is
 the reason to be on the paid plan.
 
+**Live Rooms use more Durable Object time than the team mailbox.** The Worker's Live Room routes are on main, and each
+viewer call costs one `IpGate` write (the per-address counter) and one call to the room's Durable
+Object. A viewer on a quiet room long-polls, so it calls about every 25 seconds: about 144 calls an hour, or about
+2,900 Durable Object requests an hour for 10 viewers. A long poll keeps the room's object awake for up to 25 seconds,
+so while a viewer is connected the object is awake most of the time. A busy room calls more often: a viewer waits at
+most one second between good calls. These numbers come from reading the code, not from a measured bill, so check
+them on the dashboard during the first real rooms. Plan for the paid tier (section 2) before you offer hosted Live
+Rooms.
+
 ## 3. The Cloudflare Worker and the Docker image
 
 Two ways to run the same relay (same messages, same app). Pick one for the hosted relay:

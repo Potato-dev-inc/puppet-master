@@ -89,6 +89,32 @@ pub fn removable(name: &str) -> bool {
     REMOVE_SUFFIXES.iter().any(|s| upper.ends_with(s))
 }
 
+/// True when `guard` names a guard this build knows. Callers refuse anything else (fail closed).
+pub fn known(guard: &str) -> bool {
+    guard == NO_PUSH
+}
+
+/// `base` (the account's env, then the pane's hook env) with the guard on top. The guard comes
+/// last, so it wins: its sets replace an earlier set of the same name (names compare ignoring
+/// case, as on Windows), and its removes apply even to a variable `base` set. Names in `keep` are
+/// the app's own pane variables (hook token, pane id); a guard remove never strips those.
+pub fn layer(mut base: LaunchEnv, guard: LaunchEnv, keep: &[String]) -> LaunchEnv {
+    let same = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
+    let kept = |name: &str| keep.iter().any(|k| same(k, name));
+    let stripped: Vec<String> = guard.remove.into_iter().filter(|name| !kept(name)).collect();
+    // Earlier sets the guard replaces or strips are dropped, so the vector shows the guard last.
+    base.set.retain(|(name, _)| {
+        !guard.set.iter().any(|(g, _)| same(name, g)) && !stripped.iter().any(|r| same(name, r))
+    });
+    base.set.extend(guard.set);
+    for name in stripped {
+        if !base.remove.iter().any(|r| same(r, &name)) {
+            base.remove.push(name);
+        }
+    }
+    base
+}
+
 /// The environment for a pane under `guard`, or `None` for an unknown guard name. `gh_empty_dir`
 /// must be an existing, empty, private folder (`issue_intake::store::gh_empty_dir`).
 pub fn launch_env(guard: &str, gh_empty_dir: &Path) -> Option<LaunchEnv> {
@@ -304,6 +330,60 @@ mod tests {
         assert!(plain.status.success(), "{}", String::from_utf8_lossy(&plain.stderr));
         let remote_heads = git(&bare, &["show-ref"], None);
         assert!(String::from_utf8_lossy(&remote_heads.stdout).contains("pm/ok"));
+    }
+
+    fn pairs(items: &[(&str, &str)]) -> Vec<(String, String)> {
+        env_of(items)
+    }
+
+    #[test]
+    fn only_the_known_name_is_known() {
+        assert!(known(NO_PUSH));
+        for name in ["", "NO_PUSH", "no-push", "no_push ", "push"] {
+            assert!(!known(name), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn the_guard_layer_wins_over_the_account_and_hook_env() {
+        let base = LaunchEnv {
+            set: pairs(&[("GH_CONFIG_DIR", "C:/account/gh"), ("PM_HOOK_TOKEN", "t"), ("KEEP_ME", "1")]),
+            remove: vec!["FROM_ACCOUNT".into()],
+        };
+        let guard = launch_env_from(NO_PUSH, &dir(), &env_of(&[("GH_TOKEN", "x"), ("PM_HOOK_TOKEN", "inherited")]))
+            .expect("guard");
+        let out = layer(base, guard, &["PM_HOOK_TOKEN".to_string()]);
+        // The guard's value replaced the account's, and is the only one left, after the others.
+        assert_eq!(out.set.iter().filter(|(k, _)| k == "GH_CONFIG_DIR").count(), 1);
+        assert_eq!(set_value(&out, "GH_CONFIG_DIR"), Some(dir().display().to_string().as_str()));
+        assert_eq!(set_value(&out, "KEEP_ME"), Some("1"), "unrelated env stays");
+        let guard_at = out.set.iter().position(|(k, _)| k == "GH_CONFIG_DIR").unwrap();
+        let kept_at = out.set.iter().position(|(k, _)| k == "KEEP_ME").unwrap();
+        assert!(guard_at > kept_at, "the guard's sets come last");
+        // The account's own removes stay, the guard's removes are added.
+        assert!(out.remove.iter().any(|r| r == "FROM_ACCOUNT"));
+        assert!(out.remove.iter().any(|r| r == "GH_TOKEN"));
+        // The app's own pane variable is never stripped by the guard.
+        assert_eq!(set_value(&out, "PM_HOOK_TOKEN"), Some("t"));
+        assert!(!out.remove.iter().any(|r| r == "PM_HOOK_TOKEN"));
+    }
+
+    #[test]
+    fn the_guard_strips_a_token_the_account_or_hooks_set() {
+        let base = LaunchEnv { set: pairs(&[("GH_TOKEN", "from-account"), ("NPM_TOKEN", "x")]), remove: vec![] };
+        let guard = launch_env_from(NO_PUSH, &dir(), &[]).expect("guard");
+        let out = layer(base, guard, &[]);
+        assert!(set_value(&out, "GH_TOKEN").is_none() && set_value(&out, "NPM_TOKEN").is_none());
+        assert!(out.remove.iter().any(|r| r == "GH_TOKEN") && out.remove.iter().any(|r| r == "NPM_TOKEN"));
+    }
+
+    #[test]
+    fn layer_compares_names_ignoring_case() {
+        let base = LaunchEnv { set: pairs(&[("gh_config_dir", "C:/account/gh")]), remove: vec![] };
+        let guard = launch_env_from(NO_PUSH, &dir(), &[]).expect("guard");
+        let out = layer(base, guard, &[]);
+        assert!(set_value(&out, "gh_config_dir").is_none(), "the lower-case twin is replaced");
+        assert_eq!(set_value(&out, "GH_CONFIG_DIR"), Some(dir().display().to_string().as_str()));
     }
 
     #[test]

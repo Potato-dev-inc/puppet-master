@@ -2,9 +2,11 @@
 // where the person picks. The sheet has a switch between Page and Markdown. Nothing is uploaded. The page preview is
 // an iframe with an empty sandbox (no scripts) and the page as srcdoc, so the page cannot run code or reach anything.
 // The Markdown preview is plain text. With `onMakeClip` the menu also offers "Make clip of last turn" (the sheet is the panel's).
+// "Go live…" asks the cockpit to open the Go live sheet with this pane checked (the cockpit owns that sheet).
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { chatExportHtml, chatExportMarkdown, chatExportSave, chatPageFileName, type ExportFormat } from '../../lib/chatExport';
+import { requestGoLive } from '../../lib/live-room';
 import { IconMore } from '../cockpit/Icons';
 import { SegTabs } from '../cockpit/SegTabs';
 import { Sheet } from '../cockpit/Sheet';
@@ -111,6 +113,17 @@ export function ChatExportMenu({ paneId, api = tauriChatExportApi, onMakeClip }:
                 Make clip of last turn
               </button>
             )}
+            <button
+              type="button"
+              className="ck-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                requestGoLive(paneId);
+              }}
+            >
+              Go live…
+            </button>
           </div>
         )}
       </div>

@@ -53,11 +53,11 @@ describe('groups inside the sections', () => {
     }
   });
 
-  it('General reads: Project, Startup, Appearance, Safety, Budgets, Undo and memory, When you are away, Labs, Storage, About', () => {
+  it('General reads: Project, Startup, Appearance, Safety, Budgets, Undo and memory, When you are away, Labs, Live Room, Storage, About', () => {
     const heads = groupRows(section('general').rows)
       .filter((g) => !g.danger)
       .map((g) => g.head);
-    expect(heads).toEqual(['Project', 'Startup', 'Appearance', 'Safety', 'Budgets', 'Undo and memory', 'When you are away', 'Labs', 'Storage', 'About']);
+    expect(heads).toEqual(['Project', 'Startup', 'Appearance', 'Safety', 'Budgets', 'Undo and memory', 'When you are away', 'Labs', 'Live Room', 'Storage', 'About']);
   });
 
   it('"Show the welcome" (first-run) sits in General > Appearance, after the Simple mode link', () => {
@@ -71,7 +71,7 @@ describe('groups inside the sections', () => {
 
   it('Phone starts with Pair a phone, then the paired phones, then the settings, then the public address', () => {
     const heads = groupRows(section('phone').rows).map((g) => g.head);
-    expect(heads.filter(Boolean)).toEqual(['Pair a phone', 'Your phones', 'On the phone', 'Public address']);
+    expect(heads.filter(Boolean)).toEqual(['Pair a phone', 'Your phones', 'On the phone', 'Public address', 'Telegram (early)']);
     expect(section('phone').rows[0].id).toBe('pairing');
   });
 
@@ -93,12 +93,12 @@ describe('General > Labs', () => {
   const labsRows = () => section('general').rows.filter((r) => r.group === LABS_GROUP);
 
   it('collects every early feature in one place, in a fixed order, after the overview', () => {
-    expect(labsRows().map((r) => r.id)).toEqual([LABS_INDEX_ID, 'team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions', 'assign-issue']);
+    expect(labsRows().map((r) => r.id)).toEqual([LABS_INDEX_ID, 'team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions', 'assign-issue', 'night-shift']);
   });
 
   it('each feature has a short name and one plain line (no second sentence, no raw ids)', () => {
     const features = collectLabs(BASE_SECTIONS);
-    expect(features.map((r) => r.id)).toEqual(['team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions', 'assign-issue']);
+    expect(features.map((r) => r.id)).toEqual(['team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions', 'assign-issue', 'night-shift']);
     for (const row of features) {
       const { name, about } = row.labs!;
       expect(name.length, row.id).toBeGreaterThan(2);
@@ -136,7 +136,7 @@ describe('General > Labs', () => {
       .find((s) => s.id === 'general')!
       .rows.filter((r) => r.group === LABS_GROUP)
       .map((r) => r.id);
-    expect(labs.slice(-3)).toEqual(['missions', 'assign-issue', 'later-feature']);
+    expect(labs.slice(-4)).toEqual(['missions', 'assign-issue', 'night-shift', 'later-feature']);
     expect(arranged.find((s) => s.id === 'phone')!.rows.some((r) => r.id === 'later-feature')).toBe(false);
   });
 

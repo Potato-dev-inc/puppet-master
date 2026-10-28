@@ -244,9 +244,11 @@ fn worktree_of(cwd: &str) -> Option<crate::worktrees::WorktreeRef> {
 
 /// A mission round draws its budget from the mission's.
 fn budget_parent_is_mission(project: &str, pane_id: &str) -> bool {
-    let Ok(Some(run)) = crate::operations::active_operation_for_pane(project, pane_id) else { return false };
+    // A separate copy's runs are stored in the project it came from (`handoff::PaneCtx::runs_folder`).
+    let project = crate::worktrees::origin_of_cwd(project).unwrap_or_else(|| project.to_string());
+    let Ok(Some(run)) = crate::operations::active_operation_for_pane(&project, pane_id) else { return false };
     let handle = if run.agent_run_id.is_empty() { run.operation_id } else { run.agent_run_id };
-    crate::budgets::record_of(project, &handle)
+    crate::budgets::record_of(&project, &handle)
         .and_then(|record| record.parent)
         .is_some_and(|parent| parent.starts_with(crate::missions::model::HANDLE_PREFIX))
 }

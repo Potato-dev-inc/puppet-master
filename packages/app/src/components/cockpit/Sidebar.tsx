@@ -28,6 +28,10 @@ import { JobsChip } from './rail/JobsChip';
 const previewAddress = (p: PreviewUrl): string => p.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
 import { StartMissionSheet } from './mission/StartMissionSheet';
 import { onOpenStartMission, useMissions, useMissionsEnabled, isActive } from '../../lib/missions';
+import { NightChip } from './night/NightChip';
+import { TonightHost } from './night/TonightHost';
+import { onOpenTonight } from '../../lib/night-host';
+import { useNightEnabled } from '../../lib/night';
 
 export function Sidebar({
   c,
@@ -36,6 +40,7 @@ export function Sidebar({
   onOpenMemory,
   onOpenPlans,
   onOpenScores,
+  onOpenMorning,
   companions,
   openCompanionId = null,
   onOpenCompanion,
@@ -50,6 +55,8 @@ export function Sidebar({
   onOpenPlans?: () => void;
   /** Opens "Scores on your code" (which agent works best in the selected pane's project). */
   onOpenScores?: () => void;
+  /** Night Shift: opens the Morning page. Absent: no Night Shift chip. */
+  onOpenMorning?: () => void;
   /** A pane's row menu: "Open to the side" (split view). Absent: the row has no menu. */
   onOpenToSide?: (paneId: string) => void;
   /** The companions, above Inbox. Absent or null: no companion rows (no backend, or not read yet). */
@@ -154,6 +161,10 @@ export function Sidebar({
     const p = path ? projectOfCwd(path) : project;
     if (p) setMissionFor(p);
   }), [project]);
+  // Night Shift (Labs): "+" → Tonight… and the palette open the Tonight sheet; the chip below shows a run.
+  const nightOn = useNightEnabled();
+  const [tonightOpen, setTonightOpen] = useState(false);
+  useEffect(() => onOpenTonight(() => setTonightOpen(true)), []);
   useEffect(() => {
     const open = () => setMenuOpen(true);
     window.addEventListener('pm:open-new-menu', open);
@@ -316,6 +327,14 @@ export function Sidebar({
                       }
                     : undefined
                 }
+                onTonight={
+                  nightOn
+                    ? () => {
+                        setMenuOpen(false);
+                        setTonightOpen(true);
+                      }
+                    : undefined
+                }
               />
             </div>
           )}
@@ -382,6 +401,7 @@ export function Sidebar({
           small
         />
         <JobsChip names={c.names} onOpenPane={(id) => c.select(id)} />
+        {onOpenMorning && <NightChip onOpenMorning={onOpenMorning} />}
         {onOpenDoctor && (
           <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenDoctor}>
             <IconTerminal />
@@ -433,6 +453,13 @@ export function Sidebar({
           </div>
         )}
       </div>
+      {tonightOpen && nightOn && (
+        <TonightHost
+          c={c}
+          onClose={() => setTonightOpen(false)}
+          onStarted={() => c.notify('Night Shift is set. The chip below shows how it goes.')}
+        />
+      )}
       {missionFor && (
         <StartMissionSheet
           project={{ path: missionFor.path, name: missionFor.name, git: supportsCopies(missionFor.state) }}

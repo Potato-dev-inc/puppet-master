@@ -18,6 +18,7 @@ import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SettingsView } from './components/cockpit/SettingsView';
 import { PlansMonth } from './components/cockpit/PlansMonth';
+import { MorningPage } from './components/cockpit/night/MorningPage';
 import { AgentScores } from './components/cockpit/AgentScores';
 import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
@@ -39,9 +40,20 @@ import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './components/cockpit/c
 import { CompanionSetupSheet } from './components/cockpit/companion/CompanionSetupSheet';
 import { StartCrewSheet } from './components/cockpit/crews/StartCrewSheet';
 import { ShortcutsSheet } from './components/cockpit/ShortcutsSheet';
+import { ImportHost } from './components/history/ImportHost';
 import { isTypingTarget } from './components/cockpit/rail/useRailLayout';
 import { agentLabel, useAgentRegistry } from './lib/agentRegistry';
+import { LiveBar } from './components/cockpit/live/LiveBar';
+import { GoLiveSheet } from './components/cockpit/live/GoLiveSheet';
+import { LiveStatusContext, useLiveRoom } from './components/cockpit/live/useLiveRoom';
+import { useTeamRelay } from './components/cockpit/live/useTeamRelay';
+import { sharePanes } from './components/cockpit/live/sharePanes';
+import { useLiveStopToast } from './components/cockpit/live/stopToast';
+import { GO_LIVE_EVENT } from './lib/live-room';
 import './styles/cockpit.css';
+import './styles/night.css';
+import './styles/night-morning.css';
+import './styles/night-chip.css';
 
 export type { MainView } from './components/cockpit/main-view';
 
@@ -96,6 +108,23 @@ export default function CockpitApp() {
   // The keyboard shortcuts sheet: `?`, Ctrl+/, or "Keyboard shortcuts" in the palette.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const agentListing = useAgentRegistry();
+  // Live Room: one status for the bar, the pane chips and the palette. The Go live sheet opens on an event the chat
+  // menu and the palette fire. The stop toast says why a room ended, whoever ended it.
+  const live = useLiveRoom();
+  const [goLive, setGoLive] = useState<{ paneId: string | null } | null>(null);
+  const teamRelay = useTeamRelay(goLive !== null);
+  useLiveStopToast(live.status, c.notify);
+  useEffect(() => {
+    const onGoLive = (e: Event) => {
+      if (live.status?.live) {
+        c.notify('Live Room is already running. Stop it first.');
+        return;
+      }
+      setGoLive({ paneId: (e as CustomEvent<{ paneId: string | null }>).detail?.paneId ?? null });
+    };
+    window.addEventListener(GO_LIVE_EVENT, onGoLive);
+    return () => window.removeEventListener(GO_LIVE_EVENT, onGoLive);
+  });
   const companion = companions.companions?.find((x) => x.id === companionId) ?? null;
   const openCompanion = (id: string) => {
     setCompanionId(id);
@@ -275,12 +304,23 @@ export default function CockpitApp() {
   // Simple mode (Settings > General) swaps the whole face; off by default, so this line does nothing then.
   const simple = useSimpleMode();
   // While the welcome is open the normal face stays, so its sign-in and install windows are visible.
-  if (simple && c.mode !== 'individual' && !welcome.open) return <SimpleCockpit c={c} loop={loop} needsYou={needsYou} lastTurn={away.lastTurn} />;
+  if (simple && c.mode !== 'individual' && !welcome.open) {
+    return (
+      <>
+        {/* No face hides the LIVE bar: in Simple mode it sits over the top edge. */}
+        <div className="cockpit ck-live-top" data-theme={c.theme}>
+          <LiveBar />
+        </div>
+        <SimpleCockpit c={c} loop={loop} needsYou={needsYou} lastTurn={away.lastTurn} />
+      </>
+    );
+  }
 
   return (
     <LoopGuardContext.Provider value={loop}>
     <NeedsYouContext.Provider value={needsYou}>
     <LastTurnContext.Provider value={away.lastTurn}>
+    <LiveStatusContext.Provider value={live.status}>
     <div className="cockpit" data-theme={c.theme} onClickCapture={onClickCapture}>
       <Sidebar
         c={nav}
@@ -291,6 +331,7 @@ export default function CockpitApp() {
         onOpenDoctor={() => setView('doctor')}
         onOpenMemory={() => setView('memory')}
         onOpenPlans={() => setView('plans')}
+        onOpenMorning={() => setView('morning')}
         onOpenScores={() => setView('scores')}
         companions={companions.companions}
         openCompanionId={view === 'companion' ? companionId : null}
@@ -322,6 +363,8 @@ export default function CockpitApp() {
           />
         ) : view === 'plans' ? (
           <PlansMonth onClose={closeOverlay} />
+        ) : view === 'morning' ? (
+          <MorningPage onClose={closeOverlay} onOpenPane={(id) => nav.select(id)} />
         ) : view === 'scores' ? (
           <AgentScores
             // Same project rule as Project memory: a pane in a separate copy belongs to the project the copy came from.
@@ -363,6 +406,7 @@ export default function CockpitApp() {
             }}
           />
         )}
+        <LiveBar />
         {away.digest && c.mode !== 'individual' && (
           <AwayDigest
             digest={away.digest}
@@ -389,6 +433,7 @@ export default function CockpitApp() {
           onStopAll={stopAll}
           onOpenMemory={() => setView('memory')}
           onOpenPlans={() => setView('plans')}
+          onOpenMorning={() => setView('morning')}
           onOpenScores={() => setView('scores')}
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}
@@ -404,6 +449,18 @@ export default function CockpitApp() {
           defaultFolder={c.selectedId ? (c.registry.panes.get(c.selectedId)?.info.cwd ?? null) : null}
           agentName={(id) => agentLabel(agentListing, id)}
           onClose={() => setCrewOpen(false)}
+        />
+      )}
+      {goLive && (
+        <GoLiveSheet
+          panes={sharePanes(c.registry.paneList, c.names, agentListing)}
+          currentPaneId={goLive.paneId ?? c.selectedId ?? undefined}
+          teamRelay={teamRelay}
+          onClose={() => setGoLive(null)}
+          onOpenSettings={() => {
+            setGoLive(null);
+            void nav.openSettings('general');
+          }}
         />
       )}
       {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
@@ -428,6 +485,7 @@ export default function CockpitApp() {
       )}
       {welcome.open && c.mode !== 'individual' && <FirstRun key={welcome.openKey} c={nav} seed={welcome.seed} onFinish={welcome.finish} />}
       {c.mode !== 'individual' && <TellTeamToast />}
+      <ImportHost c={nav} />
       {stopReport && <PanicSheet report={stopReport} names={c.names} onClose={() => setStopReport(null)} />}
       <div className="ck-toasts" aria-live="polite">
         {c.toasts.map((t) => (
@@ -442,6 +500,7 @@ export default function CockpitApp() {
         ))}
       </div>
     </div>
+    </LiveStatusContext.Provider>
     </LastTurnContext.Provider>
     </NeedsYouContext.Provider>
     </LoopGuardContext.Provider>

@@ -37,6 +37,19 @@ vi.mock('../../../lib/memory-api', () => ({
   memoryApi: { globalEnabled: vi.fn(async () => true), setGlobalEnabled: vi.fn(async () => undefined) },
 }));
 
+vi.mock('../../../lib/live-room', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../../lib/live-room')>();
+  return {
+    ...orig,
+    liveRoomApi: {
+      ...orig.liveRoomApi,
+      configGet: vi.fn(async () => ({ relay: '', minutes: 60, maxViewers: 10 })),
+      configSet: vi.fn(async () => undefined),
+    },
+  };
+});
+
+import { liveRoomApi } from '../../../lib/live-room';
 import { tauri } from '../../../lib/tauri';
 import { tauriLoopApi } from '../../../lib/loop-guard';
 import { cockpitApi } from '../../../lib/cockpit-api';
@@ -138,6 +151,13 @@ describe('General: each control saves a partial patch', () => {
     expect(m.env.patches.at(-1)).toEqual({ checkpoints_keep: 500 });
   });
 
+  it('Night Shift (Labs) is off by default and saves only {night_shift_enabled}', async () => {
+    await mount();
+    expect(switchFor('Night Shift')!.getAttribute('aria-checked')).toBe('false');
+    await click(switchFor('Night Shift'));
+    expect(m.env.patches).toEqual([{ night_shift_enabled: true }]);
+  });
+
   it('Away digest minutes clamps on blur', async () => {
     await mount();
     const away = byLabel<HTMLInputElement>(m.host, 'Away digest after (minutes)')!;
@@ -205,6 +225,20 @@ describe('General: each control saves a partial patch', () => {
     expect(memoryApi.setGlobalEnabled).toHaveBeenCalledWith(false);
     expect(m.env.markSaved).toHaveBeenCalledTimes(3);
     expect(m.env.patches).toEqual([]); // none of these touch settings.json
+  });
+});
+
+describe('General: Live Room', () => {
+  it('is its own group with the relay field and the privacy line, and saves the relay on blur', async () => {
+    await mount();
+    expect([...m.host.querySelectorAll('section.st-group')].some((s) => s.textContent?.includes('Relay address'))).toBe(true);
+    expect(hasText(m.host, 'Rooms are end-to-end encrypted. The relay sees only sizes and times.')).toBe(true);
+    const relay = byLabel<HTMLInputElement>(m.host, 'Relay address')!;
+    await typeInto(relay, 'https://relay.example.test');
+    await blur(relay);
+    await settle();
+    expect(liveRoomApi.configSet).toHaveBeenCalledWith({ relay: 'https://relay.example.test', minutes: 60, maxViewers: 10 });
+    expect(m.env.markSaved).toHaveBeenCalled();
   });
 });
 

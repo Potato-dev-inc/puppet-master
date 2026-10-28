@@ -7,7 +7,7 @@
 
 use serde_json::{json, Value};
 
-use super::model::{plan_key, NightRun, PlanOut, Task, CHECK_TIMEOUT_MS, ROUND_TIMEOUT_MS};
+use super::model::{plan_key, NightRun, PlanOut, Task, TaskState, CHECK_TIMEOUT_MS, ROUND_TIMEOUT_MS};
 use super::plan::Cand;
 use crate::accounts::Account;
 use crate::agent_runs::checks::Check;
@@ -125,6 +125,24 @@ pub fn candidates(
         .collect()
 }
 
+/// The project folders of the tasks that still need a plan, each once, in list order. A plan must be
+/// able to run in all of them (Start checks every task's folder the same way); a finished task's
+/// folder no longer matters.
+pub fn folders_of(run: &NightRun) -> Vec<String> {
+    let mut folders: Vec<String> = Vec::new();
+    for task in run.tasks.iter().filter(|t| t.state != TaskState::Finished) {
+        if !folders.contains(&task.spec.project) {
+            folders.push(task.spec.project.clone());
+        }
+    }
+    folders
+}
+
+/// `Ok` when `check` accepts the agent in every folder; the first refusal is the reason.
+pub fn ok_in_all(folders: &[String], check: &dyn Fn(&str) -> Result<(), String>) -> Result<(), String> {
+    folders.iter().try_for_each(|folder| check(folder))
+}
+
 /// `Ok` when the plan can run on this computer; otherwise the plain reason.
 fn runnable(
     agent: &AgentChoice,
@@ -199,6 +217,47 @@ mod tests {
         task.spec.minutes = 30;
         run.tasks = vec![task.clone()];
         (run, task)
+    }
+
+    fn task_in(id: &str, project: &str, state: TaskState) -> Task {
+        let mut t = sample_task(id);
+        t.spec.project = project.to_string();
+        t.state = state;
+        t
+    }
+
+    #[test]
+    fn a_plan_must_run_in_every_unfinished_tasks_folder_not_only_the_first() {
+        let mut run = sample_run(RUN);
+        run.tasks = vec![
+            task_in("nt-00000001", "/p/one", TaskState::Queued),
+            task_in("nt-00000002", "/p/two", TaskState::Queued),
+            task_in("nt-00000003", "/p/one", TaskState::Working),
+            task_in("nt-00000004", "/p/done", TaskState::Finished),
+        ];
+        assert_eq!(folders_of(&run), vec!["/p/one".to_string(), "/p/two".to_string()], "once each, finished skipped");
+
+        let only_two_is_bad = |folder: &str| if folder == "/p/two" { Err("Not allowed here.".to_string()) } else { Ok(()) };
+        assert_eq!(ok_in_all(&folders_of(&run), &only_two_is_bad), Err("Not allowed here.".to_string()));
+
+        run.tasks[1].state = TaskState::Finished;
+        assert_eq!(ok_in_all(&folders_of(&run), &only_two_is_bad), Ok(()), "a finished task's folder no longer counts");
+        assert_eq!(ok_in_all(&[], &only_two_is_bad), Ok(()));
+    }
+
+    #[test]
+    fn candidates_are_not_runnable_when_the_check_refuses_a_later_tasks_folder() {
+        let mut run = sample_run(RUN);
+        run.tasks = vec![task_in("nt-00000001", "/p/one", TaskState::Queued), task_in("nt-00000002", "/p/two", TaskState::Queued)];
+        run.plans = vec![plan(agent("fake_a", None), "Fake A", Some("va"))];
+        let found = vec![desc("fake_a", "Fake A", true)];
+        let folders = folders_of(&run);
+        let refuse_two = |folder: &str| if folder == "/p/two" { Err("Fake A can't work in that folder.".to_string()) } else { Ok(()) };
+        let got = candidates(&run, &found, &[], &|_| None, &|_| ok_in_all(&folders, &refuse_two));
+        assert_eq!(got[0].runnable, Err("Fake A can't work in that folder.".to_string()));
+        let accept = |_: &str| Ok(());
+        let got = candidates(&run, &found, &[], &|_| None, &|_| ok_in_all(&folders, &accept));
+        assert_eq!(got[0].runnable, Ok(()));
     }
 
     #[test]

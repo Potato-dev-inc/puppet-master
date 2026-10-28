@@ -4,6 +4,16 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MenuSheet, NewAgentSheet, Sheet } from './MobileSheet';
 
+// The Telegram row talks to the PC bridge; the tests answer for it. Nothing reaches a real bridge.
+const telegram = vi.hoisted(() => ({
+  status: vi.fn(async () => ({ on: false, connected: false, botUsername: null as string | null })),
+  turnOff: vi.fn(async () => ({ ok: true, wasOn: true })),
+}));
+vi.mock('../../lib/telegram-bridge', () => ({
+  getTelegramPhoneStatus: telegram.status,
+  turnTelegramOff: telegram.turnOff,
+}));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 afterEach(() => {
@@ -100,6 +110,40 @@ describe('phone menu: Stop all agents', () => {
     const host = mountMenu(() => {});
     expect(host.querySelectorAll('input.ph-switch[type="checkbox"]').length).toBeGreaterThanOrEqual(3);
     expect(host.innerHTML).not.toMatch(/\bpm-(border|panel|raised)\b/);
+  });
+});
+
+describe('phone menu: Telegram off row', () => {
+  const h2 = (host: HTMLElement, text: string) => Array.from(host.querySelectorAll('h2')).find((h) => h.textContent === text) as HTMLElement;
+
+  it('is hidden while the PC says Telegram is off', async () => {
+    telegram.status.mockResolvedValueOnce({ on: false, connected: false, botUsername: null });
+    const host = mountMenu(() => {});
+    await act(async () => {});
+    expect(button(host, 'Turn Telegram off')).toBeUndefined();
+    expect(host.textContent).not.toContain('Telegram ·');
+  });
+
+  it('sits under Notifications and before Terminal when Telegram is on', async () => {
+    telegram.status.mockResolvedValueOnce({ on: true, connected: true, botUsername: 'pm_bot' });
+    const host = mountMenu(() => {});
+    await act(async () => {});
+    const turnOff = button(host, 'Turn Telegram off');
+    expect(turnOff).toBeDefined();
+    const notifications = h2(host, 'Notifications');
+    const terminal = h2(host, 'Terminal');
+    expect(notifications.compareDocumentPosition(turnOff) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(turnOff.compareDocumentPosition(terminal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('turning it off from the phone says so, and the PC is the only place to turn it back on', async () => {
+    telegram.status.mockResolvedValueOnce({ on: true, connected: true, botUsername: 'pm_bot' });
+    const host = mountMenu(() => {});
+    await act(async () => {});
+    await act(async () => button(host, 'Turn Telegram off').click());
+    expect(telegram.turnOff).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Off. Turn it on again on your PC.');
+    expect(button(host, 'Turn Telegram off')).toBeUndefined();
   });
 });
 

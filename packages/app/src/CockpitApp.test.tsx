@@ -3,6 +3,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CockpitApp from './CockpitApp';
+import { requestGoLive, type LiveStatus } from './lib/live-room';
+import { requestBringChats, requestImportedChat } from './lib/chatImport';
 
 // Mutable per-test input for the digest (away) path.
 const away = vi.hoisted(() => ({ digest: null as null | object }));
@@ -15,6 +17,15 @@ const cockpit = vi.hoisted(() => ({
   // The pane list is known (the split restores on start only then). Off by default, as before.
   ready: false,
 }));
+// The Live Room the (mocked) app reports, and the toasts the cockpit shows.
+const live = vi.hoisted(() => ({
+  status: { live: false, paused: false, viewers: 0, endsAtMs: 0, paneIds: [] as string[], hidden: 0, stopped: null as string | null },
+  listeners: [] as Array<(s: unknown) => void>,
+  notes: [] as string[],
+  stops: 0,
+}));
+// The Bring my old chats sheets: the pane start the (mocked) registry does.
+const imp = vi.hoisted(() => ({ spawnPane: (async () => 'p2') as (a: unknown) => Promise<string> }));
 // Rust's "show Settings in this window" event (cockpit://settings).
 const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
 
@@ -24,6 +35,7 @@ vi.mock('./hooks/useCockpit', async () => {
     useCockpit: () => {
       const [selectedId, setSelectedId] = useState<string | null>('p1');
       const ids = ['p1', 'p2'];
+      const infoOf = (id: string) => ({ id, cwd: `/proj/${id}`, agent_type: `agent-${id}` });
       return {
         selectedId,
         // Like the real hook: picking a pane keeps a running spawn and clears a failed one.
@@ -37,14 +49,15 @@ vi.mock('./hooks/useCockpit', async () => {
         setMode: async () => {},
         openSettings: cockpit.openSettings,
         newAgent: async () => {},
-        notify: () => {},
+        notify: (text: string) => void live.notes.push(text),
         theme: 'dark',
         now: 0,
         toasts: [],
-        names: {},
+        names: new Map<string, string>(),
         registry: {
-          paneList: ids.map((id) => ({ info: { id, cwd: `/proj/${id}` } })),
-          panes: new Map(ids.map((id) => [id, { info: { id, cwd: `/proj/${id}` }, status: 'idle' }])),
+          spawnPane: (a: unknown) => imp.spawnPane(a),
+          paneList: ids.map((id) => ({ info: infoOf(id) })),
+          panes: new Map(ids.map((id) => [id, { info: infoOf(id), status: 'idle' }])),
           initialReady: cockpit.ready,
         },
       };
@@ -62,6 +75,26 @@ vi.mock('./lib/cockpit-api', async (importOriginal) => {
         rust.openSettings = cb;
         return Promise.resolve(() => {});
       },
+    },
+  };
+});
+
+vi.mock('./lib/live-room', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('./lib/live-room')>();
+  return {
+    ...orig,
+    onLiveState: (cb: (s: unknown) => void) => {
+      live.listeners.push(cb);
+      return Promise.resolve(() => {
+        live.listeners = live.listeners.filter((x) => x !== cb);
+      });
+    },
+    liveRoomApi: {
+      ...orig.liveRoomApi,
+      status: async () => live.status,
+      stop: async () => void (live.stops += 1),
+      configGet: async () => ({ relay: 'https://relay.example.test', minutes: 60, maxViewers: 10 }),
+      preview: async () => ({ panes: [], items: [], hidden: 0 }),
     },
   };
 });
@@ -95,10 +128,11 @@ vi.mock('./components/cockpit/Sidebar', async () => {
     onOpenDoctor: () => void;
     onOpenMemory: () => void;
     onOpenScores: () => void;
+    onOpenMorning?: () => void;
     onOpenToSide?: (id: string) => void;
   };
   return {
-    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenToSide }: Props) =>
+    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenMorning, onOpenToSide }: Props) =>
       h(
         'div',
         null,
@@ -106,6 +140,7 @@ vi.mock('./components/cockpit/Sidebar', async () => {
         h('button', { type: 'button', onClick: () => onOpenToSide?.('p2') }, 'Open p2 to the side'),
         h('button', { type: 'button', onClick: onOpenMemory }, 'Project memory'),
         h('button', { type: 'button', onClick: onOpenScores }, 'Scores'),
+        h('button', { type: 'button', onClick: onOpenMorning }, 'Night Shift chip'),
         h('button', { type: 'button', onClick: () => void c.openSettings() }, 'Settings'),
         h('button', { type: 'button', onClick: () => c.select(null) }, 'Inbox'),
         ...c.registry.paneList.map((p) =>
@@ -121,6 +156,20 @@ vi.mock('./components/cockpit/AgentDoctor', async () => {
 vi.mock('./components/cockpit/ProjectMemory', async () => {
   const { createElement: h } = await import('react');
   return { ProjectMemory: () => h('div', null, 'MEMORY VIEW') };
+});
+vi.mock('./components/cockpit/night/MorningPage', async () => {
+  const { createElement: h } = await import('react');
+  type Props = { onClose: () => void; onOpenPane?: (id: string) => void };
+  return {
+    MorningPage: ({ onClose, onOpenPane }: Props) =>
+      h(
+        'div',
+        null,
+        'MORNING VIEW',
+        h('button', { type: 'button', onClick: onClose }, 'Close morning'),
+        h('button', { type: 'button', onClick: () => onOpenPane?.('p2') }, 'Open task pane'),
+      ),
+  };
 });
 vi.mock('./components/cockpit/AgentScores', async () => {
   const { createElement: h } = await import('react');
@@ -198,6 +247,21 @@ vi.mock('./components/cockpit/Palette', async () => {
   const { createElement: h } = await import('react');
   return { Palette: ({ initialMode }: { initialMode?: string }) => h('div', { 'data-testid': 'palette', 'data-mode': initialMode }) };
 });
+// The old chat sheet is stubbed: this test is about the host in the cockpit, not the sheet.
+vi.mock('./components/history/ImportedChatSheet', async () => {
+  const { createElement: h } = await import('react');
+  type Props = { request: { agent: string; session: string }; onContinue: (p: unknown) => void; onClose: () => void };
+  return {
+    ImportedChatSheet: ({ request, onContinue, onClose }: Props) =>
+      h('div', { role: 'dialog' }, `OLD CHAT ${request.agent}/${request.session}`,
+        h('button', { type: 'button', onClick: () => onContinue({ ok: true, agentType: 'codex', cwd: 'C:/Users/you/shop', extraArgs: ['resume', 'sess-0001-abcd'] }) }, 'Continue here'),
+        h('button', { type: 'button', onClick: onClose }, 'Close old chat')),
+  };
+});
+vi.mock('./components/history/BringChatsPanel', async () => {
+  const { createElement: h } = await import('react');
+  return { BRING_CHATS_TITLE_ID: 'bc-panel-title', BringChatsPanel: ({ onClose }: { onClose?: () => void }) => h('p', null, 'BRING PANEL', h('button', { type: 'button', onClick: onClose }, 'Close bring')) };
+});
 vi.mock('./components/cockpit/UndoSheet', () => ({ UndoSheet: () => null }));
 vi.mock('./components/cockpit/PanicSheet', () => ({ PanicSheet: () => null }));
 
@@ -205,12 +269,16 @@ vi.mock('./components/cockpit/PanicSheet', () => ({ PanicSheet: () => null }));
 
 let host: HTMLDivElement;
 let root: Root;
-beforeEach(() => {
+beforeEach(async () => {
   away.digest = null;
   ui.spawn = null;
   cockpit.mode = 'orchestration';
   cockpit.openSettings = vi.fn(async () => {});
   cockpit.ready = false;
+  live.status = { live: false, paused: false, viewers: 0, endsAtMs: 0, paneIds: [], hidden: 0, stopped: null };
+  live.listeners = [];
+  live.notes = [];
+  live.stops = 0;
   localStorage.clear();
   rust.openSettings = null;
   settingsMounts = 0;
@@ -218,7 +286,8 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => root.render(createElement(CockpitApp)));
+  // Async, so the Live Room status read at mount settles inside the act.
+  await act(async () => root.render(createElement(CockpitApp)));
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -241,6 +310,24 @@ describe('CockpitApp main view precedence', () => {
   it('(1) Project memory replaces the open Set up agents view', () => {
     clickButton('Set up agents');
     expect(mainText()).toBe('DOCTOR VIEW');
+    clickButton('Project memory');
+    expect(mainText()).toBe('MEMORY VIEW');
+  });
+
+  it('Morning: the Night Shift chip opens the page over the pane; Close and a task pane both leave it', () => {
+    clickButton('Night Shift chip');
+    expect(mainText()).toContain('MORNING VIEW');
+    clickButton('Close morning');
+    expect(mainText()).toBe('PANE VIEW p1');
+    clickButton('Night Shift chip');
+    clickButton('Open task pane');
+    expect(mainText()).toBe('PANE VIEW p2');
+  });
+
+  it('Morning: the last click wins over Project memory', () => {
+    clickButton('Project memory');
+    clickButton('Night Shift chip');
+    expect(mainText()).toContain('MORNING VIEW');
     clickButton('Project memory');
     expect(mainText()).toBe('MEMORY VIEW');
   });
@@ -521,5 +608,122 @@ describe('CockpitApp split view wiring', () => {
     expect(mainText()).toContain('SPLIT VIEW');
     resize(800);
     expect(mainText()).toBe('PANE VIEW p1');
+  });
+});
+
+// The segment controls of the Go live sheet measure themselves with a ResizeObserver, which jsdom does not have.
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
+describe('CockpitApp Live Room wiring', () => {
+  const flush = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  /** The app tells every window the room changed (`live://state`). */
+  const emit = (over: Partial<LiveStatus>) =>
+    act(async () => {
+      const next = { ...live.status, ...over };
+      live.status = next;
+      live.listeners.forEach((cb) => cb(next));
+    });
+  const bar = () => host.querySelector('.ck-live-bar');
+  const running = (over: Partial<LiveStatus> = {}): Partial<LiveStatus> => ({ live: true, viewers: 7, endsAtMs: Date.now() + 41 * 60_000, paneIds: ['p1'], stopped: null, ...over });
+
+  it('shows no LIVE bar while there is no room', async () => {
+    await flush();
+    expect(bar()).toBeNull();
+  });
+
+  it('the LIVE bar appears on a live://state event and goes on stop, with the reason toast', async () => {
+    await flush();
+    await emit(running());
+    expect(bar()?.textContent).toContain('LIVE');
+    expect(bar()?.textContent).toContain('7 watching');
+    expect(bar()?.textContent).not.toMatch(/https?:|#/);
+    expect(live.notes).toEqual([]);
+    await emit({ live: false, paused: false, stopped: 'expired' });
+    expect(bar()).toBeNull();
+    expect(live.notes).toEqual(['Live Room ended: time is up.']);
+  });
+
+  it('says each stop in plain English, and nothing when the app quits', async () => {
+    await flush();
+    await emit(running());
+    await emit({ live: false, stopped: 'idle' });
+    await emit(running());
+    await emit({ live: false, stopped: 'app_quit' });
+    await emit(running());
+    await emit({ live: false, stopped: 'owner' });
+    expect(live.notes).toEqual(['Live Room stopped: nothing happened for 20 minutes.', 'Live Room stopped.']);
+  });
+
+  it('a stopped status seen at start (no room before) says nothing', async () => {
+    await flush();
+    await emit({ live: false, stopped: 'expired' });
+    expect(live.notes).toEqual([]);
+  });
+
+  it('Stop in the LIVE bar ends the room through the app', async () => {
+    await flush();
+    await emit(running());
+    await act(async () => clickButton('Stop'));
+    expect(live.stops).toBe(1);
+  });
+
+  it('the Go live event (chat menu, palette) opens the sheet with that pane checked', async () => {
+    await flush();
+    act(() => requestGoLive('p2'));
+    await flush();
+    const sheet = document.querySelector('[role="dialog"]');
+    expect(sheet?.textContent).toContain('Go live');
+    const boxes = [...(sheet?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]') ?? [])];
+    expect(boxes.map((b) => b.checked)).toEqual([false, true]);
+  });
+
+  it('the Go live event with no pane checks the selected pane', async () => {
+    await flush();
+    act(() => requestGoLive(null));
+    await flush();
+    const boxes = [...document.querySelectorAll<HTMLInputElement>('[role="dialog"] input[type="checkbox"]')];
+    expect(boxes.map((b) => b.checked)).toEqual([true, false]);
+  });
+
+  it('while a room runs, the Go live event opens nothing and says why', async () => {
+    await flush();
+    await emit(running());
+    act(() => requestGoLive('p1'));
+    await flush();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(live.notes).toEqual(['Live Room is already running. Stop it first.']);
+  });
+});
+
+describe('CockpitApp old chats host', () => {
+  it('shows no old chat sheet without a request', () => {
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('a request opens the sheet, Continue starts the pane with the plan and selects it, and the sheet is gone', async () => {
+    imp.spawnPane = vi.fn(async () => 'p2');
+    act(() => requestImportedChat('codex', 'sess-0001-abcd'));
+    expect(host.textContent).toContain('OLD CHAT codex/sess-0001-abcd');
+    await act(async () => clickButton('Continue here'));
+    expect(imp.spawnPane).toHaveBeenCalledWith({ agent_type: 'codex', cwd: 'C:/Users/you/shop', extra_args: ['resume', 'sess-0001-abcd'] });
+    expect(mainText()).toBe('PANE VIEW p2');
+    expect(host.textContent).not.toContain('OLD CHAT');
+  });
+
+  it('closing the sheet clears the request, and the Bring-chats request shows its panel', () => {
+    act(() => requestImportedChat('codex', 'sess-0001-abcd'));
+    clickButton('Close old chat');
+    expect(host.textContent).not.toContain('OLD CHAT');
+    act(() => requestBringChats());
+    expect(host.textContent).toContain('BRING PANEL');
+    clickButton('Close bring');
+    expect(host.textContent).not.toContain('BRING PANEL');
   });
 });

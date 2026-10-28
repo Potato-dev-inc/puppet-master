@@ -72,3 +72,17 @@ impl HistoryEnv {
         (self.lookup)(name).filter(|value| !value.is_empty())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::HistoryEnv;
+
+    /// Moved here from `history/tests.rs`: only this file and `commands/chat_import.rs` may call `from_process`.
+    #[test]
+    fn from_process_under_test_has_no_home_and_no_variables() {
+        let env = HistoryEnv::from_process();
+        assert!(env.home().is_none());
+        assert!(env.var("CLAUDE_CONFIG_DIR").is_none());
+        assert!(env.var("CODEX_HOME").is_none());
+    }
+}

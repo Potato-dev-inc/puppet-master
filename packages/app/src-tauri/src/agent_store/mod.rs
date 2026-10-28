@@ -10,6 +10,7 @@
 pub mod add;
 pub mod catalog;
 pub mod check;
+pub mod embedded;
 pub mod entry;
 pub mod record;
 pub mod state;

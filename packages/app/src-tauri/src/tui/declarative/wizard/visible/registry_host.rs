@@ -47,6 +47,7 @@ impl PaneHost for RegistryHost {
             pane_id: None,
             read_only: false,
             account: None,
+            guard_env: None,
         };
         let pane = crate::pty::registry_spawn_pane(&self.registry, &self.app, args)?;
         self.owned.lock().insert(pane.clone(), spec.cwd.clone());

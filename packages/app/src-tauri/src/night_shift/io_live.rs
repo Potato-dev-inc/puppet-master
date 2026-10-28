@@ -21,7 +21,7 @@ use crate::night_shift::io_facts::{facts_from_mission, facts_from_run, turn_line
 use crate::night_shift::io_start::{self, candidates, mission_request, single_request, start_fail_from};
 use crate::night_shift::model::{Attempt, AttemptKind, NightRun, Task};
 use crate::night_shift::plan::Cand;
-use crate::night_shift::power::{self, Guard};
+use crate::night_shift::power;
 use crate::night_shift::report;
 use crate::night_shift::store::Store;
 use crate::night_shift::view;
@@ -34,7 +34,6 @@ pub struct LiveIo {
     store: Store,
     /// When a waiting state (limit, question) was first seen, by attempt: the clock for "parked 3 min".
     seen: Mutex<HashMap<String, u64>>,
-    awake: Mutex<Option<Guard>>,
 }
 
 /// A live adapter for `run_id`, ready to hand to `runner::spawn`.
@@ -44,7 +43,7 @@ pub fn live(run_id: &str) -> Arc<dyn NightIo> {
 
 impl LiveIo {
     pub fn new(run_id: &str) -> LiveIo {
-        LiveIo { run_id: run_id.to_string(), store: Store::live(), seen: Mutex::new(HashMap::new()), awake: Mutex::new(None) }
+        LiveIo { run_id: run_id.to_string(), store: Store::live(), seen: Mutex::new(HashMap::new()) }
     }
 
     /// How long `tag` has been seen waiting. The first sight starts the clock; any other state clears it.
@@ -208,13 +207,16 @@ impl NightIo for LiveIo {
     fn candidates(&self, run: &NightRun) -> Vec<Cand> {
         let descriptors = crate::tui::descriptors();
         let accounts = crate::accounts::Store::default_location().list();
-        let folder = run.tasks.first().map(|t| t.spec.project.clone()).unwrap_or_default();
+        // A plan must work in every remaining task's folder, as Start checks it (not only the first).
+        let folders = io_start::folders_of(run);
         candidates(
             run,
             &descriptors,
             &accounts,
             &|a: &AgentChoice| crate::handoff::agent_limit(&a.agent_type, a.account.as_deref()),
-            &|a: &AgentChoice| crate::companion::agents::agent_ok(&a.agent_type, &folder).map_err(str::to_string),
+            &|a: &AgentChoice| {
+                io_start::ok_in_all(&folders, &|folder| crate::companion::agents::agent_ok(&a.agent_type, folder).map_err(str::to_string))
+            },
         )
     }
 
@@ -309,15 +311,13 @@ impl NightIo for LiveIo {
     }
 
     fn keep_awake(&self, on: bool) -> Result<(), String> {
-        let mut held = self.awake.lock();
-        if !on {
-            *held = None; // dropping the guard lets the computer sleep again
-            return Ok(());
+        // Held by run id in `power`, so the exit hook can let go of it too.
+        if on {
+            power::hold(&self.run_id, "Night Shift")
+        } else {
+            power::release(&self.run_id); // lets the computer sleep again
+            Ok(())
         }
-        if held.is_none() {
-            *held = Some(power::keep_awake("Night Shift")?);
-        }
-        Ok(())
     }
 
     fn push_morning(&self, run: &NightRun) {
@@ -350,10 +350,11 @@ impl NightIo for LiveIo {
     }
 }
 
-/// Sends the one morning push with this line (counts only). The push kind is added by the push task
-/// (NS-11); until the wiring task connects it, the line is only logged.
+/// Sends the one morning push with this line (counts only). The caller already skipped it when the
+/// person opened the Morning page; `notify_night` stays silent when no phone is paired or watching.
 fn deliver_push(line: &str) {
     tracing::info!(line = %line, "night shift: morning push");
+    crate::push::notify_night(line, true);
 }
 
 fn empty_facts() -> Facts {

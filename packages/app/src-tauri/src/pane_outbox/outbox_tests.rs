@@ -3,7 +3,7 @@
 use super::host::{Attempt, Host, Look, PaneKind};
 use super::live::attempt_of;
 use super::model::*;
-use super::worker::{decide, Step};
+use super::worker::{decide, target_block, Step};
 use super::{Outbox, Timing};
 use crate::agent_runs::delivery::{self, Delivery};
 use crate::agent_runs::readiness::{HostShell, Readiness, PROMPT_GATE};
@@ -114,6 +114,7 @@ fn fast() -> Timing {
         poll: Duration::from_millis(5),
         give_up: Duration::from_secs(60),
         keep: Duration::from_secs(60),
+        keep_failed: Duration::from_secs(60),
         after_send: Duration::ZERO,
         gate_retry: Duration::from_millis(100),
     }
@@ -493,6 +494,43 @@ fn the_json_has_the_names_the_phone_and_the_window_read() {
     assert_eq!(json["waitingFor"], WAIT_BUSY);
     assert!(json["error"].is_null());
     assert!(json["createdAt"].is_u64());
+}
+
+// ---- failures stay listed; the "To:" list refuses panes that are not at their input box ------------------------
+
+#[test]
+fn a_failed_message_stays_listed_longer_than_a_sent_one() {
+    let host = Fake::new(ready());
+    *host.attempt.lock() = Attempt::Failed(FAIL_STUCK.into());
+    let timing = Timing { keep: Duration::from_millis(60), keep_failed: Duration::from_secs(30), ..fast() };
+    let outbox = Outbox::with_timing(host.clone(), timing);
+    let failed = outbox.send("p", "half typed").unwrap();
+    until_state(&outbox, &failed.id, State::Failed);
+    assert_eq!(state(&outbox, &failed.id).unwrap().error.as_deref(), Some(FAIL_STUCK));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(state(&outbox, &failed.id).is_some(), "the failure is still there after the time a sent message would have left");
+}
+
+#[test]
+fn a_pane_on_a_dialog_or_without_its_input_box_is_not_a_target() {
+    let ask = look(Readiness::Gate(StartupGate { id: "update_available", summary: "offers an update", dismiss: Some("\u{1b}") }), ComposerState::Unknown, false);
+    assert_eq!(target_block(&ask), Some(WAIT_GATE), "a notice with dismiss keys too: it is not Point's to close");
+    let prompt = look(Readiness::Gate(PROMPT_GATE), ComposerState::Unknown, false);
+    assert_eq!(target_block(&prompt), Some(WAIT_GATE));
+    let no_box = look(Readiness::Unknown, ComposerState::Unknown, false);
+    assert_eq!(target_block(&no_box), Some(NOT_READY_BOX));
+    let gone = look(Readiness::HostShell(HostShell::AgentExited), ComposerState::Unknown, false);
+    assert_eq!(target_block(&gone), Some(FAIL_NOT_RUNNING));
+}
+
+#[test]
+fn a_working_agent_and_a_draft_are_still_targets_because_the_outbox_waits_for_them() {
+    assert_eq!(target_block(&ready()), None);
+    assert_eq!(target_block(&busy()), None);
+    let draft = look(Readiness::Unknown, ComposerState::HasText, true);
+    assert_eq!(target_block(&draft), None);
+    let draft_ready = look(Readiness::Ready, ComposerState::HasText, true);
+    assert_eq!(target_block(&draft_ready), None);
 }
 
 // ---- how a delivery's outcome reads ----------------------------------------------------------------------------

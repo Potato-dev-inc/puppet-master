@@ -34,7 +34,7 @@ fn keep_rules_follow_class_review_and_copy() {
     assert!(needs.can_keep, "a needs-a-look copy can be kept after its confirm line");
     assert!(!skipped.can_keep, "a task that did not run has no copy to keep");
     assert!(skipped.can_throw_away, "a task that did not run can only be thrown away");
-    assert_eq!(view.keep_all, 2);
+    assert_eq!(view.keep_all, 1, "only the ready copy passes Keep all");
     assert_eq!(ready.class.as_deref(), Some("ready"));
     assert_eq!(needs.class.as_deref(), Some("needs_look"));
 }
@@ -52,6 +52,90 @@ fn kept_or_thrown_away_tasks_offer_no_buttons() {
     assert_eq!(view.tasks[1].review_text.as_deref(), Some("Thrown away"));
     assert!(!view.tasks[1].can_keep);
     assert_eq!(view.keep_all, 0);
+}
+
+#[test]
+fn keep_all_counts_exactly_what_keep_all_ready_keeps() {
+    let mut run = morning_fixture();
+    // A second ready copy, one still running, one that conflicted before, and a no-checks copy.
+    let mut second = run.tasks[0].clone();
+    second.spec.id = "nt-00000004".into();
+    let mut running = run.tasks[0].clone();
+    running.spec.id = "nt-00000005".into();
+    running.attempts[0].end = None;
+    let mut conflicted = run.tasks[0].clone();
+    conflicted.spec.id = "nt-00000006".into();
+    conflicted.review = Review::KeepFailed { at_ms: 1, sentence: "This conflicts.".into() };
+    let mut no_checks = run.tasks[1].clone();
+    no_checks.spec.id = "nt-00000007".into();
+    if let Some(outcome) = no_checks.outcome.as_mut() {
+        outcome.class = Class::NoChecks;
+    }
+    run.tasks.extend([second, running, conflicted, no_checks]);
+    let view = view_of(&run, &ctx(), 0);
+    let bulk = run.tasks.iter().filter(|task| review::keeps_in_bulk(task)).count();
+    assert_eq!(view.keep_all as usize, bulk);
+    assert_eq!(view.keep_all, 2, "the first ready copy and the second one; not the needs-a-look or no-checks copies");
+}
+
+#[test]
+fn a_conflicted_copy_can_be_thrown_away_but_not_kept_again_from_its_row() {
+    let mut run = morning_fixture();
+    run.tasks[0].review = Review::KeepFailed { at_ms: 4, sentence: "This conflicts with a task you already kept (src/cart.ts).".into() };
+    let view = view_of(&run, &ctx(), 0);
+    let row = &view.tasks[0];
+    assert_eq!(row.review, "keep_failed");
+    assert!(row.can_throw_away, "the copy stays after a conflict, so it can be thrown away");
+    assert!(!row.can_keep);
+    assert_eq!(row.review_text.as_deref(), Some("This conflicts with a task you already kept (src/cart.ts)."));
+    assert_eq!(view.keep_all, 0, "the conflicted task is not counted");
+}
+
+#[test]
+fn a_pending_copy_names_the_branch_keep_would_merge_into() {
+    let run = morning_fixture();
+    let asked = std::cell::RefCell::new(Vec::new());
+    let view = view_of_with(&run, &ctx(), 0, &|project| {
+        asked.borrow_mut().push(project.to_string());
+        Some("main".into())
+    });
+    assert_eq!(
+        asked.into_inner(),
+        ["C:\\Users\\you\\work\\app", "C:\\Users\\you\\work\\docs"],
+        "the lookup gets each pending copy's own project, in task order"
+    );
+    assert_eq!(view.tasks[0].into.as_deref(), Some("main"), "a pending copy with a copy");
+    assert_eq!(view.tasks[1].into.as_deref(), Some("main"), "a needs-a-look copy too");
+    assert_eq!(view.tasks[2].into, None, "a task that did not run has no copy to merge");
+    let none = view_of_with(&run, &ctx(), 0, &|_| None);
+    assert_eq!(none.tasks[0].into, None, "a detached project has no branch to name");
+    assert_eq!(view_of(&run, &ctx(), 0).tasks[0].into, None, "the bridge view does no lookup");
+}
+
+#[test]
+fn a_kept_copy_keeps_the_branch_it_merged_into_and_no_lookup_runs() {
+    let mut run = morning_fixture();
+    run.tasks[0].review = Review::Kept { at_ms: 5, into: "release".into() };
+    let view = view_of_with(&run, &ctx(), 0, &|_| Some("main".into()));
+    assert_eq!(view.tasks[0].into.as_deref(), Some("release"));
+    assert_eq!(view.tasks[0].review_text.as_deref(), Some("Kept · merged into release"));
+    let mut thrown = morning_fixture();
+    thrown.tasks[0].review = Review::Discarded { at_ms: 6 };
+    let view = view_of_with(&thrown, &ctx(), 0, &|project| {
+        assert_ne!(project, "C:\\Users\\you\\work\\app", "a thrown-away copy has no branch to look up");
+        None
+    });
+    assert_eq!(view.tasks[0].into, None);
+}
+
+#[test]
+fn an_older_night_is_read_only() {
+    let mut view = view_of(&morning_fixture(), &ctx(), 0);
+    assert!(view.tasks[0].can_keep && view.tasks[0].can_throw_away && view.keep_all == 1);
+    view.read_only();
+    assert_eq!(view.keep_all, 0);
+    assert!(view.tasks.iter().all(|task| !task.can_keep && !task.can_throw_away));
+    assert_eq!(view.tasks[0].title, "Fix the cart total rounding.", "the details stay");
 }
 
 #[test]

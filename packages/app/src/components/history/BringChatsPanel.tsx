@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { chatIndexSetEnabled } from '../../lib/chatIndex';
 import {
+  chatCount,
   chatImportApi,
   DEFAULT_SINCE_DAYS,
   foundLine,
@@ -295,7 +296,7 @@ export function BringChatsPanel({ api = chatImportApi, onClose, startLooking = f
           <div className="bc-actions">
             {closeButton}
             <button type="button" className="ck-btn ck-btn--primary" disabled={enabledIds.length === 0 || addCount === 0} onClick={() => void start()}>
-              {`Add ${addCount.toLocaleString('en-US')} chats to search`}
+              {`Add ${chatCount(addCount)} to search`}
             </button>
           </div>
         </>
@@ -330,7 +331,7 @@ export function BringChatsPanel({ api = chatImportApi, onClose, startLooking = f
           {progress.phase === 'done' ? (
             <p className="ck-sub" role="status">
               {added > 0
-                ? `Added ${added.toLocaleString('en-US')} chats. Press Ctrl+Shift+F to find anything in them.`
+                ? `Added ${chatCount(added)}. Press Ctrl+Shift+F to find anything in them.`
                 : 'Nothing new to add. Your old chats are already in search.'}
             </p>
           ) : (

@@ -6,7 +6,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CockpitApi } from '../../hooks/useCockpit';
+import type { LiveStatus } from '../../lib/live-room';
 import { PaneView } from './PaneView';
+import { LiveStatusContext } from './live/useLiveRoom';
 
 const invoke = vi.fn(async (cmd: string) => (cmd === 'checkpoints_list' ? { state: 'ok', message: '', items: [] } : null) as unknown);
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...a: unknown[]) => (invoke as (...x: unknown[]) => unknown)(...(a as [string])) }));
@@ -79,6 +81,54 @@ const openMenuItem = async (label: string) => {
   await act(async () => item.click());
   await flush();
 };
+
+const room = (over: Partial<LiveStatus> = {}): LiveStatus => ({
+  live: true,
+  paused: false,
+  viewers: 2,
+  endsAtMs: Date.now() + 30 * 60_000,
+  paneIds: ['p1'],
+  hidden: 0,
+  stopped: null,
+  ...over,
+});
+
+describe('pane header: Live Room chip', () => {
+  const chip = () => host.querySelector('.ck-pane-head .ck-live-chip');
+
+  it('shows a LIVE chip for a pane that is in the room', async () => {
+    await act(async () =>
+      root.render(
+        <LiveStatusContext.Provider value={room()}>
+          <PaneView c={cockpit('C:\\work\\shop', false)} paneId="p1" />
+        </LiveStatusContext.Provider>,
+      ),
+    );
+    await flush();
+    expect(chip()?.textContent).toBe('LIVE');
+  });
+
+  it('shows none for a pane that is not shared, or when no room runs', async () => {
+    await act(async () =>
+      root.render(
+        <LiveStatusContext.Provider value={room({ paneIds: ['other'] })}>
+          <PaneView c={cockpit('C:\\work\\shop', false)} paneId="p1" />
+        </LiveStatusContext.Provider>,
+      ),
+    );
+    await flush();
+    expect(chip()).toBeNull();
+    await act(async () =>
+      root.render(
+        <LiveStatusContext.Provider value={room({ live: false, stopped: 'owner' })}>
+          <PaneView c={cockpit('C:\\work\\shop', false)} paneId="p1" />
+        </LiveStatusContext.Provider>,
+      ),
+    );
+    await flush();
+    expect(chip()).toBeNull();
+  });
+});
 
 describe('pane header', () => {
   it('shows no screen size and no process id', async () => {

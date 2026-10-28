@@ -19,6 +19,10 @@ vi.mock('../TunnelSection', async () => {
   const { createElement } = await import('react');
   return { TunnelSection: () => createElement('p', null, 'Tunnel stub') };
 });
+vi.mock('../blocks/TelegramSetup', async () => {
+  const { createElement } = await import('react');
+  return { TelegramSetup: () => createElement('p', null, 'Telegram stub') };
+});
 vi.mock('../../MobilePairingPanel', async () => {
   const { createElement: h } = await import('react');
   return {
@@ -69,10 +73,13 @@ describe('Phone: every control renders', () => {
       'mobile-input-visible',
       'pairing',
       'revoke-all-devices',
+      'telegram',
     ]) {
       expect(m.host.querySelector(`[data-row="${id}"]`), `missing row: ${id}`).not.toBeNull();
     }
     expect(hasText(m.host, 'Tunnel stub')).toBe(true);
+    expect(hasText(m.host, 'Telegram (early)')).toBe(true);
+    expect(hasText(m.host, 'Telegram stub')).toBe(true);
     expect(hasText(m.host, 'Notifications')).toBe(true);
     expect(hasText(m.host, 'On the phone')).toBe(true);
     expect(byLabel(m.host, 'Typing delay (ms)')).toBeTruthy();
@@ -83,7 +90,16 @@ describe('Phone: every control renders', () => {
     expect(buttonByText(m.host, 'Stub set port')).toBeTruthy();
     expect(hasText(m.host, 'Revoke all devices')).toBe(true);
     expect(buttonByText(m.host, 'Revoke…')).toBeTruthy();
-    expect(m.host.querySelectorAll('[data-row]')).toHaveLength(8);
+    expect(m.host.querySelectorAll('[data-row]')).toHaveLength(9);
+  });
+
+  it('Telegram (early) is its own list with the setup block in it', async () => {
+    await mount();
+    const row = m.host.querySelector('[data-row="telegram"]');
+    expect(row?.textContent).toContain('Telegram stub');
+    const list = row?.closest('section.st-group');
+    expect(list?.textContent).toContain('Telegram (early)');
+    expect(list?.getAttribute('data-danger')).not.toBe('true');
   });
 
   it('has no Save button, no planned controls and no pairing approval switch', async () => {

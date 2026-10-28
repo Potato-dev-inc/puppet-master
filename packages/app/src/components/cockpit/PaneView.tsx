@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { confirmCloseEnabled, needsCloseConfirm } from '../../lib/close-policy';
 import { cockpitApi, type PaneRunInfo, type PaneTranscript } from '../../lib/cockpit-api';
@@ -42,7 +42,10 @@ import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { SaveCrewSheet } from './crews/SaveCrewSheet';
 import { SessionChatPanel } from '../chat/SessionChatPanel';
 import { useChatJump } from '../../lib/chatJump';
+import { clearChatTabRequest, useChatTabRequest } from '../../lib/chatTab';
 import { composerBlock } from '../../lib/paneOutbox';
+import { LiveChip } from './live/LiveChip';
+import { LiveStatusContext } from './live/useLiveRoom';
 
 type Tab = 'mission' | 'terminal' | 'chat' | 'changes' | 'transcript' | 'receipt' | 'history';
 
@@ -134,6 +137,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const mission = missionOfPane(missions.missions, paneId);
   // The Chat tab reads an agent's session file, or its screen when it writes none, so a plain shell gets none (the rule TerminalPane uses).
   const listing = useAgentRegistry();
+  // The Live Room status the cockpit shares; the chip shows only for a pane that is in the room.
+  const liveStatus = useContext(LiveStatusContext);
   const agentType = pane?.info.agent_type ?? '';
   const chatAllowed = listing.agents.find((a) => a.id === agentType)?.kind !== 'shell';
 
@@ -162,6 +167,14 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
       }),
     [paneId, chatAllowed],
   );
+
+  // An old chat continued in this new pane asks for the Chat tab (lib/chatTab.ts).
+  const chatTabAsk = useChatTabRequest(paneId);
+  useEffect(() => {
+    if (!chatTabAsk || !chatAllowed) return;
+    setTab('chat');
+    clearChatTabRequest(chatTabAsk);
+  }, [chatTabAsk, chatAllowed]);
 
   useEffect(() => {
     if (tab === 'changes' && !worktree) setTab('terminal');
@@ -277,6 +290,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           )}
         </div>
         <UntestedChip agent={info.agent_type} />
+        <LiveChip paneId={paneId} status={liveStatus} />
         <BudgetChip paneId={paneId} refreshKey={pane.status} onNotify={c.notify} />
         <div className="ck-pane-state">
           <DotSpinner status={spinnerStatus(pane.status)} />

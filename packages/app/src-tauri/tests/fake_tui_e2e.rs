@@ -1203,3 +1203,8 @@ mod chat_reply;
 
 #[path = "fake_tui_safety_net.rs"]
 mod safety_net;
+
+// ---- Keep going: hand a task to another agent at a usage limit (zero tokens) ------------------------------------
+
+#[path = "fake_tui_keep_going.rs"]
+mod keep_going;

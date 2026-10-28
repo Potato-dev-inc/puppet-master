@@ -129,8 +129,17 @@ pub fn checkpoint_running(
 
 /// Interrupt every running agent pane of the registry, checkpointing each one's project first.
 pub fn stop_all(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) -> StopReport {
+    // A Live Room is public exposure: it ends first, before anything else is stopped.
+    {
+        use tauri::Manager;
+        if let Some(room) = app.try_state::<crate::live_room::service::LiveRoomState>() {
+            room.stop_all(crate::live_room::publisher::StopReason::Owner);
+        }
+    }
     // Every mission stops too (its current turn is one of the panes below).
     let _ = std::thread::Builder::new().name("missions-stop-all".into()).spawn(crate::missions::stop_all);
+    // A running Night Shift stops too, so it does not start the next task behind the panic.
+    crate::night_shift::runner::stop_running_nights();
     let list = candidates(registry);
     let checkpoints = checkpoint_running(&list, CHECKPOINT_BUDGET, Arc::new(crate::checkpoints::before_stop));
     stop_running_with(

@@ -871,6 +871,35 @@ fn stop_here_ends_the_run_keeps_the_pane_and_writes_the_receipt_line() {
     assert_eq!(limit.window.as_deref(), Some("session limit"));
 }
 
+/// A run in a separate copy (`<project>/.puppet-master/worktrees/<id>`) is stored in the project the copy came
+/// from, so the limit must look it up there: it parks, its card offers "Stop here", and "Stop here" ends it.
+#[test]
+fn a_run_in_a_separate_copy_parks_at_its_limit_and_stop_here_ends_it() {
+    let mut env = TestEnv::new();
+    let mut engine = Engine::default();
+    let origin = env.project.clone();
+    let run = running_run(&env);
+    // The pane works in its copy now; the run it started above is still stored under the origin.
+    env.project = origin.join(".puppet-master").join("worktrees").join("copy-1");
+    hit_the_limit(&env, &mut engine, &claude_screen("usage_session_window"));
+
+    let parked = stored(&run);
+    assert_eq!(parked.status, OperationStatus::WaitingInput, "the copy's run parks at its limit");
+    assert_eq!(parked.stage.as_deref(), Some("usage_limit"));
+    assert_eq!(parked.required_action.as_ref().and_then(|a| a.get("kind")).and_then(|k| k.as_str()), Some("usage_limit"));
+    let card = env.pending().remove(0);
+    let ids: Vec<&str> = card.choices.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, vec!["remind", "stop"], "a parked run offers Stop here, not Dismiss");
+
+    let answered = env.store.answer(&card.id, Some("stop"), None, "desktop", env.now()).unwrap();
+    assert!(answered.accepted);
+    engine.resolved(&env, &answered.question);
+    let ended = stored(&run);
+    assert_eq!(ended.status, OperationStatus::Cancelled);
+    assert_eq!(ended.error.as_ref().map(|e| e.code.as_str()), Some("USAGE_LIMIT_STOPPED"));
+    assert!(ended.keep_pane);
+}
+
 #[test]
 fn a_run_waiting_at_the_limit_shows_it_on_its_receipt_too() {
     let env = TestEnv::new();

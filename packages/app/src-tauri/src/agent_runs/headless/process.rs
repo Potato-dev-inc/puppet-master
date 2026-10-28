@@ -47,6 +47,9 @@ pub(in crate::agent_runs) fn execute_headless(
         .as_ref()
         .and_then(|current| current.worker.account.clone())
         .filter(|id| !id.trim().is_empty());
+    let guard = snapshot
+        .as_ref()
+        .and_then(|current| current.worker.guard_env.clone());
     let requested_model = snapshot
         .as_ref()
         .and_then(|current| current.worker.requested_model.clone())
@@ -119,7 +122,8 @@ pub(in crate::agent_runs) fn execute_headless(
         }
     };
     // Opt-in warm pool: a pre-launched process (startup already paid) takes the task over stdin.
-    let pool_key = (resume_session.is_none() && !trust_workspace && !isolated)
+    // A guarded run never takes a warm process: it was started without the run's env guard.
+    let pool_key = (resume_session.is_none() && !trust_workspace && !isolated && guard.is_none())
         .then(|| {
             crate::standby::key_for_run(
                 &agent_type,
@@ -150,7 +154,20 @@ pub(in crate::agent_runs) fn execute_headless(
         },
         None => crate::tui::LaunchEnv::default(),
     };
-    let mut command = headless_command(&spec, &account_env);
+    // The env guard goes on last, so it wins over the account's env. An unknown name or a folder
+    // that cannot be made refuses the start (nothing runs unguarded).
+    let launch_env = match guard.as_deref() {
+        Some(name) => match crate::pty::guard_launch::launch_env_for(name) {
+            Ok(guard_env) => crate::pty::env_guard::layer(account_env, guard_env, &[]),
+            Err(message) => {
+                fail_start(&project, &operation_id, "LAUNCH_FAILED", &message);
+                publish(&project, &operation_id, &registry, &app);
+                return;
+            }
+        },
+        None => account_env,
+    };
+    let mut command = headless_command(&spec, &launch_env);
     // A run with a budget tells its MCP shim who it is, so a helper it starts draws from that budget.
     if let Some(handle) = snapshot.as_ref().map(|current| current.agent_run_id.as_str()) {
         if !handle.is_empty() && crate::budgets::record_of(&project, handle).is_some() {
@@ -435,6 +452,44 @@ mod env_tests {
         assert!(stdout_of(headless_command(&spec, &LaunchEnv::default())).contains("VAL=from-spec"));
         let account = LaunchEnv { set: vec![("PM_HL_T".into(), "from-account".into())], remove: vec![] };
         assert!(stdout_of(headless_command(&spec, &account)).contains("VAL=from-account"));
+    }
+
+    /// The env a guarded headless run is launched with: account, then the guard on top.
+    fn guarded_env(account: LaunchEnv) -> LaunchEnv {
+        let guard = crate::pty::guard_launch::launch_env_for(crate::pty::env_guard::NO_PUSH).expect("guard");
+        crate::pty::env_guard::layer(account, guard, &[])
+    }
+
+    #[test]
+    fn a_guarded_headless_run_sees_the_guards_gh_folder_over_the_accounts() {
+        let account = LaunchEnv { set: vec![("GH_CONFIG_DIR".into(), "from-account".into())], remove: vec![] };
+        let mut spec = echo_spec("GH_CONFIG_DIR");
+        spec.env = vec![("GH_CONFIG_DIR".into(), "from-spec".into())];
+        let out = stdout_of(headless_command(&spec, &guarded_env(account)));
+        assert!(out.contains("gh-empty"), "{out}");
+        assert!(!out.contains("from-account") && !out.contains("from-spec"), "{out}");
+    }
+
+    #[test]
+    fn a_guarded_headless_run_drops_inherited_tokens_but_keeps_api_keys() {
+        std::env::set_var("PM_HL_GUARD_SECRET", "leaked-secret");
+        std::env::set_var("PM_HL_GUARD_API_KEY", "kept-key");
+        let drop_out = stdout_of(headless_command(&echo_spec("PM_HL_GUARD_SECRET"), &guarded_env(LaunchEnv::default())));
+        assert!(!drop_out.contains("leaked-secret"), "{drop_out}");
+        let keep_out = stdout_of(headless_command(&echo_spec("PM_HL_GUARD_API_KEY"), &guarded_env(LaunchEnv::default())));
+        assert!(keep_out.contains("kept-key"), "{keep_out}");
+        // Control: an unguarded run still sees the secret.
+        let plain = stdout_of(headless_command(&echo_spec("PM_HL_GUARD_SECRET"), &LaunchEnv::default()));
+        assert!(plain.contains("leaked-secret"), "{plain}");
+    }
+
+    #[test]
+    fn the_headless_launch_takes_no_warm_process_when_guarded() {
+        let src = include_str!("process.rs");
+        let body = src.split("#[cfg(test)]").next().unwrap();
+        assert!(body.contains("&& guard.is_none())"), "pool_key must exclude guarded runs");
+        assert!(body.contains("layer(account_env, guard_env, &[])"));
+        assert!(body.contains("headless_command(&spec, &launch_env)"));
     }
 
     #[test]
