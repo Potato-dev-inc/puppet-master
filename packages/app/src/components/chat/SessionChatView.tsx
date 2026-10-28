@@ -58,6 +58,27 @@ export interface SessionChatViewProps {
   overlay?: ReactNode;
   /** A search result asked for this message: the chat scrolls to it once it is there. */
   jump?: ChatJump | null;
+  /** Show `Make clip` on finished turns (desktop Chat tab only). Needs `onMakeClip`. */
+  canClip?: boolean;
+  /** `Make clip` was pressed on the turn that the message with this id starts. */
+  onMakeClip?: (userItemId: string) => void;
+}
+
+/** The button on a finished turn's end line. `always`: shown without hover (the newest finished turn). */
+interface TurnClip {
+  onMake: () => void;
+  always: boolean;
+}
+
+/** A finished turn that a message started: the only kind a clip can be made of. */
+export function isClippable(turn: ChatTurn): turn is ChatTurn & { user: NonNullable<ChatTurn['user']> } {
+  return turn.end !== null && turn.user !== null;
+}
+
+/** The id of the newest clippable turn, or null. */
+export function lastClippableId(turns: readonly ChatTurn[]): string | null {
+  for (let i = turns.length - 1; i >= 0; i--) if (isClippable(turns[i])) return turns[i].id;
+  return null;
 }
 
 /** How long a jump waits for its message to load before it is dropped. */
@@ -72,7 +93,7 @@ function TextStep({ step, markdown, mode }: { step: Extract<TurnStep, { kind: 't
   return <div className="whitespace-pre-wrap break-words ck-chat-text">{step.item.text}</div>;
 }
 
-function TurnEndDivider({ turn }: { turn: ChatTurn }) {
+function TurnEndDivider({ turn, clip }: { turn: ChatTurn; clip?: TurnClip }) {
   const parts: string[] = [];
   if (turn.outcome === 'interrupted' || turn.outcome === 'failed') parts.push(turn.outcome);
   if (turn.durationMs !== null) parts.push(`Worked for ${formatDuration(turn.durationMs)}`);
@@ -81,11 +102,16 @@ function TurnEndDivider({ turn }: { turn: ChatTurn }) {
       <span className="h-px flex-1 bg-pm-border ck-chat-rule" />
       {parts.length > 0 && <span className="ck-chat-end-text">{parts.join(' · ')}</span>}
       <span className="h-px flex-1 bg-pm-border ck-chat-rule" />
+      {clip && (
+        <button type="button" className={`ck-chat-clip-btn${clip.always ? ' is-always' : ''}`} onClick={clip.onMake}>
+          Make clip
+        </button>
+      )}
     </div>
   );
 }
 
-function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean; mode: ChatViewMode }) {
+function TurnView({ turn, fromScreen, markdown, mode, clip }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean; mode: ChatViewMode; clip?: TurnClip }) {
   const verbose = mode === 'verbose';
   // A turn with no end yet is still running: its rows without a result are live.
   const live = turn.end === null;
@@ -115,17 +141,19 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
         }
         return <TextStep key={step.id} step={step} markdown={markdown} mode={mode} />;
       })}
-      {turn.end && <TurnEndDivider turn={turn} />}
+      {turn.end && <TurnEndDivider turn={turn} clip={clip} />}
     </section>
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, overlay, jump }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, overlay, jump, canClip, onMakeClip }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
   const markdown = source === 'file' || source === 'api';
   const [mode, setMode] = useChatViewMode(paneId);
   const plan = useMemo(() => currentPlan(turns), [turns]);
+  // The newest finished turn that a message started keeps its `Make clip` button in view; the others show it on hover.
+  const newestClippable = useMemo(() => (canClip && onMakeClip ? lastClippableId(turns) : null), [canClip, onMakeClip, turns]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
 
@@ -212,7 +240,16 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
           </div>
         )}
         {state !== 'unavailable' &&
-          turns.map((turn) => <TurnView key={`${mode}:${turn.id}`} turn={turn} fromScreen={fromScreen} markdown={markdown} mode={mode} />)}
+          turns.map((turn) => (
+            <TurnView
+              key={`${mode}:${turn.id}`}
+              turn={turn}
+              fromScreen={fromScreen}
+              markdown={markdown}
+              mode={mode}
+              clip={canClip && onMakeClip && isClippable(turn) ? { onMake: () => onMakeClip(turn.user.id), always: turn.id === newestClippable } : undefined}
+            />
+          ))}
         {state !== 'unavailable' && pending}
       </div>
       {remember && paneId && <RememberSelection paneId={paneId} root={scrollRef} />}
