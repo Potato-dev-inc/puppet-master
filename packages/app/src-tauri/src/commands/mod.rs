@@ -54,6 +54,7 @@ mod keep_going;
 mod tunnel;
 mod toolbelt;
 mod agent_pack;
+mod night;
 
 pub use agent_install::*;
 pub use agent_wizard::*;
@@ -102,6 +103,7 @@ pub use keep_going::*;
 pub use tunnel::*;
 pub use toolbelt::*;
 pub use agent_pack::*;
+pub use night::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{
