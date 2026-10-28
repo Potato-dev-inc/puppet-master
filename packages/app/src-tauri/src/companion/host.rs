@@ -33,6 +33,24 @@ pub struct Reply {
     pub text: String,
 }
 
+/// One finished turn of another pane, for `today.md`. Plain facts only: the sentence is the turn
+/// summary (never raw chat text) and the folder is a name, not a path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FinishedTurn {
+    pub pane_id: String,
+    pub turn: u32,
+    pub ended_at_ms: i64,
+    /// `idle`, `waiting_input` or `error` (how the turn came to rest).
+    pub end: String,
+    /// The agent's display name.
+    pub agent: String,
+    /// The last segment of the pane's project folder; empty when it is not known.
+    pub folder_name: String,
+    /// The display name of the agent that started this pane as its helper, when there is one.
+    pub parent_label: Option<String>,
+    pub sentence: String,
+}
+
 pub trait Host: Send + Sync + 'static {
     /// Epoch milliseconds.
     fn now_ms(&self) -> i64;
@@ -63,6 +81,11 @@ pub trait Host: Send + Sync + 'static {
     fn last_reply(&self, pane_id: &str, companion_id: &str) -> Option<Reply>;
     /// The one-line sentence of the last finished turn (turn summary): the fallback for `last_reply`.
     fn last_sentence(&self, pane_id: &str) -> Option<Reply>;
+    /// Every pane's turns that ended at or after `since_ms` (the turn summaries), oldest first.
+    /// The default knows none.
+    fn finished_turns(&self, _since_ms: i64) -> Vec<FinishedTurn> {
+        Vec::new()
+    }
     /// Lets go of the session-chat reader this companion holds on the pane.
     fn release_reader(&self, pane_id: &str, companion_id: &str);
 

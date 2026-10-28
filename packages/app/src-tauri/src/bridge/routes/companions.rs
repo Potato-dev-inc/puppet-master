@@ -169,6 +169,24 @@ mod tests {
         drop(dir);
     }
 
+    #[test]
+    fn no_companion_route_serves_the_content_of_today_md() {
+        let (service, host, dir) = service_with_one();
+        host.advance_ms(5_000);
+        service.tick();
+        // A line a person (or a bug) put there with a key in it: the routes read the memory files, the feed and the
+        // view, never this file, so the text cannot reach a phone from here.
+        let marker = "SECRET-DAY-LINE-ZX81";
+        let home = std::path::PathBuf::from(service.folder_of("mochi").unwrap());
+        std::fs::write(home.join("today.md"), format!("# What my agents did today\n09:05 · A · b · {marker}\n")).unwrap();
+        for path in ["/companions", "/companions/mochi", "/companions/mochi/memory", "/companions/mochi/feed?since=0"] {
+            let (status, body) = get(&service, path, None).unwrap();
+            assert_eq!(status, 200, "{path}");
+            assert!(!body.to_string().contains(marker), "{path} must not carry today.md");
+        }
+        drop(dir);
+    }
+
     // ---- no secret reaches the phone (safety net) ----
 
     // Made at run time so the secret scanners of this repository see no key-shaped literal.

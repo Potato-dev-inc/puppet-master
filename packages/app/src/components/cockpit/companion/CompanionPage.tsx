@@ -13,6 +13,7 @@ import { Sheet } from '../Sheet';
 import { CheckInsCard } from './CheckInsCard';
 import { MemoryCard } from './MemoryCard';
 import { PendingCard } from './PendingCard';
+import { ShareTodayToggle } from './ShareTodayToggle';
 import { StartAtSignInHint } from './StartAtSignInHint';
 import { isValidName, stateLineOf } from './model';
 import '../../../styles/cockpit-companion.css';
@@ -242,6 +243,13 @@ export function CompanionPage(props: CompanionPageProps) {
                 Open folder
               </button>
             </div>
+            <ShareTodayToggle
+              companionId={companion.id}
+              name={name}
+              shareToday={companion.shareToday}
+              transport={transport}
+              onChanged={() => onChanged()}
+            />
             <StartAtSignInHint />
             <p className="ck-sub ck-companion-privacy">Its files stay on this computer, in {folder}. It never posts anything in public.</p>
           </section>

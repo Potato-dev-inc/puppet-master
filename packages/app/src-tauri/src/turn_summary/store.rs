@@ -123,4 +123,18 @@ impl Store {
         out.sort_by_key(|s| s.ended_at_ms);
         out
     }
+
+    /// Like `since`, with the project folder each pane's summaries belong to (`None` = not known).
+    pub fn since_with_project(&self, since_ms: u64) -> Vec<(TurnSummary, Option<PathBuf>)> {
+        let mut out: Vec<(TurnSummary, Option<PathBuf>)> = self
+            .rings
+            .iter()
+            .flat_map(|(pane, ring)| {
+                let project = self.project_of.get(pane).cloned();
+                ring.iter().filter(move |s| s.ended_at_ms >= since_ms).map(move |s| (s.clone(), project.clone()))
+            })
+            .collect();
+        out.sort_by_key(|(s, _)| s.ended_at_ms);
+        out
+    }
 }

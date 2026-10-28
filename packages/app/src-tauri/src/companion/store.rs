@@ -182,6 +182,7 @@ mod tests {
             auto_start: true,
             memory_review: true,
             push_replies: true,
+            share_today: false,
             nap_at: Some(HhMm { h: 4, m: 0 }),
             checkins: vec![],
             created_ms: 1,

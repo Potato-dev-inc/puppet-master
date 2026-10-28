@@ -78,6 +78,10 @@ pub struct CompanionProfile {
     /// Push the phones that may watch (`watch` cap) when the companion replies. Default on.
     #[serde(default = "yes")]
     pub push_replies: bool,
+    /// Let the companion see what the person's other agents did today (`today.md` in its home folder,
+    /// written by `today.rs`). Off by default: nothing is written until the person turns it on.
+    #[serde(default)]
+    pub share_today: bool,
     #[serde(default = "default_nap")]
     pub nap_at: Option<HhMm>,
     #[serde(default)]
@@ -169,6 +173,8 @@ pub struct CompanionView {
     pub auto_start: bool,
     /// Whether a reply pushes the phones (`CompanionProfile::push_replies`).
     pub push_replies: bool,
+    /// Whether the companion sees the day's turns (`CompanionProfile::share_today`).
+    pub share_today: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]

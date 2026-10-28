@@ -10,7 +10,7 @@ use chrono::TimeZone;
 use parking_lot::Mutex;
 use serde_json::json;
 
-use super::host::{Blocking, Host, Reply, SpawnSpec};
+use super::host::{Blocking, FinishedTurn, Host, Reply, SpawnSpec};
 use super::keeper::{Pane, Status};
 use super::manage::Draft;
 use super::model::CompanionView;
@@ -45,6 +45,8 @@ pub struct FakeHost {
     pub files: Mutex<Vec<InstructionFile>>,
     /// `reply_pushed` calls: (companion id, name, text, enabled).
     pub pushed: Mutex<Vec<(String, String, String, bool)>>,
+    /// The turns `finished_turns` lists (the turn summaries).
+    pub turns: Mutex<Vec<FinishedTurn>>,
 }
 
 impl FakeHost {
@@ -71,6 +73,7 @@ impl FakeHost {
             send_error: Mutex::new(None),
             files: Mutex::new(Vec::new()),
             pushed: Mutex::new(Vec::new()),
+            turns: Mutex::new(Vec::new()),
         })
     }
 
@@ -156,6 +159,12 @@ impl Host for FakeHost {
 
     fn last_sentence(&self, _pane_id: &str) -> Option<Reply> {
         self.sentence.lock().clone()
+    }
+
+    fn finished_turns(&self, since_ms: i64) -> Vec<FinishedTurn> {
+        let mut turns: Vec<FinishedTurn> = self.turns.lock().iter().filter(|t| t.ended_at_ms >= since_ms).cloned().collect();
+        turns.sort_by_key(|t| t.ended_at_ms);
+        turns
     }
 
     fn release_reader(&self, pane_id: &str, _companion_id: &str) {
