@@ -8,7 +8,7 @@ use crate::turn_summary::TurnSummary;
 use std::collections::HashSet;
 
 /// A summary and a record of the same turn start and end within this long of each other.
-const SLACK_MS: u64 = 15_000;
+pub(crate) const SLACK_MS: u64 = 15_000;
 
 /// An operation record cut down to what the report needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,8 +45,14 @@ impl OpTurn {
 }
 
 fn overlaps(op: &OpTurn, summary: &TurnSummary) -> bool {
-    let op_end = op.end_ms.unwrap_or(op.start_ms);
-    summary.started_at_ms <= op_end.saturating_add(SLACK_MS) && summary.ended_at_ms.saturating_add(SLACK_MS) >= op.start_ms
+    overlaps_times(op.start_ms, op.end_ms, summary.started_at_ms, summary.ended_at_ms)
+}
+
+/// The rule of `overlaps` on plain times, for callers that hold other record types (`crate::scores`).
+/// A record that has not ended counts as ending when it started.
+pub(crate) fn overlaps_times(op_start: u64, op_end: Option<u64>, s_start: u64, s_end: u64) -> bool {
+    let op_end = op_end.unwrap_or(op_start);
+    s_start <= op_end.saturating_add(SLACK_MS) && s_end.saturating_add(SLACK_MS) >= op_start
 }
 
 fn files_of(summary: &TurnSummary) -> Option<FilesFact> {
@@ -54,7 +60,7 @@ fn files_of(summary: &TurnSummary) -> Option<FilesFact> {
 }
 
 /// The same turn can arrive from the memory of this run and from a project's ring file.
-fn unique(summaries: &[TurnSummary]) -> Vec<&TurnSummary> {
+pub(crate) fn unique(summaries: &[TurnSummary]) -> Vec<&TurnSummary> {
     let mut seen = HashSet::new();
     summaries.iter().filter(|s| seen.insert((s.pane_id.clone(), s.turn, s.started_at_ms))).collect()
 }
