@@ -413,6 +413,36 @@ Point and Fix: open your running app in its own preview window, point at an elem
 |---|---|
 | `point/` (+ `commands/point.rs`, `lib/point-api.ts`, `lib/composerDraft.ts`, `components/point/` the Point box, `styles/point-box.css`) | `origin.rs`: which URLs may open (only `localhost`, `127.0.0.1`, `[::1]`; the URL comes from `pane_preview` or the pane's job ports, never from the UI; Puppet Master's own ports refused) and the navigation guard (`nav`). `pick.rs`: checks what the page sends (caps, redaction before cut, rect clamped, same origin only). `source.rs`: a file hint from the page counts only if it is a real file in the project. `message.rs`: the text sent to the agent. `shot.rs`: crop, save under `<project>/.puppet-master/shots/` (git-excluded), keep 50. `target.rs`: which agent panes can take the message (labels from the agent registry, never a name match). `session.rs`: up to 3 picks for 10 minutes, and drafts for Edit in Chat. `picker.js`: the script injected only into preview windows; it has no IPC. `capture.rs`: WebView2 `CapturePreview` (Windows only in v1). `window.rs`: preview windows, the pull loop (`eval_with_callback`, 250 ms while focused, 2 s otherwise) and the after-pick steps. `box_window.rs`: the Point box window (label `pointbox`, route `index.html?pointbox=1`). Send goes only through `pane_outbox::Outbox::send`; Point never writes to a PTY. Preview windows (`preview-*`) are in no capability, so page code gets no IPC. UI: `components/point/PointBox.tsx`, `PointBoxApp.tsx`, `point-model.ts`; `ChatComposer` takes a draft from Edit in Chat. Tests sit next to each file (`point/tests/*.rs`, `*.test.ts(x)`). |
 
+### 3.9 Text your agents (`channels/`, Telegram)
+
+Telegram is the first chat channel (feature page `docs/features/telegram.md`, status early). Generic code lives in
+`channels/` and names no chat app; Telegram's Bot API is in `channels/telegram/` only. Every outbound message goes
+through `render::clean` (sanitize, strict redaction, e-mail masks, 1,500-character cap, plain text).
+
+| File | What |
+|---|---|
+| `channels/config.rs`, `channels/token.rs` | `telegram.json` (on/off, caps, options, `enabled_at_ms`, `last_update_id`; `Control` is stripped on load and save). The token only in the OS credential store under `channels/<profile>/telegram_bot_token`; no file fallback |
+| `channels/policy.rs` | the card table (D-9: `answerable(kind, risk)`) and the capability each command needs (`command_need`). No wildcard arms, so a new attention kind must be decided here |
+| `channels/commands.rs` | parses the text the person sends: `/start`, `/status`, `/panes`, `/to N`, `/c Name`, `/help`, `/stop`, plain text; 1,000-character limit |
+| `channels/engine.rs`, `channels/engine/` (`pair.rs`, `buttons.rs`, `run.rs`) | the inbound rules in order (private chat only, pairing, strangers, freshness, rate bucket, parse, capability, button grants). Pure: effects come back, nothing is sent here |
+| `channels/pairing.rs` | the one-time code (8 characters, 40 bits, 10 minutes, 5 wrong tries burn it) and the desktop confirm step (D-4) |
+| `channels/grants.rs` | single-use button tokens (answers 10 minutes, confirm 60 seconds), looked up on the server side |
+| `channels/rate.rs`, `channels/refs.rs` | token buckets (inbound 20/min, answers 10/min, outbound 20/min, strangers 1/h, slow note 1/min); the numbered pane list (15 minutes) and conversation windows (15 minutes) |
+| `channels/notify.rs`, `channels/feed.rs` | what the chat hears: cards that need you, companion replies and pane turn ends (only in a window), run ends (with `notify_runs`), the 30 s gate per item, held messages summarised |
+| `channels/render.rs` | the single cleaning step for everything sent out; `MAX_OUT_CHARS` 1,500; question cap 600 |
+| `channels/telegram/api.rs`, `channels/telegram/poller.rs` | the Bot API client (plain text, `protect_content`, link previews off, no `parse_mode`; errors carry no URL or body text) and the long-poll thread (offset saved after each batch; 401, 403 and 409 stop it) |
+| `channels/runtime.rs` | owns engine, notifier and poller; the poller runs only when on and paired, or while a pairing code is live |
+| `channels/setup.rs` | the person's actions (`telegram_set_token`, `pair_start`, `pair_decide`, `set_enabled`, `set_options`, `forget`) and the phone's switch-off (`turn_off_from_phone`). Refuses a bot with a webhook (D-2) |
+| `channels/status.rs` | the `TelegramStatus` the Settings block reads (no token, no chat text) |
+| `channels/host.rs`, `channels/host_live.rs`, `channels/live.rs` | the trait the engine uses, its real version (registry, attention, outbox, companions), and the start-up hook `channels::start` |
+| `channels/test_host.rs`, `channels/fake_bot.rs` | test-only fakes for the host and the Bot API |
+| `commands/channels.rs` | Tauri commands `telegram_status`, `telegram_set_token`, `telegram_pair_start`, `telegram_pair_decide`, `telegram_set_enabled`, `telegram_set_options`, `telegram_forget` (registered in `lib.rs`) |
+| `bridge/routes/channels.rs` | the phone's two routes: `GET /channels/telegram` (`on`, `connected`, `botUsername`) and `POST /channels/telegram/off` (needs a paired phone's bearer; no route turns it on) |
+| UI (not mounted yet) | `components/settings/blocks/TelegramSetup.tsx`, `TelegramPairing.tsx`, `components/mobile/TelegramOffRow.tsx`, `lib/telegram-api.ts`, `lib/telegram-bridge.ts`. Nothing imports the first three yet |
+
+Tests: `channels/*_tests.rs`, `channels/engine_tests.rs`, `channels/runtime_tests.rs`, `channels/setup_tests.rs`,
+`channels/notify_tests.rs`, `channels/telegram/api/tests.rs`, the golden texts in `channels/golden/`. No test talks to Telegram.
+
 ---
 
 ## 4. "Where do I change X?"

@@ -30,6 +30,9 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | Rust: full (when `Cargo.toml` or `lib.rs` changed) | `cargo test --lib` (same dir/env) | all pass, 0 failed |
 | App: Point and Fix UI | `cd packages/app; npx vitest run src/point-picker.test.ts src/lib/point-api.test.ts src/components/point src/components/chat/ChatComposer.draft.test.tsx src/main.pointbox.test.ts src/components/cockpit/PaneView.point.test.tsx src/components/cockpit/rail/background.point.test.tsx src/components/cockpit/Palette.point.test.tsx` | all pass. `point-picker` loads the real `picker.js` in jsdom: origin guard (frame or other origin defines nothing), selector unique and short, hashed classes dropped, input values never read, password gives no text, React / Svelte / Vue / Angular stubs, ArrowUp/ArrowDown, Esc disarms, click does not reach the page's own listener, `take()` returns once. `PointBox`: picks render, missing thumb tile, Enter sends with the chosen target, Shift+Enter is a new line, Esc hides, greyed target cannot send, a refused send keeps the text, 3 picks disable "Point another", blocked-link notice |
 | Type check | `npx tsc -p tsconfig.json --noEmit` (in `packages/app`) | no errors |
+| Rust: Text your agents | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib channels` | all pass. Covers the policy table (every attention kind), command parsing, the 1,500-character render cap and the redaction, the one-time code (40 bits, 10 minutes, 5 wrong tries), button tokens, rate buckets, the engine rules with a fake host and bot, the poller (401, 403, 409 stop it; offset saved). No test talks to Telegram |
+| Rust: Text your agents, chat-answer guard | `cargo test --lib attention::answer` (same dir/env) | all pass (the `Via::Telegram` refusals for trust, consent, budget, limit and non-low approvals) |
+| App: Text your agents UI | `cd packages/app; npx vitest run src/lib/telegram-api src/lib/telegram-bridge src/components/settings/blocks/TelegramSetup src/components/mobile/TelegramOffRow` | all pass (the components are not mounted in the app yet) |
 | Personal paths | `node scripts/check-no-personal-paths.mjs` (repo root) | no findings |
 
 `cargo test` needs `packages/app/dist` (run `npx vite build` in `packages/app` once). After any change to `tool_registry/`, the shim or bridge code it
@@ -119,6 +122,24 @@ Setup: dev app running on its own profile (never the founder's app). A small tes
 9. Close the preview window. Expect a log line that the pull loop stopped, and no WebView2 process left for the preview data folder after 10 s.
 
 Expected: each step matches what it says, and the message contains no typed password value and no Puppet Master key. Screenshots are Windows only in v1.
+
+### 2.9 Text your agents (Telegram) (live check, not run yet)
+Setup: a dev app on its own profile (never the founder's app). A bot you made in BotFather for this test (its token only in
+the credential store, never in a file or a screenshot). A second Telegram account for the stranger step. The Settings
+block must be on screen first (see `docs/features/telegram.md`, Status). Use one small agent turn at most, in a test folder.
+
+1. Paste the token and press **Check**. Expect `@your_bot` and "kept in Windows Credential Manager". The token is not shown again.
+2. **Make a code.** From the test account, send `/start CODE` to `@your_bot`. Expect the bot to reply that it is connected.
+   On the PC, the name shown is the test account's. Press **Yes, that's me**.
+3. Turn Telegram on. Send `/status` and `/panes`. Expect the list and no error.
+4. From the second account, send `/start`. Expect **no reply**. Expect the stranger count to go up by one. The audit entry is written at most once an hour, so a second stranger in the same hour adds none.
+5. Ask an agent a question that has choices. Expect the question with its buttons in Telegram, and an answer by tap to reach the pane.
+6. A low-risk approval: expect **Allow once** (then a confirm tap) and **Deny**. A medium or high-risk approval, or a trust
+   question: expect no buttons, only "Open Puppet Master".
+7. Check the sent text: no path that starts with a user folder, no `sk-` or `ghp_` text, no e-mail, no terminal dump.
+8. Send `/stop`. Expect "Telegram is off. Turn it on again in Puppet Master on your PC." and no further messages. The phone row (if the phone is paired) says "Turn Telegram off" and then "Off. Turn it on again on your PC."
+
+Expected: each step matches. Record screenshots (no token, no real names) and the audit lines for steps 2, 4 and 8.
 
 ## 3. Known flaky tests (collected from the progress log and T37 evidence)
 - `tui::descriptor::descriptor_builds_all_nine` - global registry race (fixed by `registry::test_serial()`; tests that swap/count the global registry must take it).

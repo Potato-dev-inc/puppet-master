@@ -65,6 +65,14 @@ Point and Fix lets you see your app inside Puppet Master, point at the part that
 | Privacy: the page never gets Tauri access; form values and password text are never read; page text goes through redaction; the page's words are marked as data in the message | `point/picker.js`, `point/pick.rs`, `point/message.rs`, `capabilities/default.json` | being built (tests pin each rule) |
 | Not in v1: before/after strip, phone Point, image input per agent profile, source maps, preview inside the cockpit, macOS/Linux screenshots | spec section 3.9 | planned (v2) |
 
+## 1b. Text your agents (Telegram)
+
+Limits and how to test: the feature pages.
+
+| Feature | Where | Status |
+|---|---|---|
+| Text your agents (Telegram): pair one private chat, see what needs you, answer low-risk questions, send text to agents. Off by default. Telegram's servers can read the message text. | `channels/`, `commands/channels.rs`, `bridge/routes/channels.rs` ([`features/telegram.md`](features/telegram.md)) | **early**: the engine and the commands are in; the Settings block and the phone row are not on any screen yet; not run live with a real bot |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.
