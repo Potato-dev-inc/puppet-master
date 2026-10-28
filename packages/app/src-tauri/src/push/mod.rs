@@ -10,6 +10,7 @@
 //! from matching agent names.
 
 pub mod companion_replies;
+pub mod focus;
 pub mod hub;
 pub mod night;
 pub mod routes;
@@ -405,6 +406,20 @@ pub fn notify_night(line: &str, enabled: bool) {
     }
     let message = night::Message { line: line.to_string() };
     let deliveries = ctx.hub.night_deliveries(&message, now_ms());
+    send_deliveries(&ctx.hub, deliveries);
+}
+
+/// Hook for the end of a Focus session and its one reminder (`attention::focus`). `message` is counts
+/// only and names no pane, so a quiet pane (`night_shift::quiet`) has nothing here to leak. Nothing is
+/// built when nobody can hear it (no phone subscribed and no chat listening). Blocks on the push service,
+/// so call it from a worker thread.
+#[allow(dead_code)]
+pub fn notify_focus(message: &focus::Message) {
+    let Some(ctx) = CTX.get() else { return };
+    if nobody_to_tell(ctx) {
+        return;
+    }
+    let deliveries = ctx.hub.focus_deliveries(message, now_ms());
     send_deliveries(&ctx.hub, deliveries);
 }
 

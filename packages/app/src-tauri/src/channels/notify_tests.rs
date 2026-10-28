@@ -1008,3 +1008,89 @@ fn a_silent_note_keeps_its_text_and_buttons() {
     assert!(!wire_loud.disable_notification, "the loud note has a sound");
     assert!(wire_quiet.disable_notification, "the silent note has none");
 }
+
+// ---- the end of Focus (FT-7) -------------------------------------------------------------------
+
+const FOCUS_LINE: &str = "While you focused (45 min): 4 turns done, 1 failed, 2 asked for you. 1 still waits.";
+
+#[test]
+fn focus_note_is_the_counts_line_with_no_buttons_and_no_pane_link() {
+    let mut world = World::new();
+    let note = Notifier::default()
+        .focus_note(FOCUS_LINE, &cfg(), world.links(), 1)
+        .expect("sent");
+    assert_eq!(text_of(&note), FOCUS_LINE);
+    assert!(note.out.keyboard.is_empty(), "no buttons");
+    assert!(note.remember.is_none(), "a reply to it means no pane");
+    assert!(!note.out.silent, "the summary is a normal message");
+}
+
+#[test]
+fn focus_note_in_short_mode_is_the_fixed_sentence_and_no_counts() {
+    let mut world = World::new();
+    let short = TelegramConfig {
+        short_mode: true,
+        ..cfg()
+    };
+    let note = Notifier::default()
+        .focus_note(FOCUS_LINE, &short, world.links(), 1)
+        .expect("sent");
+    assert_eq!(text_of(&note), "Focus is over. Open Puppet Master.");
+}
+
+#[test]
+fn focus_note_needs_the_chat_on_and_paired() {
+    let mut world = World::new();
+    let off = TelegramConfig {
+        enabled: false,
+        ..cfg()
+    };
+    assert!(Notifier::default()
+        .focus_note(FOCUS_LINE, &off, world.links(), 1)
+        .is_none());
+    let unpaired = TelegramConfig {
+        paired: None,
+        ..cfg()
+    };
+    assert!(Notifier::default()
+        .focus_note(FOCUS_LINE, &unpaired, world.links(), 1)
+        .is_none());
+}
+
+#[test]
+fn focus_note_with_an_empty_bucket_sends_nothing() {
+    let mut world = World::new();
+    world.bucket = Bucket::new(0, 60_000);
+    assert!(Notifier::default()
+        .focus_note(FOCUS_LINE, &cfg(), world.links(), 1)
+        .is_none());
+}
+
+#[test]
+fn focus_note_is_cleaned_once_like_every_chat_message() {
+    let mut world = World::new();
+    let dirty = format!("{FOCUS_LINE} Key {SECRET} for you@example.com in C:\\Users\\you\\notes.txt");
+    let note = Notifier::default()
+        .focus_note(&dirty, &cfg(), world.links(), 1)
+        .expect("sent");
+    assert_clean(&text_of(&note));
+    assert!(text_of(&note).contains("4 turns done"), "the counts stay after cleaning");
+}
+
+#[test]
+fn a_focus_candidate_is_never_offered_as_a_note() {
+    let mut world = World::new();
+    let c = candidate(Kind::Focus, None, None);
+    assert!(Notifier::default()
+        .offer(&c, None, &cfg(), world.links(), 1)
+        .is_none());
+}
+
+#[test]
+fn golden_focus_end() {
+    let mut world = World::new();
+    let note = Notifier::default()
+        .focus_note(FOCUS_LINE, &cfg(), world.links(), 1)
+        .expect("sent");
+    assert_eq!(golden(&note), include_str!("golden/focus.txt").trim_end());
+}

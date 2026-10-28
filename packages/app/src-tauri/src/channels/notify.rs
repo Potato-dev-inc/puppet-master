@@ -37,6 +37,8 @@ const MAX_QUESTION_CHARS: usize = 600;
 /// Shown under a card the chat cannot answer. The same words as `policy` for an approval that is not
 /// low risk; a test keeps them equal.
 const OPEN_TO_ANSWER: &str = "Open Puppet Master to answer.";
+/// What the chat reads for the end of Focus in short mode: no counts, no agent text.
+const SHORT_FOCUS: &str = "Focus is over. Open Puppet Master.";
 
 /// One message for the chat. The engine turns it into a send and, after the send, records the new
 /// message id against `remember` (so a reply to that message means that pane or companion).
@@ -100,6 +102,8 @@ impl Notifier {
         match c.kind {
             // A companion's reply has its own entry point (`companion_reply`).
             Kind::CompanionReply => return None,
+            // The end of Focus reaches the chat through `focus_note`, never as a candidate.
+            Kind::Focus => return None,
             Kind::RunFinished | Kind::RunFailed => {
                 let window = c
                     .pane_id
@@ -227,6 +231,32 @@ impl Notifier {
                 silent: false,
             },
             remember: Some(target),
+        })
+    }
+
+    /// The end of a Focus session, or its one reminder, in the chat. `line` is the counts line
+    /// (`attention::focus`), cleaned once by `render::clean`. No buttons and no link to a pane. Short mode
+    /// sends the fixed sentence instead. The outbound bucket decides: a full bucket sends nothing, and the
+    /// phones and the desktop still have the summary.
+    pub fn focus_note(&self, line: &str, cfg: &TelegramConfig, links: Links<'_>, now: u64) -> Option<Note> {
+        if !sending(cfg) {
+            return None;
+        }
+        if !links.outbound.take(now) {
+            return None;
+        }
+        let text = if cfg.short_mode {
+            SHORT_FOCUS.to_string()
+        } else {
+            line.to_string()
+        };
+        Some(Note {
+            out: Outgoing {
+                text: render::clean(&text, MAX_OUT_CHARS),
+                keyboard: Vec::new(),
+                silent: false,
+            },
+            remember: None,
         })
     }
 
@@ -368,6 +398,8 @@ impl Notifier {
             Kind::CompanionReply => (Vec::new(), Vec::new()),
             // The Night Shift morning push is for the phones only (`push::night`); the chat gets none.
             Kind::NightShift => (Vec::new(), Vec::new()),
+            // The end of Focus is sent by `focus_note`, never built from a candidate.
+            Kind::Focus => (Vec::new(), Vec::new()),
         }
     }
 }
