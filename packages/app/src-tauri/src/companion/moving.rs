@@ -208,7 +208,7 @@ impl Service {
     /// The end of a timed move: back to the old agent, unless that agent is still at its limit.
     fn time_is_up(&self, inner: &mut Inner, index: usize, now: i64, home: &PreviousAgent) {
         let profile = inner.profiles[index].clone();
-        if let Some(limit) = self.host.agent_limit(&home.agent_type) {
+        if let Some(limit) = self.host.agent_limit(&home.agent_type, home.account.as_deref()) {
             let again = limit.reset_at_ms.filter(|at| *at > now).map_or(now + STILL_LIMITED_RETRY_MS, |at| at + 60_000);
             inner.profiles[index].until_ms = Some(again);
             if let Err(e) = store::save(&self.root, &inner.profiles) {

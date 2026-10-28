@@ -133,8 +133,8 @@ pub trait Host: Send + Sync + 'static {
     /// The agent's declared instruction files (empty for an agent that declares none).
     fn instruction_files(&self, agent_type: &str) -> Vec<InstructionFile>;
     /// Whether this agent is known to be at its usage limit right now (the hand-off detector saw it and
-    /// it has not recovered). The default knows none.
-    fn agent_limit(&self, _agent_type: &str) -> Option<AgentLimit> {
+    /// it has not recovered), under this account (`None` = its own login). The default knows none.
+    fn agent_limit(&self, _agent_type: &str, _account: Option<&str>) -> Option<AgentLimit> {
         None
     }
 
