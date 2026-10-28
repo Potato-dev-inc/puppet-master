@@ -9,13 +9,17 @@
 
 use std::time::Duration;
 
+pub mod active;
 pub mod client;
 pub mod config;
 pub mod publisher;
 pub mod seal;
 pub mod service;
+pub mod source;
 pub mod view;
 
+#[cfg(test)]
+mod guard_tests;
 #[cfg(test)]
 mod view_tests;
 

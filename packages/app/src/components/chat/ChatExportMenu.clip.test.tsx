@@ -40,15 +40,15 @@ describe('ChatExportMenu clip item', () => {
   it('is not in the menu without a handler', () => {
     act(() => root.render(<ChatExportMenu paneId="p" api={api} />));
     openMenu();
-    expect(items()).toEqual(['Save as page', 'Save as Markdown']);
+    expect(items()).toEqual(['Save as page', 'Save as Markdown', 'Go live…']);
   });
 
   it('is in the menu with a handler, calls it once and closes the menu', () => {
     const onMakeClip = vi.fn();
     act(() => root.render(<ChatExportMenu paneId="p" api={api} onMakeClip={onMakeClip} />));
     openMenu();
-    expect(items()).toEqual(['Save as page', 'Save as Markdown', 'Make clip of last turn']);
-    act(() => (document.querySelector('[role="menuitem"]:last-child') as HTMLButtonElement).click());
+    expect(items()).toEqual(['Save as page', 'Save as Markdown', 'Make clip of last turn', 'Go live…']);
+    act(() => ([...document.querySelectorAll('[role="menuitem"]')].find((n) => n.textContent === 'Make clip of last turn') as HTMLButtonElement).click());
     expect(onMakeClip).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[role="menu"]')).toBeNull();
   });

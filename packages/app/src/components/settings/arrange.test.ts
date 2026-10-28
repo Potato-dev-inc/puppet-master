@@ -53,11 +53,11 @@ describe('groups inside the sections', () => {
     }
   });
 
-  it('General reads: Project, Startup, Appearance, Safety, Budgets, Undo and memory, When you are away, Labs, Storage, About', () => {
+  it('General reads: Project, Startup, Appearance, Safety, Budgets, Undo and memory, When you are away, Labs, Live Room, Storage, About', () => {
     const heads = groupRows(section('general').rows)
       .filter((g) => !g.danger)
       .map((g) => g.head);
-    expect(heads).toEqual(['Project', 'Startup', 'Appearance', 'Safety', 'Budgets', 'Undo and memory', 'When you are away', 'Labs', 'Storage', 'About']);
+    expect(heads).toEqual(['Project', 'Startup', 'Appearance', 'Safety', 'Budgets', 'Undo and memory', 'When you are away', 'Labs', 'Live Room', 'Storage', 'About']);
   });
 
   it('"Show the welcome" (first-run) sits in General > Appearance, after the Simple mode link', () => {

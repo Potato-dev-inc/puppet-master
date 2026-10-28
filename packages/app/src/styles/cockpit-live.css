@@ -320,3 +320,25 @@
     animation: none;
   }
 }
+
+/* ---------- where the bar sits ---------- */
+
+/* In the main area the bar comes after the view in the markup and shows above it. */
+.cockpit .ck-main > .ck-live-bar {
+  order: -1;
+  flex: none;
+}
+/* Simple mode has its own face: the bar floats over its top edge, and only the bar takes clicks. */
+.cockpit.ck-live-top {
+  position: fixed;
+  inset: 0 0 auto 0;
+  display: block;
+  height: auto;
+  background: none;
+  overflow: visible;
+  z-index: 1000;
+  pointer-events: none;
+}
+.cockpit.ck-live-top .ck-live-bar {
+  pointer-events: auto;
+}

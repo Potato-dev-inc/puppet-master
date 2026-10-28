@@ -38,6 +38,18 @@ pub fn summary_line(statuses: &[&str], jobs: &[Job], need_you: u32) -> String {
     format!("{TOOLTIP_NAME} \u{b7} {}", parts.join(" \u{b7} "))
 }
 
+/// The tooltip while a Live Room is on (paused too): the person must always see that a link is open.
+pub const LIVE_TOOLTIP: &str = "Puppet Master \u{b7} LIVE";
+
+/// The tray tooltip: `LIVE_TOOLTIP` while a Live Room is on, else `summary`.
+pub fn tooltip_for(live: bool, summary: String) -> String {
+    if live {
+        LIVE_TOOLTIP.to_string()
+    } else {
+        summary
+    }
+}
+
 /// How a refresh that asks at `since_last` after the previous one is handled.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Throttle {
@@ -367,7 +379,7 @@ mod runtime {
             }
             Err(e) => tracing::warn!(error = %e, "tray menu rebuild failed"),
         }
-        let _ = tray.set_tooltip(Some(current_summary(app)));
+        let _ = tray.set_tooltip(Some(tooltip_for(crate::live_room::service::is_live(), current_summary(app))));
     }
 
     /// The tooltip for the panes and jobs open now. Standby (hidden) panes are not the person's work.

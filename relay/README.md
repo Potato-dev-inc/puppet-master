@@ -86,3 +86,72 @@ cargo test        # protocol unit tests + server end-to-end over loopback HTTP a
 
 The server's end-to-end tests (`server/tests/protocol.rs`) and the app's relay tests run against any relay
 when `PM_RELAY_TEST_URL` is set: that is how the Worker variant is proven (`worker/README.md`, Tests).
+
+## Live Rooms
+
+A Live Room is a read-only, end-to-end encrypted link to some agents' chat (`docs/features/live-room.md`). The
+relay keeps the room and serves the viewer page. It never sees the key, which lives in the link's `#` part. The
+protocol types are in `protocol/src/room.rs`; the routes are in `server/src/rooms.rs` and `server/src/rooms/routes.rs`.
+Room routes are on the same listener as the team routes and have their own limits. The Cloudflare Worker has the
+same room routes (`worker/src/room.ts`, `roomproto.ts`, `index.ts`).
+
+### Routes
+
+| Route | Who | Body and answer |
+|---|---|---|
+| `POST /v1/rooms` | anyone (the signature is inside) | `RoomRegistration`, at most 8 KiB. 201 `{"room": …}`. A used id is 409 (tombstones included) |
+| `PUT /v1/rooms/{room}/snapshot` | owner (`x-pm-auth`, room key) | one `snap` frame, at most 96 KiB. Replaces the snapshot and drops the older deltas. 200 `RoomStatus` |
+| `POST /v1/rooms/{room}/frames` | owner | one `delta` or `state` frame, at most 24 KiB, `seq` must rise. 200 `RoomStatus` |
+| `GET /v1/rooms/{room}/status` | owner | 200 `RoomStatus` (viewer count and end time only) |
+| `DELETE /v1/rooms/{room}` | owner | 204. Frames and snapshot are wiped at once; the tombstone stays |
+| `GET /v1/rooms/{room}/snapshot` | viewer (`x-pm-room-read`, `x-pm-room-seat`) | 200 frame, 204 (none yet), 404, 410 `{"ended": …}`, 429 `{"full": true}` |
+| `GET /v1/rooms/{room}/frames?after=N&wait=S` | viewer | 200 batch of up to 100 frames; `wait` is capped at 25 s |
+| `GET /r/`, `/r/viewer.js`, `/r/viewer.css` | anyone | the viewer page, with a strict policy (`default-src 'none'`, scripts and styles from the relay only, no framing, no referrer) |
+
+Viewer calls are GET only and refuse a body. Wrong read token and unknown room both answer 404. Answers on room
+routes carry `Cache-Control: no-store`. No CORS headers: the page is same-origin.
+
+### Limits
+
+| Limit | Default | Flag |
+|---|---|---|
+| Room registrations per address | 10 an hour | `--rooms-per-address-per-hour` |
+| Open rooms on this relay | 100 (more is 503) | `--max-open-rooms` |
+| Owner frames per room | burst 10, then 2 a second; 7,200 a day | `--room-frames-per-second`, `--room-frames-per-day` |
+| Viewer calls per address | 120 a minute | `--viewer-requests-per-minute` |
+| Seats per address in one room | 4 | `--seats-per-address` |
+| Deltas kept per room | the newest 300, or 2 MiB | `--room-ring-bytes` |
+| Room bytes on this relay | 256 MiB in all (at the cap the busiest room drops its oldest deltas; 507 if snapshots alone do not fit) | `--global-room-bytes` |
+| Room lifetime | 8 hours at most (the app asks for less) | fixed |
+| Viewers per room | 50 at most (the room sets 1 to 50) | fixed |
+| Seat quiet time | a viewer seat that makes no call for 40 s frees its place | fixed |
+
+Seats are counted in memory only, and are never logged. The relay writes no log line per viewer request.
+
+### What it keeps
+
+| What | Where | How long |
+|---|---|---|
+| Ciphertext frames (the newest snapshot and the deltas) | memory of the binary | until the room stops or its time is up; stop or expiry wipes them at once. At most 8 hours |
+| Registration: room id, room public key, hash of the read token, expiry, viewer limit | memory of the binary | until the tombstone ends |
+| Tombstone (a stopped or ended room answers 410 `{"ended": …}`) | memory of the binary | until 1 hour after the planned end, then 404 |
+| Seats (one random id per viewer page load) | memory of the binary | 40 s after the last call; counted, never stored |
+
+Rooms are in memory only. A restart of the binary ends every room, and the owner's app then sees "ended by the
+relay". Nothing about a room goes to the `--db` SQLite file (that file is for teams).
+
+On the Cloudflare Worker each room is one Durable Object with its own SQLite tables (`room`, `frames`,
+`snapshot`). An alarm at the room's end ends it and wipes its frames. A second alarm, 1 hour after the end, wipes
+the rows. One more object (`RoomIndex`) counts the open rooms for the cap of 100: a stop frees the slot at once,
+and an expired room frees it when the next room is registered. The Worker's seats are also in memory only.
+
+### Tests
+
+```sh
+cargo test -p pm-relay-protocol   # the room types and checks
+cargo test -p pm-relay --test rooms   # register, snapshot, frames, viewer reads, limits, stop and expiry, viewer page headers
+cd worker && npm run test:worker  # the Worker's room tests (test/room.test.mjs) against local wrangler dev
+```
+
+The viewer page has its own tests (`relay/viewer`, `npm test`). Build it with `npm run build` there when `src/`
+changes, and commit `dist/`: the relay serves the committed files.

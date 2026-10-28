@@ -6,6 +6,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chatPageFileName } from '../../lib/chatExport';
+import { GO_LIVE_EVENT } from '../../lib/live-room';
 import { ChatExportMenu, type ChatExportApi } from './ChatExportMenu';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -77,13 +78,25 @@ afterEach(() => {
 });
 
 describe('ChatExportMenu', () => {
-  it('the chat menu offers Save as page and Save as Markdown and nothing else', () => {
+  it('the chat menu offers Save as page, Save as Markdown and Go live, and nothing else', () => {
     render(fakeApi());
     expect(document.querySelector('[role="menu"]')).toBeNull();
     act(() => clickable('Chat menu').click());
     const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((el) => el.textContent?.trim());
-    expect(items).toEqual(['Save as page', 'Save as Markdown']);
+    expect(items).toEqual(['Save as page', 'Save as Markdown', 'Go live…']);
     expect(clickable('Chat menu').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('Go live… asks the cockpit to open the sheet with this pane, and closes the menu', () => {
+    const seen: Array<{ paneId: string | null }> = [];
+    const on = (e: Event) => seen.push((e as CustomEvent<{ paneId: string | null }>).detail);
+    window.addEventListener(GO_LIVE_EVENT, on);
+    render(fakeApi());
+    act(() => clickable('Chat menu').click());
+    act(() => clickable('Go live…').click());
+    window.removeEventListener(GO_LIVE_EVENT, on);
+    expect(seen).toEqual([{ paneId: 'pane-1' }]);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 
   it('Escape closes the menu', () => {
