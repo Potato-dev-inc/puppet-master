@@ -5,7 +5,7 @@
 
 use super::AppState;
 use crate::pty::PaneRegistry;
-use crate::chat_index::{Answer, ChatIndex, ContextLookup, PaneContext};
+use crate::chat_index::{Answer, ChatIndex, ContextLookup, Facets, Filters, PaneContext};
 use crate::session_chat::{ApiEndpoint, ChatItem, ItemObserver, Opening, PaneFacts, PaneLookup, ScreenRead, Sink, Watchers};
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
@@ -179,12 +179,29 @@ impl ContextLookup for RegistryPanes {
 }
 
 /// Search across every chat that was read: the items whose text has all the typed words, newest first, with a
-/// snippet and the ranges to highlight. `enabled` is false when the person turned the index off (then no hits).
-/// Empty when nothing was typed.
+/// snippet and the ranges to highlight. `filters` (optional) narrows it to an agent, a folder, a start time and who
+/// spoke. `enabled` is false when the person turned the index off (then no hits). Empty when nothing was typed and
+/// no filter is set; with filters only, the newest items that pass them.
 #[tauri::command]
-pub async fn chat_search(state: State<'_, AppState>, chat: State<'_, SessionChatState>, query: String, limit: Option<usize>) -> Result<Answer, String> {
+pub async fn chat_search(
+    state: State<'_, AppState>,
+    chat: State<'_, SessionChatState>,
+    query: String,
+    limit: Option<usize>,
+    filters: Option<Filters>,
+) -> Result<Answer, String> {
     let Some(index) = chat.index(&state.registry) else { return Ok(Answer { enabled: crate::chat_index::enabled(), hits: Vec::new() }) };
-    tauri::async_runtime::spawn_blocking(move || index.search(&query, limit.unwrap_or(30)))
+    let filters = filters.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || index.search_filtered(&query, limit.unwrap_or(30), &filters))
+        .await
+        .map_err(|e| format!("INTERNAL: {e}"))?
+}
+
+/// The agents and folders the index holds, for the "Search all chats" filter menus.
+#[tauri::command]
+pub async fn chat_search_facets(state: State<'_, AppState>, chat: State<'_, SessionChatState>) -> Result<Facets, String> {
+    let Some(index) = chat.index(&state.registry) else { return Ok(Facets::default()) };
+    tauri::async_runtime::spawn_blocking(move || index.facets())
         .await
         .map_err(|e| format!("INTERNAL: {e}"))?
 }

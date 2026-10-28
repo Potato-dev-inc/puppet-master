@@ -47,5 +47,9 @@ packages/app/src-tauri/src/tui/claude/fixtures/ask_user_question_*.txt text eol=
 packages/app/src-tauri/src/tui/opencode/fixtures/*.json text eol=lf
 # Retyped from a screenshot, include_str!-ed by the Codex update-menu tests; keep LF.
 packages/app/src-tauri/src/tui/codex/fixtures/update_prompt_0_164_live.txt text eol=lf
+# Synthetic chat-history fixtures (SPEC n32 BC-4): read line by line and compared with offsets: keep them LF.
+packages/app/src-tauri/src/tui/*/fixtures/history/** text eol=lf
+# SQLite fixture databases (BC-16) are binary: never converted or diffed as text.
+packages/app/src-tauri/src/tui/*/fixtures/history/**/*.db binary
 # Keep-going brief golden fixtures are compared byte for byte: keep them LF on every checkout.
 packages/app/src-tauri/src/handoff/keep_going/fixtures/*.txt text eol=lf

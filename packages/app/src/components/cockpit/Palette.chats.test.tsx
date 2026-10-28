@@ -216,3 +216,76 @@ describe('Palette: Search all chats', () => {
     expect(options()).toHaveLength(0);
   });
 });
+
+describe('Palette: filters in Search all chats', () => {
+  const chipChoices = () => [...host.querySelectorAll<HTMLButtonElement>('.ck-chat-chip-choice')];
+  const click = (el: Element) => act(() => (el as HTMLElement).click());
+  const chipNamed = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('.ck-chat-chip')].find((b) => b.textContent?.startsWith(label))!;
+  const facetsOf = (agents: string[], folders: string[]) => vi.spyOn(chatSearch, 'chatSearchFacets').mockResolvedValue({ agents, folders });
+  async function flush() {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  it('shows the four chips under the box while searching chats', () => {
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([]));
+    open(cockpit());
+    expect([...host.querySelectorAll('.ck-chat-chip')].map((b) => b.textContent)).toEqual(['Agent ▾', 'Folder ▾', 'When ▾', 'Who ▾']);
+  });
+
+  it('a typed agent: shortcut is taken out of the words and sent as the agent filter', async () => {
+    facetsOf(['codex'], ['shop']);
+    const search = vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([hit()]));
+    open(cockpit());
+    await flush();
+    type('agent:codex deploy');
+    await settle();
+    expect(search).toHaveBeenLastCalledWith('deploy', undefined, { agent: 'codex' });
+    expect(options()).toHaveLength(1);
+  });
+
+  it('a chip alone searches the newest items that pass it, with no words', async () => {
+    facetsOf([], ['shop']);
+    const search = vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([hit({ snippet: 'We moved the deploy script' })]));
+    open(cockpit());
+    await flush();
+    click(chipNamed('Folder'));
+    click(chipChoices()[1]);
+    await settle();
+    expect(search).toHaveBeenLastCalledWith('', undefined, { folder: 'shop' });
+    expect(host.textContent).not.toContain('Type to search every chat you have opened.');
+    expect(options()).toHaveLength(1);
+  });
+
+  it('from:me alone lists what the person said, and the When chip becomes a start time', async () => {
+    vi.spyOn(chatSearch, 'chatSearchFacets').mockResolvedValue({ agents: [], folders: [] });
+    const search = vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([hit({ kind: 'user' })]));
+    open(cockpit());
+    await flush();
+    type('from:me');
+    await settle();
+    expect(search).toHaveBeenLastCalledWith('', undefined, { role: 'you' });
+    click(chipNamed('When'));
+    click(chipChoices()[2]);
+    await settle();
+    const last = search.mock.lastCall!;
+    expect(last[0]).toBe('');
+    expect(last[2]).toMatchObject({ role: 'you' });
+    expect(typeof last[2]?.sinceMs).toBe('number');
+  });
+
+  it('picking a chip for an agent takes its typed shortcut out of the box', async () => {
+    facetsOf(['codex'], []);
+    const search = vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([]));
+    open(cockpit());
+    await flush();
+    type('agent:codex deploy');
+    await settle();
+    click(chipNamed('Agent'));
+    click(chipChoices()[0]);
+    await settle();
+    expect(input().value).toBe('deploy');
+    expect(search).toHaveBeenLastCalledWith('deploy', undefined, {});
+  });
+});

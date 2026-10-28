@@ -564,3 +564,36 @@ fn the_companions_twenty_turn_helper_is_paused_before_turn_twenty_one() {
     assert_eq!(error.code, "BUDGET_EXHAUSTED");
     assert_eq!(error.context["turns_limit"], 20);
 }
+
+#[test]
+fn a_quiet_mission_budget_raises_no_pause_card_but_an_ordinary_run_still_does() {
+    let project = project();
+    // A Night Shift mission: its budget key is the mission handle, and its record says quiet.
+    let mut record: crate::missions::model::Mission = serde_json::from_value(json!({
+        "id": format!("q{}", &Uuid::new_v4().simple().to_string()[..9]),
+        "project": project.clone(),
+        "objective": "Quiet budget test",
+        "checks": [],
+        "agents": [],
+        "rollback": false,
+        "round_timeout_ms": 60000,
+        "check_timeout_ms": 10000,
+        "state": "stopped",
+        "started_by": { "by": "night", "run": "ns-0123456789ab" },
+        "quiet": true,
+        "created_at_ms": 1,
+        "updated_at_ms": 1,
+        "rev": 0
+    }))
+    .unwrap();
+    crate::missions::store::save(&mut record).unwrap();
+    let quiet = record.handle();
+    let plain = handle();
+    for h in [&quiet, &plain] {
+        root(&project, h, 1);
+        let turn = start_turn(&project, h, 0);
+        turn_ended(&finish(&project, &turn));
+    }
+    assert!(pending_card_of(&project, &quiet).is_none(), "a quiet mission raises no pause card");
+    assert!(pending_card_of(&project, &plain).is_some(), "an ordinary run still gets its pause card");
+}

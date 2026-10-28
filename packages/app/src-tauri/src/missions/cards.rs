@@ -127,7 +127,11 @@ fn raised(m: &Mission) -> Option<Raised> {
 }
 
 /// Puts the card that matches the mission's state in the attention list, or takes it away.
+/// A quiet mission (Night Shift) has no cards at all: the night report carries its results.
 pub fn sync(m: &Mission) {
+    if m.quiet {
+        return;
+    }
     match raised(m) {
         Some(card) => crate::attention::raise(card),
         None => {

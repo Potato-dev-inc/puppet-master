@@ -208,6 +208,8 @@ impl Default for PaneRegistry {
     }
 }
 
+/// Stop a pane's processes and wait until that is done. For callers that need the tree gone
+/// before they go on (app exit, a respawn under the same id, a folder about to be deleted).
 pub(crate) fn shutdown_pane(mut pane: PaneState) {
     crate::opencode::kill_serve_if_present(&mut pane);
     if let Some(pid) = pane.child.process_id().filter(|pid| *pid > 0) {
@@ -216,6 +218,27 @@ pub(crate) fn shutdown_pane(mut pane: PaneState) {
     let _ = pane.child.kill();
 }
 
+/// How long the release of a closed pane's worktree, and the app's exit, wait for pending kills.
+const KILL_WAIT: Duration = Duration::from_secs(30);
+
+fn kill_worker() -> &'static super::kill_worker::KillWorker<PaneState> {
+    static WORKER: std::sync::OnceLock<super::kill_worker::KillWorker<PaneState>> = std::sync::OnceLock::new();
+    // The whole pane moves to the worker: its process handle stays open until the tree is stopped
+    // (so the pid cannot be reused by another process meanwhile), and its PTY closes only after.
+    WORKER.get_or_init(|| super::kill_worker::KillWorker::new("pane-kill", 2, 64, shutdown_pane))
+}
+
+/// Hand the pane to the background worker; returns at once. The pane is already out of the registry.
+pub(crate) fn shutdown_pane_background(pane: PaneState) -> super::kill_worker::Ticket {
+    kill_worker().submit(pane)
+}
+
+/// Wait until every background kill queued so far is done (app exit). False on timeout.
+pub fn wait_for_background_kills(timeout: Duration) -> bool {
+    kill_worker().drain(timeout)
+}
+
+/// Close a pane without waiting for its processes to stop (the UI, a run's automatic dispose).
 pub fn kill_pane(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(), String> {
     kill_pane_with_reason(registry, pane_id, None)
 }
@@ -225,11 +248,35 @@ pub fn kill_pane_with_reason(
     pane_id: &str,
     reason: Option<&str>,
 ) -> Result<(), String> {
+    close_pane(registry, pane_id, reason, false)
+}
+
+/// Close a pane and return only once its process tree is stopped: for callers that go on to delete
+/// the pane's folder or to check the processes.
+pub fn kill_pane_and_wait(
+    registry: &Mutex<PaneRegistry>,
+    pane_id: &str,
+    reason: Option<&str>,
+) -> Result<(), String> {
+    close_pane(registry, pane_id, reason, true)
+}
+
+fn close_pane(
+    registry: &Mutex<PaneRegistry>,
+    pane_id: &str,
+    reason: Option<&str>,
+    wait: bool,
+) -> Result<(), String> {
     let pane = registry.lock().take(pane_id);
     let cwd = pane.as_ref().map(|pane| pane.info.cwd.clone());
-    if let Some(pane) = pane {
-        shutdown_pane(pane);
-    }
+    let ticket = pane.map(|pane| {
+        if wait {
+            shutdown_pane(pane);
+            None
+        } else {
+            Some(shutdown_pane_background(pane))
+        }
+    });
     crate::event_log::append_system_event(SystemEvent::PaneKilled {
         pane_id: PaneId(pane_id.to_string()),
         reason: reason.map(str::to_string),
@@ -241,16 +288,40 @@ pub fn kill_pane_with_reason(
         let pane_id = pane_id.to_string();
         let _ = std::thread::Builder::new()
             .name("pane-worktree-release".into())
-            .spawn(move || crate::agent_runs::pane_close::release_worktree_of_closed_pane(&pane_id, &cwd));
+            .spawn(move || {
+                // The shell holds the folder until it is stopped.
+                if let Some(Some(ticket)) = ticket {
+                    ticket.wait(KILL_WAIT);
+                }
+                crate::agent_runs::pane_close::release_worktree_of_closed_pane(&pane_id, &cwd)
+            });
     }
     Ok(())
 }
 
+/// Close every pane without waiting (the "kill all" button).
 pub fn kill_all(registry: &Mutex<PaneRegistry>) {
+    close_all(registry, false);
+}
+
+/// Close every pane and return once all processes are stopped, including kills queued earlier.
+/// App exit uses this: the process ends right after, and a background kill would be cut off.
+pub fn kill_all_and_wait(registry: &Mutex<PaneRegistry>) {
+    close_all(registry, true);
+    if !wait_for_background_kills(KILL_WAIT) {
+        tracing::warn!("exit: background pane kills still running after the wait");
+    }
+}
+
+fn close_all(registry: &Mutex<PaneRegistry>, wait: bool) {
     let panes = registry.lock().take_all();
     for pane in panes {
         let pane_id = pane.info.id.clone();
-        shutdown_pane(pane);
+        if wait {
+            shutdown_pane(pane);
+        } else {
+            shutdown_pane_background(pane);
+        }
         crate::event_log::append_system_event(SystemEvent::PaneKilled {
             pane_id: PaneId(pane_id),
             reason: Some("kill_all".into()),
@@ -277,6 +348,17 @@ pub fn get_project_path(registry: &Mutex<PaneRegistry>) -> String {
 #[cfg(test)]
 impl PaneRegistry {
     pub fn test_pane_stub(id: &str) -> PaneState {
+        let mut cmd = CommandBuilder::new(if cfg!(windows) { "cmd" } else { "sh" });
+        if cfg!(windows) {
+            cmd.args(["/C", "exit"]);
+        } else {
+            cmd.args(["-c", "exit"]);
+        }
+        Self::test_pane_running(id, cmd)
+    }
+
+    /// A pane whose PTY runs `cmd` (a test that needs a live process tree to stop).
+    pub fn test_pane_running(id: &str, cmd: CommandBuilder) -> PaneState {
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
@@ -286,12 +368,6 @@ impl PaneRegistry {
                 pixel_height: 0,
             })
             .expect("openpty");
-        let mut cmd = CommandBuilder::new(if cfg!(windows) { "cmd" } else { "sh" });
-        if cfg!(windows) {
-            cmd.args(["/C", "exit"]);
-        } else {
-            cmd.args(["-c", "exit"]);
-        }
         let child = pair.slave.spawn_command(cmd).expect("spawn_command");
         drop(pair.slave);
         let writer = pair.master.take_writer().expect("writer");
@@ -332,6 +408,8 @@ impl PaneRegistry {
 mod codex_live_tests;
 #[cfg(test)]
 mod host_shell_tests;
+#[cfg(test)]
+mod kill_tests;
 #[cfg(test)]
 mod live_permit_tests;
 #[cfg(test)]

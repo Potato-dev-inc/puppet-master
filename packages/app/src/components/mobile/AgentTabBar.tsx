@@ -20,6 +20,7 @@ export function AgentTabBar({
   bridgeReady,
   onSelect,
   onNew,
+  onSearch,
   onMenu,
   needsYou,
   companions = [],
@@ -30,6 +31,8 @@ export function AgentTabBar({
   bridgeReady: boolean;
   onSelect: (tab: string) => void;
   onNew: () => void;
+  /** Opens "Search all chats". Left out: no search button. */
+  onSearch?: () => void;
   onMenu: () => void;
   /** The PC's one number (open blocking items). Without it (an older PC) the bar counts waiting and failed panes. */
   needsYou?: number;
@@ -101,6 +104,14 @@ export function AgentTabBar({
           );
         })}
       </div>
+      {onSearch && (
+        <button type="button" aria-label="Search all chats" title="Search all chats" onClick={onSearch} disabled={!bridgeReady} className="ph-iconbtn">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m16 16 4.5 4.5" />
+          </svg>
+        </button>
+      )}
       <button type="button" aria-label="Open a new agent" onClick={onNew} disabled={!bridgeReady} className="ph-iconbtn">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />

@@ -36,6 +36,7 @@ mod mcp_status;
 mod missions;
 mod mobile_pairing;
 mod mobile_tunnel;
+mod night_shift;
 mod tunnel_config;
 mod one_brain;
 mod companion;
@@ -92,6 +93,7 @@ mod device_caps_tests;
 mod session_context;
 mod chat_index;
 mod session_chat;
+mod scores;
 mod secrets;
 mod settings_store;
 mod settings_patch;
@@ -111,6 +113,7 @@ pub mod worktrees;
 pub mod watch_command;
 pub mod env_probe;
 mod webview_service_worker;
+mod live_room;
 
 use commands::AppState;
 use std::path::{Path, PathBuf};
@@ -170,6 +173,7 @@ pub fn run() {
             commands::session_chat_open,
             commands::session_chat_close,
             commands::chat_search,
+            commands::chat_search_facets,
             commands::chat_index_status,
             commands::chat_index_set_enabled,
             commands::chat_index_clear,
@@ -670,7 +674,8 @@ pub fn run() {
                 }
                 bridge::port_file::release_owned(&app_paths::bridge_port_file());
                 if let Some(state) = app_handle.try_state::<AppState>() {
-                    pty::registry_kill_all(&state.registry);
+                    // The process ends right after this: wait for every tree to be stopped.
+                    pty::registry_kill_all_and_wait(&state.registry);
                 }
             }
         });

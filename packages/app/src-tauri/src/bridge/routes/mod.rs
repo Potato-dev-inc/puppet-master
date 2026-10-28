@@ -9,6 +9,7 @@ pub(super) mod health;
 mod chat;
 mod companion_mcp;
 mod checkpoints;
+mod chats;
 mod companions;
 mod digest;
 mod flight;
@@ -93,6 +94,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| team::handle(cx))
         .or_else(|| attention::handle(cx))
         .or_else(|| companions::handle(cx))
+        .or_else(|| chats::handle(cx))
         .or_else(|| panes::handle(cx))
         .or_else(|| plans::handle(cx))
 }

@@ -328,6 +328,25 @@ Several pointers may be given for one field (`text = ["/content", "/message/cont
 
 **Checked when the definition loads, never later.** `AGENT_DEF_SESSION_CHAT_BAD_DIR` (a template that is not under home or the project, has `..`, an unknown placeholder or unbalanced braces), `AGENT_DEF_SESSION_CHAT_BAD_GLOB`, `AGENT_DEF_SESSION_CHAT_BAD_POINTER` (not a pointer, too long, a bad `~` escape; the error path names the key, `session_chat.map.text` or `session_chat.map.tool_error.1`), `AGENT_DEF_INCONSISTENT` (`tool_input` without `tool_name`, `tool_output` without `tool_result_for`, `turn_end` without its values or the other way round, one value for two roles), and the usual `AGENT_DEF_UNKNOWN_FIELD` / `AGENT_DEF_INVALID_TOML` for a misspelt or missing key. The table is part of the fingerprint: changing it asks for approval again.
 
+**Old chats (`[session_chat.history]`, optional).** `[session_chat]` reads the pane's own newest file. To let Puppet Master
+bring in the CLI's older chats too (the "Bring my old chats" screen), add this table next to it. Without it the agent has
+no old chats in search. Puppet Master lists and reads these folders only after the person asks it to bring old chats in.
+
+```toml
+[session_chat.history]
+roots = ["{home}/.acme/sessions"]          # 1 to 4 folders; each starts with {home} or {env:NAME}, has no other placeholder, no `..`
+file_glob = "*.jsonl"                      # optional; default session_chat.file_glob; must end in .jsonl or .jsonl.zst
+depth = 2                                  # optional; folder levels below a root, 0 to 4; default 1
+id_from = "pointer"                        # "file_stem" (default: the file name) or "pointer"
+id_pointer = "/session_id"                 # required with id_from = "pointer", refused otherwise
+cwd_pointer = "/cwd"                       # optional: the chat's folder, read from its first lines
+resume_args = ["--resume", "{session}"]    # optional: how to start the CLI on an old chat; only {session}; 1 to 8 elements of 1 to 64 characters
+```
+
+Checked when the definition loads: `AGENT_DEF_SESSION_CHAT_BAD_HISTORY` (the error path names the key, for example
+`session_chat.history.roots.0`) and `AGENT_DEF_INCONSISTENT` (`id_pointer` that does not fit `id_from`). The table is
+part of the fingerprint only when it is there, so adding or changing it asks for approval again.
+
 The Agent Wizard fills this table by itself when it can: it finds the JSONL file the CLI wrote during its test turn, infers the pointers, checks them with this reader and writes the table under the comment `# found by the wizard: check before approving` (agent-wizard SPEC 11.23). It is part of the fingerprint like any other table, so you still approve it.
 
 Until the file has something to show (a wrong folder, a CLI that writes nothing yet) the Chat tab is read off the screen, as for an agent with no table; when the file has items it switches to them, once, and the view is told where the items come from.

@@ -55,6 +55,26 @@ pub fn release_pristine_worktree(snapshot: &OperationSnapshot) -> bool {
     true
 }
 
+/// Close the pane a run spawned. The pane goes from the registry at once; its processes are stopped
+/// in the background (a `taskkill` on Windows takes 0.5-8 s) unless the run's worktree is released
+/// right after (`release`): a running shell would still hold that folder, so that path waits.
+fn close_run_pane(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    reason: &str,
+    release: Option<&OperationSnapshot>,
+) -> Result<(), String> {
+    if release.is_some_and(has_open_worktree) {
+        crate::pty::registry_kill_pane_and_wait(registry, pane_id, Some(reason))
+    } else {
+        crate::pty::registry_kill_pane_with_reason(registry, pane_id, Some(reason))
+    }
+}
+
+fn has_open_worktree(snapshot: &OperationSnapshot) -> bool {
+    snapshot.worker.worktree.as_ref().is_some_and(|worktree| worktree.closed.is_none())
+}
+
 /// A pane closed: when it ran in an isolated run's worktree and that run ended without a result
 /// (declined trust, cancelled, failed), the worktree it never changed goes with it, through
 /// [`release_pristine_worktree`]. The pane is kept while it is open (keep_pane: the person may want
@@ -105,11 +125,9 @@ pub fn maybe_dispose_after_terminal(
             "closing the pane before its turn summary finished (waited the limit)"
         );
     }
-    crate::pty::registry_kill_pane_with_reason(
-        registry,
-        pane_id,
-        Some("operation_terminal_cleanup"),
-    )
+    // A completed run keeps its worktree, so only the other endings wait for the shell to stop.
+    let releases = (snapshot.status != crate::operations::OperationStatus::Completed).then_some(snapshot);
+    close_run_pane(registry, pane_id, "operation_terminal_cleanup", releases)
     .map_err(|error| OperationError::new("PANE_CLEANUP_FAILED", error, true))?;
     // A run that ended without a result leaves no worktree behind when it changed nothing (a
     // completed one keeps its, even empty: the Receipt/Changes tabs still read it).
@@ -141,11 +159,7 @@ pub fn maybe_dispose_on_dispatch_failure(
         );
         return Ok(());
     }
-    let killed = crate::pty::registry_kill_pane_with_reason(
-        registry,
-        pane_id,
-        Some("dispatch_failed_cleanup"),
-    );
+    let killed = close_run_pane(registry, pane_id, "dispatch_failed_cleanup", Some(snapshot));
     release_pristine_worktree(snapshot);
     killed.map_err(|error| OperationError::new("PANE_CLEANUP_FAILED", error, true))?;
     Ok(())
@@ -163,11 +177,7 @@ pub fn dispose_explicit_close(
         .pane_id
         .as_deref()
         .ok_or_else(|| OperationError::new("PANE_NOT_FOUND", "missing pane_id", false))?;
-    let _ = crate::pty::registry_kill_pane_with_reason(
-        registry,
-        pane_id,
-        Some("close_agent"),
-    );
+    let _ = close_run_pane(registry, pane_id, "close_agent", Some(snapshot));
     // Closing the run: an isolated worktree it never changed is garbage, not work to keep.
     release_pristine_worktree(snapshot);
     Ok(())
@@ -609,9 +619,9 @@ mod tests {
     }
 
     /// No summary in flight: the dispose must not go to sleep waiting for one. This checks the code
-    /// path (the summary wait never blocked), not elapsed time. The dispose also kills the pane's
-    /// process, which is a `taskkill` subprocess on Windows: 0.5-2 s under load, so a wall-clock bound
-    /// on the whole call failed in a few of 30 loaded runs, while the summary wait took ~1 ms.
+    /// path (the summary wait never blocked), not elapsed time. The kill of the pane's process is
+    /// handed to the background worker (a `taskkill` on Windows takes 0.5-8 s), so the dispose itself
+    /// no longer waits for it either.
     #[test]
     fn automatic_dispose_does_not_wait_when_no_summary_is_in_flight() {
         let project = std::env::temp_dir()
