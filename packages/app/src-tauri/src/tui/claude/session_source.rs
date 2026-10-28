@@ -26,18 +26,40 @@ impl SessionSource for ClaudeSource {
     }
 
     fn looking_in(&self, pane: &PaneFacts) -> Option<PathBuf> {
-        config_dirs(pane).first().map(|config| existing_project_dir(config, &pane.cwd))
+        config_dirs(pane).first().map(|config| existing_project_dir(config, &agent_cwd(pane)))
     }
 }
 
 /// Where this pane's session files may be: its own account folder first, and the CLI's default folder
 /// too (an account folder that holds nothing for the pane must not hide the file in the default one).
 fn config_dirs(pane: &PaneFacts) -> Vec<PathBuf> {
+    config_dirs_with(pane, config_dir)
+}
+
+/// `config_dirs` with the CLI's default folder passed in (tests stand a temp folder in for it).
+fn config_dirs_with(pane: &PaneFacts, default_dir: impl FnOnce() -> Option<PathBuf>) -> Vec<PathBuf> {
+    // A Linux pane writes only into the distro's home, as Windows reads it: never the Windows default folder.
+    if let Some(linux) = &pane.linux {
+        return vec![linux.home_windows.join(".claude")];
+    }
     let mut dirs: Vec<PathBuf> = pane.home.iter().cloned().collect();
-    if let Some(default) = config_dir().filter(|default| !dirs.contains(default)) {
+    if let Some(default) = default_dir().filter(|default| !dirs.contains(default)) {
         dirs.push(default);
     }
     dirs
+}
+
+/// The folder the agent runs in, as the CLI names its project folder: the Linux folder for a Linux pane.
+fn agent_cwd(pane: &PaneFacts) -> PathBuf {
+    match &pane.linux {
+        Some(linux) => PathBuf::from(&linux.cwd),
+        None => pane.cwd.clone(),
+    }
+}
+
+/// How far a session file's time may be before the pane started: `SLACK`, or the WSL clock's drift when that is more.
+fn slack(pane: &PaneFacts) -> Duration {
+    pane.linux.as_ref().map_or(SLACK, |linux| SLACK.max(linux.clock_slack))
 }
 
 /// The file the pane's agent reported (hook session id) when it exists; else the newest session file in the
@@ -47,7 +69,8 @@ fn config_dirs(pane: &PaneFacts) -> Vec<PathBuf> {
 /// folder write other files, so "the newest file" is never a stand-in while its own is missing (`own_file`).
 fn locate_in(configs: &[PathBuf], pane: &PaneFacts) -> Located {
     let id = pane.provider_session_id.as_deref().filter(|id| !id.is_empty());
-    let dir_of = |config: &PathBuf| existing_project_dir(config, &pane.cwd);
+    let cwd = agent_cwd(pane);
+    let dir_of = |config: &PathBuf| existing_project_dir(config, &cwd);
     if let Some(id) = id {
         let existing = configs.iter().map(|config| session_path(&dir_of(config), id)).find(|path| path.is_file());
         if pane.launch.from_launch {
@@ -61,7 +84,7 @@ fn locate_in(configs: &[PathBuf], pane: &PaneFacts) -> Located {
             return Located::Found(path);
         }
     }
-    let since = pane.started_at.checked_sub(SLACK).unwrap_or(pane.started_at);
+    let since = pane.started_at.checked_sub(slack(pane)).unwrap_or(pane.started_at);
     if let Some(path) = configs.iter().find_map(|config| newest_session(&dir_of(config), since)) {
         return Located::Found(path);
     }
@@ -107,6 +130,7 @@ fn existing_project_dir(config: &Path, cwd: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_chat::LinuxFacts;
     use std::fs::File;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::SystemTime;
@@ -127,12 +151,7 @@ mod tests {
 
         /// Writes `<config>/projects/<folder>/<name>` modified at `modified`.
         fn session(&self, folder: &str, name: &str, modified: SystemTime) -> PathBuf {
-            let dir = self.0.join("projects").join(folder);
-            std::fs::create_dir_all(&dir).unwrap();
-            let path = dir.join(name);
-            std::fs::write(&path, b"{}\n").unwrap();
-            File::options().write(true).open(&path).unwrap().set_modified(modified).unwrap();
-            path
+            write_session(&self.0, folder, name, modified)
         }
     }
 
@@ -140,6 +159,16 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// Writes `<config>/projects/<folder>/<name>` modified at `modified`, for a config folder given as a path.
+    fn write_session(config: &Path, folder: &str, name: &str, modified: SystemTime) -> PathBuf {
+        let dir = config.join("projects").join(folder);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, b"{}\n").unwrap();
+        File::options().write(true).open(&path).unwrap().set_modified(modified).unwrap();
+        path
     }
 
     const CWD: &str = r"C:\Users\you\proj";
@@ -472,5 +501,88 @@ mod tests {
         assert_eq!(user_texts(&watchers, "b"), ["say bravo", "thanks, that is all"]);
         assert_eq!(user_texts(&watchers, "a"), ["list the files", "thanks, that is all"]);
         watchers.close_all();
+    }
+
+    // ---- a pane that runs inside WSL (`PaneFacts.linux`) ----
+
+    /// The folder the agent sees in Linux, and the name the CLI gives its project folder (every character that is
+    /// not a letter or a digit becomes `-`).
+    const LINUX_CWD: &str = "/mnt/d/work/shop";
+    const LINUX_FOLDER: &str = "-mnt-d-work-shop";
+    /// The same folder as a Windows pane in it would name it.
+    const WINDOWS_FOLDER: &str = "D--work-shop";
+
+    /// A pane in the Windows folder `D:\work\shop` that runs in Linux. `home` stands in for the Linux home as
+    /// Windows reads it; the Claude folder is `<home>/.claude`.
+    fn linux_pane(started_at: SystemTime, home: &Path, clock_slack: Duration) -> PaneFacts {
+        let mut facts = pane(started_at, None);
+        facts.cwd = PathBuf::from(r"D:\work\shop");
+        facts.linux = Some(LinuxFacts { cwd: LINUX_CWD.to_string(), home_windows: home.to_path_buf(), clock_slack });
+        facts
+    }
+
+    /// Where a Linux pane looks, with `default` standing in for the Windows default folder (never the real one).
+    fn locate_linux(facts: &PaneFacts, default: &Path) -> Located {
+        locate_in(&config_dirs_with(facts, || Some(default.to_path_buf())), facts)
+    }
+
+    #[test]
+    fn a_linux_pane_looks_only_in_the_claude_folder_of_its_linux_home() {
+        let home = Config::new();
+        let default = Config::new();
+        let facts = linux_pane(ago(30), &home.0, SLACK);
+        assert_eq!(config_dirs_with(&facts, || Some(default.0.clone())), vec![home.0.join(".claude")]);
+    }
+
+    #[test]
+    fn a_linux_pane_finds_its_file_under_the_linux_folder_name() {
+        let home = Config::new();
+        let default = Config::new();
+        let file = write_session(&home.0.join(".claude"), LINUX_FOLDER, "a.jsonl", ago(1));
+        let facts = linux_pane(ago(30), &home.0, SLACK);
+        assert_eq!(locate_linux(&facts, &default.0), Located::Found(file));
+    }
+
+    #[test]
+    fn a_same_named_file_in_the_windows_default_folder_is_not_picked() {
+        let home = Config::new();
+        let default = Config::new();
+        let mine = write_session(&home.0.join(".claude"), LINUX_FOLDER, "same.jsonl", ago(10));
+        write_session(&default.0, LINUX_FOLDER, "same.jsonl", ago(1));
+        assert_eq!(locate_linux(&linux_pane(ago(30), &home.0, SLACK), &default.0), Located::Found(mine));
+        // A Linux home with no file yet is not filled from the Windows folder.
+        let empty = Config::new();
+        assert_eq!(locate_linux(&linux_pane(ago(30), &empty.0, SLACK), &default.0), Located::NotYet);
+    }
+
+    #[test]
+    fn a_linux_pane_does_not_look_for_the_windows_folder_name() {
+        let home = Config::new();
+        let default = Config::new();
+        let claude = home.0.join(".claude");
+        write_session(&claude, WINDOWS_FOLDER, "a.jsonl", ago(1));
+        let facts = linux_pane(ago(30), &home.0, SLACK);
+        assert_eq!(locate_linux(&facts, &default.0), Located::NotYet);
+        assert_eq!(existing_project_dir(&claude, &agent_cwd(&facts)), claude.join("projects").join(LINUX_FOLDER));
+    }
+
+    #[test]
+    fn a_linux_pane_allows_for_the_wsl_clock_drift() {
+        let home = Config::new();
+        let default = Config::new();
+        // The WSL clock is 40 s behind Windows: the file's time is 40 s before the pane started.
+        let file = write_session(&home.0.join(".claude"), LINUX_FOLDER, "late.jsonl", ago(70));
+        let drifting = linux_pane(ago(30), &home.0, Duration::from_secs(60));
+        assert_eq!(locate_linux(&drifting, &default.0), Located::Found(file));
+        let exact = linux_pane(ago(30), &home.0, SLACK);
+        assert_eq!(locate_linux(&exact, &default.0), Located::NotYet);
+    }
+
+    #[test]
+    fn the_slack_is_the_larger_of_the_usual_one_and_the_wsl_clock_drift() {
+        let home = Path::new("unused-linux-home");
+        assert_eq!(slack(&pane(ago(30), None)), SLACK);
+        assert_eq!(slack(&linux_pane(ago(30), home, Duration::ZERO)), SLACK);
+        assert_eq!(slack(&linux_pane(ago(30), home, Duration::from_secs(60))), Duration::from_secs(60));
     }
 }
