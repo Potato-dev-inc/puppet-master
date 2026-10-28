@@ -1,12 +1,17 @@
-//! Poller tests with a fake `Api`, a fake engine and a fake host. No test talks to Telegram.
+//! Poller tests with a fake `Api` and the real engine on the fake host (`test_host`). No test talks
+//! to Telegram. Effects the engine cannot be made to produce from a message (edits, a remembered
+//! send, a pairing reply) go straight to `deliver`.
 
 use super::*;
-use crate::channels::config::PairedChat;
-use crate::channels::render;
-use crate::channels::telegram::api::{ApiError, BotInfo, UpdateKind};
+use crate::channels::refs::Target;
+use crate::channels::render::{self, Outgoing};
+use crate::channels::telegram::api::{ApiError, BotInfo, InMessage, Update, UpdateKind, WireMessage};
+use crate::channels::test_host::{FakeHost, PAIRED_ID, T0};
+use crate::redact::Redacted;
 use std::collections::VecDeque;
+use std::sync::Mutex;
 
-const CHAT: i64 = 42;
+const CHAT: i64 = PAIRED_ID;
 
 /// Timing for tests: nothing waits for real.
 const FAST: Timing = Timing {
@@ -19,11 +24,15 @@ const FAST: Timing = Timing {
 
 /// One scripted answer to `get_updates`.
 enum Poll {
-    /// A batch with these update ids.
+    /// A batch of updates the engine ignores, with these ids.
     Batch(Vec<i64>),
+    /// A batch of real updates, for the real engine to read.
+    Real(Vec<Update>),
     Fail(ApiError),
-    /// Bumps the generation (a restart), then returns this batch.
+    /// Bumps the generation (a restart), then returns a batch of ignored updates.
     Bump(Vec<i64>),
+    /// Bumps the generation, then returns these real updates.
+    BumpReal(Vec<Update>),
 }
 
 struct FakeApi {
@@ -58,10 +67,15 @@ impl Api for FakeApi {
         let next = self.script.lock().unwrap().pop_front();
         match next {
             Some(Poll::Batch(ids)) => Ok(updates(&ids)),
+            Some(Poll::Real(list)) => Ok(list),
             Some(Poll::Fail(err)) => Err(err),
             Some(Poll::Bump(ids)) => {
                 self.generation.fetch_add(1, Ordering::SeqCst);
                 Ok(updates(&ids))
+            }
+            Some(Poll::BumpReal(list)) => {
+                self.generation.fetch_add(1, Ordering::SeqCst);
+                Ok(list)
             }
             // Script used up: end the loop, so a test can never hang.
             None => {
@@ -96,69 +110,37 @@ impl Api for FakeApi {
     }
 }
 
-/// Hands out one scripted list of effects per batch, and records what it was given.
-struct FakeEngine {
-    replies: Mutex<VecDeque<Vec<Effect>>>,
-    /// The update ids of each batch the engine was asked about.
-    seen: Mutex<Vec<Vec<i64>>>,
-    remembered: Mutex<Vec<(i64, Target)>>,
-}
-
-impl Engine for FakeEngine {
-    fn on_batch(&self, _host: &dyn Host, updates: &[Update]) -> Vec<Effect> {
-        self.seen.lock().unwrap().push(updates.iter().map(|u| u.update_id).collect());
-        self.replies.lock().unwrap().pop_front().unwrap_or_default()
+/// A fresh text from the paired person, as the engine reads it.
+fn text_update(id: i64, text: &str) -> Update {
+    Update {
+        update_id: id,
+        kind: UpdateKind::Message(InMessage {
+            message_id: id,
+            chat_id: PAIRED_ID,
+            chat_private: true,
+            from_id: Some(PAIRED_ID),
+            from_is_bot: false,
+            username: None,
+            first_name: None,
+            date_s: (T0 / 1000) as i64 - 5,
+            text: Some(text.into()),
+            reply_to: None,
+        }),
     }
-
-    fn remember(&self, message_id: i64, target: Target, _now_ms: u64) {
-        self.remembered.lock().unwrap().push((message_id, target));
-    }
-}
-
-struct FakeHost {
-    config: Mutex<TelegramConfig>,
-    saves: Mutex<usize>,
-    audits: Mutex<Vec<&'static str>>,
-}
-
-impl Host for FakeHost {
-    fn now_ms(&self) -> u64 {
-        1_000
-    }
-
-    fn config(&self) -> TelegramConfig {
-        self.config.lock().unwrap().clone()
-    }
-
-    fn save_config(&self, config: &TelegramConfig) -> Result<(), String> {
-        *self.config.lock().unwrap() = config.clone();
-        *self.saves.lock().unwrap() += 1;
-        Ok(())
-    }
-
-    fn audit(&self, kind: audit::Kind, _summary: &str, _detail: Value) {
-        self.audits.lock().unwrap().push(kind.as_str());
-    }
-
-    fn changed(&self) {}
 }
 
 /// Everything one test needs: the fakes, the shared generation and the shared link status.
 struct Rig {
     api: Arc<FakeApi>,
-    engine: Arc<FakeEngine>,
+    engine: Arc<Engine>,
     host: Arc<FakeHost>,
     generation: Arc<AtomicU64>,
     link: SharedLink,
 }
 
-fn rig(script: Vec<Poll>, replies: Vec<Vec<Effect>>) -> Rig {
+/// `script` is what Telegram answers, in order. The host is paired with `CHAT` and turned on.
+fn rig(script: Vec<Poll>) -> Rig {
     let generation = Arc::new(AtomicU64::new(0));
-    let config = TelegramConfig {
-        enabled: true,
-        paired: Some(PairedChat { chat_id: CHAT, user_id: 7, username: None, first_name: None, paired_at_ms: 0 }),
-        ..TelegramConfig::default()
-    };
     Rig {
         api: Arc::new(FakeApi {
             script: Mutex::new(script.into()),
@@ -170,16 +152,8 @@ fn rig(script: Vec<Poll>, replies: Vec<Vec<Effect>>) -> Rig {
             answers: Mutex::new(Vec::new()),
             next_message_id: Mutex::new(100),
         }),
-        engine: Arc::new(FakeEngine {
-            replies: Mutex::new(replies.into()),
-            seen: Mutex::new(Vec::new()),
-            remembered: Mutex::new(Vec::new()),
-        }),
-        host: Arc::new(FakeHost {
-            config: Mutex::new(config),
-            saves: Mutex::new(0),
-            audits: Mutex::new(Vec::new()),
-        }),
+        engine: Arc::new(Engine::new()),
+        host: Arc::new(FakeHost::new()),
         generation,
         link: Arc::new(Mutex::new(LinkInfo::connecting())),
     }
@@ -198,36 +172,52 @@ fn run(r: &Rig) -> Outcome {
     running.join.join().unwrap()
 }
 
+/// A context for calling `deliver` directly.
+fn ctx(r: &Rig) -> Ctx {
+    Ctx {
+        api: r.api.clone(),
+        engine: r.engine.clone(),
+        host: r.host.clone(),
+        generation: r.generation.clone(),
+        gen: r.generation.load(Ordering::SeqCst),
+        link: r.link.clone(),
+        halt: Arc::new(AtomicBool::new(false)),
+        timing: FAST,
+    }
+}
+
 fn plain(text: &str) -> Outgoing {
     render::plain(text)
 }
 
 #[test]
 fn offset_advances_and_is_saved_before_the_batch_is_handled() {
-    let r = rig(vec![Poll::Batch(vec![5]), Poll::Batch(vec![6])], vec![vec![], vec![Effect::Stop]]);
+    let r = rig(vec![Poll::Batch(vec![5]), Poll::Real(vec![text_update(6, "/stop")])]);
     assert_eq!(run(&r), Outcome::Stopped);
     assert_eq!(*r.api.offsets.lock().unwrap(), vec![None, Some(6)]);
     assert_eq!(r.host.config().last_update_id, Some(6));
-    assert_eq!(*r.engine.seen.lock().unwrap(), vec![vec![5], vec![6]]);
+    // The engine read the /stop of batch two: it switched Telegram off (keeping the saved offset) and said so.
+    assert!(!r.host.config().enabled);
+    assert_eq!(r.api.sent.lock().unwrap().len(), 1);
 }
 
 #[test]
 fn a_restart_resumes_from_the_saved_offset() {
-    let r = rig(vec![Poll::Bump(vec![])], vec![]);
-    r.host.config.lock().unwrap().last_update_id = Some(9);
+    let r = rig(vec![Poll::Bump(vec![])]);
+    r.host.edit_config(|c| c.last_update_id = Some(9));
     assert_eq!(run(&r), Outcome::Stopped);
     assert_eq!(*r.api.offsets.lock().unwrap(), vec![Some(10)]);
 }
 
 #[test]
 fn conflict_stops_the_loop_and_sets_conflict() {
-    let r = rig(vec![Poll::Fail(ApiError::Conflict)], vec![]);
+    let r = rig(vec![Poll::Fail(ApiError::Conflict)]);
     assert_eq!(run(&r), Outcome::Failed(LinkError::Conflict));
     let link = *r.link.lock().unwrap();
     assert_eq!(link.state, LinkState::Error);
     assert_eq!(link.error, Some(LinkError::Conflict));
     assert_eq!(r.api.offsets.lock().unwrap().len(), 1, "no retry after a conflict");
-    assert_eq!(*r.host.audits.lock().unwrap(), vec!["channel.error"]);
+    assert_eq!(r.host.audit_kinds(), vec![audit::Kind::ChannelError]);
 }
 
 #[test]
@@ -237,7 +227,7 @@ fn a_refused_token_or_bot_stops_with_its_own_state() {
         (ApiError::Forbidden, LinkError::Blocked),
     ];
     for (err, expected) in cases {
-        let r = rig(vec![Poll::Fail(err)], vec![]);
+        let r = rig(vec![Poll::Fail(err)]);
         assert_eq!(run(&r), Outcome::Failed(expected));
         assert_eq!(r.link.lock().unwrap().error, Some(expected));
     }
@@ -245,22 +235,23 @@ fn a_refused_token_or_bot_stops_with_its_own_state() {
 
 #[test]
 fn a_batch_fetched_after_a_restart_is_dropped() {
-    let r = rig(vec![Poll::Bump(vec![7])], vec![vec![Effect::Stop]]);
+    let r = rig(vec![Poll::BumpReal(vec![text_update(7, "/stop")])]);
     assert_eq!(run(&r), Outcome::Stopped);
-    assert!(r.engine.seen.lock().unwrap().is_empty(), "the engine must not see the stale batch");
+    assert!(r.host.config().enabled, "the engine must not read the stale /stop");
+    assert!(r.api.sent.lock().unwrap().is_empty());
     assert_eq!(r.host.config().last_update_id, None, "its offset is not saved, the new poller asks again");
 }
 
 #[test]
 fn effect_stop_ends_the_loop() {
-    let r = rig(vec![Poll::Batch(vec![1]), Poll::Batch(vec![2])], vec![vec![Effect::Stop]]);
+    let r = rig(vec![Poll::Real(vec![text_update(1, "/stop")]), Poll::Batch(vec![2])]);
     assert_eq!(run(&r), Outcome::Stopped);
     assert_eq!(r.api.offsets.lock().unwrap().len(), 1, "no poll after /stop");
 }
 
 #[test]
 fn rate_limit_waits_and_keeps_polling() {
-    let r = rig(vec![Poll::Fail(ApiError::RateLimited { retry_after_s: 0 }), Poll::Batch(vec![])], vec![]);
+    let r = rig(vec![Poll::Fail(ApiError::RateLimited { retry_after_s: 0 }), Poll::Batch(vec![])]);
     assert_eq!(run(&r), Outcome::Stopped);
     assert_eq!(r.api.offsets.lock().unwrap().len(), 3);
     assert_eq!(r.link.lock().unwrap().error, None);
@@ -268,43 +259,59 @@ fn rate_limit_waits_and_keeps_polling() {
 
 #[test]
 fn network_trouble_backs_off_and_keeps_polling() {
-    let r = rig(
-        vec![Poll::Fail(ApiError::Network), Poll::Fail(ApiError::Bad { status: 500 }), Poll::Batch(vec![])],
-        vec![],
-    );
+    let r = rig(vec![Poll::Fail(ApiError::Network), Poll::Fail(ApiError::Bad { status: 500 }), Poll::Batch(vec![])]);
     assert_eq!(run(&r), Outcome::Stopped);
     assert!(r.api.offsets.lock().unwrap().len() >= 3);
     let link = *r.link.lock().unwrap();
     assert_eq!(link.state, LinkState::On);
     assert_eq!(link.error, None);
-    assert_eq!(link.last_poll_ms, Some(1_000));
+    assert_eq!(link.last_poll_ms, Some(T0));
 }
 
 #[test]
-fn queued_effects_go_out_in_order_and_sent_messages_are_remembered() {
-    let r = rig(
-        vec![Poll::Batch(vec![1])],
-        vec![vec![
-            Effect::Send { out: plain("hi"), reply_to: Some(9), remember: Some(Target::Pane("p1".into())) },
-            Effect::Edit { message_id: 3, out: plain("edited") },
-            Effect::AnswerCallback { id: "cb-1".into(), text: None },
-            Effect::Stop,
-        ]],
-    );
+fn the_engines_replies_go_out_in_order_to_the_paired_chat() {
+    let r = rig(vec![Poll::Real(vec![text_update(1, "/help"), text_update(2, "/stop")])]);
     assert_eq!(run(&r), Outcome::Stopped);
-    // The poller waits for the send queue, so everything above has happened by now.
+    // The poller waits for the send queue, so everything has happened by now.
+    let sent = r.api.sent.lock().unwrap().clone();
+    assert_eq!(sent.len(), 2);
+    assert!(sent.iter().all(|(chat, _, reply_to)| *chat == CHAT && reply_to.is_none()));
+    assert!(sent[0].1.starts_with("What I can do:"), "{:?}", sent[0].1);
+    assert!(sent[1].1.contains("Telegram is off"), "{:?}", sent[1].1);
+}
+
+#[test]
+fn a_sent_message_is_remembered_so_a_reply_to_it_is_routed() {
+    let r = rig(vec![]);
+    let c = ctx(&r);
+    deliver(&c, Effect::Send { out: plain("hi"), reply_to: Some(9), remember: Some(Target::Pane("p1".into())) });
     assert_eq!(*r.api.sent.lock().unwrap(), vec![(CHAT, "hi".to_string(), Some(9))]);
+    assert_eq!(r.engine.refs().lock().target_of(101, T0), Some(Target::Pane("p1".into())));
+}
+
+#[test]
+fn edits_and_button_answers_are_delivered() {
+    let r = rig(vec![]);
+    let c = ctx(&r);
+    deliver(&c, Effect::Edit { message_id: 3, out: plain("edited") });
+    deliver(&c, Effect::AnswerCallback { id: "cb-1".into(), text: None });
     assert_eq!(*r.api.edits.lock().unwrap(), vec![3]);
     assert_eq!(*r.api.answers.lock().unwrap(), vec!["cb-1".to_string()]);
-    assert_eq!(*r.engine.remembered.lock().unwrap(), vec![(101, Target::Pane("p1".into()))]);
+}
+
+#[test]
+fn send_to_goes_to_the_chat_it_names_even_before_pairing() {
+    let r = rig(vec![]);
+    r.host.edit_config(|c| c.paired = None);
+    let c = ctx(&r);
+    deliver(&c, Effect::SendTo { chat_id: 555, out: plain("Connected.") });
+    assert_eq!(*r.api.sent.lock().unwrap(), vec![(555, "Connected.".to_string(), None)]);
+    assert!(r.engine.refs().lock().target_of(101, T0).is_none(), "a pairing reply is never linked to a pane");
 }
 
 #[test]
 fn a_refused_send_stops_the_poller_as_blocked() {
-    let r = rig(
-        vec![Poll::Batch(vec![1])],
-        vec![vec![Effect::Send { out: plain("hi"), reply_to: None, remember: None }, Effect::Stop]],
-    );
+    let r = rig(vec![Poll::Real(vec![text_update(1, "/stop")])]);
     r.api.send_fail.lock().unwrap().push_back(ApiError::Forbidden);
     assert_eq!(run(&r), Outcome::Failed(LinkError::Blocked));
     assert_eq!(r.link.lock().unwrap().error, Some(LinkError::Blocked));
@@ -312,12 +319,14 @@ fn a_refused_send_stops_the_poller_as_blocked() {
 }
 
 #[test]
-fn without_a_paired_chat_nothing_is_sent() {
-    let r = rig(
-        vec![Poll::Batch(vec![1])],
-        vec![vec![Effect::Send { out: plain("hi"), reply_to: None, remember: None }, Effect::Stop]],
-    );
-    r.host.config.lock().unwrap().paired = None;
-    assert_eq!(run(&r), Outcome::Stopped);
+fn without_a_paired_chat_nothing_else_is_sent() {
+    let r = rig(vec![]);
+    r.host.edit_config(|c| c.paired = None);
+    let c = ctx(&r);
+    deliver(&c, Effect::Send { out: plain("hi"), reply_to: None, remember: None });
+    deliver(&c, Effect::Edit { message_id: 3, out: plain("edited") });
+    deliver(&c, Effect::AnswerCallback { id: "cb-1".into(), text: None });
     assert!(r.api.sent.lock().unwrap().is_empty());
+    assert!(r.api.edits.lock().unwrap().is_empty());
+    assert!(r.api.answers.lock().unwrap().is_empty());
 }

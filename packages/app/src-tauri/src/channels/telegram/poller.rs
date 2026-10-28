@@ -7,51 +7,16 @@
 //! the bot or the poll (401, 403, 409). 429 waits `retry_after`; other failures back off from 1 s to 60 s.
 //! Nothing here reads or formats the bot token: the `Api` implementation never returns it.
 
-use super::api::{Api, ApiError, Update, WireButton, WireMessage, POLL_TIMEOUT_S};
+use super::api::{Api, ApiError, POLL_TIMEOUT_S};
 use crate::audit;
-use crate::channels::config::TelegramConfig;
-use crate::channels::refs::Target;
-use crate::channels::render::Outgoing;
-use crate::redact::Redacted;
-use serde_json::{json, Value};
+use crate::channels::engine::{to_wire, Effect, Engine};
+use crate::channels::host::Host;
+use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-
-// ---------------------------------------------------------------------------------------------
-// Seam until TG-8 lands. `channels/engine.rs` and `channels/host.rs` are still stubs on this branch,
-// so the poller states the shapes it needs here. When TG-8 merges, delete this block and import
-// `Effect`, `Engine` and `Host` from those files (same names and methods). Nothing else changes.
-
-/// What the engine asks the poller to do with the chat.
-pub enum Effect {
-    Send { out: Outgoing, reply_to: Option<i64>, remember: Option<Target> },
-    Edit { message_id: i64, out: Outgoing },
-    AnswerCallback { id: String, text: Option<Redacted<String>> },
-    /// `/stop`: the poller must exit. Effects before it in the same batch still go out.
-    Stop,
-}
-
-/// The inbound rules. The real engine (TG-8) implements this.
-pub trait Engine: Send + Sync {
-    fn on_batch(&self, host: &dyn Host, updates: &[Update]) -> Vec<Effect>;
-    /// Records the message id of a message the bot sent, so a reply to it can be routed.
-    fn remember(&self, message_id: i64, target: Target, now_ms: u64);
-}
-
-/// The parts of the app the poller uses. The real host (TG-8) has more methods.
-pub trait Host: Send + Sync {
-    fn now_ms(&self) -> u64;
-    fn config(&self) -> TelegramConfig;
-    fn save_config(&self, config: &TelegramConfig) -> Result<(), String>;
-    fn audit(&self, kind: audit::Kind, summary: &str, detail: Value);
-    /// Tells the desktop that the link status changed.
-    fn changed(&self);
-}
-
-// ---------------------------------------------------------------------------------------------
 
 /// Where the link stands, for the status line. Written only by the poller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,7 +93,7 @@ const SEND_RETRIES: u32 = 2;
 /// had at this call: a bump stops it.
 pub fn spawn(
     api: Arc<dyn Api>,
-    engine: Arc<dyn Engine>,
+    engine: Arc<Engine>,
     host: Arc<dyn Host>,
     generation: Arc<AtomicU64>,
     link: SharedLink,
@@ -139,7 +104,7 @@ pub fn spawn(
 /// `spawn` with explicit timing (tests).
 pub fn spawn_with(
     api: Arc<dyn Api>,
-    engine: Arc<dyn Engine>,
+    engine: Arc<Engine>,
     host: Arc<dyn Host>,
     generation: Arc<AtomicU64>,
     link: SharedLink,
@@ -184,7 +149,7 @@ pub fn spawn_with(
 #[derive(Clone)]
 struct Ctx {
     api: Arc<dyn Api>,
-    engine: Arc<dyn Engine>,
+    engine: Arc<Engine>,
     host: Arc<dyn Host>,
     generation: Arc<AtomicU64>,
     /// The generation this poller was started in.
@@ -355,15 +320,21 @@ fn run_sender(ctx: Ctx, rx: Receiver<Effect>) {
     }
 }
 
-/// Sends one queued effect to the paired chat. Messages wait while Telegram rate-limits us, and are
+/// Sends one queued effect to the paired chat (`SendTo`: to the chat it names). Messages wait while Telegram rate-limits us, and are
 /// dropped if it still refuses. Without a paired chat nothing is sent.
 fn deliver(ctx: &Ctx, effect: Effect) {
-    let Some(chat_id) = ctx.host.config().paired.map(|p| p.chat_id) else { return };
+    let paired = ctx.host.config().paired.map(|p| p.chat_id);
+    // Everything but `SendTo` goes to the paired chat only; `SendTo` names its own chat (pairing replies).
+    if paired.is_none() && !matches!(effect, Effect::SendTo { .. }) {
+        return;
+    }
+    let chat_id = paired.unwrap_or_default();
     let mut retries = 0;
     loop {
         let result: Result<Option<i64>, ApiError> = match &effect {
-            Effect::Send { out, reply_to, .. } => ctx.api.send(chat_id, &wire(out), *reply_to).map(Some),
-            Effect::Edit { message_id, out } => ctx.api.edit(chat_id, *message_id, &wire(out)).map(|()| None),
+            Effect::Send { out, reply_to, .. } => ctx.api.send(chat_id, &to_wire(out), *reply_to).map(Some),
+            Effect::SendTo { chat_id: to, out } => ctx.api.send(*to, &to_wire(out), None).map(Some),
+            Effect::Edit { message_id, out } => ctx.api.edit(chat_id, *message_id, &to_wire(out)).map(|()| None),
             Effect::AnswerCallback { id, text } => ctx.api.answer_callback(id, text.as_ref()).map(|()| None),
             // Never queued: the poller handles it.
             Effect::Stop => return,
@@ -371,7 +342,7 @@ fn deliver(ctx: &Ctx, effect: Effect) {
         match result {
             Ok(sent_id) => {
                 if let (Effect::Send { remember: Some(target), .. }, Some(message_id)) = (&effect, sent_id) {
-                    ctx.engine.remember(message_id, target.clone(), ctx.host.now_ms());
+                    ctx.engine.refs().lock().remember(message_id, target.clone(), ctx.host.now_ms());
                 }
                 return;
             }
@@ -388,21 +359,6 @@ fn deliver(ctx: &Ctx, effect: Effect) {
                 return;
             }
         }
-    }
-}
-
-fn wire(out: &Outgoing) -> WireMessage {
-    WireMessage {
-        text: out.text.clone(),
-        keyboard: out
-            .keyboard
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|b| WireButton { label: b.label.clone(), data: b.data.clone() })
-                    .collect()
-            })
-            .collect(),
     }
 }
 
