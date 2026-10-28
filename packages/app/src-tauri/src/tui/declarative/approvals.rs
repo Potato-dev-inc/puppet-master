@@ -34,16 +34,20 @@ pub struct Approval {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tui_argv: Option<Vec<String>>,
     /// `"wizard"` when the Agent Wizard approved the definition by itself ("Finish without me", SPEC 11.19);
+    /// `"store"` when the Agent Store added a file that is byte-identical to its embedded copy (AS-9);
     /// absent when a person approved it. The record is otherwise the same: same fingerprint, same pinned binary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_by: Option<String>,
-    /// The checks that had passed when the wizard approved it (plain labels). Empty for a person's approval.
+    /// The checks that had passed when the wizard or the Store approved it (plain labels). Empty for a person's approval.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<String>,
 }
 
 /// Who approved a definition when it was not a person at the Approve dialog.
 pub const APPROVED_BY_WIZARD: &str = "wizard";
+
+/// The Agent Store approved a file that is byte-identical to the copy shipped in this app version (AS-9).
+pub const APPROVED_BY_STORE: &str = "store";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalState {
