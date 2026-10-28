@@ -7,7 +7,7 @@ use crate::operations::{self, OperationSnapshot, OperationStatus};
 
 /// A turn that was created and not withdrawn before it ever started. A cancelled turn that never
 /// started (a superseded trust prompt, a failed lock) used nothing.
-pub(super) fn counts_as_turn(turn: &OperationSnapshot) -> bool {
+pub(crate) fn counts_as_turn(turn: &OperationSnapshot) -> bool {
     !(turn.status == OperationStatus::Cancelled && turn.started_at_ms.is_none())
 }
 

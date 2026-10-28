@@ -55,6 +55,7 @@ pub mod pane_outbox;
 mod pane_prompt;
 mod first_run;
 mod plain_mode;
+mod plans_report;
 mod prompt_risk;
 pub mod questions;
 mod push;
@@ -394,6 +395,7 @@ pub fn run() {
             commands::budget_for_pane,
             commands::budget_adjust,
             commands::pane_usage,
+            commands::plans_report,
             commands::pane_worktree,
             commands::pane_git_branch,
             commands::worktree_list,

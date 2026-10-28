@@ -72,6 +72,12 @@ pub struct TurnSummary {
     pub pane_id: String,
     /// Display name of the agent ("Claude Code").
     pub agent: String,
+    /// The agent's id and the account (id) it ran under, for "Your plans" (`crate::plans_report`).
+    /// Absent on summaries saved before they were recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     pub turn: u32,
     pub started_at_ms: u64,
     pub ended_at_ms: u64,
@@ -106,6 +112,8 @@ impl crate::redact::Scrub for TurnSummary {
 pub struct Facts {
     pub pane_id: String,
     pub agent: String,
+    pub agent_id: Option<String>,
+    pub account: Option<String>,
     pub turn: u32,
     pub started_at_ms: u64,
     pub ended_at_ms: u64,
@@ -130,6 +138,8 @@ pub fn assemble(facts: Facts) -> TurnSummary {
     let mut summary = TurnSummary {
         pane_id: facts.pane_id,
         agent: facts.agent,
+        agent_id: facts.agent_id,
+        account: facts.account,
         turn: facts.turn,
         started_at_ms: facts.started_at_ms,
         ended_at_ms: facts.ended_at_ms,

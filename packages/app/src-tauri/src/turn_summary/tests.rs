@@ -72,6 +72,8 @@ impl Env for FakeEnv {
         self.pane_exists.load(Ordering::SeqCst).then(|| PaneInfo {
             cwd: self.cwd.to_string_lossy().to_string(),
             label: "Claude Code".into(),
+            agent_id: "fake-agent".into(),
+            account: None,
             has_turns: self.has_turns.load(Ordering::SeqCst),
         })
     }
@@ -118,6 +120,8 @@ fn assembly_from_a_synthetic_checkpoint_diff_approvals_and_end_state() {
     let summary = assemble(Facts {
         pane_id: "p1".into(),
         agent: "Claude Code".into(),
+        agent_id: None,
+        account: None,
         turn: 2,
         started_at_ms: 10_000,
         ended_at_ms: 190_000,
@@ -141,6 +145,8 @@ fn summary_round_trips_through_json_in_camel_case() {
     let summary = assemble(Facts {
         pane_id: "p1".into(),
         agent: "Codex".into(),
+        agent_id: None,
+        account: None,
         turn: 1,
         started_at_ms: 0,
         ended_at_ms: 5_000,
@@ -444,6 +450,8 @@ fn summary(pane: &str, turn: u32, ended: u64) -> TurnSummary {
     assemble(Facts {
         pane_id: pane.into(),
         agent: "Claude Code".into(),
+        agent_id: None,
+        account: None,
         turn,
         started_at_ms: ended.saturating_sub(10),
         ended_at_ms: ended,
