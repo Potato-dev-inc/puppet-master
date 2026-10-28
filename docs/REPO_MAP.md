@@ -356,10 +356,11 @@ serve handle / free port / PTY reader, `reattach.rs` re-attach TUI to a running 
 and server-health changes, `keys.rs` API key profiles/rotation (never exposed through MCP),
 `quota.rs` rate limit / key-swap events, `link.rs` `OpenCodeLink` (native pane <-> serve process link) and worker event emit. TUI-facing parsing lives in `tui/opencode/`.
 
-### 3.6a `handoff/` (usage limits, detect-only)
+### 3.6a `handoff/` (usage limits, and Keep going)
 
-Hand-off at the limit, step one (`D:\pm-night\DESIGN-RELAY.md`; details in `docs/features/handoff-detect.md`). The feature
-is called "hand-off", never "relay" (`team/transport/relay.rs` is the team relay). Per-agent rules are DATA
+Usage limits: detection (`handoff/` files below, details in `docs/features/handoff-detect.md`). Keep going: moving a
+task to another agent at a limit (`handoff/keep_going/`, details in `docs/features/keep-going.md`). The feature is called
+"hand-off" or "Keep going", never "relay" (`team/transport/relay.rs` is the team relay). Per-agent rules are DATA
 (`tui/<agent>/limits.toml`, or an inline `[limits]` table in a TOML agent definition); generic code reads only
 `TuiProfile::limits()` / `detect_limit()`.
 
@@ -369,12 +370,30 @@ is called "hand-off", never "relay" (`team/transport/relay.rs` is the team relay
 | `handoff/detect.rs` | the detector: one screen in, one `LimitHit` out (usage / transient / warning / unavailable / menu), guards against a quoted sentence |
 | `handoff/reset.rs` | "resets 5pm" / "try again at 9:45 PM" as a moment, `Clock` (a foreign zone is `None`) |
 | `handoff/watch.rs` | per-pane state machine: a limit must hold still 2 s, fires once, clears when the turn resumes (pure, virtual time) |
-| `handoff/card.rs` | the Inbox card (a `questions::Question` with `limit: LimitInfo`) and what "Remind me" / "Stop here" decide |
-| `handoff/mod.rs` | the `Engine` (tracker + cards + reminders), `limit_gate` (readiness: nothing is typed at a limit), live wiring |
-| wiring | `pane_activity` (observe + tick + status line), `agent_runs/headless/supervise.rs` (a run on a limit screen is held, never completed from it), `bridge/observe.rs` (stays parked), `agent_runs/readiness.rs` (gate, no keys), `agent_runs/routes/answer.rs` (`USAGE_LIMIT_NOT_ANSWERABLE`), `operations::{mark_operation_usage_limit, mark_operation_stopped_at_limit}`, receipt `usage_limit` |
+| `handoff/card.rs` | the Inbox cards: the limit card (`Continue on <agent>` first when an offer exists, then "Remind me" / "Stop here" or "Dismiss"), the come-back card, the Keep going failure card; `Decision` for each answer. `card_tests.rs` tests them |
+| `handoff/mod.rs` | the `Engine` (tracker + cards + reminders), `limit_gate` (readiness: nothing is typed at a limit), live wiring; the Keep going calls go to `keep_going::live` on a thread, never under the engine lock |
+| `handoff/keep_going/mod.rs` | the module doc and invariants S1 to S13 (fenced agent text, no write path into a pane, only a person's answer starts a move, hop cap 3, same company never offered, PID-only stop, the copy is never discarded, private brief store) |
+| `handoff/keep_going/model.rs` | `Handover` record, `Settings`, `Target` (`agent` or `agent@account`, parsed strictly), `State`, `Back`, `Reason`, error codes `KEEP_GOING_*`, `OLD_AGENT_DID_NOT_STOP`, the caps (hop 3, brief 6 KiB, 200 records, 8 order entries, come-back grace 60 s / retry 10 min / 3 tries, stop wait 5 s) |
+| `handoff/keep_going/store.rs` | `<app data>/keep-going/`: `records.json` (newest 200), `settings.json`, `briefs/<id>.md`; every write through `secure_file`; file names only from a validated id |
+| `handoff/keep_going/brief.rs`, `brief_parse.rs` | the brief text: fixed line 1, fenced notes, trim order at 6 KiB, `parse_numstat`, `open_plan_items`. `brief_tests.rs` (golden fixtures in `fixtures/`) |
+| `handoff/keep_going/offers.rs` | `rank` and `first_ok`: which agents may take over and in what order (same agent hidden, same `limits.vendor` disabled, limited disabled, hop cap disables all). Its test refuses agent names in generic code |
+| `handoff/keep_going/chain.rs` | `hop_for`, `limited_by_records`, `already_from`, `come_backs_due` (pure, from the records) |
+| `handoff/keep_going/live.rs` | the move: `prepare` (guards, brief, `Stopping` record), `execute` (end the old run as `HANDED_OFF`, stop the old agent, start the new one via `run_agent`, link panes, audit), come-back, failure card, status lines, lineage. Takes a `LiveIo` |
+| `handoff/keep_going/live_io.rs`, `live_app.rs`, `live_gather.rs` | the `LiveIo` trait (registry, runs, stop, start, clock, store) and its real app implementation; `live_gather` reads the old pane's chat items (30 s lease), turn summaries and `git diff --numstat` |
+| `handoff/keep_going/view.rs` | the records as the windows see them (no brief path, no goal text) and `Lineage` |
+| `handoff/keep_going/engine_tests.rs` | the whole move against a fake `LiveIo` and virtual clock: order of end and stop, run request fields, failure and retry, come-back, companion and mission refusals, and the no-write-path scan |
+| `commands/keep_going.rs` | six desktop-only Tauri commands: `keep_going_targets`, `keep_going_continue`, `keep_going_lineage`, `keep_going_brief`, `keep_going_settings_get` / `_set`. No bridge route, no MCP tool |
+| `pty/agent_stop.rs`, `pty/agent_proc.rs` | `stop_agent`: kill the pane's own agent process tree by PID, wait up to the stop wait, never by image name; the pane stays in the registry |
+| `operations/transitions.rs` | `HANDED_OFF`, `mark_operation_handed_off` (cancelled, stage `handed_off`, `keep_pane`), `set_handed_off_to` (adds `continued_by` to the error) |
+| `agent_runs/pane_close.rs`, `agent_runs/runtime/followup.rs` | closing a pane never discards a copy whose run ended `HANDED_OFF`; a follow-up on such a task is refused with `HANDED_OFF` and the new handle |
+| wiring | `handoff::Env::keep_going_offer` / `keep_going` (the live env calls `keep_going::live`), `pane_activity` status line (`Handed to <agent>`), `audit::Kind::KeepGoing` (`keep_going.handed_over`), `plans_report::limit_log` (end of the wait) |
+| UI | `lib/keep-going.ts`, `components/cockpit/LimitCard.tsx` ("Other agent…"), `ContinueOnSheet.tsx`, `BriefSheet.tsx`, `components/chat/KeepGoingBanner.tsx` (mounted in `SessionChatPanel`), `components/settings/sections/KeepGoingRows.tsx` (mounted in `AgentsSection`), `styles/cockpit-keep-going.css` |
 
-Invariants: this step never writes to a pane (a test scans the module for every write path); Claude's own "continue
-automatically at usage limit" wait is only read (`self_resume_armed`); the vendor's `/rate-limit-options` menu is never answered.
+Invariants (detection): the detector never writes to a pane (a test scans the module for every write path); Claude's own
+"continue automatically at usage limit" wait is only read (`self_resume_armed`); the vendor's `/rate-limit-options` menu
+is never answered. Invariants (Keep going): the old run ends before its agent is stopped; the old agent is stopped by its
+own PID and must be gone within 5 s or nothing new starts; the new run has no trust, no shell and no extra commands; Puppet
+Master never types into a pane; nothing moves without a person's tap; the brief lives only in the private store.
 
 ### 3.7 Watch
 
