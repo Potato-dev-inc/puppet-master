@@ -50,6 +50,35 @@ pub(crate) fn allow_shell_applies(
     Ok(true)
 }
 
+/// An unknown guard name is refused, never silently dropped.
+fn check_guard_name(request: &AgentRunRequest) -> Result<(), OperationError> {
+    match request.guard_env.as_deref() {
+        Some(guard) if !crate::pty::env_guard::known(guard) => Err(OperationError::new(
+            "INVALID_ARGUMENT",
+            format!("unknown env guard {guard:?}; the run is refused"),
+            false,
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// A guarded run always gets a pane (or process) of its own: it never adopts a pane or a worker.
+fn check_guard_pane(request: &AgentRunRequest) -> Result<(), OperationError> {
+    if request.guard_env.is_some() && (request.pane_id.is_some() || request.worker_id.is_some()) {
+        return Err(guarded_run_needs_own_pane());
+    }
+    Ok(())
+}
+
+/// A guarded run (`request.guard_env`) cannot adopt a pane, a worker id or an unguarded worker.
+fn guarded_run_needs_own_pane() -> OperationError {
+    OperationError::new(
+        "PANE_NOT_ELIGIBLE",
+        "a guarded run starts its own pane; it cannot adopt an existing pane or worker",
+        false,
+    )
+}
+
 pub fn run_agent(
     mut request: AgentRunRequest,
     registry: Arc<Mutex<crate::pty::PaneRegistry>>,
@@ -66,6 +95,9 @@ pub fn run_agent(
             false,
         ));
     }
+    // An env guard is set only by Rust code inside the app. An unknown name is refused here (and
+    // again by the spawn), never silently dropped.
+    check_guard_name(&request)?;
     // Started by a companion's agent (where the caller runs, or where it says it runs)? Then the helper gets
     // the companion's house rules: a default turn budget, never the companion's own home folder, a feed line.
     let companion_pane = session_id
@@ -94,6 +126,8 @@ pub fn run_agent(
         session_id.as_deref(),
         explicit_project.as_deref(),
     )?;
+    // A guarded run always gets a pane (or process) of its own: it never adopts a pane or a worker.
+    check_guard_pane(&request)?;
     let project_path = request
         .project_path
         .as_deref()
@@ -250,6 +284,11 @@ pub fn run_agent(
             request.context_policy == ContextPolicy::Fresh,
         )? {
             WorkerBind::Adopt { handle, previous } => {
+                // The follow-up path never reads the request's guard, so a guarded request may only
+                // continue a worker that already runs under that same guard.
+                if request.guard_env.is_some() && request.guard_env != previous.worker.guard_env {
+                    return Err(guarded_run_needs_own_pane());
+                }
                 let wanted = request.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
                 if wanted.is_some() && wanted != previous.worker.account.as_deref() {
                     return Err(OperationError::new(
@@ -370,6 +409,10 @@ pub fn run_agent(
     // The receipt reports what the profile held HERE could enforce, not whatever the live registry
     // says when the turn ends (the definition may have been edited or removed mid-run).
     worker.run_features = Some(crate::operations::RunFeatures::of(profile.as_ref()));
+    // The guard is recorded on the worker, so a restart, a headless fallback and a follow-up keep it.
+    if request.guard_env.is_some() {
+        worker.guard_env = request.guard_env.clone();
+    }
     // The account was folded into the worker name above (so the named worker is per account); the
     // run itself records the account and refuses a different one on a later turn of this worker.
     let requested_account = request.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
@@ -719,6 +762,52 @@ mod registered_tests {
         assert_eq!(error.code, "UNKNOWN_AGENT_TYPE");
         assert!(error.context["valid"].as_array().unwrap().iter().any(|id| id == "claude"), "{:?}", error.context);
         assert!(registered_profile("claude").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::{check_guard_name, check_guard_pane};
+    use crate::agent_runs::runtime::AgentRunRequest;
+    use serde_json::json;
+
+    fn guarded(guard: &str, extra: serde_json::Value) -> AgentRunRequest {
+        let mut value = json!({"task": "t"});
+        value.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let mut request: AgentRunRequest = serde_json::from_value(value).unwrap();
+        request.guard_env = Some(guard.to_string());
+        request
+    }
+
+    #[test]
+    fn an_unknown_guard_name_is_refused_not_dropped() {
+        for name in ["", "nope", "NO_PUSH", "no-push"] {
+            let error = check_guard_name(&guarded(name, json!({}))).unwrap_err();
+            assert_eq!(error.code, "INVALID_ARGUMENT", "{name:?}");
+            assert!(error.message.contains("refused"));
+        }
+        assert!(check_guard_name(&guarded("no_push", json!({}))).is_ok());
+        let plain: AgentRunRequest = serde_json::from_value(json!({"task": "t"})).unwrap();
+        assert!(check_guard_name(&plain).is_ok());
+    }
+
+    #[test]
+    fn a_guarded_run_cannot_adopt_a_pane_or_a_worker() {
+        for extra in [json!({"pane_id": "p"}), json!({"worker_id": "w"})] {
+            let error = check_guard_pane(&guarded("no_push", extra)).unwrap_err();
+            assert_eq!(error.code, "PANE_NOT_ELIGIBLE");
+        }
+        assert!(check_guard_pane(&guarded("no_push", json!({}))).is_ok());
+        // An unguarded run is not touched.
+        let plain: AgentRunRequest = serde_json::from_value(json!({"task": "t", "pane_id": "p"})).unwrap();
+        assert!(check_guard_pane(&plain).is_ok());
+    }
+
+    #[test]
+    fn a_body_cannot_set_the_guard() {
+        let request: AgentRunRequest =
+            serde_json::from_value(json!({"task": "t", "guard_env": "no_push"})).unwrap();
+        assert_eq!(request.guard_env, None);
     }
 }
 

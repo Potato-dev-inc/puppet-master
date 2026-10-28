@@ -70,6 +70,7 @@ impl LiveHost {
                 pane_id: Some(pane_id.clone()),
                 read_only: key.read_only,
                 account: key.account.clone(),
+                guard_env: None,
             },
         ) {
             Ok(id) => {

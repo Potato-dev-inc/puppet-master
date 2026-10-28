@@ -199,4 +199,20 @@ pub struct SpawnPaneArgs {
     /// Account (id) to run the agent under; see `crate::accounts`.
     #[serde(default)]
     pub account: Option<String>,
+    /// Env guard for the pane (`pty::env_guard`, e.g. `no_push`). Never read from JSON: only Rust
+    /// code inside the app sets it. An unknown name refuses the spawn.
+    #[serde(skip)]
+    pub guard_env: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guard_env_in_spawn_pane_json_is_ignored() {
+        let args: SpawnPaneArgs =
+            serde_json::from_value(serde_json::json!({"agent_type": "x", "guard_env": "no_push"})).unwrap();
+        assert_eq!(args.guard_env, None);
+    }
 }

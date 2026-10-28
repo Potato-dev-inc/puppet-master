@@ -128,6 +128,7 @@ impl Host for LiveHost {
             pane_id: Some(spec.pane_id.clone()),
             read_only: false,
             account: spec.account.clone(),
+            guard_env: None,
         };
         let pane_id = registry_spawn_pane(&self.registry, &self.app, args)?;
         let info = self.registry.lock().list().into_iter().find(|pane| pane.id == pane_id);
