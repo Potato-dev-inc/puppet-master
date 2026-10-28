@@ -7,8 +7,8 @@
 //!    brief (starts with `Continue:`, every agent word fenced, hostile text only inside a fence, no secret, no
 //!    e-mail, no home path), the old run ends `cancelled / HANDED_OFF`, the old agent is stopped by pid and gets
 //!    no key and no prompt after the limit, and its pane stays listed.
-//! 2. The same in a separate copy (`isolation: worktree`): the new pane works in the very same copy, and closing the
-//!    old pane keeps it.
+//! 2. The same in a separate copy (`isolation: worktree`): the old run parks at its limit too (the limit looks its run
+//!    up in the project the copy came from), the new pane works in the very same copy, and closing the old pane keeps it.
 //! 3. The target shows its folder-trust screen: the new run parks, the trust card is up for the person, and
 //!    Puppet Master answers nothing (no `gate_answer`, no typed text) until the person does.
 //! 4. A plain loopback answer of the limit card is refused and nothing starts; a forged choice is refused; a paired
@@ -187,8 +187,7 @@ fn explain(session: &Session, what: &str, pane: &str) -> ! {
 
 /// A `fake_claude` run in the project (or its separate copy) that ends on its usage limit. Returns once the limit card
 /// is up. Settings order the card's offer to `fake_codex` (a real agent installed on this machine would come after it).
-/// `parks`: the run itself is parked at the limit (a run in a separate copy is not: the limit engine looks its run up
-/// under the copy's own folder, where only the copy's panes live, so that run keeps reading `running`).
+/// `parks`: the run itself is parked at the limit (`needs_input`, `usage_limit`), wherever its pane works.
 fn run_to_the_limit(session: &Session, script: &str, extra: Value, parks: bool) -> Old {
     session.keep_going_order(&["fake_codex"]);
     session.script_with_log(script, "old.jsonl");
@@ -342,12 +341,16 @@ fn continue_on_another_agent_hands_the_task_over_with_a_fenced_clean_brief() {
 
 // ---- 2. the same in a separate copy ----------------------------------------------------------------------------------
 
-/// The old run worked in its own copy (`isolation: worktree`): the new pane works in the very same copy, and closing the
-/// old pane never discards it (the copy has no change at all, so without the hand-over it would be discarded).
+/// The old run worked in its own copy (`isolation: worktree`): the old run parks at its limit like any other run (its runs
+/// are stored in the project the copy came from, and the limit engine looks them up there). The new pane works in the very
+/// same copy, and closing the old pane never discards it (the copy has no change at all, so without the hand-over it would
+/// be discarded).
 #[test]
 fn a_hand_over_from_a_separate_copy_keeps_working_in_that_copy_and_closing_the_old_pane_keeps_it() {
     let session = World::get().session("kg-worktree");
-    let old = run_to_the_limit(&session, &claude_script(false, ""), json!({ "isolation": "worktree" }), false);
+    // `parks = true`: the helper waits for the old run to be `needs_input` with a `usage_limit` prompt.
+    let old = run_to_the_limit(&session, &claude_script(false, ""), json!({ "isolation": "worktree" }), true);
+    assert_offer(&old);
     let copy = session.pane_cwd(&old.pane).expect("old pane folder");
     assert!(copy.contains(".puppet-master"), "the old pane runs in its own copy: {copy}");
     assert_eq!(session.worktree_open(&copy), Some(true), "the copy exists and is open");

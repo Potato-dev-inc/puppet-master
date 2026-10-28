@@ -78,6 +78,15 @@ pub struct PaneCtx {
     pub status: String,
 }
 
+impl PaneCtx {
+    /// The folder whose `.puppet-master/operations` holds this pane's runs. A pane that works in a
+    /// separate copy (`<project>/.puppet-master/worktrees/<id>`) keeps its runs in the project the copy
+    /// came from, so that is where they are looked up (`worktrees::origin_of_cwd`, as keep going does).
+    fn runs_folder(&self) -> String {
+        crate::worktrees::origin_of_cwd(&self.project).unwrap_or_else(|| self.project.clone())
+    }
+}
+
 /// Everything the engine touches outside itself, so a test can run it without an app.
 pub trait Env {
     fn pane(&self, pane_id: &str) -> Option<PaneCtx>;
@@ -267,11 +276,12 @@ impl Engine {
             account: ctx.account.clone(),
             reset_at_ms: hit.reset_at_ms,
         });
-        let run = crate::operations::active_operation_for_pane(&ctx.project, pane_id).ok().flatten();
+        let project = ctx.runs_folder();
+        let run = crate::operations::active_operation_for_pane(&project, pane_id).ok().flatten();
         let mut operation_id = None;
         if let Some(run) = &run {
             let action = limit_action(&ctx, pane_id, hit, env.clock());
-            if let Ok(parked) = crate::operations::mark_operation_usage_limit(&ctx.project, &run.operation_id, action) {
+            if let Ok(parked) = crate::operations::mark_operation_usage_limit(&project, &run.operation_id, action) {
                 env.publish(&parked);
                 operation_id = Some(run.operation_id.clone());
             }
@@ -280,7 +290,7 @@ impl Engine {
         let offer = env.keep_going_offer(pane_id, &ctx, hit, &|agent, account| self.agent_limit(agent, account, now));
         let card = card::limit_card(hit, &ctx.agent_label, pane_id, operation_id.is_some(), env.clock(), &offer);
         if let Some(created) = card::raise(env.questions(), card, now) {
-            self.cards.insert(pane_id.to_string(), CardRef { card_id: created.id, project: ctx.project, operation_id });
+            self.cards.insert(pane_id.to_string(), CardRef { card_id: created.id, project, operation_id });
         }
     }
 
@@ -350,13 +360,13 @@ impl Engine {
     /// "Stop here": the run ends as cancelled with the limit on it. The pane is left alone.
     fn stop_run(&mut self, env: &dyn Env, pane_id: &str) {
         let Some(ctx) = env.pane(pane_id) else { return };
-        let Ok(Some(run)) = crate::operations::active_operation_for_pane(&ctx.project, pane_id) else { return };
+        let Ok(Some(run)) = crate::operations::active_operation_for_pane(&ctx.runs_folder(), pane_id) else { return };
         let context = run
             .required_action
             .as_ref()
             .map(|a| json!({ "window": a.get("window"), "reset_at_ms": a.get("reset_at_ms"), "reset_text": a.get("reset_text") }))
             .unwrap_or(Value::Null);
-        if let Ok(stopped) = crate::operations::mark_operation_stopped_at_limit(&ctx.project, &run.operation_id, context) {
+        if let Ok(stopped) = crate::operations::mark_operation_stopped_at_limit(&ctx.runs_folder(), &run.operation_id, context) {
             env.mark(pane_id, "limit:stopped-by-person");
             env.publish(&stopped);
         }
