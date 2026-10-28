@@ -2,6 +2,12 @@
 // panes, split view and closing the phone tab. Drafts are dropped after 7 days, at most 50 are kept, and a text over
 // 20000 characters is not kept. Every storage call is wrapped: a storage that throws (private mode, blocked site
 // data) just means no draft, and the box still works.
+// `useComposerDraft` is the other kind of draft: a message the Point and Fix box put into a pane's Chat box ("Edit in
+// Chat"). The backend holds it until the Chat tab takes it, so it is never lost while the tab is closed.
+
+import { useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export const LS_COMPOSER_DRAFTS = 'pm.composerDrafts';
 /** How long after the last change the draft is written (the box is also written when it goes away). */
@@ -73,4 +79,76 @@ export function writeDraft(paneId: string, text: string, now = Date.now()): void
 /** Forgets the draft for this pane (a message was sent). */
 export function clearDraft(paneId: string): void {
   writeDraft(paneId, '');
+}
+
+/** A Point and Fix message for this pane's Chat box. `nonce` tells two drafts with the same text apart. */
+export interface ComposerDraft {
+  /** The pane the draft is for: a draft is never shown in another pane's box. */
+  paneId: string;
+  text: string;
+  nonce: number;
+}
+
+/** Same name as the Rust event (`point://draft`, payload `{paneId}`). */
+const POINT_DRAFT_EVENT = 'point://draft';
+let draftNonce = 0;
+
+const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+/** Takes the pending Point draft for a pane (the backend gives it once). A failed call means no draft. */
+async function takePointDraft(paneId: string): Promise<string | null> {
+  try {
+    const text = await invoke<string | null>('point_take_draft', { paneId });
+    return typeof text === 'string' && text.trim() !== '' ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A draft that arrives after the pane's box is gone is kept as the pane's saved draft, so nothing is lost. */
+function keepForLater(paneId: string, text: string): void {
+  const kept = readDraft(paneId);
+  writeDraft(paneId, kept ? `${kept}\n\n${text}` : text);
+}
+
+/**
+ * The Point and Fix draft waiting for this pane's Chat box, or null. It is taken when the pane's Chat box mounts and
+ * again whenever `point://draft` names the pane. `null` (no pane, or the box is not shown) does nothing.
+ */
+export function useComposerDraft(paneId: string | null): ComposerDraft | null {
+  const [draft, setDraft] = useState<ComposerDraft | null>(null);
+  /** The pane whose box is mounted now (null after unmount): a late result for another pane is kept for later. */
+  const shown = useRef<string | null>(null);
+
+  useEffect(() => {
+    shown.current = paneId;
+    setDraft(null);
+    if (!paneId || !isTauri()) return;
+    const take = () => {
+      void takePointDraft(paneId).then((text) => {
+        if (text === null) return;
+        if (shown.current === paneId) setDraft({ paneId, text, nonce: ++draftNonce });
+        else keepForLater(paneId, text);
+      });
+    };
+    take();
+    let gone = false;
+    let unlisten: UnlistenFn | null = null;
+    listen<{ paneId: string }>(POINT_DRAFT_EVENT, (event) => {
+      if (event.payload?.paneId === paneId) take();
+    })
+      .then((off) => {
+        if (gone) off();
+        else unlisten = off;
+      })
+      .catch(() => undefined);
+    return () => {
+      gone = true;
+      unlisten?.();
+      shown.current = null;
+    };
+  }, [paneId]);
+
+  // A draft from another pane (left over from before a switch) is never returned.
+  return draft && draft.paneId === paneId ? draft : null;
 }

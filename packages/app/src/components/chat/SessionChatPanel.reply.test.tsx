@@ -151,4 +151,20 @@ describe('SessionChatPanel with a message box', () => {
     expect(host.querySelector('textarea')).toBeNull();
     expect(invoke.mock.calls.some(([cmd]) => String(cmd).startsWith('pane_message'))).toBe(false);
   });
+
+  it('an "Edit in Chat" draft from the Point box goes into this pane box', async () => {
+    localStorage.clear(); // no unsent text kept from an earlier test
+    const before = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) =>
+      cmd === 'point_take_draft' ? 'Change the heading' : before(cmd, args),
+    );
+    await open();
+    expect(invoke).toHaveBeenCalledWith('point_take_draft', { paneId: 'p1' });
+    expect((host.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Change the heading');
+  });
+
+  it('no Point draft is taken when the panel has no message box', async () => {
+    await open(false);
+    expect(invoke.mock.calls.some(([cmd]) => cmd === 'point_take_draft')).toBe(false);
+  });
 });

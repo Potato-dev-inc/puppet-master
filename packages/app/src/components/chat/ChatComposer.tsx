@@ -3,9 +3,10 @@
 // as a bubble under the conversation meanwhile (PendingMessages).
 // `voice` adds the mic (phone only): speech turned into text on the device, see hooks/useVoiceInput.ts.
 // `draftKey` (the pane) keeps the unsent text across pane switches and reloads, see lib/composerDraft.ts.
+// `draft` is a message from the Point and Fix box ("Edit in Chat"): it goes into the box once, see useComposerDraft.
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { MAX_MESSAGE_CHARS } from '../../lib/paneOutbox';
-import { clearDraft, DRAFT_SAVE_MS, readDraft, writeDraft } from '../../lib/composerDraft';
+import { clearDraft, DRAFT_SAVE_MS, readDraft, writeDraft, type ComposerDraft } from '../../lib/composerDraft';
 import { insertAtCursor } from '../../lib/voice';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 
@@ -25,6 +26,8 @@ export interface ChatComposerProps {
   voice?: boolean;
   /** The pane this box writes to: its unsent text is kept per pane. Without it, nothing is kept. */
   draftKey?: string;
+  /** A Point and Fix message to put in the box. An empty box gets it; a typed text gets it after a blank line. */
+  draft?: ComposerDraft | null;
 }
 
 function MicIcon() {
@@ -42,7 +45,7 @@ export function ChatComposer(props: ChatComposerProps) {
   return <ChatComposerBox key={props.draftKey ?? ''} {...props} />;
 }
 
-function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey }: ChatComposerProps) {
+function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft: pointDraft }: ChatComposerProps) {
   const [text, setText] = useState(() => (draftKey ? readDraft(draftKey) : ''));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -132,6 +135,18 @@ function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey }: Cha
     el.setSelectionRange(caretAfter.current, caretAfter.current);
     caretAfter.current = null;
   }, [text]);
+
+  // The Point and Fix draft: once per nonce (the same draft seen again does nothing). The cursor goes to the end.
+  const appliedDraft = useRef<number | null>(null);
+  useEffect(() => {
+    if (!pointDraft || pointDraft.nonce === appliedDraft.current) return;
+    appliedDraft.current = pointDraft.nonce;
+    const next = text.trim() === '' ? pointDraft.text : `${text}\n\n${pointDraft.text}`;
+    caretAfter.current = next.length;
+    setText(next);
+    setError(null);
+    field.current?.focus();
+  }, [pointDraft, text]);
 
   const submit = async () => {
     if (blocked || busy || empty || tooLong) return;
