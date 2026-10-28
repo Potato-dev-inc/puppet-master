@@ -2,8 +2,10 @@
 // The message is not typed at once: it waits until the agent is free (the pane outbox in the backend), and shows
 // as a bubble under the conversation meanwhile (PendingMessages).
 // `voice` adds the mic (phone only): speech turned into text on the device, see hooks/useVoiceInput.ts.
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+// `draftKey` (the pane) keeps the unsent text across pane switches and reloads, see lib/composerDraft.ts.
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { MAX_MESSAGE_CHARS } from '../../lib/paneOutbox';
+import { clearDraft, DRAFT_SAVE_MS, readDraft, writeDraft } from '../../lib/composerDraft';
 import { insertAtCursor } from '../../lib/voice';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 
@@ -21,6 +23,8 @@ export interface ChatComposerProps {
   blockedReason: string | null;
   /** Show the mic (voice typing on the device). Off for the desktop box. */
   voice?: boolean;
+  /** The pane this box writes to: its unsent text is kept per pane. Without it, nothing is kept. */
+  draftKey?: string;
 }
 
 function MicIcon() {
@@ -33,8 +37,13 @@ function MicIcon() {
   );
 }
 
-export function ChatComposer({ onSend, blockedReason, voice = false }: ChatComposerProps) {
-  const [text, setText] = useState('');
+/** One box per pane: switching panes remounts it, so each pane shows its own draft. */
+export function ChatComposer(props: ChatComposerProps) {
+  return <ChatComposerBox key={props.draftKey ?? ''} {...props} />;
+}
+
+function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey }: ChatComposerProps) {
+  const [text, setText] = useState(() => (draftKey ? readDraft(draftKey) : ''));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** Words heard but not final yet, and where in the text they would go. */
@@ -68,6 +77,44 @@ export function ChatComposer({ onSend, blockedReason, voice = false }: ChatCompo
   });
   const micOff = blocked || busy || mic.support === 'checking';
 
+  // The draft: written DRAFT_SAVE_MS after the last change, and at once when the box goes away or the page closes.
+  // Only the text in the box is kept: words still being heard (interim) are not in `text` and never saved.
+  const draft = useRef({ key: draftKey ?? '', text });
+  const unsaved = useRef(false);
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (!draftKey) return;
+    draft.current = { key: draftKey, text };
+    // The text loaded on mount is already saved: opening the box does not restart the 7 days.
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    unsaved.current = true;
+    const timer = window.setTimeout(() => {
+      unsaved.current = false;
+      writeDraft(draftKey, text);
+    }, DRAFT_SAVE_MS);
+    return () => window.clearTimeout(timer);
+  }, [text, draftKey]);
+  useEffect(() => {
+    const flush = () => {
+      if (!unsaved.current) return;
+      unsaved.current = false;
+      writeDraft(draft.current.key, draft.current.text);
+    };
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHidden);
+      flush();
+    };
+  }, []);
+
   // Grow with the text, up to MAX_LINES lines.
   useLayoutEffect(() => {
     const el = field.current;
@@ -94,7 +141,10 @@ export function ChatComposer({ onSend, blockedReason, voice = false }: ChatCompo
     const refused = await onSend(text.trim());
     setBusy(false);
     if (refused) setError(refused);
-    else setText('');
+    else {
+      setText('');
+      if (draftKey) clearDraft(draftKey);
+    }
     field.current?.focus();
   };
 
