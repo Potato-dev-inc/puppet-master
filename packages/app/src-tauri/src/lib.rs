@@ -21,6 +21,7 @@ mod bridge;
 mod budgets;
 mod canary;
 mod channels;
+mod branch_from;
 mod checkpoints;
 mod clip;
 mod commands;
