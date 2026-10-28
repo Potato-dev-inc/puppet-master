@@ -282,3 +282,79 @@ fn uncommitted_changes_in_the_original_stay_out_of_the_copy_unless_the_save_poin
     assert_eq!(read(&root, "dirty.txt").as_deref(), Some("not yet committed\n"));
     assert_eq!(read(&root, "after.txt").as_deref(), Some("after the last save point\n"));
 }
+
+#[test]
+fn a_branch_of_a_branch_reads_the_source_copys_own_save_points_and_writes_a_new_copy_under_the_origin() {
+    if !git_available() {
+        return;
+    }
+    let (_guard, root) = repo();
+    let origin = root.to_string_lossy().into_owned();
+    // The source pane works in copy 1. Its save points live in that copy's own shadow repository.
+    let source = worktrees::create_with(&origin, "bf-0000000000a1", &CreateOptions::default()).expect("copy 1");
+    let source_cwd = PathBuf::from(&source.cwd);
+    write(&source_cwd, "from-copy.txt", "made in copy 1\n");
+    git(&source_cwd, &["add", "-A"]);
+    git(&source_cwd, &["commit", "-q", "-m", "work in copy 1"]);
+    let source_head = git(&source_cwd, &["rev-parse", "HEAD"]);
+    write(&source_cwd, "a.txt", "edited in copy 1\n");
+    save_point(&source_cwd, 1_000);
+    write(&source_cwd, "a.txt", "edited again\n");
+    write(&source_cwd, "later.txt", "later\n");
+    save_point(&source_cwd, 2_000);
+    let source_files = file_hashes(&source_cwd);
+    let source_status = git(&source_cwd, &["status", "--porcelain=v1", "--untracked-files=all"]);
+    let origin_files = file_hashes(&root);
+
+    let start = start_point_for(&source.cwd);
+    assert_eq!(start.as_deref(), Some(source.branch.as_str()));
+    let made = make(&origin, start.as_deref(), "bf-0000000000a2", &source_cwd, PANE, FIRST, MESSAGE, &[])
+        .expect("a branch of a branch is made");
+    let cwd = PathBuf::from(&made.worktree.cwd);
+    // A new copy under the ORIGIN's worktrees folder, next to copy 1, not inside it.
+    let worktrees_dir = root.join(".puppet-master").join("worktrees");
+    assert_eq!(cwd.parent().map(Path::to_path_buf), Some(worktrees_dir.clone()), "{}", cwd.display());
+    assert_ne!(cwd, source_cwd);
+    // It holds save point 1 of copy 1 on top of copy 1's own commit.
+    assert_eq!(read(&cwd, "a.txt").as_deref(), Some("edited in copy 1\n"));
+    assert_eq!(read(&cwd, "from-copy.txt").as_deref(), Some("made in copy 1\n"));
+    assert!(!cwd.join("later.txt").exists(), "a file from a later save point is not in the copy");
+    assert_eq!(made.worktree.base_commit, source_head);
+    assert!(made.export.failed.is_empty(), "{:?}", made.export.failed);
+    assert_eq!(git(&cwd, &["log", "-1", "--format=%s"]), MESSAGE);
+    // Neither the source copy nor the original folder changed.
+    assert_eq!(file_hashes(&source_cwd), source_files, "the source copy is untouched");
+    assert_eq!(git(&source_cwd, &["status", "--porcelain=v1", "--untracked-files=all"]), source_status);
+    assert_eq!(read(&source_cwd, "a.txt").as_deref(), Some("edited again\n"));
+    assert_eq!(file_hashes(&root), origin_files, "the original folder is untouched");
+    assert_eq!(read(&root, "a.txt").as_deref(), Some("alpha\n"));
+}
+
+#[test]
+fn a_project_inside_a_repo_gets_its_prefixed_folder_written_and_nothing_outside_it() {
+    if !git_available() {
+        return;
+    }
+    // The project is `<repo>/src`: the copy is a whole checkout and the agent runs in its `src` folder.
+    let (_guard, root) = repo();
+    let project = root.join("src");
+    let origin = project.to_string_lossy().into_owned();
+    write(&project, "lib.rs", "pub fn saved() {}\n");
+    save_point(&project, 1_000);
+    write(&project, "lib.rs", "pub fn newer() {}\n");
+    let files_before = file_hashes(&root);
+
+    let made = make(&origin, None, "bf-0000000000b1", &project, PANE, FIRST, MESSAGE, &[]).expect("the copy is made");
+    let copy_root = PathBuf::from(&made.worktree.path);
+    let cwd = PathBuf::from(&made.worktree.cwd);
+    assert_ne!(cwd, copy_root, "the copy's cwd is below the checkout");
+    assert!(cwd.starts_with(&copy_root));
+    assert_eq!(read(&cwd, "lib.rs").as_deref(), Some("pub fn saved() {}\n"));
+    // Files outside the project's folder are the checkout's own.
+    assert_eq!(read(&copy_root, "a.txt").as_deref(), Some("alpha\n"));
+    assert!(made.export.failed.is_empty(), "{:?}", made.export.failed);
+    let committed = git(&cwd, &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(committed.lines().any(|line| line == "src/lib.rs"), "{committed}");
+    assert_eq!(file_hashes(&root), files_before, "the original folder is untouched");
+    assert_eq!(read(&project, "lib.rs").as_deref(), Some("pub fn newer() {}\n"));
+}

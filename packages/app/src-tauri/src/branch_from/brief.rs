@@ -193,7 +193,7 @@ fn reply_of(turn: &[&ChatItem]) -> Option<String> {
 }
 
 /// The local clock time `HH:MM` of unix milliseconds. `None` when the clock cannot show the time.
-fn hhmm_of_ms(ms: u64) -> Option<String> {
+pub(super) fn hhmm_of_ms(ms: u64) -> Option<String> {
     let ms = i64::try_from(ms).ok()?;
     Local
         .timestamp_millis_opt(ms)
