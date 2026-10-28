@@ -188,6 +188,28 @@ describe('AgentDoctor', () => {
     await mount({ check: async () => { throw new Error('no shell'); }, test: vi.fn() });
     expect(host.textContent).toContain('Could not check your agents: no shell');
   });
+
+  it('shows a quiet "Browse more agents" link under the list that opens the store', async () => {
+    const onOpenStore = vi.fn();
+    const api: AgentHealthApi = { check: async () => [row({})], test: vi.fn() };
+    await mount(api, { onOpenStore });
+    const link = button(host, 'Browse more agents');
+    expect(link).toBeDefined();
+    expect(link!.className).toBe('ck-link');
+    // Under the list: the link comes after the agent groups.
+    expect(host.querySelector('.ck-doctor-groups')!.compareDocumentPosition(link!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(onOpenStore).not.toHaveBeenCalled();
+    await act(async () => link!.click());
+    expect(onOpenStore).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the "Browse more agents" link when no onOpenStore is given', async () => {
+    const api: AgentHealthApi = { check: async () => [row({})], test: vi.fn() };
+    await mount(api);
+    expect(host.querySelector('.ck-doctor-row')).not.toBeNull();
+    expect(button(host, 'Browse more agents')).toBeUndefined();
+    expect(host.textContent).not.toContain('Browse more agents');
+  });
 });
 
 describe('Inbox first-run hint', () => {
