@@ -38,6 +38,7 @@ import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './components/cockpit/c
 import { CompanionSetupSheet } from './components/cockpit/companion/CompanionSetupSheet';
 import { StartCrewSheet } from './components/cockpit/crews/StartCrewSheet';
 import { ShortcutsSheet } from './components/cockpit/ShortcutsSheet';
+import { ImportHost } from './components/history/ImportHost';
 import { isTypingTarget } from './components/cockpit/rail/useRailLayout';
 import { agentLabel, useAgentRegistry } from './lib/agentRegistry';
 import './styles/cockpit.css';
@@ -419,6 +420,7 @@ export default function CockpitApp() {
       )}
       {welcome.open && c.mode !== 'individual' && <FirstRun key={welcome.openKey} c={nav} seed={welcome.seed} onFinish={welcome.finish} />}
       {c.mode !== 'individual' && <TellTeamToast />}
+      <ImportHost c={nav} />
       {stopReport && <PanicSheet report={stopReport} names={c.names} onClose={() => setStopReport(null)} />}
       <div className="ck-toasts" aria-live="polite">
         {c.toasts.map((t) => (

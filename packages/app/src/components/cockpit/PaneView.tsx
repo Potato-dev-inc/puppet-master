@@ -41,6 +41,7 @@ import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { SaveCrewSheet } from './crews/SaveCrewSheet';
 import { SessionChatPanel } from '../chat/SessionChatPanel';
 import { useChatJump } from '../../lib/chatJump';
+import { clearChatTabRequest, useChatTabRequest } from '../../lib/chatTab';
 import { composerBlock } from '../../lib/paneOutbox';
 
 type Tab = 'mission' | 'terminal' | 'chat' | 'changes' | 'transcript' | 'receipt' | 'history';
@@ -152,6 +153,14 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
     if (jump && chatAllowed) setTab('chat');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jump?.nonce, paneId]);
+
+  // An old chat continued in this new pane asks for the Chat tab (lib/chatTab.ts).
+  const chatTabAsk = useChatTabRequest(paneId);
+  useEffect(() => {
+    if (!chatTabAsk || !chatAllowed) return;
+    setTab('chat');
+    clearChatTabRequest(chatTabAsk);
+  }, [chatTabAsk, chatAllowed]);
 
   useEffect(() => {
     if (tab === 'changes' && !worktree) setTab('terminal');

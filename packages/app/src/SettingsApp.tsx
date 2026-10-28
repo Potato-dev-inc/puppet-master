@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { SettingsPanel } from './components/SettingsPanel';
+import { BringChatsHost } from './components/history/ImportHost';
 import type { SettingsPageId } from './components/settings/model';
 import { UpdateAvailableBanner } from './components/UpdateAvailableBanner';
 import { useAppUpdateCheck } from './hooks/useAppUpdateCheck';
@@ -60,6 +61,8 @@ export default function SettingsApp() {
         }}
       />
       <UpdateAvailableBanner update={appUpdate} />
+      {/* The Bring-chats card in Settings > General asks for its panel here (this window has no cockpit). */}
+      <BringChatsHost standalone />
     </>
   );
 }

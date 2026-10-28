@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CockpitApp from './CockpitApp';
+import { requestBringChats, requestImportedChat } from './lib/chatImport';
 
 // Mutable per-test input for the digest (away) path.
 const away = vi.hoisted(() => ({ digest: null as null | object }));
@@ -15,6 +16,8 @@ const cockpit = vi.hoisted(() => ({
   // The pane list is known (the split restores on start only then). Off by default, as before.
   ready: false,
 }));
+// The Bring my old chats sheets: the pane start the (mocked) registry does.
+const imp = vi.hoisted(() => ({ spawnPane: (async () => 'p2') as (a: unknown) => Promise<string> }));
 // Rust's "show Settings in this window" event (cockpit://settings).
 const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
 
@@ -43,6 +46,7 @@ vi.mock('./hooks/useCockpit', async () => {
         toasts: [],
         names: {},
         registry: {
+          spawnPane: (a: unknown) => imp.spawnPane(a),
           paneList: ids.map((id) => ({ info: { id, cwd: `/proj/${id}` } })),
           panes: new Map(ids.map((id) => [id, { info: { id, cwd: `/proj/${id}` }, status: 'idle' }])),
           initialReady: cockpit.ready,
@@ -191,6 +195,21 @@ vi.mock('./components/cockpit/SpawnView', async () => {
 vi.mock('./components/cockpit/Palette', async () => {
   const { createElement: h } = await import('react');
   return { Palette: ({ initialMode }: { initialMode?: string }) => h('div', { 'data-testid': 'palette', 'data-mode': initialMode }) };
+});
+// The old chat sheet is stubbed: this test is about the host in the cockpit, not the sheet.
+vi.mock('./components/history/ImportedChatSheet', async () => {
+  const { createElement: h } = await import('react');
+  type Props = { request: { agent: string; session: string }; onContinue: (p: unknown) => void; onClose: () => void };
+  return {
+    ImportedChatSheet: ({ request, onContinue, onClose }: Props) =>
+      h('div', { role: 'dialog' }, `OLD CHAT ${request.agent}/${request.session}`,
+        h('button', { type: 'button', onClick: () => onContinue({ ok: true, agentType: 'codex', cwd: 'C:/Users/you/shop', extraArgs: ['resume', 'sess-0001-abcd'] }) }, 'Continue here'),
+        h('button', { type: 'button', onClick: onClose }, 'Close old chat')),
+  };
+});
+vi.mock('./components/history/BringChatsPanel', async () => {
+  const { createElement: h } = await import('react');
+  return { BRING_CHATS_TITLE_ID: 'bc-panel-title', BringChatsPanel: ({ onClose }: { onClose?: () => void }) => h('p', null, 'BRING PANEL', h('button', { type: 'button', onClick: onClose }, 'Close bring')) };
 });
 vi.mock('./components/cockpit/UndoSheet', () => ({ UndoSheet: () => null }));
 vi.mock('./components/cockpit/PanicSheet', () => ({ PanicSheet: () => null }));
@@ -507,5 +526,31 @@ describe('CockpitApp split view wiring', () => {
     expect(mainText()).toContain('SPLIT VIEW');
     resize(800);
     expect(mainText()).toBe('PANE VIEW p1');
+  });
+});
+
+describe('CockpitApp old chats host', () => {
+  it('shows no old chat sheet without a request', () => {
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('a request opens the sheet, Continue starts the pane with the plan and selects it, and the sheet is gone', async () => {
+    imp.spawnPane = vi.fn(async () => 'p2');
+    act(() => requestImportedChat('codex', 'sess-0001-abcd'));
+    expect(host.textContent).toContain('OLD CHAT codex/sess-0001-abcd');
+    await act(async () => clickButton('Continue here'));
+    expect(imp.spawnPane).toHaveBeenCalledWith({ agent_type: 'codex', cwd: 'C:/Users/you/shop', extra_args: ['resume', 'sess-0001-abcd'] });
+    expect(mainText()).toBe('PANE VIEW p2');
+    expect(host.textContent).not.toContain('OLD CHAT');
+  });
+
+  it('closing the sheet clears the request, and the Bring-chats request shows its panel', () => {
+    act(() => requestImportedChat('codex', 'sess-0001-abcd'));
+    clickButton('Close old chat');
+    expect(host.textContent).not.toContain('OLD CHAT');
+    act(() => requestBringChats());
+    expect(host.textContent).toContain('BRING PANEL');
+    clickButton('Close bring');
+    expect(host.textContent).not.toContain('BRING PANEL');
   });
 });

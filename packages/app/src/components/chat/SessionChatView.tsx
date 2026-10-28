@@ -58,6 +58,8 @@ export interface SessionChatViewProps {
   overlay?: ReactNode;
   /** A search result asked for this message: the chat scrolls to it once it is there. */
   jump?: ChatJump | null;
+  /** An old chat with no live pane behind it: the "Messages wait…" note would be wrong there, so it is left out. */
+  readOnly?: boolean;
 }
 
 /** How long a jump waits for its message to load before it is dropped. */
@@ -120,7 +122,7 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, overlay, jump }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, overlay, jump, readOnly }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
   const markdown = source === 'file' || source === 'api';
@@ -183,15 +185,17 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
         <ViewModeToggle mode={mode} onChange={setMode} />
         {headerMenu && <span className="flex shrink-0 items-center ck-chat-head-menu">{headerMenu}</span>}
       </header>
-      <p className="border-b border-pm-border px-2 py-1 text-[11px] text-pm-muted ck-chat-note">
-        {SESSION_CHAT_NOTE}
-        {fromScreen && (
-          <span className="block ck-chat-screen-note" data-testid="session-chat-screen-note">
-            {SCREEN_CHAT_NOTE}
-          </span>
-        )}
-        {mode === 'summary' && <span className="block ck-chat-mode-note">{SUMMARY_NOTE}</span>}
-      </p>
+      {(!readOnly || fromScreen || mode === 'summary') && (
+        <p className="border-b border-pm-border px-2 py-1 text-[11px] text-pm-muted ck-chat-note">
+          {!readOnly && SESSION_CHAT_NOTE}
+          {fromScreen && (
+            <span className="block ck-chat-screen-note" data-testid="session-chat-screen-note">
+              {SCREEN_CHAT_NOTE}
+            </span>
+          )}
+          {mode === 'summary' && <span className="block ck-chat-mode-note">{SUMMARY_NOTE}</span>}
+        </p>
+      )}
       <PlanCard items={plan} />
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2 ck-chat-body">
         {state === 'unavailable' && (

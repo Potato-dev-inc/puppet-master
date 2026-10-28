@@ -97,6 +97,13 @@ describe('SessionChatView states', () => {
     expect(SESSION_CHAT_NOTE).toBe('Messages wait until the agent is free. Answer its questions in the card at the bottom.');
   });
 
+  it('leaves the note out of a read-only old chat, which has no live pane to send to', () => {
+    render({ state: 'ready', turns: turnsFrom(SAMPLE), readOnly: true });
+    expect(text()).not.toContain('Messages wait');
+    expect(host.querySelector('.ck-chat-note')).toBeNull();
+    expect(text()).toContain('Two entries.');
+  });
+
   it('puts the pending bubbles after the conversation and the message box under the dock', () => {
     render({
       state: 'ready',

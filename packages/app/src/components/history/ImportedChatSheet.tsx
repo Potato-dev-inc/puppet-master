@@ -131,6 +131,7 @@ export function ImportedChatSheet({ request, api = chatImportApi, onContinue, on
             cliVersion={grouped?.cliVersion ?? null}
             source="file"
             jump={jump}
+            readOnly
             headerExtra={continueButton}
           />
         )}
