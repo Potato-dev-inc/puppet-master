@@ -88,4 +88,13 @@ describe('CompanionFeed', () => {
     mount([item(1), item(2)]);
     expect(host.querySelector('.ph-comp-more')).toBeNull();
   });
+
+  it('shows a delegated line (a helper the companion started) like any other, with its time', () => {
+    const delegated: FeedItem = { id: 'd1', atMs: at(28, 9, 5), kind: 'delegated', text: 'Mochi started a Codex helper in demo-a.' };
+    mount([delegated, item(1)]);
+    const rows = host.querySelectorAll('li');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].querySelector('.ph-comp-time')?.textContent).toBe('9:05');
+    expect(rows[0].querySelector('.ph-comp-text')?.textContent).toBe('Mochi started a Codex helper in demo-a.');
+  });
 });

@@ -293,6 +293,8 @@ pub enum FeedKind {
     NeedsYou,
     Memory,
     Moved,
+    /// The companion started a helper agent ('Mochi started a Codex helper in demo-a').
+    Delegated,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

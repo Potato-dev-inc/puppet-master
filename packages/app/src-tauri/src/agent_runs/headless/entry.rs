@@ -66,6 +66,12 @@ pub fn run_agent(
             false,
         ));
     }
+    // Started by a companion's agent (where the caller runs, or where it says it runs)? Then the helper gets
+    // the companion's house rules: a default turn budget, never the companion's own home folder, a feed line.
+    let companion_pane = session_id
+        .as_deref()
+        .and_then(|session| crate::companion::caller::of_session(&registry, session).suspected);
+    let adopting_pane = request.pane_id.is_some() || request.worker_id.is_some();
     let isolate = parse_isolation(&request)?;
     // A mission round joins the mission's copy instead of creating one; it is always visible.
     let joined = request.join_worktree.clone().filter(|_| request.turn_index == 0);
@@ -100,6 +106,15 @@ pub fn run_agent(
         .unwrap_or_default();
     if !project_path.is_empty() {
         request.project_path = Some(project_path.clone());
+    }
+    if let Some(pane) = companion_pane.as_deref().filter(|_| !project_path.is_empty()) {
+        if crate::companion::live::service().is_some_and(|service| service.is_home_path(pane, &project_path)) {
+            return Err(OperationError::new(
+                "COMPANION_HOME_FOR_HELPERS",
+                "A helper must work in your person's project folder, not in your own home folder. Pass project_path with the project they named.",
+                false,
+            ));
+        }
     }
     if request.timeout_ms == 0 || request.timeout_ms > 86_400_000 {
         return Err(OperationError::new(
@@ -455,7 +470,10 @@ pub fn run_agent(
             &project_path,
             &handle,
             &budget_asked,
-            crate::budgets::Defaults::from_settings(&crate::settings_store::read_public_settings(&app)),
+            crate::budgets::with_companion_default(
+                crate::budgets::Defaults::from_settings(&crate::settings_store::read_public_settings(&app)),
+                companion_pane.is_some(),
+            ),
             crate::questions::now_ms(),
         )?
         .is_some();
@@ -516,6 +534,7 @@ pub fn run_agent(
                 crate::budgets::discard(&project_path, &handle);
             }
         })?;
+        note_companion_helper(companion_pane.as_deref().filter(|_| !adopting_pane), &snapshot.agent_type, &project_path);
         // The visible pane now exists: its auto title comes from the task it was started with.
         if let Some(pane_id) = snapshot.pane_id.as_deref() {
             crate::ambient::store::set_from_task(pane_id, &snapshot.agent_type, &request.task);
@@ -538,6 +557,7 @@ pub fn run_agent(
             wait_for_run(&snapshot, request.wait_ms, &registry)
         };
     }
+    note_companion_helper(companion_pane.as_deref().filter(|_| !adopting_pane), &snapshot.agent_type, &project_path);
     if let Err(error) = crate::bridge::fail_operation_on_lock_conflict(&snapshot) {
         publish(&project_path, &snapshot.operation_id, &registry, &app);
         return Err(error);
@@ -729,4 +749,13 @@ mod isolation_tests {
         // a later turn on an isolated handle may carry a pane id
         assert!(parse_isolation(&request(json!({"task":"t","isolation":"worktree","pane_id":"p","turn_index":1}))).unwrap());
     }
+}
+
+/// A companion's agent started a new helper: one line in the companion's feed (`delegated`). Nothing for an
+/// agent that is not a companion's, or for a run that adopted a pane that already existed.
+fn note_companion_helper(companion_pane: Option<&str>, agent_type: &str, project_path: &str) {
+    let Some(pane) = companion_pane else { return };
+    let Some(service) = crate::companion::live::service() else { return };
+    let agent = crate::tui::descriptor_for(agent_type).map(|d| d.label).unwrap_or_else(|| agent_type.to_string());
+    service.note_delegated(pane, &agent, &crate::companion::view::folder_name(project_path));
 }

@@ -100,6 +100,11 @@ pub(super) fn route(
             .map_err(operation_http_error)?;
     }
 
+    // A companion's agent may start helpers and see that one waits, but it can never answer a card (trust,
+    // permission, question) or type a key into a pane. Those are the person's, always.
+    if let Some(session) = session {
+        crate::companion::guard::check_session(registry, session, method, &route_path).map_err(operation_http_error)?;
+    }
     if let Some(reply) = crate::questions::routes::handle(
         method,
         segments,

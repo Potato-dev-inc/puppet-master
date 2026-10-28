@@ -65,6 +65,18 @@ pub fn admit(
     Ok(record)
 }
 
+/// The defaults for a run started by a companion (the always-on helper the person keeps in one pane): the Settings
+/// default is kept as it is, and when the person set no turn limit there, a helper of a companion gets
+/// `companion::delegate::HELPER_TURNS` turns. A limit asked for on the run itself (`Asked`) still wins, and so does
+/// a share of the parent's budget: this only fills in what the person left unset, as the Settings default does.
+pub fn with_companion_default(defaults: Defaults, from_companion: bool) -> Defaults {
+    if from_companion && defaults.turns.is_none() {
+        Defaults { turns: Some(crate::companion::delegate::HELPER_TURNS), ..defaults }
+    } else {
+        defaults
+    }
+}
+
 fn root_record(project: &str, handle: &str, asked: &Asked, defaults: Defaults, now_ms: u64) -> Option<BudgetRecord> {
     // Each limit falls back to the Settings default on its own: asking for turns does not switch
     // the default time limit off.

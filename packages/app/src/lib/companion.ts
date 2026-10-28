@@ -98,7 +98,7 @@ export interface PendingItem {
   targetLine: string | null;
 }
 
-export type FeedKind = 'reply' | 'checkin' | 'missed' | 'woke' | 'slept' | 'napped' | 'restarted' | 'needs_you' | 'memory' | 'moved';
+export type FeedKind = 'reply' | 'checkin' | 'missed' | 'woke' | 'slept' | 'napped' | 'restarted' | 'needs_you' | 'memory' | 'moved' | 'delegated';
 
 export interface FeedItem {
   id: string;
