@@ -59,6 +59,7 @@ mod agent_pack;
 mod point;
 mod channels;
 mod night;
+mod issue_intake;
 
 pub use agent_install::*;
 pub use agent_wizard::*;
@@ -112,6 +113,7 @@ pub use agent_pack::*;
 pub use point::*;
 pub use channels::*;
 pub use night::*;
+pub use issue_intake::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{
