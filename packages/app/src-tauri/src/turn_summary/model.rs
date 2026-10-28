@@ -207,7 +207,7 @@ fn approvals_part(approvals: &[Approval]) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(", "))
 }
 
-fn receipt_part(receipt: &ReceiptFacts) -> Option<String> {
+pub(crate) fn receipt_part(receipt: &ReceiptFacts) -> Option<String> {
     let counts = receipt.checks.split_whitespace().next().filter(|c| c.contains('/'));
     match (receipt.outcome.as_str(), counts) {
         ("passed_checks", Some(c)) => Some(format!("all checks passed ({c})")),

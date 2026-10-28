@@ -7,3 +7,4 @@ mod shot;
 mod target;
 mod session;
 mod capabilities;
+mod capture;
