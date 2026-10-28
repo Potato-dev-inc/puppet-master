@@ -282,7 +282,7 @@ impl Fixture {
     fn start(&self, idle: &str) -> JoinHandle<Result<Value, WizardError>> {
         let before = self.host.spawned().len();
         let run = self.run();
-        wait_for(10, || (self.host.spawned().len() > before).then_some(())).expect("the test pane is started");
+        wait_for(super::fake_host::PANE_WAIT_SECS, || (self.host.spawned().len() > before).then_some(())).expect("the test pane is started");
         self.host.set_screen(idle);
         run
     }

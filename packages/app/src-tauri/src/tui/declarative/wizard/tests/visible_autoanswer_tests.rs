@@ -13,7 +13,7 @@ use crate::tui::declarative::wizard::visible::answer::AnswerKey;
 use crate::tui::declarative::wizard::{Wizard, WizardError};
 
 use super::fake_host::{screens, script_agent, wait_for, FakeHost};
-use super::support::{call, ok, visible_draft, with_captures, words_of, Tree};
+use super::support::{call, ok, run_visibletest, visible_draft, wait_for_test_pane, Ended, with_captures, words_of, Tree};
 
 struct Fixture {
     wizard: Arc<Wizard>,
@@ -21,6 +21,7 @@ struct Fixture {
     id: String,
     plan: String,
     _words: TestWords,
+    ended: Ended,
     _tree: Tree,
 }
 
@@ -34,17 +35,16 @@ fn fixture(name: &str, draft: Option<String>, auto: bool, change: impl FnOnce(&m
     let v = ok(&wizard, "verify", json!({"session": id, "toml": draft.unwrap_or_else(|| visible_draft("fake-agent"))}));
     let plan = v["planned_visible"]["fingerprint"].as_str().expect("a planned visible test").to_string();
     let words = words_of(&wizard, &id);
-    Fixture { wizard: Arc::new(wizard), host, id, plan, _words: words, _tree: tree }
+    Fixture { wizard: Arc::new(wizard), host, id, plan, _words: words, ended: Ended::default(), _tree: tree }
 }
 
 impl Fixture {
     fn run(&self) -> std::thread::JoinHandle<Result<Value, WizardError>> {
-        let (wizard, id, plan) = (self.wizard.clone(), self.id.clone(), self.plan.clone());
-        std::thread::spawn(move || call(&wizard, "visibletest", json!({"session": id, "confirm": true, "plan": plan})))
+        run_visibletest(&self.wizard, &self.id, &self.plan, &self.ended)
     }
 
     fn pane(&self) -> String {
-        wait_for(10, || self.host.spawned().first().map(|_| self.host.pane_id())).expect("the test pane is started")
+        wait_for_test_pane(&self.host, &self.ended)
     }
 
     fn finish(&self, handle: std::thread::JoinHandle<Result<Value, WizardError>>) -> Value {
