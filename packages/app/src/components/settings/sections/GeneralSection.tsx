@@ -15,6 +15,7 @@ import { AskBarSettingsBlock } from '../blocks/AskBarSettings';
 import { AssignIssueSettings } from '../blocks/AssignIssueSettings';
 import { BringChatsSettings } from '../blocks/BringChatsSettings';
 import { ChatIndexSettings } from '../blocks/ChatIndexSettings';
+import { CiFixSettings } from '../blocks/CiFixSettings';
 import { DiagnosticFile } from '../blocks/DiagnosticFile';
 import { LiveRoomRow } from '../blocks/LiveRoomRow';
 import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
@@ -433,6 +434,15 @@ export const generalRows: RowDef[] = [
         onChange={(value) => void env.patch({ night_shift_enabled: value })}
       />
     ),
+  },
+  {
+    id: 'red-to-green',
+    label: 'Red to Green',
+    hint: 'When CI fails on a pull request Puppet Master opened, the same agent can fix it.',
+    keywords: 'ci github checks failed fix pull request',
+    group: 'Labs',
+    labs: { name: 'Red to Green', about: 'The same agent fixes failed CI on its pull request, after you say yes.' },
+    render: (env) => <CiFixSettings onSaved={env.markSaved} />,
   },
   { id: 'team', label: 'Team', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', labs: { name: 'Team', about: 'Tell teammates when your agent pushes, and see when theirs does.' }, render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'live-room', label: 'Live Room', hint: 'Let people with a link watch a chat. Pick the relay address, how long and how many.', keywords: 'live room share stream watch link relay viewers broadcast default length', group: 'Live Room', render: (env) => <LiveRoomRow onSaved={env.markSaved} /> },
