@@ -1,0 +1,14 @@
+{
+  "total_count": 1,
+  "check_runs": [
+    {
+      "id": 5001,
+      "name": "vendor-scan",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "http://ci.example.com/builds/5001",
+      "details_url": "https://ci.example.com/builds/5001",
+      "app": { "slug": "vendor-ci" }
+    }
+  ]
+}

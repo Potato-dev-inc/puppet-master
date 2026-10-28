@@ -1,0 +1,23 @@
+{
+  "total_count": 2,
+  "check_runs": [
+    {
+      "id": 4001,
+      "name": "deploy-preview",
+      "status": "completed",
+      "conclusion": "action_required",
+      "html_url": "https://github.com/acme/billing/runs/4001",
+      "details_url": "https://github.com/acme/billing/actions/runs/9004/job/4001",
+      "app": { "slug": "github-actions" }
+    },
+    {
+      "id": 4002,
+      "name": "test",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/acme/billing/runs/4002",
+      "details_url": "https://github.com/acme/billing/actions/runs/9004/job/4002",
+      "app": { "slug": "github-actions" }
+    }
+  ]
+}
