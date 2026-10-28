@@ -17,6 +17,7 @@ vi.mock('@tauri-apps/api/event', () => ({
   },
 }));
 
+import { pointApi } from './point-api';
 import { type ComposerDraft, readDraft, useComposerDraft, writeDraft } from './composerDraft';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,6 +63,19 @@ afterEach(() => {
 });
 
 describe('useComposerDraft', () => {
+  it('goes through the shared pointApi wrappers for the take and the event', async () => {
+    const take = vi.spyOn(pointApi, 'takeDraft').mockResolvedValue('From the wrapper');
+    const on = vi.spyOn(pointApi, 'onDraft');
+    show('pane-w');
+    await flush();
+    expect(take).toHaveBeenCalledWith('pane-w');
+    expect(on).toHaveBeenCalledTimes(1);
+    expect(latest?.text).toBe('From the wrapper');
+    expect(invoke).not.toHaveBeenCalled();
+    take.mockRestore();
+    on.mockRestore();
+  });
+
   it('takes the pane draft when the box mounts, and only once', async () => {
     pending['pane-a'] = 'Make the heading bigger';
     show('pane-a');

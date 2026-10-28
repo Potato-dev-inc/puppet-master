@@ -6,8 +6,7 @@
 // Chat"). The backend holds it until the Chat tab takes it, so it is never lost while the tab is closed.
 
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { pointApi } from './point-api';
 
 export const LS_COMPOSER_DRAFTS = 'pm.composerDrafts';
 /** How long after the last change the draft is written (the box is also written when it goes away). */
@@ -89,8 +88,6 @@ export interface ComposerDraft {
   nonce: number;
 }
 
-/** Same name as the Rust event (`point://draft`, payload `{paneId}`). */
-const POINT_DRAFT_EVENT = 'point://draft';
 let draftNonce = 0;
 
 const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -98,7 +95,7 @@ const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNA
 /** Takes the pending Point draft for a pane (the backend gives it once). A failed call means no draft. */
 async function takePointDraft(paneId: string): Promise<string | null> {
   try {
-    const text = await invoke<string | null>('point_take_draft', { paneId });
+    const text = await pointApi.takeDraft(paneId);
     return typeof text === 'string' && text.trim() !== '' ? text : null;
   } catch {
     return null;
@@ -132,19 +129,11 @@ export function useComposerDraft(paneId: string | null): ComposerDraft | null {
       });
     };
     take();
-    let gone = false;
-    let unlisten: UnlistenFn | null = null;
-    listen<{ paneId: string }>(POINT_DRAFT_EVENT, (event) => {
-      if (event.payload?.paneId === paneId) take();
-    })
-      .then((off) => {
-        if (gone) off();
-        else unlisten = off;
-      })
-      .catch(() => undefined);
+    const unlisten = pointApi.onDraft((named) => {
+      if (named === paneId) take();
+    });
     return () => {
-      gone = true;
-      unlisten?.();
+      unlisten();
       shown.current = null;
     };
   }, [paneId]);
