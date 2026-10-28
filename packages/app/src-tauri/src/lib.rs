@@ -46,6 +46,7 @@ mod operations_contract_tests;
 mod pane_activity;
 mod pane_jobs;
 mod pane_preview;
+mod point;
 mod loop_guard;
 mod panic;
 mod askbar;
