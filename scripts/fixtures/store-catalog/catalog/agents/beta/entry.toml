@@ -1,0 +1,7 @@
+schema_version = 1
+
+[store]
+id = "beta"
+tagline = "Second sample agent."
+tier = "starter"
+builtin = true

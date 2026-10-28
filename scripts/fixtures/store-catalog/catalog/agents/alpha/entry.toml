@@ -1,0 +1,6 @@
+schema_version = 1
+
+[store]
+id = "alpha"
+tagline = "A sample agent for the generator test."
+tier = "starter"
