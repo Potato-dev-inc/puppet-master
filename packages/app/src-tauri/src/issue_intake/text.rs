@@ -36,12 +36,12 @@ static CLOSING: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Zero-width characters, bidi overrides and isolates, word joiners and the byte order mark.
-fn is_invisible(c: char) -> bool {
+pub(crate) fn is_invisible(c: char) -> bool {
     matches!(c as u32, 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064 | 0x2066..=0x2069 | 0xFEFF)
 }
 
 /// Control characters other than the line feed and the tab.
-fn is_stray_control(c: char) -> bool {
+pub(crate) fn is_stray_control(c: char) -> bool {
     c.is_control() && c != '\n' && c != '\t'
 }
 
@@ -276,7 +276,7 @@ pub(crate) fn publish_text(text: &str, ctx: &RedactContext, home: Option<&str>) 
 }
 
 /// [`publish_text`] with the saved secrets and the real home folder.
-fn publish_clean(text: &str) -> String {
+pub(crate) fn publish_clean(text: &str) -> String {
     let home = home_dir();
     publish_text(text, &known::context(), home.as_deref().and_then(|p| p.to_str()))
 }

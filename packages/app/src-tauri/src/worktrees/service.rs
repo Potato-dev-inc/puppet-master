@@ -395,13 +395,50 @@ fn stored_with_pr(project: &str, handle: &str) -> Result<WorktreeRef, OperationE
     Ok(stored)
 }
 
-/// What "Send back" would tell the agent: shown first, sent only after the person agrees.
+/// What "Send back" would tell the agent: shown first, sent only after the person agrees. The
+/// task is fixed words that point at a file; the log lines are in the file, never in `text`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SendBackPreview {
     pub text: String,
     pub failing: Vec<String>,
-    /// Lines of the failing job's log that are included.
+    /// Lines of the failing job's log that go into the file (cleaned, secrets hidden).
     pub excerpt_lines: usize,
+}
+
+/// The pane that may be sent CI output: the newest run in this copy must run under the `no_push`
+/// guard (it cannot push), and its pane must be inside the copy. Else refused with a plain message.
+fn guarded_author_pane(
+    project: &str,
+    worktree: &WorktreeRef,
+    registry: &Registry,
+) -> Result<String, OperationError> {
+    let op = operations::latest_agent_run(project, &worktree.handle).ok();
+    let in_copy: Vec<String> = panes_in(registry, worktree).into_iter().map(|(id, _)| id).collect();
+    super::sendback::pane_if_guarded(
+        op.as_ref().and_then(|op| op.worker.guard_env.as_deref()),
+        op.as_ref().and_then(|op| op.pane_id.as_deref()),
+        &in_copy,
+    )
+}
+
+/// Check the pane is safe to send to, read the failing checks and their logs, and clean them.
+fn build_send_back(
+    project: Option<&str>,
+    handle: &str,
+    registry: &Registry,
+    env: &ToolEnv,
+) -> Result<(WorktreeRef, String, super::sendback::Built), OperationError> {
+    let (project, _) = resolve(project, handle, registry)?;
+    let stored = stored_with_pr(&project, handle)?;
+    // The pane check comes first: a pane that could push is refused before any log is read.
+    let pane_id = guarded_author_pane(&project, &stored, registry)?;
+    let pr_ref = stored.pr.clone().expect("checked by stored_with_pr");
+    let report: ChecksReport = pr::checks_once(&stored, env)?;
+    if report.failing().is_empty() {
+        return Err(OperationError::new("NO_FAILED_CHECKS", "No GitHub check has failed.", false));
+    }
+    let raw = pr::failure_excerpt(&stored, &report, env);
+    Ok((stored, pane_id, super::sendback::build(pr_ref.number, &report, &raw)))
 }
 
 pub fn pr_send_back_preview(
@@ -410,39 +447,20 @@ pub fn pr_send_back_preview(
     registry: &Registry,
     env: &ToolEnv,
 ) -> Result<SendBackPreview, OperationError> {
-    let (project, _) = resolve(project, handle, registry)?;
-    let stored = stored_with_pr(&project, handle)?;
-    let pr_ref = stored.pr.clone().expect("checked by stored_with_pr");
-    let report: ChecksReport = pr::checks_once(&stored, env)?;
-    if report.failing().is_empty() {
-        return Err(OperationError::new("NO_FAILED_CHECKS", "No GitHub check has failed.", false));
-    }
-    let excerpt = pr::failure_excerpt(&stored, &report, env);
-    let text = pr::send_back_text(&pr_ref, &report, &excerpt);
-    Ok(SendBackPreview {
-        failing: report.failing().iter().map(|i| i.name.clone()).collect(),
-        excerpt_lines: excerpt.lines().count(),
-        text,
-    })
+    let (_, _, built) = build_send_back(project, handle, registry, env)?;
+    Ok(SendBackPreview { text: built.task, failing: built.failing, excerpt_lines: built.excerpt_lines })
 }
 
-/// The pane (or run) a message for the agent in this copy goes to.
-fn author_pane(project: Option<&str>, handle: &str, registry: &Registry) -> Result<String, OperationError> {
-    let (project, worktree) = resolve(project, handle, registry)?;
-    item_of(entry_of(&worktree), &project, registry).pane_id.ok_or_else(|| {
-        OperationError::new("AGENT_GONE", "That agent's pane is closed, so there is nobody to send this to.", false)
-    })
-}
-
-/// Deliver `text` to the agent that works in this copy: a follow-up turn for a run, typed into the
-/// pane for one opened by hand.
+/// Write the cleaned log into the copy and tell the agent to read it. The agent must be one that
+/// cannot push. The text is made here, never taken from the caller.
 pub fn pr_send_back(
     project: Option<&str>,
     handle: &str,
-    text: &str,
     registry: &Registry,
+    env: &ToolEnv,
     app: tauri::AppHandle,
 ) -> Result<crate::second_opinion::route::Sent, OperationError> {
-    let pane_id = author_pane(project, handle, registry)?;
-    crate::second_opinion::service::send_text_to_author(&pane_id, text, registry.clone(), app)
+    let (stored, pane_id, built) = build_send_back(project, handle, registry, env)?;
+    super::sendback::write_file(&stored, &built)?;
+    crate::second_opinion::service::send_text_to_author(&pane_id, &built.task, registry.clone(), app)
 }

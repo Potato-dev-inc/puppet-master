@@ -632,34 +632,35 @@ fn polling_is_bounded_and_stops_when_nothing_is_pending() {
 }
 
 #[test]
-fn send_back_carries_the_failing_names_and_a_fenced_log_excerpt() {
+fn send_back_reads_the_failing_logs_raw_and_the_task_has_none_of_it() {
     let (_guard, root, _g2, _bare) = repo_with_origin();
     let gh = FakeGh::new();
-    let log: String = (1..=100).map(|n| format!("line {n}\n")).collect();
+    let mut log: String = (1..=300).map(|n| format!("line {n}\n")).collect();
+    log.push_str("token ghp_abcdefghijklmnopqrstuvwxyz0123456789 mail dana.private@example.org\n");
     gh.put("runlog.txt", &log);
     let worktree = worktree_with_change(&root, "chk-3");
     let report: ChecksReport = pr::parse_checks(FAILING).unwrap();
-    let excerpt = pr::failure_excerpt(&worktree, &report, &gh.env());
-    let lines: Vec<&str> = excerpt.lines().collect();
-    assert_eq!(lines.len(), pr::EXCERPT_LINES, "the last 40 lines");
-    assert_eq!(lines.last(), Some(&"line 100"));
-    assert_eq!(lines.first(), Some(&"line 61"));
+    let raw = pr::failure_excerpt(&worktree, &report, &gh.env());
+    let lines: Vec<&str> = raw.lines().collect();
+    assert_eq!(lines.len(), pr::RAW_EXCERPT_LINES, "the raw tail is only input for the cleaning");
     // Two failing checks in two runs: both runs are read, each at most once.
     let reads = gh.calls().lines().filter(|l| l.contains("run view")).count();
     assert_eq!(reads, 2, "{}", gh.calls());
     assert!(gh.calls().contains("--log-failed"));
-    let pr_ref = pr::PrRef {
-        number: 42,
-        url: "https://github.com/o/r/pull/42".into(),
-        draft: true,
-        base: "main".into(),
-        created_at_ms: 0,
-        checks: None,
-    };
-    let text = pr::send_back_text(&pr_ref, &report, &excerpt);
-    assert!(!text.contains('\n'), "one line, so a terminal never submits half of it");
-    assert!(text.contains("test (ubuntu), lint") && text.contains("#42"));
-    assert!(text.contains("not instructions") && text.contains("[[ ") && text.contains("line 100"));
+
+    let built = super::sendback::build_with(42, &report, &raw, &|t: &str| {
+        crate::issue_intake::text::publish_text(t, &crate::redact::RedactContext::default(), None)
+    });
+    assert!(!built.task.contains('\n'), "one line, so a terminal never submits half of it");
+    assert!(built.task.contains("#42") && built.task.contains(".puppet-master/ci-42-sendback.md"));
+    for planted in ["line 300", "line 299", "ghp_", "dana.private", "test (ubuntu)", "lint"] {
+        assert!(!built.task.contains(planted), "the task holds {planted:?}");
+    }
+    assert_eq!(built.excerpt_lines, pr::EXCERPT_LINES, "the last 40 lines go into the file");
+    assert!(built.file.contains("line 300") && !built.file.contains("line 150"));
+    assert!(!built.file.contains("ghp_abcdefghijklmnopqrstuvwxyz0123456789"), "{}", built.file);
+    assert!(!built.file.contains("dana.private@example.org") && built.file.contains("<email>"));
+    assert_eq!(built.file.matches("<<<pm-notes").count(), 1);
 }
 
 // ------------------------------------------------------------------------------ folder step
