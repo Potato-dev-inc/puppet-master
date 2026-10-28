@@ -351,3 +351,19 @@ fn unreadable_records_get_a_note_and_none_means_no_note() {
     assert_eq!(note(1).as_deref(), Some("1 record could not be read. Its turns are not counted."));
     assert_eq!(note(3).as_deref(), Some("3 records could not be read. Their turns are not counted."));
 }
+
+#[test]
+fn the_limit_hits_come_out_in_the_same_order_every_time() {
+    // Two panes start at the same moment and are both still open: the order must not depend on hashing.
+    let t0 = at(2026, 10, 10, 9, 0);
+    let entries = vec![
+        Entry::Start { at_ms: t0, pane: "pane-b".into(), agent: "alpha".into(), account: None, reset_at_ms: None },
+        Entry::Start { at_ms: t0, pane: "pane-a".into(), agent: "alpha".into(), account: None, reset_at_ms: None },
+        Entry::Start { at_ms: t0 - HOUR, pane: "pane-c".into(), agent: "beta".into(), account: None, reset_at_ms: None },
+    ];
+    let first = limit_log::hits(&entries, t0 + HOUR, &|_| true);
+    for _ in 0..20 {
+        assert_eq!(limit_log::hits(&entries, t0 + HOUR, &|_| true), first);
+    }
+    assert_eq!(first.iter().map(|h| h.agent_id.as_str()).collect::<Vec<_>>(), ["beta", "alpha", "alpha"]);
+}
