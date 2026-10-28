@@ -410,13 +410,7 @@ fn after_pick(app: &AppHandle, rec: &Preview, window: &WebviewWindow, raw: &str)
 
     let seq = SESSION.lock().next_seq();
     let now = now_ms();
-    let (saved, no_shot_reason) = match capture_png(window) {
-        Err(reason) => (None, Some(reason)),
-        Ok(png) => match save_crop(&png, &facts, Path::new(&rec.cwd), now, seq) {
-            Ok(saved) => (Some(saved), None),
-            Err(reason) => (None, Some(reason)),
-        },
-    };
+    let (saved, no_shot_reason) = shot_outcome(capture_png(window), &facts, Path::new(&rec.cwd), now, seq);
 
     // The "To:" list and the folders a source file may live in: the dev server pane's and the default target's.
     let infos = pane_infos(app);
@@ -470,13 +464,26 @@ fn save_crop(png: &[u8], facts: &super::PickFacts, project: &Path, now: u64, seq
     Ok(Shot { abs_path, rel_path, width, height })
 }
 
-/// The native screenshot of the preview's viewport.
-///
-/// SHIM until PF-9 (`point/capture.rs`) is merged: then this body becomes
-/// `super::capture::viewport_png(window, CAPTURE_TIMEOUT)` and nothing else changes.
-fn capture_png(_window: &WebviewWindow) -> Result<Vec<u8>, &'static str> {
-    let _ = CAPTURE_TIMEOUT;
-    Err("Screenshots need Windows for now.")
+/// The native screenshot of the preview's viewport (PF-9). On other systems it is a plain sentence.
+fn capture_png(window: &WebviewWindow) -> Result<Vec<u8>, &'static str> {
+    super::capture::viewport_png(window, CAPTURE_TIMEOUT)
+}
+
+/// Turns a capture answer into "the saved crop" or "why there is none". Never fails the pick.
+fn shot_outcome(
+    captured: Result<Vec<u8>, &'static str>,
+    facts: &super::PickFacts,
+    project: &Path,
+    now: u64,
+    seq: u32,
+) -> (Option<Shot>, Option<&'static str>) {
+    match captured {
+        Err(reason) => (None, Some(reason)),
+        Ok(png) => match save_crop(&png, facts, project, now, seq) {
+            Ok(saved) => (Some(saved), None),
+            Err(reason) => (None, Some(reason)),
+        },
+    }
 }
 
 fn warn_once(rec: &Preview, why: &str) {
@@ -682,5 +689,60 @@ mod tests {
         assert!(!is_own_shot(&Path::new("work").join("pick-1.png")));
         assert!(!is_own_shot(&Path::new("work").join("shots").join("pick-1.png")));
         assert!(!is_own_shot(&Path::new("")));
+    }
+
+    fn facts() -> super::super::PickFacts {
+        use super::super::{Rect, Viewport};
+        super::super::PickFacts {
+            page: "localhost:5173/".into(),
+            url: "http://localhost:5173/".into(),
+            title: "Home".into(),
+            tag: "button".into(),
+            label: "button#buy".into(),
+            selector: "button#buy".into(),
+            text: "Buy".into(),
+            html: "<button id=\"buy\">".into(),
+            rect: Rect { x: 10.0, y: 10.0, w: 40.0, h: 20.0 },
+            viewport: Viewport { w: 100.0, h: 100.0, dpr: 1.0 },
+            attrs: vec![],
+            styles: vec![],
+            component: None,
+            source_hint: None,
+        }
+    }
+
+    #[test]
+    fn a_capture_error_becomes_the_reason_and_no_shot() {
+        let dir = std::env::temp_dir().join(format!("pm-point-win-{}", uuid::Uuid::new_v4()));
+        let (shot, why) = shot_outcome(Err(super::super::capture::ERR_NO_WINDOWS), &facts(), &dir, 1, 1);
+        assert!(shot.is_none());
+        assert_eq!(why, Some("Screenshots need Windows for now."));
+        assert!(!dir.exists(), "nothing is written when there is no picture");
+    }
+
+    #[test]
+    fn a_picture_that_is_not_a_png_gives_a_plain_reason() {
+        let dir = std::env::temp_dir().join(format!("pm-point-win-{}", uuid::Uuid::new_v4()));
+        let (shot, why) = shot_outcome(Ok(b"not a png".to_vec()), &facts(), &dir, 1, 1);
+        assert!(shot.is_none());
+        assert_eq!(why, Some("The screenshot could not be cropped."));
+    }
+
+    #[test]
+    fn a_real_capture_is_cropped_and_saved() {
+        let mut png = Vec::new();
+        let mut enc = png::Encoder::new(&mut png, 100, 100);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut w = enc.write_header().unwrap();
+        w.write_image_data(&vec![200u8; 100 * 100 * 4]).unwrap();
+        w.finish().unwrap();
+        let dir = std::env::temp_dir().join(format!("pm-point-win-{}", uuid::Uuid::new_v4()));
+        let (shot, why) = shot_outcome(Ok(png), &facts(), &dir, 20261028, 1);
+        assert_eq!(why, None);
+        let shot = shot.expect("a saved shot");
+        assert!(shot.abs_path.is_file());
+        assert!(shot.width > 0 && shot.height > 0);
+        let _ = std::fs::remove_file(&shot.abs_path);
     }
 }
