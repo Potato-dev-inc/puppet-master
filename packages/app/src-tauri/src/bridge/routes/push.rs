@@ -45,7 +45,7 @@ fn act(cx: &Ctx, hub: &crate::push::hub::PushHub, now: u64) -> RouteResult {
             device_name: crate::attention::caps::device_name(&act.grant.device_id).unwrap_or_else(|| "A phone".to_string()),
             caps: crate::attention::caps::for_device(&act.grant.device_id),
             device_id: act.grant.device_id.clone(),
-            lock_screen: true,
+            via: crate::attention::answer::Via::LockScreen,
         };
         let request = crate::attention::answer::Request {
             choice: Some(act.choice.to_string()),

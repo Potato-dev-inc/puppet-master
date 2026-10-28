@@ -318,7 +318,7 @@ fn an_error_or_a_stuck_item_has_nothing_to_answer() {
 #[test]
 fn a_lock_screen_button_goes_through_the_same_checks_and_is_audited_as_one() {
     let env = fresh();
-    let lock = Caller { lock_screen: true, ..all() };
+    let lock = Caller { via: Via::LockScreen, ..all() };
     // The notification was about the first occurrence; the pane has asked again since.
     let mut stale = env.request("allow_once", Some("lock-1"));
     stale.occurrence = Some(2);
@@ -328,8 +328,93 @@ fn a_lock_screen_button_goes_through_the_same_checks_and_is_audited_as_one() {
     assert_eq!(outcome(&reply), "answered");
     assert_eq!(env.audits.lock().clone(), vec!["A phone answered from its lock screen: Allowed once".to_string()]);
     // A button on a phone that lost its answer ability since the notification went out is refused.
-    let revoked = Caller { lock_screen: true, ..watch_only() };
+    let revoked = Caller { via: Via::LockScreen, ..watch_only() };
     assert_eq!(answer(&env, &revoked, &env.item_id(), &env.request("allow_once", None)).0, 403);
+}
+
+// ---- a chat answer (Via::Telegram) -------------------------------------------------------------
+
+fn chat() -> Caller {
+    Caller { device_id: "telegram".into(), device_name: "Telegram".into(), caps: DeviceCaps::all(), via: Via::Telegram }
+}
+
+#[test]
+fn a_chat_answer_is_refused_for_a_trust_gate_a_consent_card_a_budget_and_a_limit() {
+    let env = fresh();
+    for (kind, subject) in [(Kind::TrustGate, "t1"), (Kind::Consent, "c1"), (Kind::Budget, "b1"), (Kind::Limit, "l1"), (Kind::Tamper, "x1"), (Kind::Setup, "s1")] {
+        env.items.lock().push(question_item(kind, subject));
+        let reply = answer(&env, &chat(), &format!("q-{subject}"), &Request { choice: Some("allow_once".into()), ..Request::default() });
+        assert_eq!((reply.0, reply.1["error"].as_str()), (403, Some("not_from_chat")), "{kind:?}");
+    }
+    assert_eq!(env.writes(), 0);
+    assert!(env.notes.lock().is_empty(), "nothing was answered, so no receipt");
+    assert!(env.audits.lock().is_empty(), "nothing was answered, so no audit line");
+}
+
+#[test]
+fn a_tamper_alert_and_a_setup_step_are_refused_from_a_chat_and_only_decided_on_the_pc() {
+    let env = fresh();
+    env.items.lock().push(question_item(Kind::Tamper, "x1"));
+    env.items.lock().push(question_item(Kind::Setup, "s1"));
+    for subject in ["x1", "s1"] {
+        let id = format!("q-{subject}");
+        let request = Request { choice: Some("ok".into()), ..Request::default() };
+        let from_chat = answer(&env, &chat(), &id, &request);
+        assert_eq!((from_chat.0, from_chat.1["error"].as_str()), (403, Some("not_from_chat")), "{subject}");
+        assert_eq!(from_chat.1["hint"], "Decide this in Puppet Master on the PC.", "{subject}");
+        // The chat guard is what refuses it: the same request from a card is not a chat refusal.
+        let from_card = answer(&env, &all(), &id, &request);
+        assert_ne!(from_card.1["error"].as_str(), Some("not_from_chat"), "{subject}");
+    }
+    assert_eq!(env.writes(), 0);
+    assert!(env.audits.lock().is_empty(), "nothing was answered");
+}
+
+#[test]
+fn a_chat_answer_is_refused_for_an_approval_above_low_risk_or_with_no_risk_read() {
+    for risk in [Some("medium"), Some("high"), None] {
+        let mut prompt = rec("pid-1", "Run command: npm test (in shop)", "low");
+        prompt.risk_level = risk.map(str::to_string);
+        let env = FakeEnv::showing("pane-1", prompt, 3);
+        let reply = answer(&env, &chat(), &env.item_id(), &env.request("allow_once", None));
+        assert_eq!((reply.0, reply.1["error"].as_str()), (403, Some("not_from_chat")), "{risk:?}");
+        assert_eq!(env.writes(), 0, "{risk:?}");
+        assert!(env.audits.lock().is_empty(), "{risk:?}");
+    }
+}
+
+#[test]
+fn a_chat_answer_is_allowed_for_a_low_risk_approval_and_is_audited_as_from_telegram() {
+    let env = fresh();
+    let reply = answer(&env, &chat(), &env.item_id(), &env.request("allow_once", Some("tg-1")));
+    assert_eq!(outcome(&reply), "answered");
+    assert_eq!(reply.1["choice_label"], "Allowed once");
+    assert_eq!(env.typed.lock().clone(), vec![("pane-1".to_string(), "allow_once".to_string())]);
+    assert_eq!(env.audits.lock().clone(), vec!["Answered from Telegram: Allowed once".to_string()]);
+    let notes = env.notes.lock();
+    assert_eq!(notes[0].1.by.as_deref(), Some("phone"));
+    assert_eq!(notes[0].1.device_name.as_deref(), Some("Telegram"));
+}
+
+#[test]
+fn a_chat_answer_is_allowed_for_a_question() {
+    let env = fresh();
+    env.items.lock().push(question_item(Kind::Question, "q1"));
+    *env.question_result.lock() = Some(QuestionResult::Answered { label: Some("Postgres".into()) });
+    let reply = answer(&env, &chat(), "q-q1", &Request { choice: Some("pg".into()), ..Request::default() });
+    assert_eq!(outcome(&reply), "answered");
+    assert_eq!(env.writes(), 0, "a question never types into a pane");
+    assert_eq!(env.audits.lock().clone(), vec!["Answered from Telegram: Postgres".to_string()]);
+}
+
+#[test]
+fn the_card_and_lock_screen_wording_of_the_audit_line_is_unchanged() {
+    let env = fresh();
+    answer(&env, &all(), &env.item_id(), &env.request("allow_once", None));
+    let lock_env = fresh();
+    answer(&lock_env, &Caller { via: Via::LockScreen, ..all() }, &lock_env.item_id(), &lock_env.request("allow_once", None));
+    assert_eq!(env.audits.lock().clone(), vec!["A phone answered a card: Allowed once".to_string()]);
+    assert_eq!(lock_env.audits.lock().clone(), vec!["A phone answered from its lock screen: Allowed once".to_string()]);
 }
 
 #[test]
