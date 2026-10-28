@@ -6,6 +6,7 @@
 
 pub mod bisect;
 mod engine;
+pub mod bisect;
 pub mod http;
 mod git;
 mod runtime;
