@@ -17,6 +17,7 @@ import { panesSharingFolder } from './components/cockpit/history-model';
 import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SettingsView } from './components/cockpit/SettingsView';
+import { PlansMonth } from './components/cockpit/PlansMonth';
 import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
@@ -221,6 +222,7 @@ export default function CockpitApp() {
         }}
         onOpenDoctor={() => setView('doctor')}
         onOpenMemory={() => setView('memory')}
+        onOpenPlans={() => setView('plans')}
         companions={companions.companions}
         openCompanionId={view === 'companion' ? companionId : null}
         onOpenCompanion={openCompanion}
@@ -249,6 +251,8 @@ export default function CockpitApp() {
             project={c.selectedId ? projectOfCwd(c.registry.panes.get(c.selectedId)?.info.cwd)?.path : undefined}
             onClose={closeOverlay}
           />
+        ) : view === 'plans' ? (
+          <PlansMonth onClose={closeOverlay} />
         ) : view === 'settings' ? (
           <SettingsView key={settings.viewKey} {...settings.viewProps} />
         ) : view === 'spawn' && c.spawn ? (
@@ -309,6 +313,7 @@ export default function CockpitApp() {
           onOpenDoctor={() => setView('doctor')}
           onStopAll={stopAll}
           onOpenMemory={() => setView('memory')}
+          onOpenPlans={() => setView('plans')}
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}
           onStartCrew={() => setCrewOpen(true)}

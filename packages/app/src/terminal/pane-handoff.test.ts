@@ -72,17 +72,29 @@ function attach(pty: FakePty, reader: () => Promise<PaneScreenReplay>) {
   return { stream, term };
 }
 
-/** Output while the snapshot is in flight: chunks split mid-line, and one that straddles nothing. */
+/** A promise the test resolves itself: the snapshot lands when the test says so, not when a timer fires. */
+function gate(): { wait: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const wait = new Promise<void>((resolve) => (open = resolve));
+  return { wait, open };
+}
+
+/**
+ * Output while the snapshot is in flight: chunks split mid-line, and one that straddles nothing.
+ * The snapshot is taken when the viewer subscribes, and it arrives only once the test has fed the
+ * in-flight output, so which chunks land before it never depends on timer or xterm scheduling.
+ */
 async function run(withOffset: boolean, withResize: boolean) {
   const pty = new FakePty();
   const follower = attach(pty, async () => ({ data: new Uint8Array(0), cols: 40, rows: 8, offset: 0 }));
   await tick();
   for (let i = 0; i < 20; i++) await pty.output(`before ${i}\r\n`);
 
+  const arrival = gate();
   const viewer = attach(pty, async () => {
     const snap = pty.snapshot(); // the PTY reader's emulator, at this stream offset
     if (!withOffset) delete snap.offset;
-    await tick(10); // the snapshot crosses IPC; output keeps coming
+    await arrival.wait; // the snapshot crosses IPC; output keeps coming meanwhile
     return snap;
   });
   // arrives while the snapshot is in flight; the last chunk is cut in the middle of a line
@@ -91,7 +103,8 @@ async function run(withOffset: boolean, withResize: boolean) {
   await pty.output('(rest of B)\r\n');
   if (withResize) await pty.resize(30, 8);
   await pty.output('after resize C\r\n');
-  await tick(30);
+  arrival.open();
+  await tick(); // the snapshot's continuation runs to completion before the next macrotask
   await pty.output('live D\r\n');
   await flush(viewer.term);
   await flush(follower.term);

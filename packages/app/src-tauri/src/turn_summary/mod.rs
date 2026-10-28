@@ -60,7 +60,16 @@ impl Env for LiveEnv {
             .map(|c| c.label.to_string())
             .filter(|l| !l.is_empty())
             .unwrap_or_else(|| facts.agent_type.clone());
-        Some(PaneInfo { cwd: facts.cwd, label, has_turns: profile.features().kind != crate::tui::Kind::Shell })
+        let account = crate::bridge::live_registry()
+            .and_then(|registry| registry.lock().list().into_iter().find(|p| p.id == pane_id))
+            .and_then(|info| info.account);
+        Some(PaneInfo {
+            cwd: facts.cwd,
+            label,
+            agent_id: facts.agent_type,
+            account,
+            has_turns: profile.features().kind != crate::tui::Kind::Shell,
+        })
     }
 
     fn files(&self, pane_id: &str, started_at_ms: u64) -> Option<FileStats> {

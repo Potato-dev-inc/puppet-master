@@ -194,7 +194,7 @@ impl Env for Clock {
     }
     fn pane(&self, _pane_id: &str) -> Option<PaneInfo> {
         // The same facts `turn_summary::LiveEnv` reads for a native pane: not a plain shell.
-        Some(PaneInfo { cwd: self.cwd.to_string_lossy().into_owned(), label: "OpenCode".into(), has_turns: true })
+        Some(PaneInfo { cwd: self.cwd.to_string_lossy().into_owned(), label: "OpenCode".into(), agent_id: "opencode".into(), account: None, has_turns: true })
     }
     fn files(&self, _pane_id: &str, _started_at_ms: u64) -> Option<FileStats> {
         None

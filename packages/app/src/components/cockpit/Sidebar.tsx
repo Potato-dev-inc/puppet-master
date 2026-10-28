@@ -12,7 +12,7 @@ import { mainPreview, type PreviewUrl } from '../../lib/pane-preview';
 import '../../styles/live-preview.css';
 import '../../styles/cockpit-helpers.css';
 import { DotSpinner } from './DotSpinner';
-import { IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
+import { IconChart, IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, spinnerStatus } from './model';
 import { groupHelperTree, helperChipText, type HelperNode } from '../../lib/pane-helpers';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
@@ -34,6 +34,7 @@ export function Sidebar({
   onOpenPalette,
   onOpenDoctor,
   onOpenMemory,
+  onOpenPlans,
   companions,
   openCompanionId = null,
   onOpenCompanion,
@@ -45,6 +46,7 @@ export function Sidebar({
   onOpenPalette: () => void;
   onOpenDoctor?: () => void;
   onOpenMemory?: () => void;
+  onOpenPlans?: () => void;
   /** A pane's row menu: "Open to the side" (split view). Absent: the row has no menu. */
   onOpenToSide?: (paneId: string) => void;
   /** The companions, above Inbox. Absent or null: no companion rows (no backend, or not read yet). */
@@ -387,6 +389,12 @@ export function Sidebar({
           <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenMemory}>
             <IconNote />
             Project
+          </button>
+        )}
+        {onOpenPlans && (
+          <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenPlans}>
+            <IconChart />
+            Your plans
           </button>
         )}
         <div className="ck-foot-row">

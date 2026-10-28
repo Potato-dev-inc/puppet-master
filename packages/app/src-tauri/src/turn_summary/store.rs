@@ -30,6 +30,14 @@ fn load_file(project: &Path) -> BTreeMap<String, Vec<TurnSummary>> {
     serde_json::from_str::<RingFile>(&text).map(|f| f.panes).unwrap_or_default()
 }
 
+/// Every summary saved in a project's ring file, oldest first (a missing or damaged file is empty).
+/// Read-only: "Your plans" (`crate::plans_report`) uses it for months that are not in memory.
+pub fn read_project(project: &Path) -> Vec<TurnSummary> {
+    let mut all: Vec<TurnSummary> = load_file(project).into_values().flatten().collect();
+    all.sort_by_key(|s| s.ended_at_ms);
+    all
+}
+
 /// Atomic write (temp file, then rename). Errors are returned for logging; callers keep going.
 fn save_file(project: &Path, panes: BTreeMap<String, Vec<TurnSummary>>) -> std::io::Result<()> {
     let path = ring_path(project);
