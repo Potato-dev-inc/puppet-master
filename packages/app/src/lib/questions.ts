@@ -78,6 +78,15 @@ export const isIssuePush = (q: Question): boolean => q.kind === 'issue_push';
 /** Either issue card (Assign an issue). These are raised by Puppet Master only and answered by the person only. */
 export const isIssueCard = (q: Question): boolean => isIssueStart(q) || isIssuePush(q);
 
+/** "CI failed on #61 (lint, test). Ask Codex to fix it?": the card that asks before an agent reads a failed CI log. */
+export const isCiFix = (q: Question): boolean => q.kind === 'ci_fix';
+
+/** "Push the fix to #61?": the card that asks before a CI fix is pushed. */
+export const isCiPush = (q: Question): boolean => q.kind === 'ci_push';
+
+/** Either Red to Green card. Raised by Puppet Master only and answered by the person only. */
+export const isCiCard = (q: Question): boolean => isCiFix(q) || isCiPush(q);
+
 /** What the person typed or picked: exactly one of the two. */
 export type QuestionAnswer = { choice_id: string } | { text: string };
 
