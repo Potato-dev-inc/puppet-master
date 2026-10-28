@@ -387,6 +387,7 @@ pub fn run() {
             commands::mission_resume,
             commands::mission_decide,
             commands::turn_summaries,
+            commands::changes_blame,
             commands::presence_cockpit_focus,
             commands::away_digest_pending,
             commands::away_digest_dismiss,
