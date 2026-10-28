@@ -183,10 +183,10 @@ describe('Agents: every row renders', () => {
     expect(buttonByText(m.host, 'Save changes')).toBeUndefined();
   });
 
-  it('groups the rows: Logins, Speed, Updates, Live updates, Keep going, then Definitions (whose own block carries the title)', async () => {
+  it('groups the rows: Logins, Speed, Updates, Live updates, Keep going, Linux, then Definitions (whose own block carries the title)', async () => {
     await mount();
     const heads = [...m.host.querySelectorAll('section.st-group')].map((g) => g.querySelector(':scope > h2')?.textContent?.trim() ?? '');
-    expect(heads).toEqual(['Logins', 'Speed', 'Updates', 'Live updates', 'Keep going', '']);
+    expect(heads).toEqual(['Logins', 'Speed', 'Updates', 'Live updates', 'Keep going', 'Linux', '']);
   });
 
   it('Keep going: the block mounts under its own row with the saved order', async () => {

@@ -10,6 +10,7 @@ import { Popup } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
 import { SettingRow, SettingToggle } from '../settings-ui';
 import { KeepGoingRows } from './KeepGoingRows';
+import { LinuxRows } from './LinuxRows';
 
 type HookMode = 'off' | 'shadow' | 'evidence';
 
@@ -109,6 +110,14 @@ export const agentsRows: RowDef[] = [
     keywords: 'keep going continue move another agent limit usage run out reset back first resets offer order fallback backup hand over ask runs',
     group: 'Keep going',
     render: (env) => <KeepGoingRows onSaved={env.markSaved} />,
+  },
+  {
+    id: 'linux',
+    label: 'Run agents in Linux (WSL)',
+    hint: 'Run an agent inside WSL, in a folder on a Windows drive, instead of on Windows.',
+    keywords: 'linux wsl ubuntu distro subsystem runs on place check windows drive inside',
+    group: 'Linux',
+    render: (env) => <LinuxRows onSaved={env.markSaved} />,
   },
   {
     id: 'definitions',
