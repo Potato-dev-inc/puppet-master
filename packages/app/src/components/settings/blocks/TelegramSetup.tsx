@@ -77,9 +77,13 @@ export const telegramApi: TelegramApi = {
   pairStart: telegramPairStart,
   pairDecide: telegramPairDecide,
   setEnabled: telegramSetEnabled,
-  setOptions: telegramSetOptions,
+  setOptions: (caps, notifyRuns, shortMode) => telegramSetOptions({ caps, notifyRuns, shortMode }),
   forget: telegramForget,
-  onChanged: onTelegramChanged,
+  // `onTelegramChanged` resolves to its unlisten function; the block wants a plain one, so wait for it.
+  onChanged: (listener) => {
+    const pending = onTelegramChanged(listener);
+    return () => void pending.then((unlisten) => unlisten());
+  },
 };
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
