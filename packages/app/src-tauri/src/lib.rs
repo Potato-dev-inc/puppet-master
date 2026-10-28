@@ -163,6 +163,8 @@ pub fn run() {
             commands::list_panes,
             commands::session_chat_open,
             commands::session_chat_close,
+            commands::chat_export_html,
+            commands::chat_export_save,
             commands::pane_message_send,
             commands::pane_message_cancel,
             commands::pane_messages_list,
