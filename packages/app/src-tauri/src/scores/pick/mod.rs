@@ -30,7 +30,7 @@ pub mod select;
 #[cfg(test)]
 mod tests;
 
-// The entry points are read by the command (a later task); until then the re-exports are unused.
+// `pick` is read by `live`; `pick_for_folder` by the Tauri command.
 #[allow(unused_imports)]
 pub use compose::pick;
 #[allow(unused_imports)]
