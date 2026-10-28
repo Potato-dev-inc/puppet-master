@@ -20,9 +20,16 @@ export const NO_TURNS_TEXT = 'No turns this month yet.';
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
-/** One CSV field. Quoted when it holds a comma, a quote or a line break; inner quotes are doubled (RFC 4180). */
+/** A text field that a spreadsheet could read as a formula: starts with = + - @ tab or carriage return. */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/**
+ * One CSV field. Numbers are written as they are. A text field that could run as a formula gets a leading
+ * single quote first. Then a field with a comma, a quote or a line break is quoted, and inner quotes are doubled (RFC 4180).
+ */
 export function csvField(value: string | number): string {
-  const text = String(value);
+  if (typeof value === 'number') return String(value);
+  const text = FORMULA_START.test(value) ? `'${value}` : value;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

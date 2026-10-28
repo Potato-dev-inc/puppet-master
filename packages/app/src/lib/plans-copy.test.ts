@@ -32,6 +32,41 @@ describe('csvField', () => {
   });
 });
 
+describe('csvField formula guard', () => {
+  it('puts a leading single quote before a text field that starts with = + - @ tab or carriage return', () => {
+    expect(csvField('=HYPERLINK("http://x","y")')).toBe(`"'=HYPERLINK(""http://x"",""y"")"`);
+    expect(csvField('-x')).toBe("'-x");
+    expect(csvField('+1')).toBe("'+1");
+    expect(csvField('@sum')).toBe("'@sum");
+    expect(csvField('\tindented')).toBe("'\tindented");
+    expect(csvField('\rreturn')).toBe(`"'\rreturn"`);
+  });
+
+  it('quotes a guarded text field when it also needs quotes', () => {
+    expect(csvField('=A1,B1')).toBe(`"'=A1,B1"`);
+    expect(csvField('-"x"')).toBe(`"'-""x"""`);
+  });
+
+  it('leaves text that does not start with a formula character alone', () => {
+    expect(csvField('a=b')).toBe('a=b');
+    expect(csvField('x-y')).toBe('x-y');
+    expect(csvField('')).toBe('');
+  });
+
+  it('never guards a number, negative numbers included', () => {
+    expect(csvField(0)).toBe('0');
+    expect(csvField(-5)).toBe('-5');
+    expect(csvField(1.5)).toBe('1.5');
+  });
+
+  it('guards the label cells of a plan row and leaves its number cells alone', () => {
+    const cells = planCsvCells(row({ agentLabel: '=HYPERLINK("http://x","Plan")', accountLabel: '-x' }));
+    expect(cells.slice(0, 2).map(csvField)).toEqual([`"'=HYPERLINK(""http://x"",""Plan"")"`, "'-x"]);
+    expect(cells.slice(2).every((c) => typeof c === 'number')).toBe(true);
+    expect(cells.slice(2).map(csvField)).toEqual(['22', '551', '47', '340', '45', '2', '0', '0']);
+  });
+});
+
 describe('plansCsv', () => {
   it('writes the header in the agreed column order', () => {
     expect(PLANS_CSV_HEADER).toEqual([
