@@ -12,6 +12,8 @@ const ui = vi.hoisted(() => ({ spawn: null as null | { failed: string | null } }
 const cockpit = vi.hoisted(() => ({
   mode: 'orchestration' as 'orchestration' | 'individual',
   openSettings: (async () => {}) as (tab?: string) => Promise<void>,
+  // The pane list is known (the split restores on start only then). Off by default, as before.
+  ready: false,
 }));
 // Rust's "show Settings in this window" event (cockpit://settings).
 const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
@@ -43,6 +45,7 @@ vi.mock('./hooks/useCockpit', async () => {
         registry: {
           paneList: ids.map((id) => ({ info: { id, cwd: `/proj/${id}` } })),
           panes: new Map(ids.map((id) => [id, { info: { id, cwd: `/proj/${id}` }, status: 'idle' }])),
+          initialReady: cockpit.ready,
         },
       };
     },
@@ -120,7 +123,7 @@ vi.mock('./components/cockpit/ProjectMemory', async () => {
 // The split view's own rendering is tested in SplitView.test.tsx; here only its wiring from CockpitApp.
 vi.mock('./components/cockpit/SplitView', async () => {
   const { createElement: h, useEffect, useState } = await import('react');
-  type Props = { leftId: string; rightId: string; focus: string; onClose: () => void; onFocus: (side: string) => void };
+  type Props = { leftId: string; rightId: string; focus: string; ratio: number; onClose: () => void; onFocus: (side: string) => void; onRatio: (r: number) => void };
   return {
     useWindowWidth: () => {
       const [w, setW] = useState(() => window.innerWidth);
@@ -131,14 +134,15 @@ vi.mock('./components/cockpit/SplitView', async () => {
       }, []);
       return w;
     },
-    SplitView: ({ leftId, rightId, focus, onClose, onFocus }: Props) =>
+    SplitView: ({ leftId, rightId, focus, ratio, onClose, onFocus }: Props) =>
       h(
         'div',
         null,
-        `SPLIT VIEW ${leftId}|${rightId}|${focus}`,
+        `SPLIT VIEW ${leftId}|${rightId}|${focus}|${ratio}`,
         h('button', { type: 'button', onClick: onClose }, 'Close split'),
         h('button', { type: 'button', onClick: () => onFocus('right') }, 'Focus right'),
       ),
+    focusSideComposer: () => {},
   };
 });
 vi.mock('./components/cockpit/PaneView', async () => {
@@ -200,6 +204,8 @@ beforeEach(() => {
   ui.spawn = null;
   cockpit.mode = 'orchestration';
   cockpit.openSettings = vi.fn(async () => {});
+  cockpit.ready = false;
+  localStorage.clear();
   rust.openSettings = null;
   settingsMounts = 0;
   window.history.replaceState(null, '', '/');
