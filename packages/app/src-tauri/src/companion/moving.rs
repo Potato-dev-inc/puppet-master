@@ -97,6 +97,16 @@ impl Service {
     /// Nothing is running that a move would cut off: asleep, stopped, no pane yet, or idle with nothing waiting.
     fn is_free(&self, inner: &Inner, profile: &CompanionProfile) -> bool {
         let Some(slot) = inner.slots.get(&profile.id) else { return true };
+        // Only a dismissible startup notice is on the pane (it reads `running`): stopping it cuts nothing off,
+        // unless a message is still on its way into it.
+        if slot.notice_open
+            && slot.pane_there
+            && matches!(slot.state, CompanionState::Working | CompanionState::Starting)
+            && slot.outgoing.is_empty()
+            && self.host.waiting(&pane_id_of(&profile.id)).is_empty()
+        {
+            return true;
+        }
         match slot.state {
             CompanionState::Sleeping | CompanionState::Stopped => true,
             // Waiting to start (after a crash, or a start that fails) has no pane to cut off.
