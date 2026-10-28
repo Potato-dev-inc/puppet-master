@@ -175,10 +175,12 @@ pub fn build_in<Tz: TimeZone>(
         Some((_, day)) => notes.push(format!("Counting Undo since {day}.")),
         None => notes.push("Counting Undo from now on.".to_string()),
     }
-    let no_files = scoped.iter().filter(|t| t.files_changed.is_none()).count();
-    if no_files > 0 {
-        let (what, they) = if no_files == 1 { ("turn had", "it is") } else { ("turns had", "they are") };
-        notes.push(format!("{no_files} {what} no file information, so {they} left out of Undone and Asked you."));
+    // A turn with no summary has no files and no prompt answers, so Undone and Asked you leave it out.
+    // A summary without files still counts in Asked you (`join` sets `asked_you` for every summary).
+    let no_summary = scoped.iter().filter(|t| t.asked_you.is_none()).count();
+    if no_summary > 0 {
+        let (what, they) = if no_summary == 1 { ("turn had", "it is") } else { ("turns had", "they are") };
+        notes.push(format!("{no_summary} {what} no summary, so {they} left out of Undone and Asked you."));
     }
     if !scoped.is_empty() {
         let with_checks = scoped.iter().filter(|t| t.checks_green.is_some()).count();

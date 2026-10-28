@@ -82,13 +82,31 @@ pub fn marks(entries: &[Entry]) -> Vec<UndoMark> {
         .collect()
 }
 
+// Test seam: every `note_restore` call on this thread, as (pane, target kind, target time, now).
+// A restore runs on the thread that asks for it, so a test reads exactly its own calls.
+#[cfg(test)]
+thread_local! {
+    static NOTED_RESTORES: std::cell::RefCell<Vec<(String, String, u64, u64)>> = std::cell::RefCell::new(Vec::new());
+}
+
+/// The `note_restore` calls made on this thread since the last call, oldest first (tests only).
+#[cfg(test)]
+pub fn take_noted_restores() -> Vec<(String, String, u64, u64)> {
+    NOTED_RESTORES.with(|noted| std::mem::take(&mut *noted.borrow_mut()))
+}
+
 /// Called by the checkpoints hook after a restore worked. Writes `begin` the first time, then one
-/// `undo` line. A no-op under `cfg(test)`, so tests never touch the real app data folder.
+/// `undo` line. A no-op under `cfg(test)` (it only records the call, see `take_noted_restores`), so
+/// tests never touch the real app data folder.
 ///
 /// `since_ms` is the checkpoint's time for every target kind (`before`, `after`, `answer`, `stop`,
 /// `undo`): the turns that started after that point are the ones put back. So the kind is not needed.
 pub fn note_restore(pane: &str, _target_kind: &str, target_at_ms: u64, now_ms: u64) {
     if cfg!(test) {
+        #[cfg(test)]
+        NOTED_RESTORES.with(|noted| {
+            noted.borrow_mut().push((pane.to_string(), _target_kind.to_string(), target_at_ms, now_ms))
+        });
         return;
     }
     let path = default_path();
