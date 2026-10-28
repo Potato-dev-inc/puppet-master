@@ -14,7 +14,7 @@
 
 pub mod aggregate;
 pub mod limit_log;
-mod merge;
+pub(crate) mod merge;
 pub mod model;
 pub mod month;
 #[cfg(test)]

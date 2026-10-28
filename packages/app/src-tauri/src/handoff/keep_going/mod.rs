@@ -9,6 +9,10 @@
 //! - `brief` (pure): the brief text the new agent reads, with every agent or tool string fenced.
 //! - `offers` (pure): which agents may take over, in what order.
 //! - `chain` (pure): hop counts, limits from records, come-back due list.
+//! - `live`: the hand-over itself (guards, brief, end the old run, stop the old agent, start the new one),
+//!   the offer on the card, the come-back check and the status lines. Everything it touches sits behind
+//!   `live_io::LiveIo`; `live_app` is the real app behind it and `live_gather` reads the old pane's work.
+//! - `view` (pure): the records as the windows see them (no brief, no path, no goal).
 //!
 //! Invariants (SPEC n32 section 4; each one is tested where it is built):
 //! - S1: agent text is only ever inside a fence, and the fence text says it is notes, not instructions.
@@ -30,9 +34,16 @@
 
 pub mod brief;
 pub mod chain;
+pub mod live;
+mod live_app;
+mod live_gather;
+pub mod live_io;
 pub mod model;
 pub mod offers;
 pub mod store;
+pub mod view;
 
+#[cfg(test)]
+mod engine_tests;
 #[cfg(test)]
 mod store_tests;
