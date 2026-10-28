@@ -5,7 +5,7 @@
 //! A task is typed to an agent as a prompt; it is never run through a shell. Even so, it must be
 //! plain text: no control characters, a bounded length, and `{folder}` as its only placeholder.
 
-use super::model::{Crew, CrewError, Role, MAX_ROLES, PLACEHOLDER};
+use super::model::{Crew, CrewError, Role, DEFAULT_AGENT, MAX_ROLES, PLACEHOLDER};
 
 pub const MAX_NAME_CHARS: usize = 60;
 pub const MAX_ROLE_NAME_CHARS: usize = 40;
@@ -65,21 +65,28 @@ fn check_role(role: &Role, out: &mut Vec<CrewError>, agent_state: &dyn Fn(&str) 
     if let Some(why) = bad_name(&role.name, MAX_ROLE_NAME_CHARS) {
         out.push(CrewError::for_role("CREW_ROLE_NAME", &role.name, format!("A role name {why}.")));
     }
-    if !plain_agent_id(&role.agent_type) {
-        out.push(CrewError::for_role("CREW_AGENT_UNKNOWN", &role.name, format!("\"{}\" is not an agent id.", role.agent_type)));
-    } else {
-        match agent_state(&role.agent_type) {
-            AgentState::Ready => {}
-            AgentState::Unknown => out.push(CrewError::for_role(
-                "CREW_AGENT_UNKNOWN",
-                &role.name,
-                format!("The agent \"{}\" for {} is not set up here.", role.agent_type, role.name),
-            )),
-            AgentState::NotDispatchable(why) => out.push(CrewError::for_role("CREW_AGENT_NOT_DISPATCHABLE", &role.name, format!("{} cannot take a task: {why}", role.name))),
-        }
+    // The default agent has no registry entry until the crew starts (`agents::resolve_defaults`).
+    if role.agent_type != DEFAULT_AGENT {
+        check_agent(role, out, agent_state);
     }
     if let Some(why) = bad_task(&role.task) {
         out.push(CrewError::for_role("CREW_TASK", &role.name, format!("The task of {} {why}.", role.name)));
+    }
+}
+
+fn check_agent(role: &Role, out: &mut Vec<CrewError>, agent_state: &dyn Fn(&str) -> AgentState) {
+    if !plain_agent_id(&role.agent_type) {
+        out.push(CrewError::for_role("CREW_AGENT_UNKNOWN", &role.name, format!("\"{}\" is not an agent id.", role.agent_type)));
+        return;
+    }
+    match agent_state(&role.agent_type) {
+        AgentState::Ready => {}
+        AgentState::Unknown => out.push(CrewError::for_role(
+            "CREW_AGENT_UNKNOWN",
+            &role.name,
+            format!("The agent \"{}\" for {} is not set up here.", role.agent_type, role.name),
+        )),
+        AgentState::NotDispatchable(why) => out.push(CrewError::for_role("CREW_AGENT_NOT_DISPATCHABLE", &role.name, format!("{} cannot take a task: {why}", role.name))),
     }
 }
 

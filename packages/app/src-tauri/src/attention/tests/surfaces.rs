@@ -52,11 +52,15 @@ fn one_count_everywhere() {
     // are "Ready for you": they carry no number.
     assert_eq!(counts, Counts { blocking: 5, ready: 2 });
 
-    // The tray badge and tooltip.
-    let statuses = facts.panes.iter().map(|p| p.status.as_str());
-    let tray = crate::ambient::tray_icon::aggregate_for(statuses, counts.blocking);
+    // The tray badge and tooltip. Both read the same attention count.
+    let statuses: Vec<&str> = facts.panes.iter().map(|p| p.status.as_str()).collect();
+    let tray = crate::ambient::tray_icon::aggregate_for(statuses.iter().copied(), counts.blocking);
     assert_eq!(tray.attention(), counts.blocking, "tray badge");
-    assert!(crate::ambient::glyph::tooltip(&tray).contains("5 need you"));
+    assert_eq!(
+        crate::tray::summary_line(&statuses, &[], counts.blocking),
+        "Puppet Master \u{b7} 5 need you \u{b7} 1 error \u{b7} 1 working",
+        "tray tooltip"
+    );
 
     // The away digest.
     let digest = crate::turn_summary::needs_you_from(store.snapshot());
