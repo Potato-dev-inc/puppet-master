@@ -418,6 +418,22 @@ export const generalRows: RowDef[] = [
     labs: { name: 'Assign an issue', about: 'Start an agent on a GitHub issue when someone on your list labels it.' },
     render: (env) => <AssignIssueSettings onSaved={env.markSaved} projectPath={env.projectPath} />,
   },
+  {
+    id: 'night-shift',
+    label: 'Night Shift',
+    hint: 'Plan tasks for tonight. Agents work on them in separate copies while you sleep, and you keep or throw away each one in the morning.',
+    keywords: 'night shift tonight overnight morning sleep labs tasks backup agents',
+    group: 'Labs',
+    labs: { name: 'Night Shift', about: 'Agents work through your tasks overnight, in separate copies.' },
+    render: (env) => (
+      <SettingToggle
+        label="Night Shift"
+        description="Plan tasks for tonight from the + menu. Agents work on them in separate copies while you sleep, with your tests as the check. Nothing merges until you press Keep in the morning."
+        checked={env.settings.night_shift_enabled ?? false}
+        onChange={(value) => void env.patch({ night_shift_enabled: value })}
+      />
+    ),
+  },
   { id: 'team', label: 'Team', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', labs: { name: 'Team', about: 'Tell teammates when your agent pushes, and see when theirs does.' }, render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'live-room', label: 'Live Room', hint: 'Let people with a link watch a chat. Pick the relay address, how long and how many.', keywords: 'live room share stream watch link relay viewers broadcast default length', group: 'Live Room', render: (env) => <LiveRoomRow onSaved={env.markSaved} /> },
   { id: 'version', label: 'Version', hint: 'Check for updates and download the installer.', keywords: 'app version update release download install', group: 'About', render: (env) => <VersionRow env={env} /> },

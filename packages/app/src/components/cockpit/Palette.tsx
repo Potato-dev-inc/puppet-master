@@ -20,6 +20,7 @@ import { IconChart, IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconRef
 import { matchesQuery, spinnerStatus, stateText } from './model';
 import { settingsShortcuts } from './palette-shortcuts';
 import { useMissionsEnabled } from '../../lib/missions';
+import { useNightEnabled } from '../../lib/night';
 import { projectWithCopy } from './shell-labels';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 import type { CompanionView } from '../../lib/companion';
@@ -49,6 +50,7 @@ export function Palette({
   onStopAll,
   onOpenMemory,
   onOpenPlans,
+  onOpenMorning,
   onOpenScores,
   onUndoLastTurn,
   onOpenWelcome,
@@ -66,6 +68,8 @@ export function Palette({
   onStopAll?: () => void;
   onOpenMemory?: () => void;
   onOpenPlans?: () => void;
+  /** Night Shift: opens the Morning page (drawn only while the Labs switch is on). */
+  onOpenMorning?: () => void;
   /** Opens "Scores on your code". Absent: no Scores action. */
   onOpenScores?: () => void;
   /** Opens the restore confirmation for the pane's last turn (never restores by itself). */
@@ -104,6 +108,7 @@ export function Palette({
   // The Live Room status the cockpit shares (undefined: no Live Room host, so no Live Room rows).
   const liveStatus = useContext(LiveStatusContext);
   const liveOn = liveStatus?.live === true;
+  const nightOn = useNightEnabled();
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     const multiLogin = multiLoginAgents(c.registry.paneList.map((p) => p.info));
@@ -332,7 +337,7 @@ export function Palette({
         run: onOpenScores,
       });
     }
-    out.push(...settingsShortcuts(c, { missionsOn, projectPath: c.selectedId ? (c.registry.panes.get(c.selectedId)?.info?.cwd ?? null) : null }));
+    out.push(...settingsShortcuts(c, { missionsOn, nightOn, onOpenMorning, projectPath: c.selectedId ? (c.registry.panes.get(c.selectedId)?.info?.cwd ?? null) : null }));
     out.push(
       {
         id: 'act:settings',
@@ -366,7 +371,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

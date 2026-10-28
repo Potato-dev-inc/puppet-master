@@ -124,10 +124,11 @@ vi.mock('./components/cockpit/Sidebar', async () => {
     onOpenDoctor: () => void;
     onOpenMemory: () => void;
     onOpenScores: () => void;
+    onOpenMorning?: () => void;
     onOpenToSide?: (id: string) => void;
   };
   return {
-    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenToSide }: Props) =>
+    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenMorning, onOpenToSide }: Props) =>
       h(
         'div',
         null,
@@ -135,6 +136,7 @@ vi.mock('./components/cockpit/Sidebar', async () => {
         h('button', { type: 'button', onClick: () => onOpenToSide?.('p2') }, 'Open p2 to the side'),
         h('button', { type: 'button', onClick: onOpenMemory }, 'Project memory'),
         h('button', { type: 'button', onClick: onOpenScores }, 'Scores'),
+        h('button', { type: 'button', onClick: onOpenMorning }, 'Night Shift chip'),
         h('button', { type: 'button', onClick: () => void c.openSettings() }, 'Settings'),
         h('button', { type: 'button', onClick: () => c.select(null) }, 'Inbox'),
         ...c.registry.paneList.map((p) =>
@@ -150,6 +152,20 @@ vi.mock('./components/cockpit/AgentDoctor', async () => {
 vi.mock('./components/cockpit/ProjectMemory', async () => {
   const { createElement: h } = await import('react');
   return { ProjectMemory: () => h('div', null, 'MEMORY VIEW') };
+});
+vi.mock('./components/cockpit/night/MorningPage', async () => {
+  const { createElement: h } = await import('react');
+  type Props = { onClose: () => void; onOpenPane?: (id: string) => void };
+  return {
+    MorningPage: ({ onClose, onOpenPane }: Props) =>
+      h(
+        'div',
+        null,
+        'MORNING VIEW',
+        h('button', { type: 'button', onClick: onClose }, 'Close morning'),
+        h('button', { type: 'button', onClick: () => onOpenPane?.('p2') }, 'Open task pane'),
+      ),
+  };
 });
 vi.mock('./components/cockpit/AgentScores', async () => {
   const { createElement: h } = await import('react');
@@ -275,6 +291,24 @@ describe('CockpitApp main view precedence', () => {
   it('(1) Project memory replaces the open Set up agents view', () => {
     clickButton('Set up agents');
     expect(mainText()).toBe('DOCTOR VIEW');
+    clickButton('Project memory');
+    expect(mainText()).toBe('MEMORY VIEW');
+  });
+
+  it('Morning: the Night Shift chip opens the page over the pane; Close and a task pane both leave it', () => {
+    clickButton('Night Shift chip');
+    expect(mainText()).toContain('MORNING VIEW');
+    clickButton('Close morning');
+    expect(mainText()).toBe('PANE VIEW p1');
+    clickButton('Night Shift chip');
+    clickButton('Open task pane');
+    expect(mainText()).toBe('PANE VIEW p2');
+  });
+
+  it('Morning: the last click wins over Project memory', () => {
+    clickButton('Project memory');
+    clickButton('Night Shift chip');
+    expect(mainText()).toContain('MORNING VIEW');
     clickButton('Project memory');
     expect(mainText()).toBe('MEMORY VIEW');
   });

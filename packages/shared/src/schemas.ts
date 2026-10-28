@@ -114,7 +114,7 @@ export const SettingsSchema = z.object({
   agent_hooks_agents: z.record(z.string(), z.enum(['off', 'shadow', 'evidence'])).optional(),
   /** Missions (Preview, Settings › General › Labs): goal + checks + budget, worked on in rounds. Off unless chosen. Rust: missions. */
   missions_enabled: z.boolean().optional(),
-  /** Night Shift (Labs, Settings › General › Labs): a task list worked through overnight, results in the morning. Off unless chosen. Rust: night_shift. */
+  /** Night Shift (Settings › General › Labs): plan tasks for tonight, review them in the morning. Off unless chosen. Rust: night_shift. */
   night_shift_enabled: z.boolean().optional(),
   /** Simple mode: the cockpit with fewer buttons and plain words, for people who do not write code. Off unless chosen. */
   simple_mode: z.boolean().optional(),

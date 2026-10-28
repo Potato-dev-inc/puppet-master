@@ -91,4 +91,17 @@ describe('NewAgentMenu', () => {
     expect(item('Kilo')!.textContent).toContain('only for tasks from other agents');
     expect(host.innerHTML.toLowerCase()).not.toContain('headless');
   });
+
+  it('draws "Tonight…" only when it is given a handler (the Labs switch is on)', async () => {
+    await mount([]);
+    expect(item('Tonight')).toBeUndefined();
+    const onTonight = vi.fn();
+    await act(async () => {
+      root.render(
+        <NewAgentMenu entries={ENTRIES} readyAgents={new Set()} onStart={vi.fn()} onClose={vi.fn()} accountsApi={api([])} onTonight={onTonight} />,
+      );
+    });
+    await act(async () => item('Tonight')!.click());
+    expect(onTonight).toHaveBeenCalledTimes(1);
+  });
 });

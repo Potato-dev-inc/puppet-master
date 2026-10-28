@@ -6,8 +6,9 @@
 import type { ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { openStartMission } from '../../lib/missions';
+import { openTonight } from '../../lib/night-host';
 import { patchSettings } from '../../lib/settings';
-import { IconLayers, IconNote, IconSettings, IconTerminal } from './Icons';
+import { IconLayers, IconMoon, IconNote, IconSettings, IconTerminal } from './Icons';
 
 export interface ShortcutEntry {
   id: string;
@@ -22,7 +23,7 @@ export interface ShortcutEntry {
 
 export function settingsShortcuts(
   c: Pick<CockpitApi, 'openSettings' | 'notify'>,
-  opts: { missionsOn?: boolean; projectPath?: string | null } = {},
+  opts: { missionsOn?: boolean; nightOn?: boolean; onOpenMorning?: () => void; projectPath?: string | null } = {},
 ): ShortcutEntry[] {
   const open = (tab: string) => () => void c.openSettings(tab);
   // Missions (Preview): with the Labs switch on, the palette opens the start sheet (the "+" menu's
@@ -46,8 +47,36 @@ export function settingsShortcuts(
         icon: <IconLayers />,
         run: open('missions'),
       };
+  // Night Shift (Labs): hidden while the switch is off. The sidebar owns the Tonight sheet; this only asks it to open.
+  const night: ShortcutEntry[] = opts.nightOn
+    ? [
+        {
+          id: 'act:night-tonight',
+          group: 'Actions',
+          title: 'Night Shift: plan tonight',
+          desc: 'Pick tasks for agents to work on while you sleep.',
+          keywords: 'night shift tonight overnight plan tasks sleep labs',
+          icon: <IconMoon />,
+          run: openTonight,
+        },
+        ...(opts.onOpenMorning
+          ? [
+              {
+                id: 'act:night-morning',
+                group: 'Actions' as const,
+                title: 'Morning',
+                desc: 'See what Night Shift did, then keep or throw away each task.',
+                keywords: 'morning night shift review results keep throw away overnight',
+                icon: <IconMoon />,
+                run: opts.onOpenMorning,
+              },
+            ]
+          : []),
+      ]
+    : [];
   return [
     mission,
+    ...night,
     {
       id: 'act:simple-mode',
       group: 'Actions',
