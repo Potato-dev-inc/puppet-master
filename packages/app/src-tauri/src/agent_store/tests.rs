@@ -318,6 +318,7 @@ fn detail_has_the_install_plan_run_preview_and_uninstall_summary() {
     assert_eq!(detail["fixtures"]["count"], 0);
     assert_eq!(detail["uninstall"]["available"], false, "the Store did not install it");
     assert_eq!(detail["uninstall"]["steps"], json!([]));
+    assert!(detail["uninstall"]["reason"].as_str().unwrap_or_default().contains("did not install"), "{}", detail["uninstall"]);
     assert_eq!(detail["found_path_display"], Value::Null);
 }
 
@@ -355,6 +356,25 @@ fn the_label_is_the_definition_name_or_the_vendor_name() {
     assert_eq!(qwen(&entries).label(), "Qwen Code");
     let builtin = entries.iter().find(|e| e.entry.store.id == "pm_test_builtin").unwrap();
     assert_eq!(builtin.label(), "Test Maker");
+}
+
+/// A built-in agent has no definition, so its card title is the label its TUI profile shows in the
+/// rest of the app (`tui::descriptor_for`), never the vendor name ("Anthropic", "SST", ...).
+#[test]
+fn a_built_in_card_is_titled_with_its_tui_profile_label() {
+    let _serial = crate::tui::registry::test_serial();
+    let expected = [
+        ("claude", "Claude Code"),
+        ("codex", "Codex CLI"),
+        ("opencode", "OpenCode"),
+        ("cursor_agent", "Cursor Agent CLI"),
+    ];
+    for (id, label) in expected {
+        let entry = catalog::all().iter().find(|e| e.entry.store.id == id).unwrap_or_else(|| panic!("{id} is shipped"));
+        assert!(entry.definition_text.is_none(), "{id} is built in");
+        assert_eq!(entry.label(), label, "{id}");
+        assert_ne!(entry.label(), entry.entry.vendor.name, "{id} must not show its vendor");
+    }
 }
 
 #[test]

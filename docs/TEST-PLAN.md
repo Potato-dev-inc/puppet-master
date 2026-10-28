@@ -27,6 +27,11 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | Bring All My Chats: Rust | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib session_chat::history` (also `session_chat::declared::history`, `chat_index`, `commands::chat_import`, `tui::claude::history`, `tui::codex::history`, `tui::opencode::history`, `tui::conformance`) | Static count on `feat/bc-docs`: 162 Bring All My Chats test functions (+1 ignored `regenerate_fixture_db`), counted from source, not run in the docs pass. The filters `chat_index` and `tui::conformance` also run older tests. The count includes the guard tests in `session_chat/history/guard.rs` |
 | Bring All My Chats: UI | `cd packages/app; npx vitest run src/components/history src/lib/chatImport src/components/settings/blocks/BringChatsSettings src/lib/chatTab` | Static count: 45 test cases in those files, not run in the docs pass. `CockpitApp.test.tsx` (31 cases, 3 for the old-chat host) runs with `npx vitest run src/CockpitApp` |
 | Bring All My Chats: fixture builder | `node --test scripts/make-fixture-history-home.test.mjs` | Static count: 15 cases (layout, refusals, extra files, exit codes), not run in the docs pass |
+| Agent Store: Rust | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib agent_store` (also `agent_install`, `tui::install`, `tui::declarative`) | Static count: about 110 test functions in `agent_store`, not run in the docs pass. Includes `the_shipped_catalog_has_no_problems` and `the_embedded_list_matches_the_catalog_folder_on_disk` |
+| Agent Store: catalog check | `cargo test --lib agent_store::check` (same dir/env) | Expected: all pass. A failure names the entry and the rule (see `docs/features/agent-store.md`, the 11 rules) |
+| Agent Store: UI | `cd packages/app; npx vitest run src/components/store src/lib/agent-store src/lib/agentStoreCheck` | Not run in the docs pass |
+| Agent Store: scripts | `node --test scripts/gen-store-catalog.test.mjs scripts/store-verify-publishers.test.mjs`; `node scripts/gen-store-catalog.mjs --check`; `node scripts/store-verify-publishers.mjs --offline` | Expected: tests pass; `--check` exits 0 when `embedded.rs` is current; `--offline` lists the packages with no network |
+| Agent Store: publishers (network) | `node scripts/store-verify-publishers.mjs` | Maintainer, before a release, output kept. Exit 0 when every package's repository matches its entry |
 | Perf (optional) | `node scripts/perf-latency.mjs` then `perf-summarize.mjs` | see `docs/perf/latency-baseline.md` |
 | Rust: Point and Fix | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib point::` | all pass (new; the count is recorded when the feature lands). Suites under `point/tests/`: `origin` (every refusal: LAN, public, `file:`, `javascript:`, userinfo `http://evil@localhost`, `localhost.evil.com`, IDN, `0x7f.1`, trailing dot; own ports 17321..17399, 1420, the dev port, the CDP port; navigation rules), `pick` (caps, fragment dropped, token in query redacted, foreign origin refused, NaN and negative rects clamped, `how` unknown rejected), `source` (each accepted form; `..` escape and outside-root files dropped), `message` (golden text for 1, 2 and 3 picks, no-shot reasons, length under 8000), `shot` (crop size at dpr 1.5 and 2, outline pixels, prune keeps the newest N), `target` (opener first, shells dropped, protocol and run-controlled panes greyed with the outbox sentence), `session` (max 3 picks, TTL, discard, drafts), `capabilities` (no capability matches `preview-*`, no `remote` key, `pointbox` present) |
 | Rust: send path | `cargo test --lib point::` (the `point_send` case) and `cargo test --lib pane_outbox::` | `point_send` makes exactly one `Outbox::send` call through a fake host and writes nothing else; outbox tests unchanged |
@@ -163,6 +168,31 @@ block must be on screen first (see `docs/features/telegram.md`, Status). Use one
 
 Expected: each step matches. Record screenshots (no token, no real names) and the audit lines for steps 2, 4 and 8.
 
+### 2.11 Agent Store (live plan, not run yet)
+
+Feature page: `docs/features/agent-store.md`. Set up an isolated app profile, with its own bridge and CDP ports, and a window
+on the left monitor (the same recipe as 2.9). The live run must not install anything on your own PC. Use a spare PC or a
+throwaway VM for a real install. Keep every profile folder and list it in the report.
+
+1. **Grid.** Open "+" > More agents. Expect 19 cards. Search `qw` (Qwen Code only). Check each filter chip and the
+   Tested and license chips. Expect "found on this PC" on any agent whose program is on PATH. Take screenshots in light
+   and dark, at wide and narrow widths.
+2. **Install sheet, not run.** Qwen Code: the npm command, the "This comes from" line, and a Node.js step if Node is missing.
+   Press Cancel. Kimi Code: the script step, the trust tick, and Run off until ticked. Press Cancel.
+3. **Add.** On an agent whose program is installed: Add. Expect a row in Settings > Agents reading "Added from the Agent
+   Store", and a pane that opens. Send one short task. Expect the Chat tab to show the reply read from the screen. If the
+   agent shows a trust question, take a screenshot and do not answer it.
+4. **Check it works.** On the added agent (Ready): the cost sentence, Start, and the result line "N of M checks passed on
+   version X". Confirm no file was written to the agents folder and nothing was approved by the wizard.
+5. **Remove.** Remove from Puppet Master, then put the file back from Settings > Agents. For an agent the Store did not
+   install, expect no Uninstall button (the sheet shows no reason yet; a known gap).
+6. **Install and Uninstall, optional.** Only on a spare PC or throwaway VM: Install, then Add, then Open (sign in) and
+   Uninstall of Qwen Code. If no such machine is available, write "not run" for this step. Never fake it.
+7. **Negative checks.** A file of your own with the same id as a shipped agent: the card says "You have your own <id>
+   definition", and Add does nothing. Edit a Store-added file: the card says "Needs your review", and the agent does not start.
+8. **Window monitor.** After the visible-pane steps, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-window-monitor.ps1`
+   and expect `OK: no Puppet Master window on the primary monitor`.
+
 ## 3. Known flaky tests (collected from the progress log and T37 evidence)
 - `tui::descriptor::descriptor_builds_all_nine` - global registry race (fixed by `registry::test_serial()`; tests that swap/count the global registry must take it).
 - `operations_contract_tests::recovery::startup_recovery_releases_locks_held_by_interrupted_operations` - "Access denied" on Windows; rerun.
@@ -186,3 +216,8 @@ Expected: each step matches. Record screenshots (no token, no real names) and th
 - **Bring All My Chats: first-start card** is on `feat/bc-card` (BC-13) and not merged into this branch. Section 2.9 step 3 depends on it.
 - **Bring All My Chats: OpenCode layout** is taken from the installed OpenCode 1.19.0 program, not from a live database. A live session is needed to confirm it.
 - **Bring All My Chats: no live run** is recorded for this branch. Section 2.9 is the plan.
+- **Agent Store: no live run.** The grid, Install, Add, Check, Remove and Uninstall have unit tests only. Section 2.11 is the plan.
+- **Agent Store: no end-to-end test** with a made-up agent on this branch. `npm run test:fake-tui` runs only the existing fake-TUI tests.
+- **Agent Store: built-in cards show the vendor name as the title** (Anthropic, OpenAI, Anysphere, SST), and the four built-in
+  agents show the Tested chip while their entries say `windows_tested = false`. See `docs/features/agent-store.md`, Known gaps.
+- **Agent Store: Basic support entries are not tested on Windows.** Most install commands and sign-in sentences are unchecked.
