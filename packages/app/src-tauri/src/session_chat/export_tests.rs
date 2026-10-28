@@ -361,3 +361,28 @@ fn the_account_name_in_a_path_is_masked_with_no_home_known() {
     let html = render(&[agent(1, r"see C:\Users\someone\notes.txt and /home/someone/x.rs")]);
     assert!(!html.contains("someone"));
 }
+
+#[test]
+fn an_email_address_in_a_message_tool_output_and_edit_never_reaches_the_page() {
+    let mut edit = call(1, "Edit", "contact.txt");
+    if let ChatItem::ToolCall { detail, .. } = &mut edit {
+        detail.input = Some(json!({"old_string": "to: a.b@corp.io", "new_string": "to: c@d.co.uk"}));
+    }
+    let items = vec![
+        user(1, "mail jane.doe@example.org please"),
+        ChatItem::ToolResult { id: "r".into(), at: None, call_id: "c".into(), ok: true, output: "From: jane.doe@example.org".into() },
+        edit,
+    ];
+    let html = render(&items);
+    for address in ["jane.doe", "example.org", "a.b@corp.io", "corp.io", "d.co.uk"] {
+        assert!(!html.contains(address), "{address} must not reach the page");
+    }
+    assert!(html.contains("email&gt;"), "each address is replaced by the mask");
+}
+
+#[test]
+fn text_with_an_at_sign_that_is_not_an_address_stays() {
+    let html = render(&[agent(1, "install @scope/pkg and foo@1.2.3 now")]);
+    assert!(html.contains("@scope/pkg"));
+    assert!(html.contains("foo@1.2.3"));
+}

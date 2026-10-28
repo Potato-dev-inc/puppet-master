@@ -27,9 +27,12 @@ pub fn cut_lines(text: &str, ctx: &RedactContext, max: usize) -> (Vec<String>, u
     (shown, all.len().saturating_sub(max))
 }
 
-/// `text` redacted in strict mode, then with its paths cut down (home folder first, then folder paths).
+/// `text` redacted in strict mode, then with its e-mail addresses masked (strict does not mask them, and a page may be
+/// sent on), then with its paths cut down (home folder first, then folder paths). Every export text goes through here
+/// before it is split into lines, so no line of a page or file keeps an address.
 pub fn cut_paths(text: &str, ctx: &RedactContext) -> String {
-    strip_paths(redact::strict_with(text, ctx).as_str(), ctx.home.as_deref())
+    let redacted = redact::strict_with(text, ctx);
+    strip_paths(&redact::mask_emails(redacted.as_str()), ctx.home.as_deref())
 }
 
 /// Escapes the characters that would let text act as markup.

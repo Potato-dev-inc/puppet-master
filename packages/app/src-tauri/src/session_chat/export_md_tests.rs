@@ -281,3 +281,24 @@ fn the_fence_helper_is_longer_than_any_run_inside() {
     assert_eq!(fenced("", "x"), "```\nx\n```");
     assert_eq!(fenced("diff", "a ``` b"), "````diff\na ``` b\n````");
 }
+
+#[test]
+fn an_email_address_in_a_message_tool_output_and_edit_never_reaches_the_file() {
+    let mut edit = call(1, "Edit", "contact.txt");
+    if let ChatItem::ToolCall { detail, .. } = &mut edit {
+        detail.input = Some(json!({"old_string": "to: a.b@corp.io", "new_string": "to: c@d.co.uk"}));
+    }
+    let items = vec![user(1, "mail jane.doe@example.org please"), output("From: jane.doe@example.org"), edit];
+    let md = render(&items);
+    for address in ["jane.doe", "example.org", "a.b@corp.io", "corp.io", "d.co.uk"] {
+        assert!(!md.contains(address), "{address} must not reach the file");
+    }
+    assert!(md.contains("email>"), "each address is replaced by the mask");
+}
+
+#[test]
+fn text_with_an_at_sign_that_is_not_an_address_stays() {
+    let md = render(&[agent(1, "install @scope/pkg and foo@1.2.3 now")]);
+    assert!(md.contains("@scope/pkg"));
+    assert!(md.contains("foo@1.2.3"));
+}
