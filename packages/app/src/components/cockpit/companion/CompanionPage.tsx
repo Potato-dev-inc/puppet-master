@@ -175,7 +175,8 @@ export function CompanionPage(props: CompanionPageProps) {
             </button>
           </div>
         ) : companion.paneId ? (
-          <div className="ck-scroll ck-fade-in ck-companion-chat" key={companion.paneId}>
+          // A new pane with the same id (a move, a restart) needs a new chat: the old one asked for a pane that was gone.
+          <div className="ck-scroll ck-fade-in ck-companion-chat" key={`${companion.paneId}:${companion.agentType}:${companion.state === 'starting'}`}>
             <SessionChatPanel
               paneId={companion.paneId}
               reply={{ blockedReason: null }}

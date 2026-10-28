@@ -57,7 +57,7 @@ export function AgentRow({
   const note = movedNote(companion, now());
   return (
     <>
-      <dt>Agent</dt>
+      <dt className="ck-companion-agent-label">Agent</dt>
       <dd className="ck-companion-agent">
         {agents && agents.length > 0 ? (
           <MovePicker

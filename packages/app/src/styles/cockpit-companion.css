@@ -356,6 +356,15 @@
   flex-direction: column;
   gap: 4px;
 }
+.cockpit .ck-companion-card .ck-kv dt.ck-companion-agent-label {
+  grid-column: 1 / -1;
+  padding-bottom: 0;
+}
+.cockpit .ck-companion-card .ck-kv dd.ck-companion-agent {
+  grid-column: 1 / -1;
+  border-top: 0;
+  padding-top: 4px;
+}
 .cockpit .ck-companion-agent {
   display: flex;
   flex-direction: column;
@@ -418,12 +427,20 @@
 .cockpit .ck-companion-agent {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 6px;
+  min-width: 0;
 }
 .cockpit .ck-companion-move {
   display: flex;
   flex-direction: column;
+  align-self: stretch;
   gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.cockpit .ck-companion-move select.ck-companion-input {
+  width: 100%;
 }
 .cockpit .ck-companion-move-row {
   display: flex;
