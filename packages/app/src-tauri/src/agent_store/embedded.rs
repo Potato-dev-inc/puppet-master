@@ -3,8 +3,16 @@
 
 #[rustfmt::skip]
 pub static FILES: &[(&str, &str)] = &[
+    ("agents/auggie/definition.toml", include_str!("../../catalog/agents/auggie/definition.toml")),
+    ("agents/auggie/entry.toml", include_str!("../../catalog/agents/auggie/entry.toml")),
     ("agents/claude/entry.toml", include_str!("../../catalog/agents/claude/entry.toml")),
+    ("agents/cline/definition.toml", include_str!("../../catalog/agents/cline/definition.toml")),
+    ("agents/cline/entry.toml", include_str!("../../catalog/agents/cline/entry.toml")),
     ("agents/codex/entry.toml", include_str!("../../catalog/agents/codex/entry.toml")),
+    ("agents/continue/definition.toml", include_str!("../../catalog/agents/continue/definition.toml")),
+    ("agents/continue/entry.toml", include_str!("../../catalog/agents/continue/entry.toml")),
+    ("agents/crush/definition.toml", include_str!("../../catalog/agents/crush/definition.toml")),
+    ("agents/crush/entry.toml", include_str!("../../catalog/agents/crush/entry.toml")),
     ("agents/cursor_agent/entry.toml", include_str!("../../catalog/agents/cursor_agent/entry.toml")),
     ("agents/kilo/definition.toml", include_str!("../../catalog/agents/kilo/definition.toml")),
     ("agents/kilo/entry.toml", include_str!("../../catalog/agents/kilo/entry.toml")),
