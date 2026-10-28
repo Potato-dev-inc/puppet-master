@@ -197,7 +197,7 @@ fn what_the_chat_is_told_has_its_secrets_masked() {
     asked.pane_id = None;
     asked.prompt = Some(PromptInfo {
         prompt_id: String::new(),
-        text: "Use key sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx and mail you@example.com from C:\\Users\\anna\\secret?".into(),
+        text: "Use key sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx and mail you@example.com from C:\\Users\\you\\secret?".into(),
         actionable: false,
         risk: None,
     });
@@ -206,7 +206,7 @@ fn what_the_chat_is_told_has_its_secrets_masked() {
     r.rt.offer(&asked);
     wait_for("the message", || !r.bot.texts().is_empty());
     let text = r.bot.texts().remove(0);
-    for secret in ["sk-ant-api03", "you@example.com", "C:\\Users\\anna", TOKEN_SECRET] {
+    for secret in ["sk-ant-api03", "you@example.com", "C:\\Users\\you", TOKEN_SECRET] {
         assert!(!text.contains(secret), "leaked {secret}: {text}");
     }
     r.rt.stop();
