@@ -39,6 +39,7 @@ export function AgentsOverview({
   attention,
   canAnswer = true,
   onRefreshAttention,
+  night,
 }: {
   bridge: BridgeClient;
   bridgeReady: boolean;
@@ -65,6 +66,8 @@ export function AgentsOverview({
   canAnswer?: boolean;
   /** An answer came back stale: read the PC's list again now. */
   onRefreshAttention?: () => void;
+  /** Drawn under the Agents title, inside the scrolling list (the Night Shift card). */
+  night?: ReactNode;
 }) {
   const { questions, refresh } = useQuestionPolling(bridge, bridgeReady && questionsRevision !== undefined, questionsRevision ?? 0);
   const liveQuestions = questionsRevision === undefined ? [] : questions.filter((q) => isLive(q, Date.now()));
@@ -102,7 +105,13 @@ export function AgentsOverview({
   }, [bridge, bridgeReady, ids]);
 
   if (!bridgeReady) {
-    return <div className="ph-connecting">Connecting to your PC…</div>;
+    // The night card is read from the PC on its own: it stays up while the bridge reconnects.
+    return (
+      <>
+        {night}
+        <div className="ph-connecting">Connecting to your PC…</div>
+      </>
+    );
   }
 
   const waiting = attention
@@ -137,6 +146,7 @@ export function AgentsOverview({
     return (
       <div className="ph-scroll">
         {title}
+        {night}
         {header}
         {cards}
         <TeamGroup bridge={bridge} bridgeReady={bridgeReady} />
@@ -157,6 +167,7 @@ export function AgentsOverview({
   return (
     <div className="ph-scroll">
       {title}
+      {night}
       {header}
       {cards}
       <TeamGroup bridge={bridge} bridgeReady={bridgeReady} />
