@@ -1,0 +1,391 @@
+/* Point box window (Point and Fix). Everything is scoped under .point-box. Monochrome tokens, same as the Ask bar. */
+
+html.point-box-root,
+html.point-box-root body,
+html.point-box-root #root {
+  background: transparent;
+  margin: 0;
+  overflow: hidden;
+}
+
+html.point-box-root #root {
+  height: 100vh;
+}
+
+.point-box {
+  --bg: #0a0a0b;
+  --bg-raised: #18181a;
+  --bg-float: rgba(28, 28, 30, 0.9);
+  --fill: rgba(255, 255, 255, 0.05);
+  --fill-hover: rgba(255, 255, 255, 0.08);
+  --fill-active: rgba(255, 255, 255, 0.12);
+  --sep: rgba(255, 255, 255, 0.08);
+  --label: #f5f5f7;
+  --label-2: rgba(245, 245, 247, 0.64);
+  --label-3: rgba(245, 245, 247, 0.52);
+  --primary-bg: #f5f5f7;
+  --primary-fg: #0a0a0b;
+  --focus: 0 0 0 3px rgba(245, 245, 247, 0.28);
+  --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI Variable Text', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  .point-box {
+    --bg: #ffffff;
+    --bg-raised: #ffffff;
+    --bg-float: rgba(250, 250, 252, 0.94);
+    --fill: rgba(0, 0, 0, 0.04);
+    --fill-hover: rgba(0, 0, 0, 0.06);
+    --fill-active: rgba(0, 0, 0, 0.09);
+    --sep: rgba(0, 0, 0, 0.09);
+    --label: #1d1d1f;
+    --label-2: rgba(29, 29, 31, 0.74);
+    --label-3: rgba(29, 29, 31, 0.64);
+    --primary-bg: #1d1d1f;
+    --primary-fg: #ffffff;
+    --focus: 0 0 0 3px rgba(0, 0, 0, 0.18);
+    --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.14);
+  }
+}
+
+/* The panel fills the window. The shell sizes the window beside the element. */
+.point-box {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--sep);
+  background: var(--bg-float);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  color: var(--label);
+  font-family: var(--font-ui);
+  font-feature-settings: 'cv11', 'ss01';
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  overflow-y: auto;
+}
+
+.point-box *,
+.point-box *::before,
+.point-box *::after {
+  box-sizing: border-box;
+}
+
+.point-box button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: default;
+  transition: background-color 160ms var(--ease), transform 160ms var(--ease);
+}
+
+.point-box button:focus-visible,
+.point-box select:focus-visible,
+.point-box textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.point-box button:disabled,
+.point-box select:disabled {
+  opacity: 0.4;
+}
+
+/* ---------- header ---------- */
+.point-box-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.point-box-title {
+  font-weight: 600;
+}
+
+.point-box-count {
+  font-size: 12px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.point-box-spacer {
+  flex: 1 1 auto;
+}
+
+.point-box-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--label-2);
+}
+
+.point-box-notice > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- picks ---------- */
+.point-box-picks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.point-box-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+
+.point-box-thumb {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--bg-raised);
+  border: 1px solid var(--sep);
+}
+
+.point-box-thumb--none {
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--label-3);
+}
+
+.point-box-pick-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.point-box-pick-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.point-box-tag {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px/16px var(--font-mono);
+  color: var(--label-2);
+}
+
+.point-box-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.point-box-chip,
+.point-box-page {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.point-box-chip {
+  font: 11px/16px var(--font-mono);
+  color: var(--label-3);
+}
+
+.point-box-page {
+  font-size: 11px;
+  color: var(--label-3);
+}
+
+.point-box-x {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--label-3);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.point-box-x:hover:not(:disabled) {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+
+.point-box-empty {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--label-3);
+}
+
+/* ---------- target ---------- */
+.point-box-to {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--label-3);
+}
+
+.point-box-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--sep);
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.point-box-reason {
+  font-size: 11px;
+  color: var(--label-3);
+}
+
+/* ---------- request ---------- */
+.point-box-q {
+  font-size: 12px;
+  color: var(--label-2);
+}
+
+.point-box-textarea {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  max-height: calc(6 * 1.4em + 16px);
+  overflow-y: auto;
+  resize: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--sep);
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.point-box-textarea:focus-visible {
+  border-color: var(--label-3);
+}
+
+.point-box-hint {
+  font-size: 11px;
+  color: var(--label-3);
+  text-align: right;
+}
+
+/* ---------- messages ---------- */
+.point-box-error,
+.point-box-info {
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.point-box-error {
+  background: var(--fill-active);
+  color: var(--label);
+}
+
+.point-box-info {
+  color: var(--label-2);
+}
+
+/* ---------- buttons ---------- */
+.point-box-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.point-box-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.point-box-btn:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+
+.point-box-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.point-box-btn--primary {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.point-box-btn--primary:hover:not(:disabled) {
+  background: var(--primary-bg);
+  opacity: 0.88;
+}
+
+.point-box-btn--plain {
+  padding: 0 8px;
+  background: none;
+  color: var(--label-2);
+}
+
+.point-box-btn--plain:hover:not(:disabled) {
+  background: var(--fill);
+  color: var(--label);
+}
