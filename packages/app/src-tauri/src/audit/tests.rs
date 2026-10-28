@@ -229,6 +229,11 @@ fn night_shift_kind_has_a_stable_name() {
 }
 
 #[test]
+fn what_broke_it_kind_has_a_stable_name() {
+    assert_eq!(Kind::WhatBrokeIt.as_str(), "what_broke_it.undone");
+}
+
+#[test]
 fn a_night_shift_line_round_trips_through_the_log_view() {
     let log = temp_log("night-shift");
     write_five(&log);
