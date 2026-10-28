@@ -142,6 +142,10 @@ pub fn flush_outbox(hub: &Arc<PushHub>) {
 pub fn notify_pane_status(pane_id: &str, status: &str) {
     let Some(ctx) = CTX.get() else { return };
     let Some(kind) = ctx.hub.note_pane_status(pane_id, status) else { return };
+    // A Night Shift pane is quiet: no push while the person sleeps (the morning push covers it).
+    if crate::night_shift::quiet::is_quiet_pane(pane_id) {
+        return;
+    }
     if !ctx.hub.has_subscribers() {
         return;
     }
@@ -248,6 +252,10 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
         OperationStatus::Failed => (Kind::RunFailed, "failed"),
         _ => return,
     };
+    // A Night Shift pane's run result is quiet: the night report carries it.
+    if snapshot.pane_id.as_deref().is_some_and(crate::night_shift::quiet::is_quiet_pane) {
+        return;
+    }
     if !ctx.hub.gate().lock().first_sight_of_operation(&snapshot.operation_id, status) {
         return;
     }
@@ -332,6 +340,10 @@ pub static NOTIFIED_QUESTIONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// Hook for `ask_user`: a question was just created. Fires once per question (the caller only
 /// invokes it on creation). Tapping the notification opens the phone's question list.
 pub fn notify_question(question: &crate::questions::Question) {
+    // A question from a Night Shift pane waits for the morning report; it sends nothing now.
+    if question.pane_id.as_deref().is_some_and(crate::night_shift::quiet::is_quiet_pane) {
+        return;
+    }
     #[cfg(test)]
     NOTIFIED_QUESTIONS.lock().push(question.id.clone());
     let Some(ctx) = CTX.get() else { return };
