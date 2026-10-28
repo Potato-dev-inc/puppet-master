@@ -1,0 +1,26 @@
+# Crush (@charmland/crush), a generic experimental definition. It runs `crush` in a visible pane
+# and reads the screen with shared heuristics only. Install facts come from the vendor README
+# (https://github.com/charmbracelet/crush). The winget id comes from that README and was not
+# re-run with `winget show`; check it before this entry is merged.
+schema_version = 1
+
+[agent]
+id = "crush"
+label = "Crush"
+icon = "CR"
+kind = "generic"
+description = "Charm's Crush terminal AI assistant, run in a pane."
+experimental = true
+
+[binary]
+names = ["crush"]
+windows_extensions = ["exe", "cmd"]
+version_args = ["--version"]
+install_hint = "install crush and make sure it is on PATH"
+
+[install.windows]
+source = "https://github.com/charmbracelet/crush"
+order = ["winget", "npm"]
+winget = "charmbracelet.crush"
+npm = "@charmland/crush"
+note = "Installs the Crush command. Sign in inside Crush."

@@ -1,0 +1,36 @@
+schema_version = 1
+
+[store]
+id = "crush"
+tagline = "Charm's terminal AI assistant for coding, with a Hyper model or your own key."
+tier = "starter"
+builtin = false
+categories = ["general", "bring_your_key"]
+status = "active"
+replaced_by = ""
+ambiguous_name = false
+first_listed = "2026-10-28"
+
+[vendor]
+name = "Charm"
+homepage = "https://github.com/charmbracelet/crush"
+license = "FSL-1.1-MIT"
+license_kind = "source_available"
+
+[sign_in]
+kind = "either"
+summary = "Pick a Hyper model, or press ctrl+l, choose a provider and paste its API key."
+
+[checked]
+date = "2026-10-28"
+version = "0.98.2"
+how = "vendor_docs"
+windows_tested = false
+
+[publisher]
+npm_repo = "https://github.com/charmbracelet/crush"
+pypi_repo = ""
+script_hosts = []
+
+[uninstall]
+note = ""

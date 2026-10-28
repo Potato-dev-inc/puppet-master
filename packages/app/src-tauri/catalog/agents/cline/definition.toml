@@ -1,0 +1,25 @@
+# Cline CLI (npm package `cline`), a generic experimental definition. It runs `cline` in a visible
+# pane and reads the screen with shared heuristics only. The install command (`npm i -g cline`)
+# comes from the vendor README (https://github.com/cline/cline); the npm package and its binary
+# come from the npm registry.
+schema_version = 1
+
+[agent]
+id = "cline"
+label = "Cline"
+icon = "CL"
+kind = "generic"
+description = "Cline CLI, an autonomous coding agent run in a pane."
+experimental = true
+
+[binary]
+names = ["cline"]
+windows_extensions = ["exe", "cmd"]
+version_args = ["--version"]
+install_hint = "install cline and make sure it is on PATH"
+
+[install.windows]
+source = "https://github.com/cline/cline"
+order = ["npm"]
+npm = "cline"
+note = "Installs the Cline command. Sign in inside Cline."
