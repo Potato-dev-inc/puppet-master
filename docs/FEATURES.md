@@ -94,6 +94,14 @@ Full page: [`features/bring-all-my-chats.md`](features/bring-all-my-chats.md).
 | Phone search (`GET /chats/search`) never shows old chats (`search_live`, `Reach::LiveOnly`) | `bridge/routes/chats.rs`, `chat_index/store.rs` | done |
 | First-start card "Read my old chats on this PC" | branch `feat/bc-card` (BC-13), not merged into this branch | **gap** (not in this branch) |
 
+## 1d. Scores on your code
+
+Limits and how to test: the feature page.
+
+| Feature | Where | Status |
+|---|---|---|
+| Scores on your code: which agent works best in one project, from this PC's own history. Plain counts per agent and account (turns, ended OK, checks green, merged, undone, per merged change, asked you). Small samples show `-` or "early"; no ranking, no overall score. Undone stays empty until Undo writes the undo log. | `scores/`, `commands/scores.rs`, `components/cockpit/AgentScores.tsx`, `lib/agent-scores.ts` ([`features/agent-scores.md`](features/agent-scores.md)) | **experimental**: unit tests only; no live run yet |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.
