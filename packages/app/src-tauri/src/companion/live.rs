@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 
-use super::host::{Blocking, FinishedTurn, Host, Reply, SpawnSpec};
+use super::host::{AgentLimit, Blocking, FinishedTurn, Host, Reply, SpawnSpec};
 use super::keeper::Pane;
 use super::model::CompanionView;
 use super::service::Service;
@@ -276,6 +276,10 @@ impl Host for LiveHost {
 
     fn instruction_files(&self, agent_type: &str) -> Vec<InstructionFile> {
         crate::tui::profile_for(agent_type).instruction_files()
+    }
+
+    fn agent_limit(&self, agent_type: &str) -> Option<AgentLimit> {
+        crate::handoff::agent_limit(agent_type).map(|reset| AgentLimit { reset_at_ms: reset.and_then(|r| i64::try_from(r).ok()) })
     }
 
     fn publish(&self, views: &[CompanionView]) {

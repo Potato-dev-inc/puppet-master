@@ -4,7 +4,7 @@
 //! event) never does: it also has the folder's name removed from every sentence and goes through the
 //! same redaction as the chat.
 
-use super::model::{CompanionProfile, CompanionState, CompanionView, NeedsRef, NextCheckIn};
+use super::model::{CompanionProfile, CompanionState, CompanionView, NeedsRef, NextCheckIn, QueuedMove};
 
 /// What the service knows about a companion right now, besides its saved profile.
 #[derive(Clone, Debug)]
@@ -18,6 +18,9 @@ pub struct Live {
     pub next_checkin: Option<NextCheckIn>,
     pub restarts: u32,
     pub agent_label: String,
+    /// The display name of the agent it moved from.
+    pub previous_agent_label: Option<String>,
+    pub queued_move: Option<QueuedMove>,
 }
 
 /// The last path segment of a folder (either slash), or the whole text when it has none.
@@ -53,6 +56,10 @@ pub fn build(profile: &CompanionProfile, live: &Live) -> CompanionView {
         auto_start: profile.auto_start,
         push_replies: profile.push_replies,
         share_today: profile.share_today,
+        previous_agent_label: live.previous_agent_label.clone(),
+        previous_agent: profile.previous_agent.as_ref().map(|p| p.agent_type.clone()),
+        until_ms: profile.until_ms,
+        queued_move: live.queued_move.clone(),
     }
 }
 
@@ -99,6 +106,8 @@ mod tests {
             share_today: false,
             nap_at: None,
             checkins: vec![],
+            previous_agent: None,
+            until_ms: None,
             created_ms: 1,
             archived: false,
         }
@@ -114,6 +123,8 @@ mod tests {
             next_checkin: Some(NextCheckIn { id: "0a0a0a0a".into(), label: "Morning".into(), at_ms: 5 }),
             restarts: 1,
             agent_label: "Claude Code".into(),
+            previous_agent_label: None,
+            queued_move: None,
         }
     }
 

@@ -60,6 +60,12 @@ pub fn clock_text(ms: i64, offset_secs: i32) -> String {
     utc.with_timezone(&zone(offset_secs)).format("%-H:%M").to_string()
 }
 
+/// Local clock text with the weekday, `Thu 17:00`: for a moment that is not today.
+pub fn day_clock_text(ms: i64, offset_secs: i32) -> String {
+    let utc = Utc.timestamp_millis_opt(ms).single().unwrap_or_default();
+    utc.with_timezone(&zone(offset_secs)).format("%a %-H:%M").to_string()
+}
+
 /// The time of day a clock-based `When` runs on `date`, if it runs that day.
 fn clock_on(when: &When, date: NaiveDate) -> Option<HhMm> {
     let monday_first = date.weekday().num_days_from_monday();

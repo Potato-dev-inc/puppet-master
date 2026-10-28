@@ -37,7 +37,8 @@ import { UntestedChip } from './UntestedChip';
 import { BudgetChip } from './BudgetChip';
 import { MissionProgress } from './mission/MissionProgress';
 import { missionOfPane, useMissions } from '../../lib/missions';
-import { useAgentRegistry } from '../../lib/agentRegistry';
+import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
+import { SaveCrewSheet } from './crews/SaveCrewSheet';
 import { SessionChatPanel } from '../chat/SessionChatPanel';
 import { useChatJump } from '../../lib/chatJump';
 import { composerBlock } from '../../lib/paneOutbox';
@@ -125,6 +126,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const rail = useRailLayout();
   const [dockIx, setDockIx] = useState(0);
   const [details, setDetails] = useState(false);
+  // "Save this team" (crews): the sheet that turns this pane and its helpers into a saved crew.
+  const [saveTeam, setSaveTeam] = useState(false);
   // A pane one of a mission's agents works in gets a Mission tab: the mission's Progress.
   const missions = useMissions();
   const mission = missionOfPane(missions.missions, paneId);
@@ -139,6 +142,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
     setConfirm(false);
     setRenaming(false);
     setDetails(false);
+    setSaveTeam(false);
     setDockIx(0);
   }, [paneId]);
 
@@ -510,9 +514,22 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             helpers={helperRows(c.registry.paneList, paneId, (p) => c.names.get(p.info.id) ?? p.info.agent_type)}
             onOpenChanges={worktree ? () => setTab('changes') : undefined}
             onOpenPane={(id) => c.select(id)}
+            onSaveTeam={() => setSaveTeam(true)}
           />
         )}
       </div>
+
+      {saveTeam && (
+        <SaveCrewSheet
+          paneId={paneId}
+          agentName={(id) => agentLabel(listing, id)}
+          onClose={() => setSaveTeam(false)}
+          onSaved={(crewName) => {
+            setSaveTeam(false);
+            c.notify(`Saved the crew ${crewName}`);
+          }}
+        />
+      )}
 
       {details && (
         <Sheet labelledBy="ck-details-t" onClose={() => setDetails(false)}>

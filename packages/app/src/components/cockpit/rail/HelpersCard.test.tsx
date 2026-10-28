@@ -67,4 +67,19 @@ describe('HelpersCard usage lines', () => {
     act(() => host.querySelector<HTMLButtonElement>('.ck-rail-item')!.click());
     expect(open).toHaveBeenCalledWith('h1');
   });
+
+  it('offers "Save this team" only when the app can save one', () => {
+    act(() => root.render(<HelpersCard helpers={helpers} onOpen={() => {}} />));
+    expect(host.textContent).not.toContain('Save this team');
+    const save = vi.fn();
+    act(() => root.render(<HelpersCard helpers={helpers} onOpen={() => {}} onSaveTeam={save} />));
+    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Save this team')!;
+    act(() => button.click());
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows nothing, not even the button, when there are no helpers', () => {
+    act(() => root.render(<HelpersCard helpers={[]} onOpen={() => {}} onSaveTeam={() => {}} />));
+    expect(host.textContent).toBe('');
+  });
 });
