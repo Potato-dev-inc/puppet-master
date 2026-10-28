@@ -105,3 +105,23 @@ describe('NewAgentMenu', () => {
     expect(onTonight).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('NewAgentMenu: More agents', () => {
+  it('draws a "More agents…" row last when the host can open the store, and the click opens it', async () => {
+    const onOpenStore = vi.fn();
+    await act(async () => {
+      root.render(
+        <NewAgentMenu entries={ENTRIES} readyAgents={new Set()} onStart={vi.fn()} onClose={vi.fn()} accountsApi={api([])} onOpenStore={onOpenStore} />,
+      );
+    });
+    const rows = Array.from(host.querySelectorAll('[role="menuitem"]'));
+    expect(rows[rows.length - 1].textContent).toBe('More agents…');
+    await act(async () => (item('More agents…') as HTMLButtonElement).click());
+    expect(onOpenStore).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws no row without the host callback', async () => {
+    await mount([]);
+    expect(item('More agents…')).toBeUndefined();
+  });
+});

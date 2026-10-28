@@ -11,11 +11,13 @@ export interface AgentStoreProps {
   /** A card's button was pressed for this agent id. */
   onOpenAgent: (agentId: string) => void;
   onBack: () => void;
+  /** Bump it to load the cards again (something changed in a sheet). The search and filter stay. */
+  revision?: number;
 }
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/^[A-Z_]+: /, '');
 
-export function AgentStore({ api = agentStoreApi, onOpenAgent, onBack }: AgentStoreProps) {
+export function AgentStore({ api = agentStoreApi, onOpenAgent, onBack, revision = 0 }: AgentStoreProps) {
   const [cards, setCards] = useState<StoreCard[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -29,7 +31,9 @@ export function AgentStore({ api = agentStoreApi, onOpenAgent, onBack }: AgentSt
       .catch((e) => setLoadError(errText(e)));
   }, [api]);
 
-  useEffect(load, [load]);
+  // `revision` is not read in `load`: a new value is the host's way to ask for a fresh list.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [load, revision]);
 
   const shown = useMemo(
     () => (cards ? sortCards(searchCards(cards.filter((card) => matchesFilter(card, filter)), text)) : []),

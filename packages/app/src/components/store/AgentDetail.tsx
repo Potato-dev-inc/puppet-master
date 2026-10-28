@@ -29,6 +29,8 @@ export interface AgentDetailProps {
   /** Something changed on the list (added, removed, installed): the grid should reload. */
   onChanged: () => void;
   onClose: () => void;
+  /** Opens the Check sheet for a ready agent. Without it the "Check it works" button is not drawn. */
+  onCheck?: (id: string) => void;
   /** Opens a link in the person's browser. Defaults to the app's external-link helper. */
   openExternal?: (url: string) => Promise<void>;
 }
@@ -40,6 +42,7 @@ export function AgentDetail({
   onOpenAgent,
   onChanged,
   onClose,
+  onCheck,
   openExternal = openInBrowser,
 }: AgentDetailProps) {
   const [detail, setDetail] = useState<StoreDetail | null>(null);
@@ -369,6 +372,14 @@ export function AgentDetail({
               Puppet Master cannot install {name} from here. The vendor's page has the install steps:{' '}
               <LinkButton url={detail.vendor.homepage} onOpen={openLink} />
             </p>
+          )}
+
+          {onCheck && detail.state === 'ready' && (
+            <div className="ck-sheet-actions">
+              <button type="button" className="ck-btn ck-btn--secondary" disabled={busy} onClick={() => onCheck(id)}>
+                Check it works
+              </button>
+            </div>
           )}
 
           {onList && (

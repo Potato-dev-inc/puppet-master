@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 mod agent_install;
+mod agent_store;
 mod agent_wizard;
 mod agent_models;
 mod agents;
@@ -64,6 +65,7 @@ mod night;
 mod issue_intake;
 
 pub use agent_install::*;
+pub use agent_store::*;
 pub use agent_wizard::*;
 pub use agent_models::*;
 pub use attention::*;

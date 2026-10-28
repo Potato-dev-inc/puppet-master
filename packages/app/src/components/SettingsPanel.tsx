@@ -58,6 +58,8 @@ interface Props {
   updateChecking?: boolean;
   onCheckForUpdates?: () => void;
   onOpenRelease?: () => void;
+  /** "Browse more agents" in Settings > Agents. Without it the button is not drawn. */
+  onOpenStore?: () => void;
   api?: SettingsApi;
 }
 
@@ -106,6 +108,7 @@ export function SettingsPanel({
   updateChecking,
   onCheckForUpdates,
   onOpenRelease,
+  onOpenStore,
   api = DEFAULT_API,
 }: Props) {
   const [page, setPage] = useState<SettingsPageId>(initialTab);
@@ -282,6 +285,7 @@ export function SettingsPanel({
   const envFor = (row: RowDef): SettingsEnv => ({
     settings: settings as Settings,
     openRow,
+    openStore: onOpenStore,
     patch: (patch) => patchFor(row.id, patch),
     markSaved: () => markSaved(row.id),
     setError: (message) => setRowError(row.id, message),

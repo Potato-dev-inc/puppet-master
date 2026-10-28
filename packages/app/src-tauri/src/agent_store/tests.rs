@@ -466,3 +466,24 @@ fn the_card_key_list_has_no_key_the_ui_does_not_read() {
         assert!(known.contains(key.as_str()), "{key} is not in CARD_KEYS");
     }
 }
+
+#[test]
+fn check_source_gives_the_definition_and_fixtures_of_an_entry_and_nothing_for_a_built_in() {
+    let files = [
+        ("agents/qwen/entry.toml", QWEN_ENTRY),
+        ("agents/qwen/definition.toml", QWEN_DEFINITION),
+        ("agents/qwen/fixtures/tui_idle.txt", "idle screen
+"),
+        ("agents/pm_test_builtin/entry.toml", BUILTIN_ENTRY),
+    ];
+    let loaded = catalog::load(&files);
+    let source = check_source_in(&loaded.entries, "qwen").unwrap();
+    assert_eq!(source["definition"], QWEN_DEFINITION);
+    assert_eq!(source["fixtures"], json!([{ "name": "tui_idle.txt", "text": "idle screen
+" }]));
+    let builtin = check_source_in(&loaded.entries, "pm_test_builtin").unwrap();
+    assert_eq!(builtin["definition"], Value::Null);
+    assert_eq!(builtin["fixtures"], json!([]));
+    let err = check_source_in(&loaded.entries, "nope").unwrap_err();
+    assert!(err.starts_with("STORE_UNKNOWN_ID:"), "{err}");
+}

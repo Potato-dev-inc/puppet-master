@@ -8,15 +8,17 @@
 //! catalog, the record file and the version probe as arguments, so tests never touch the app data
 //! folder or run a program.
 
-// Nothing calls this module yet; the Store commands wire it in later. Remove this line then.
-#![allow(dead_code)]
-
 pub mod add;
+// `problems`, `embedded_definition` and `detect` are used by the tests and by later tasks.
+#[allow(dead_code)]
 pub mod catalog;
+// The catalog check runs as a test and in CI only; the app never calls it.
+#[allow(dead_code)]
 pub mod check;
 pub mod embedded;
 pub mod entry;
 pub mod record;
+#[allow(dead_code)]
 pub mod state;
 pub mod uninstall;
 
@@ -181,6 +183,19 @@ pub fn record_check_in(
     update_record(record_path, |rec| rec.mark_check(id, check))?;
     let last = json!({ "passed": passed, "total": total, "version": version, "at": date });
     Ok(json!({ "ok": true, "id": id, "last_check": last }))
+}
+
+/// `agent_store_check_source`: the shipped definition text and fixture files of one entry, for the Check run
+/// (the wizard drafts from them). A built-in entry has no definition and no fixtures.
+pub fn check_source(id: &str) -> Result<Value, String> {
+    check_source_in(catalog::all(), id)
+}
+
+/// `check_source` over any catalog.
+pub fn check_source_in(entries: &[CatalogEntry], id: &str) -> Result<Value, String> {
+    let entry = entries.iter().find(|entry| entry.entry.store.id == id).ok_or_else(|| unknown_id(id))?;
+    let fixtures: Vec<Value> = entry.fixtures.iter().map(|(name, text)| json!({ "name": name, "text": text })).collect();
+    Ok(json!({ "definition": entry.definition_text, "fixtures": fixtures }))
 }
 
 /// Writes "the Store added this agent" to the record file.

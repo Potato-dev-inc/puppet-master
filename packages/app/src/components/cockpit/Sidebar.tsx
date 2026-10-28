@@ -41,6 +41,7 @@ export function Sidebar({
   onOpenPlans,
   onOpenScores,
   onOpenMorning,
+  onOpenStore,
   companions,
   openCompanionId = null,
   onOpenCompanion,
@@ -57,6 +58,8 @@ export function Sidebar({
   onOpenScores?: () => void;
   /** Night Shift: opens the Morning page. Absent: no Night Shift chip. */
   onOpenMorning?: () => void;
+  /** The "More agents…" row of the New agent menu opens the Agent Store. Absent: no row. */
+  onOpenStore?: () => void;
   /** A pane's row menu: "Open to the side" (split view). Absent: the row has no menu. */
   onOpenToSide?: (paneId: string) => void;
   /** The companions, above Inbox. Absent or null: no companion rows (no backend, or not read yet). */
@@ -319,6 +322,14 @@ export function Sidebar({
                   writeCopyPreference(projectKey, on);
                 }}
                 ship={ship}
+                onOpenStore={
+                  onOpenStore
+                    ? () => {
+                        setMenuOpen(false);
+                        onOpenStore();
+                      }
+                    : undefined
+                }
                 onStartMission={
                   missionsOn && project
                     ? () => {

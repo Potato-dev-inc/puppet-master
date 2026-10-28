@@ -52,6 +52,7 @@ export function Palette({
   onOpenPlans,
   onOpenMorning,
   onOpenScores,
+  onOpenStore,
   onUndoLastTurn,
   onOpenWelcome,
   onStartCrew,
@@ -72,6 +73,8 @@ export function Palette({
   onOpenMorning?: () => void;
   /** Opens "Scores on your code". Absent: no Scores action. */
   onOpenScores?: () => void;
+  /** Opens the Agent Store. Absent: no Agent Store action. */
+  onOpenStore?: () => void;
   /** Opens the restore confirmation for the pane's last turn (never restores by itself). */
   onUndoLastTurn?: (paneId: string) => void;
   /** Shows the first-run welcome again. */
@@ -337,6 +340,17 @@ export function Palette({
         run: onOpenScores,
       });
     }
+    if (onOpenStore) {
+      out.push({
+        id: 'act:store',
+        group: 'Actions',
+        title: 'Open Agent Store',
+        desc: 'Find, install and add more agents',
+        keywords: 'agent store more agents add install browse catalog',
+        icon: <IconPlus />,
+        run: onOpenStore,
+      });
+    }
     out.push(...settingsShortcuts(c, { missionsOn, nightOn, onOpenMorning, projectPath: c.selectedId ? (c.registry.panes.get(c.selectedId)?.info?.cwd ?? null) : null }));
     out.push(
       {
@@ -371,7 +385,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onOpenStore, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

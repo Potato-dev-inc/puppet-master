@@ -55,7 +55,14 @@ vi.mock('../settings/catalog', async () => {
         id: 'agents',
         title: 'Agents',
         blurb: 'Agents.',
-        rows: [{ id: 'preload', label: 'Preload agents', hint: 'Warm agents.', render: () => <SettingRow label="Preload agents" /> }],
+        rows: [
+          {
+            id: 'preload',
+            label: 'Preload agents',
+            hint: 'Warm agents.',
+            render: (env: Env) => <SettingRow label="Preload agents">{env.openStore && <Btn onClick={env.openStore}>Browse more agents</Btn>}</SettingRow>,
+          },
+        ],
       },
     ],
   };
@@ -123,6 +130,19 @@ afterEach(async () => {
 });
 
 describe('inline Settings view', () => {
+  it('hands the Agent Store opener to the rows, and only when the host has one', async () => {
+    const onOpenStore = vi.fn();
+    await mount({ initialTab: 'agents', onOpenStore });
+    const browse = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Browse more agents');
+    expect(browse).toBeTruthy();
+    await act(async () => (browse as HTMLButtonElement).click());
+    expect(onOpenStore).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await mount({ initialTab: 'agents' });
+    expect(host.textContent).not.toContain('Browse more agents');
+  });
+
   it('is the Settings panel itself, rendered inline: sections, search, no Save button', async () => {
     await mount();
     expect(host.querySelector('.settings.settings--inline')).not.toBeNull();
