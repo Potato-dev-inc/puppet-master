@@ -1,0 +1,52 @@
+/* Copy button on a fenced code block in chat. Hidden until the block is hovered or the button gets keyboard
+   focus. Phones have no hover, so the button always shows there and is a bit bigger for the finger.
+   Monochrome tokens only (cockpit.css / phone.css set them for both themes). */
+.ck-chat-md-code-wrap {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+.ck-chat-md-copy {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 1;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--label-2);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+.ck-chat-md-code-wrap:hover .ck-chat-md-copy,
+.ck-chat-md-copy:focus-visible,
+.ck-chat-md-copy[data-copied] {
+  opacity: 1;
+}
+.ck-chat-md-copy:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.ck-chat-md-copy:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+@media (hover: none) {
+  .ck-chat-md-copy {
+    opacity: 1;
+    height: 32px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ck-chat-md-copy {
+    transition: none;
+  }
+}
