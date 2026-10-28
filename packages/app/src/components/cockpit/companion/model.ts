@@ -16,6 +16,13 @@ export const MEMORY_TABS: { file: MemoryFile; label: string; fileName: string }[
 
 export const fileNameOf = (file: MemoryFile): string => MEMORY_TABS.find((t) => t.file === file)?.fileName ?? file;
 
+/** The tabs of "What {name} knows": the three files, then what it has learned to do. */
+export type MemoryTab = MemoryFile | 'skills';
+export const KNOWS_TABS: { id: MemoryTab; label: string }[] = [
+  ...MEMORY_TABS.map((t) => ({ id: t.file as MemoryTab, label: t.label })),
+  { id: 'skills', label: 'Skills' },
+];
+
 /** The four presets from the setup sheet (step 4). */
 export const PERSONA_OPTIONS: { id: Exclude<CompanionPersona, 'custom'>; label: string }[] = [
   { id: 'cheerful', label: 'Cheerful' },
@@ -126,5 +133,13 @@ export const movesWhenFree = (name: string): string => `Moves when ${name} is fr
 /** What the Setup card says about a companion that was moved: where it came from and when it goes back. */
 export function movedNote(view: Pick<CompanionView, 'previousAgentLabel' | 'untilMs'>, now: number): string | null {
   if (!view.previousAgentLabel) return null;
-  return view.untilMs ? `Moved from ${view.previousAgentLabel}. Goes back at ${untilText(view.untilMs, now)}.` : `Moved from ${view.previousAgentLabel}.`;
+  return view.untilMs
+    ? `Moved from ${view.previousAgentLabel}. Goes back at ${untilText(view.untilMs, now)}.`
+    : `Moved from ${view.previousAgentLabel}.`;
 }
+
+/** Characters in a skill file as the backend counts them: `# title`, a blank line, the steps and a final newline. */
+export const skillFileChars = (title: string, body: string): number => countChars(title.trim()) + countChars(body.trim()) + 5;
+
+/** The longest title (`SKILL_TITLE_CAP` in `companion/model.rs`). */
+export const SKILL_TITLE_MAX = 60;

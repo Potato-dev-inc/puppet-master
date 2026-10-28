@@ -9,10 +9,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use super::model::{
     char_len, new_hex_id, unique_slug, valid_name, validate_profile, CheckIn, CompanionError, CompanionProfile,
-    CompanionResult, CompanionView, FeedItem, FeedKind, HhMm, MemoryFile, PendingItem, MAX_COMPANIONS,
+    CompanionResult, CompanionView, FeedItem, FeedKind, HhMm, MemoryFile, PendingItem, PendingKind, MAX_COMPANIONS,
 };
 use super::service::{pane_id_of, Inner, OutKind, Outgoing, Service, Slot};
 use super::store::{self, Runtime};
+use super::skills::{self, SkillFull, SkillRef};
 use super::{agents, brief, files, memory, today, view};
 
 /// `null` and "missing" are different in a patch: `Some(None)` clears the value.
@@ -102,6 +103,8 @@ pub struct MemoryView {
     pub pending: Vec<PendingItem>,
     /// Desktop only: the phone gets an empty list.
     pub outside_changes: Vec<OutsideChange>,
+    /// The approved skills, titles only (a body is opened with `skill_get`, desktop only).
+    pub skills: Vec<SkillRef>,
 }
 
 fn not_found() -> CompanionError {
@@ -439,6 +442,8 @@ impl Service {
         if phone {
             for item in &mut pending {
                 item.target_line = item.target_line.take().map(|line| crate::redact::text(&line).into_inner());
+                // The phone sees that a skill is waiting and its title, never the steps.
+                item.body = None;
             }
         }
         Ok(MemoryView {
@@ -448,6 +453,7 @@ impl Service {
             caps: MemoryCaps { soul: MemoryFile::Soul.cap(), user: MemoryFile::User.cap(), memory: MemoryFile::Memory.cap() },
             pending,
             outside_changes: outside,
+            skills: skills::list(&self.root, &profile.id, home)?,
         })
     }
 
@@ -469,12 +475,64 @@ impl Service {
         let index = index_of(&inner, id)?;
         let profile = inner.profiles[index].clone();
         let decision = if keep { memory::Decision::Keep } else { memory::Decision::Drop };
-        memory::decide(&self.root, id, Path::new(&profile.folder), item_id, decision)?;
+        let home = Path::new(&profile.folder);
+        let skill_title = memory::read_pending(home)?
+            .into_iter()
+            .find(|i| i.id == item_id && i.kind == PendingKind::Skill)
+            .map(|i| i.text);
+        if phone && skill_title.is_some() {
+            return Err(CompanionError::new("COMPANION_SKILL_ON_COMPUTER", "Skills are approved on the computer, where you can read all of the steps."));
+        }
+        memory::decide(&self.root, id, home, item_id, decision)?;
         if keep {
-            self.feed(&profile, FeedKind::Memory, now, "Kept a note. It will read it at its next start.");
+            match skill_title {
+                Some(title) => self.feed(&profile, FeedKind::Memory, now, &format!("Learned a skill: {title}. It will list it at its next start.")),
+                None => self.feed(&profile, FeedKind::Memory, now, "Kept a note. It will read it at its next start."),
+            }
         }
         self.after_memory_change(&mut inner, id, now);
         self.memory_view_of(&profile, phone)
+    }
+
+    /// Approve a proposed skill, with the person's own title and steps when they edited it (desktop only).
+    pub fn skill_approve(&self, id: &str, item_id: &str, title: Option<&str>, body: Option<&str>) -> CompanionResult<MemoryView> {
+        let now = self.host.now_ms();
+        let mut inner = self.inner.lock();
+        let index = index_of(&inner, id)?;
+        let profile = inner.profiles[index].clone();
+        let skill = memory::approve_skill(&self.root, id, Path::new(&profile.folder), item_id, title, body)?;
+        self.feed(&profile, FeedKind::Memory, now, &format!("Learned a skill: {}. It will list it at its next start.", skill.title));
+        self.after_memory_change(&mut inner, id, now);
+        self.memory_view_of(&profile, false)
+    }
+
+    /// One skill opened for reading or editing (desktop only).
+    pub fn skill_get(&self, id: &str, slug: &str) -> CompanionResult<SkillFull> {
+        let inner = self.inner.lock();
+        let index = index_of(&inner, id)?;
+        skills::get(&self.root, id, Path::new(&inner.profiles[index].folder), slug)
+    }
+
+    /// The desktop edit of a skill. Saving a skill that changed outside Puppet Master is how the person approves it.
+    pub fn skill_save(&self, id: &str, slug: &str, title: &str, body: &str) -> CompanionResult<MemoryView> {
+        let now = self.host.now_ms();
+        let mut inner = self.inner.lock();
+        let index = index_of(&inner, id)?;
+        let profile = inner.profiles[index].clone();
+        skills::save(&self.root, id, Path::new(&profile.folder), slug, title, body)?;
+        self.after_memory_change(&mut inner, id, now);
+        self.memory_view_of(&profile, false)
+    }
+
+    /// Removes a skill: the file moves to `skills/.removed/`.
+    pub fn skill_remove(&self, id: &str, slug: &str) -> CompanionResult<MemoryView> {
+        let now = self.host.now_ms();
+        let mut inner = self.inner.lock();
+        let index = index_of(&inner, id)?;
+        let profile = inner.profiles[index].clone();
+        skills::remove(Path::new(&profile.folder), slug)?;
+        self.after_memory_change(&mut inner, id, now);
+        self.memory_view_of(&profile, false)
     }
 
     /// `Keep the change` or `Undo` for a file that changed outside Puppet Master.

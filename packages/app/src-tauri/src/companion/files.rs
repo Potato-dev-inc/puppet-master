@@ -52,6 +52,7 @@ pub fn ensure_home(root: &Path, profile: &CompanionProfile) -> CompanionResult<(
     check_marker(home, &profile.id)?;
     create_if_missing(&home.join(".puppet-master").join("companion.json"), &marker_text(&profile.id))?;
     fs::create_dir_all(home.join(JOURNAL_REL)).map_err(|e| folder_error(&format!("Could not create memory/journal: {e}.")))?;
+    fs::create_dir_all(super::skills::skills_dir(home)).map_err(|e| folder_error(&format!("Could not create skills: {e}.")))?;
 
     let soul = personas::soul_template(&profile.persona).replace("\r\n", "\n");
     create_if_missing(&file_path(home, MemoryFile::Soul), &soul)?;

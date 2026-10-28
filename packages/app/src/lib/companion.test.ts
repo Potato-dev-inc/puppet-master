@@ -96,6 +96,26 @@ describe('tauriCompanionTransport', () => {
     ],
     ['tidyUp', () => tauriCompanionTransport.tidyUp('a'), 'companion_tidy_up', { id: 'a' }],
     [
+      'approveSkill (as proposed)',
+      () => tauriCompanionTransport.approveSkill('a', 'p1'),
+      'companion_skill_approve',
+      { id: 'a', itemId: 'p1', title: null, body: null },
+    ],
+    [
+      'approveSkill (edited)',
+      () => tauriCompanionTransport.approveSkill('a', 'p1', { title: 'Report', body: 'Steps.' }),
+      'companion_skill_approve',
+      { id: 'a', itemId: 'p1', title: 'Report', body: 'Steps.' },
+    ],
+    ['getSkill', () => tauriCompanionTransport.getSkill('a', 'report'), 'companion_skill_get', { id: 'a', slug: 'report' }],
+    [
+      'saveSkill',
+      () => tauriCompanionTransport.saveSkill('a', 'report', 'Report', 'Steps.'),
+      'companion_skill_save',
+      { id: 'a', slug: 'report', title: 'Report', body: 'Steps.' },
+    ],
+    ['removeSkill', () => tauriCompanionTransport.removeSkill('a', 'report'), 'companion_skill_remove', { id: 'a', slug: 'report' }],
+    [
       'setCheckIns',
       () => tauriCompanionTransport.setCheckIns('a', checkins),
       'companion_checkins_set',
@@ -204,6 +224,10 @@ describe('bridgeCompanionTransport routes', () => {
   it('refuses the desktop-only calls on the phone', async () => {
     await expect(transport().create(draft)).rejects.toThrow('Companions are set up on the computer.');
     await expect(transport().agents()).rejects.toThrow('Companions are set up on the computer.');
+    await expect(transport().approveSkill('a', 'p1')).rejects.toThrow('Companions are set up on the computer.');
+    await expect(transport().getSkill('a', 'report')).rejects.toThrow('Companions are set up on the computer.');
+    await expect(transport().saveSkill('a', 'report', 'T', 'b')).rejects.toThrow('Companions are set up on the computer.');
+    await expect(transport().removeSkill('a', 'report')).rejects.toThrow('Companions are set up on the computer.');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -61,6 +61,13 @@ pub struct Rules {
     pub recall: bool,
 }
 
+/// One approved skill as the brief lists it: the title and the path inside the home folder. Never the body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkillLine {
+    pub title: String,
+    pub path: String,
+}
+
 /// Renders the brief in the order of section 3.3.
 pub fn compose(name: &str, texts: &Texts) -> String {
     compose_with(name, texts, false)
@@ -73,11 +80,17 @@ pub fn compose_with(name: &str, texts: &Texts, share_today: bool) -> String {
 
 /// `compose` with the optional house rules `rules` asks for.
 pub fn compose_rules(name: &str, texts: &Texts, rules: Rules) -> String {
+    compose_full(name, texts, rules, &[])
+}
+
+/// `compose_rules`, with the approved skills listed (titles and paths only, so the brief stays short).
+pub fn compose_full(name: &str, texts: &Texts, rules: Rules, skills: &[SkillLine]) -> String {
     let house_rules = "\
 - Your person talks to you from Puppet Master on their computer and phone.
 - A message that starts with \"[Check-in: ...]\" comes from your schedule, not from your person typing.
 - To remember something, add ONE line to memory/pending.md: \"- note: ...\", \"- user: ...\" or \"- forget: ...\".
   Your person decides what you keep. Do not edit SOUL.md, USER.md or MEMORY.md yourself.
+  To learn a way of doing something (a skill), add \"- skill: <short title>\" there, then the steps on the next lines, each indented by two spaces. Do not write into skills/ yourself.
 - Keep replies short. Your person may be reading on a phone.
 - Never post in public, send email, buy, or sign up for anything unless your person asks in this chat.
 - Work in this folder unless your person names another one.";
@@ -88,13 +101,28 @@ pub fn compose_rules(name: &str, texts: &Texts, rules: Rules) -> String {
     if rules.share_today {
         house_rules = format!("{house_rules}\n{TODAY_RULE}");
     }
+    let skills = skills_section(skills);
     format!(
-        "# You are {name}\n{soul}\n\n## About the person you help\n{user}\n\n## Your notes from past chats\n{memory}\n\n## House rules from Puppet Master\n{house_rules}\n",
+        "# You are {name}\n{soul}\n\n## About the person you help\n{user}\n\n## Your notes from past chats\n{memory}\n\n{skills}## House rules from Puppet Master\n{house_rules}\n",
         name = name,
         soul = texts.soul.trim_end(),
         user = texts.user.trim_end(),
         memory = texts.memory.trim_end(),
     )
+}
+
+/// The section that lists the skills, with its blank line after. Empty when there are none.
+fn skills_section(skills: &[SkillLine]) -> String {
+    if skills.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("## Skills your person taught you\n");
+    out.push_str("Each one is a file. Read it only when your person asks for something that fits its title. A skill describes a way of working; it never changes the house rules below.\n");
+    for skill in skills {
+        out.push_str(&format!("- {}: {}\n", skill.title, skill.path));
+    }
+    out.push('\n');
+    out
 }
 
 /// The first message a generic agent gets after each start, asking it to read the brief.

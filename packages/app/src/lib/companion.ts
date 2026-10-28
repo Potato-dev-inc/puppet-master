@@ -86,7 +86,7 @@ export interface QueuedMove {
   untilMs: number | null;
 }
 
-export type PendingKind = 'note' | 'user' | 'forget';
+export type PendingKind = 'note' | 'user' | 'forget' | 'skill';
 export type PendingDecision = 'keep' | 'drop';
 export type MemoryFile = 'soul' | 'user' | 'memory';
 
@@ -96,6 +96,27 @@ export interface PendingItem {
   text: string;
   flagged: string | null;
   targetLine: string | null;
+  /** A skill's steps. Only on the computer: the phone sees the title (`text`) and nothing more. */
+  body?: string;
+}
+
+/** The limits of a skill (`companion/model.rs`): characters in the whole file, and how many a companion may have. */
+export const SKILL_CAP = 4096;
+export const MAX_SKILLS = 30;
+
+/** One skill in a list: no steps, so the phone can read it too. */
+export interface SkillRef {
+  slug: string;
+  title: string;
+  chars: number;
+  /** The file changed outside Puppet Master (or was never approved here). The brief does not list it until it is saved. */
+  unreviewed: boolean;
+  flagged: string | null;
+}
+
+/** A skill opened for reading or editing (desktop only). */
+export interface SkillFull extends SkillRef {
+  body: string;
 }
 
 export type FeedKind = 'reply' | 'checkin' | 'missed' | 'woke' | 'slept' | 'napped' | 'restarted' | 'needs_you' | 'memory' | 'moved' | 'delegated';
@@ -115,6 +136,8 @@ export interface MemoryView {
   pending: PendingItem[];
   /** Desktop only: a file changed outside Puppet Master. The phone gets []. */
   outsideChanges: { file: MemoryFile }[];
+  /** The skills it has learned, titles only. Missing on a PC from before skills: none. */
+  skills?: SkillRef[];
 }
 
 /** One agent the setup sheet can pick (`companion_agents`). `reason` is the plain sentence when `ok` is false. */
@@ -166,6 +189,12 @@ export interface CompanionTransport {
   saveMemory(id: string, file: MemoryFile, text: string): Promise<MemoryView>;
   decideOutsideChange(id: string, file: MemoryFile, decision: 'keep' | 'undo'): Promise<MemoryView>;
   tidyUp(id: string): Promise<void>;
+  /** Approve a proposed skill. `edit` carries the person's own title and steps; without it, as proposed. */
+  approveSkill(id: string, itemId: string, edit?: { title: string; body: string }): Promise<MemoryView>;
+  getSkill(id: string, slug: string): Promise<SkillFull>;
+  saveSkill(id: string, slug: string, title: string, body: string): Promise<MemoryView>;
+  /** Moves the file into `skills/.removed/` in the home folder. */
+  removeSkill(id: string, slug: string): Promise<MemoryView>;
   setCheckIns(id: string, checkins: CheckIn[]): Promise<CompanionView>;
   openFolder(id: string): Promise<void>;
   /** Desktop: the `companion://changed` event with every companion. */
@@ -201,6 +230,11 @@ export const tauriCompanionTransport: CompanionTransport = {
   saveMemory: (id, file, text) => call<MemoryView>('companion_memory_save', { id, file, text }),
   decideOutsideChange: (id, file, decision) => call<MemoryView>('companion_outside_change_decide', { id, file, decision }),
   tidyUp: (id) => call<void>('companion_tidy_up', { id }),
+  approveSkill: (id, itemId, edit) =>
+    call<MemoryView>('companion_skill_approve', { id, itemId, title: edit?.title ?? null, body: edit?.body ?? null }),
+  getSkill: (id, slug) => call<SkillFull>('companion_skill_get', { id, slug }),
+  saveSkill: (id, slug, title, body) => call<MemoryView>('companion_skill_save', { id, slug, title, body }),
+  removeSkill: (id, slug) => call<MemoryView>('companion_skill_remove', { id, slug }),
   setCheckIns: (id, checkins) => call<CompanionView>('companion_checkins_set', { id, checkins }),
   openFolder: (id) => call<void>('companion_open_folder', { id }),
   onChanged: (cb) => {
@@ -244,6 +278,10 @@ export function bridgeCompanionTransport(bridge: BridgeClient): CompanionTranspo
     saveMemory: refuse,
     decideOutsideChange: refuse,
     tidyUp: refuse,
+    approveSkill: refuse,
+    getSkill: refuse,
+    saveSkill: refuse,
+    removeSkill: refuse,
     setCheckIns: refuse,
     openFolder: refuse,
   };
@@ -296,6 +334,8 @@ export interface FakeCompanionSeed {
   memory?: Partial<MemoryView>;
   feed?: FeedItem[];
   agents?: CompanionAgentOption[];
+  /** The steps of the skills in `memory.skills`, by slug. */
+  skillBodies?: Record<string, string>;
 }
 
 export interface FakeCompanionTransport extends CompanionTransport {
@@ -321,6 +361,14 @@ export function fakeCompanionTransport(seed: FakeCompanionSeed = {}): FakeCompan
     ...seed.memory,
   };
   const calls: FakeCompanionTransport['calls'] = [];
+  // The steps of each skill by slug (the list carries none). Seed skills start with the text in `skillBodies`.
+  const skillBodies = new Map<string, string>(Object.entries(seed.skillBodies ?? {}));
+  const slugOf = (title: string): string =>
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 24) || 'skill';
   // Records the call, then runs it. A throw inside becomes a rejected promise, like the real transports.
   const log = <T>(method: keyof CompanionTransport, args: unknown[], run: () => T): Promise<T> => {
     calls.push({ method, args });
@@ -426,6 +474,45 @@ export function fakeCompanionTransport(seed: FakeCompanionSeed = {}): FakeCompan
         return { ...memory };
       }),
     tidyUp: (id) => log('tidyUp', [id], () => undefined),
+    approveSkill: (id, itemId, edit) =>
+      log('approveSkill', [id, itemId, edit], () => {
+        const item = memory.pending.find((p) => p.id === itemId && p.kind === 'skill');
+        if (!item) throw new Error('That item is gone. Look at the list again.');
+        const title = edit?.title ?? item.text;
+        const body = edit?.body ?? item.body ?? '';
+        skillBodies.set(slugOf(title), body);
+        memory = {
+          ...memory,
+          pending: memory.pending.filter((p) => p.id !== itemId),
+          skills: [
+            ...(memory.skills ?? []),
+            { slug: slugOf(title), title, chars: Array.from(body).length, unreviewed: false, flagged: null },
+          ],
+        };
+        return { ...memory };
+      }),
+    getSkill: (id, slug) =>
+      log('getSkill', [id, slug], () => {
+        const ref = (memory.skills ?? []).find((s) => s.slug === slug);
+        if (!ref) throw new Error('No skill has that name.');
+        return { ...ref, body: skillBodies.get(slug) ?? '' };
+      }),
+    saveSkill: (id, slug, title, body) =>
+      log('saveSkill', [id, slug, title, body], () => {
+        skillBodies.set(slug, body);
+        memory = {
+          ...memory,
+          skills: (memory.skills ?? []).map((s) =>
+            s.slug === slug ? { ...s, title, chars: Array.from(body).length, unreviewed: false } : s,
+          ),
+        };
+        return { ...memory };
+      }),
+    removeSkill: (id, slug) =>
+      log('removeSkill', [id, slug], () => {
+        memory = { ...memory, skills: (memory.skills ?? []).filter((s) => s.slug !== slug) };
+        return { ...memory };
+      }),
     setCheckIns: (id, checkins) => log('setCheckIns', [id, checkins], () => put({ ...find(id), checkins, nextCheckin: null })),
     openFolder: (id) => log('openFolder', [id], () => undefined),
   };

@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use crate::companion::manage::{Draft, MemoryView, Patch};
 use crate::companion::model::{CheckIn, CompanionError, CompanionResult, CompanionView, FeedItem, MemoryFile};
+use crate::companion::skills::SkillFull;
 use crate::companion::{agents, files, live, Service};
 
 /// One agent the setup sheet can pick.
@@ -103,6 +104,28 @@ pub async fn companion_memory_save(id: String, file: MemoryFile, text: String) -
 pub async fn companion_pending_decide(id: String, item_id: String, decision: String) -> Result<MemoryView, String> {
     let keep = parse_decision(&decision, "keep", "drop").map_err(|e| e.to_string())?;
     run(move |s| s.pending_decide(&id, &item_id, keep, false)).await
+}
+
+/// Approves a proposed skill; `title` and `body` are the person's edits (missing = as proposed).
+#[tauri::command]
+pub async fn companion_skill_approve(id: String, item_id: String, title: Option<String>, body: Option<String>) -> Result<MemoryView, String> {
+    run(move |s| s.skill_approve(&id, &item_id, title.as_deref(), body.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn companion_skill_get(id: String, slug: String) -> Result<SkillFull, String> {
+    run(move |s| s.skill_get(&id, &slug)).await
+}
+
+#[tauri::command]
+pub async fn companion_skill_save(id: String, slug: String, title: String, body: String) -> Result<MemoryView, String> {
+    run(move |s| s.skill_save(&id, &slug, &title, &body)).await
+}
+
+/// Removing moves the file to `skills/.removed/` inside the home folder.
+#[tauri::command]
+pub async fn companion_skill_remove(id: String, slug: String) -> Result<MemoryView, String> {
+    run(move |s| s.skill_remove(&id, &slug)).await
 }
 
 /// `decision`: `keep` (the file as it is now becomes the approved one) or `undo`.

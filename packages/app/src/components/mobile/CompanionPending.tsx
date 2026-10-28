@@ -24,9 +24,12 @@ export function CompanionPending({
       <ul className="ph-group">
         {items.map((item) => (
           <li key={item.id} className="ph-comp-pending">
+            {item.kind === 'skill' && <p className="ph-comp-skill-kind">New skill</p>}
             <p className="ph-comp-text">{item.text}</p>
             {item.flagged && <p className="ph-comp-flag">{item.flagged}</p>}
-            {canAnswer && (
+            {/* A skill is approved on the computer, where all of its steps can be read. */}
+            {item.kind === 'skill' && <p className="ph-comp-flag">Look at it on the computer to approve it.</p>}
+            {canAnswer && item.kind !== 'skill' && (
               <div className="ph-comp-pending-btns">
                 <button
                   type="button"

@@ -11,6 +11,7 @@
 //! - `memory`: pending review, keep and drop, outside changes, the texts a brief is built from
 //! - `agents`: which agents can be a companion, and the launch-arg check
 //! - `personas`: the four SOUL templates
+//! - `skills`: `skills/<slug>.md`, ways of working the person approved (proposed through the pending list)
 //!
 //! The runtime side (piece P2):
 //!
@@ -54,6 +55,7 @@ pub mod personas;
 pub mod recall;
 pub mod schedule;
 pub mod service;
+pub mod skills;
 pub mod store;
 pub mod today;
 pub mod view;
@@ -66,6 +68,8 @@ mod foreman_tests;
 mod move_tests;
 #[cfg(test)]
 mod service_tests;
+#[cfg(test)]
+mod skill_tests;
 #[cfg(test)]
 pub mod test_host;
 #[cfg(test)]
