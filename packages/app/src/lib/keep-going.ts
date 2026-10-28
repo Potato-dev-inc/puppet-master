@@ -118,3 +118,13 @@ export function stateText(view: HandoverView): string {
   if (view.state === 'failed') return `${view.toLabel} couldn't start`;
   return `Moving to ${view.toLabel}`;
 }
+
+/**
+ * The line one pane shows. The server sends one `HandoverView` for both panes, so a running hand-over reads
+ * "Continued on {to}" on the old pane and "Continued from {from}" on the new one. Every other state (moving,
+ * failed) keeps the server text through `stateText`.
+ */
+export function sideText(view: HandoverView, isNewPane: boolean): string {
+  if (view.state !== 'running') return stateText(view);
+  return isNewPane ? `Continued from ${view.fromLabel}` : `Continued on ${view.toLabel}`;
+}

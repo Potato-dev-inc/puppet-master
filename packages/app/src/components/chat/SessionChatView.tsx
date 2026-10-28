@@ -54,6 +54,8 @@ export interface SessionChatViewProps {
   headerExtra?: ReactNode;
   /** The chat menu at the end of the header (Save as page). */
   headerMenu?: ReactNode;
+  /** A one-line note above the conversation (the Keep going line); it shows nothing when there is nothing to say. */
+  banner?: ReactNode;
   /** Something laid over the chat, inside it (the side question box). */
   overlay?: ReactNode;
   /** A search result asked for this message: the chat scrolls to it once it is there. */
@@ -120,7 +122,7 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, overlay, jump }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, banner, overlay, jump }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
   const markdown = source === 'file' || source === 'api';
@@ -192,6 +194,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
         )}
         {mode === 'summary' && <span className="block ck-chat-mode-note">{SUMMARY_NOTE}</span>}
       </p>
+      {banner}
       <PlanCard items={plan} />
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-2 ck-chat-body">
         {state === 'unavailable' && (

@@ -9,6 +9,7 @@ import { usePendingBubbles } from '../../hooks/usePendingBubbles';
 import { useSessionChat } from '../../hooks/useSessionChat';
 import { ChatComposer } from './ChatComposer';
 import { ChatExportMenu } from './ChatExportMenu';
+import { KeepGoingBanner } from './KeepGoingBanner';
 import { PendingMessages } from './PendingMessages';
 import { SessionChatView } from './SessionChatView';
 import { useSideQuestion } from './useSideQuestion';
@@ -19,7 +20,7 @@ export interface ChatReply {
   blockedReason: string | null;
 }
 
-export function SessionChatPanel({ paneId, dock, reply, emptyNote }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode }) {
+export function SessionChatPanel({ paneId, dock, reply, emptyNote, onOpenPane }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; onOpenPane?: (paneId: string) => void }) {
   const chat = useSessionChat(paneId, true);
   const outbox = usePaneOutbox(tauriOutboxTransport, paneId, !!reply);
   const userTexts = useMemo(() => chat.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [chat.turns]);
@@ -43,6 +44,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote }: { paneId: s
       emptyNote={emptyNote}
       headerExtra={chat.state === 'unavailable' ? undefined : side.button}
       headerMenu={chat.state === 'unavailable' ? undefined : <ChatExportMenu paneId={paneId} />}
+      banner={<KeepGoingBanner paneId={paneId} onOpenPane={onOpenPane} />}
       overlay={side.box}
       dock={dock}
       pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}

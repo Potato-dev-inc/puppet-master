@@ -193,6 +193,7 @@ function SplitSideView({
           dock={chatDock ?? undefined}
           reply={{ blockedReason: composerBlock(pane, !chatAllowed) }}
           emptyNote={chatAllowed ? undefined : 'A plain shell has no chat. Open it alone to use its terminal.'}
+          onOpenPane={(id) => c.select(id)}
         />
       </div>
     </section>

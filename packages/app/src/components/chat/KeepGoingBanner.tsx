@@ -3,17 +3,18 @@
 //   old pane:  "Continued on <agent> · 17:02 · Open"
 //   new pane:  "Continued from <agent> · 14 turns · Show brief"
 //   failed:    "<agent> couldn't start · Try again from the card"
-// It reads the pane's lineage and reloads when `keep-going://changed` names this pane. The state line is always
-// `stateText(view)`. Nothing here starts or stops an agent.
+// It reads the pane's lineage and reloads when `keep-going://changed` names this pane. The state line is
+// `sideText(view, isNew)`: per-side wording while it runs, the server text otherwise. Nothing here starts or stops an agent.
 import { useEffect, useRef, useState } from 'react';
 import {
   keepGoingBrief,
   keepGoingLineage,
   onKeepGoingChanged,
-  stateText,
+  sideText,
   type HandoverView,
   type KeepGoingLineage,
 } from '../../lib/keep-going';
+import '../../styles/cockpit-keep-going.css';
 import { BriefSheet } from '../cockpit/BriefSheet';
 
 const LOAD_FAILED = 'Could not load the brief. Try again.';
@@ -66,10 +67,14 @@ export function KeepGoingBanner({ paneId, onOpenPane }: { paneId: string; onOpen
     load();
     onKeepGoingChanged((event) => {
       if (event.paneIds.includes(paneId)) load();
-    }).then((stop) => {
-      if (alive.current) unlisten = stop;
-      else stop();
-    });
+    }).then(
+      (stop) => {
+        if (alive.current) unlisten = stop;
+        else stop();
+      },
+      // No event channel (a test stub, a window without it): the line still shows what it loaded.
+      () => {},
+    );
     return () => {
       alive.current = false;
       unlisten?.();
@@ -105,7 +110,7 @@ export function KeepGoingBanner({ paneId, onOpenPane }: { paneId: string; onOpen
         data-keep-going-side={isNew ? 'new' : 'old'}
         style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}
       >
-        <span>{stateText(view)}</span>
+        <span>{sideText(view, isNew)}</span>
         {failed ? (
           <span>· Try again from the card</span>
         ) : (

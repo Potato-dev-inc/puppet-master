@@ -15,6 +15,7 @@ import {
   keepGoingTargetKey,
   keepGoingTargets,
   onKeepGoingChanged,
+  sideText,
   stateText,
   type HandoverView,
   type KeepGoingOffer,
@@ -163,5 +164,21 @@ describe('stateText', () => {
     expect(stateText(view({ state: 'stopping', stateText: ' ' }))).toBe('Moving to Fake B · Work');
     expect(stateText(view({ state: 'starting', stateText: '' }))).toBe('Moving to Fake B · Work');
     expect(stateText(view({ state: 'failed', stateText: '' }))).toBe("Fake B · Work couldn't start");
+  });
+});
+
+describe('sideText', () => {
+  it('reads "Continued on" on the old pane and "Continued from" on the new pane while it runs', () => {
+    const running = view({ state: 'running', stateText: 'Continued on Fake B · Work', fromLabel: 'Fake A', toLabel: 'Fake B · Work' });
+    expect(sideText(running, false)).toBe('Continued on Fake B · Work');
+    expect(sideText(running, true)).toBe('Continued from Fake A');
+  });
+
+  it('keeps the server text for the other states, on both panes', () => {
+    const moving = view({ state: 'stopping', stateText: 'Moving to Fake B · Work' });
+    expect(sideText(moving, false)).toBe('Moving to Fake B · Work');
+    expect(sideText(moving, true)).toBe('Moving to Fake B · Work');
+    const failed = view({ state: 'failed', stateText: "Fake B · Work couldn't start." });
+    expect(sideText(failed, false)).toBe("Fake B · Work couldn't start.");
   });
 });

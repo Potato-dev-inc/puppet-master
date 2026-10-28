@@ -72,6 +72,12 @@ describe('KeepGoingBanner: old pane (continued on)', () => {
     expect(onOpenPane).toHaveBeenCalledWith('pane-b');
   });
 
+  it('reads Continued on {to} even though the server text is shared by both panes', async () => {
+    await mount('pane-a', { from: null, to: view({ stateText: 'Continued on Fake B · Work' }) });
+    expect(row()!.textContent).toContain('Continued on Fake B · Work');
+    expect(row()!.textContent).not.toContain('Continued from');
+  });
+
   it('hides Open when no pane-focus callback is given', async () => {
     await mount('pane-a', { from: null, to: view() });
     expect(row()).toBeTruthy();
@@ -91,6 +97,12 @@ describe('KeepGoingBanner: new pane (continued from)', () => {
     const dialog = host.querySelector('[role="dialog"]');
     expect(dialog!.textContent).toContain('The brief Fake B · Work got');
     expect(host.querySelector('pre')!.textContent).toBe('Continue: fix the total\nNext: look at the changes.');
+  });
+
+  it('reads Continued from {from} even though the server text says Continued on {to}', async () => {
+    await mount('pane-b', { from: view({ stateText: 'Continued on Fake B · Work' }), to: null });
+    expect(row()!.textContent).toContain('Continued from Fake A');
+    expect(row()!.textContent).not.toContain('Continued on');
   });
 
   it('uses the singular for one turn', async () => {
@@ -163,10 +175,16 @@ describe('KeepGoingBanner: changes', () => {
     expect(lineageMock).toHaveBeenCalledTimes(1);
     await act(async () => fire({ paneIds: ['some-other-pane'] }));
     expect(lineageMock).toHaveBeenCalledTimes(1);
-    lineageMock.mockResolvedValue({ from: null, to: view({ stateText: 'Continued on Fake B · Work · back' }) });
+    lineageMock.mockResolvedValue({ from: null, to: view({ toLabel: 'Fake C', stateText: 'Continued on Fake C' }) });
     await act(async () => fire({ paneIds: ['pane-x', 'pane-a'] }));
     expect(lineageMock).toHaveBeenCalledTimes(2);
-    expect(row()!.textContent).toContain('back');
+    expect(row()!.textContent).toContain('Continued on Fake C');
+  });
+
+  it('still shows the line when the event channel is not there', async () => {
+    listenMock.mockRejectedValue(new Error('no events'));
+    await mount('pane-a', { from: null, to: view() });
+    expect(row()!.textContent).toContain('Continued on Fake B · Work');
   });
 
   it('stops listening when it unmounts', async () => {

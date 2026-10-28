@@ -30,13 +30,17 @@ afterEach(() => {
   host.remove();
 });
 
+// The words the backend puts on a card that offers Codex (handoff/card_tests.rs).
+const OFFER_TEXT = 'Codex gets a short brief and works in the same folder. Claude Code in this pane is stopped first.';
+
 const usage: Question = {
   id: 'l1',
   agent: 'Claude Code',
   pane_id: 'p-claude',
   question: 'Claude Code ran out of usage. It can continue at 14:05.',
-  context: 'Handing the work to another agent is coming in a later update.',
+  context: OFFER_TEXT,
   choices: [
+    { id: 'continue:codex', label: 'Continue on Codex' },
     { id: 'remind', label: 'Remind me at 14:05' },
     { id: 'stop', label: 'Stop here' },
   ],
@@ -62,18 +66,21 @@ function render(q: Question, extra: { paneName?: string; onOpenPane?: () => void
 
 const buttons = () => [...host.querySelectorAll('button')].map((b) => b.textContent);
 const button = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === text);
+const sheetButton = (text: string) => [...document.querySelectorAll('.ck-sheet button')].find((b) => b.textContent === text) as HTMLButtonElement | undefined;
 
 describe('LimitCard', () => {
-  it('says what happened, offers its two choices, and Other agent…', () => {
+  it('says what happened, offers Continue on Codex first, then its two choices, and Other agent…', () => {
     render(usage);
     expect(host.querySelector('.ib-title')?.textContent).toBe('Claude Code ran out of usage. It can continue at 14:05.');
     // the one age format, no "ran out" prefix
     expect(host.querySelector('.ib-age')?.textContent).toBe('2m');
-    expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here', 'Other agent…']);
-    expect(button('Remind me at 14:05')!.className).toContain('ck-btn--primary');
+    expect(buttons()).toEqual(['Continue on Codex', 'Remind me at 14:05', 'Stop here', 'Other agent…']);
+    expect(host.querySelector('.ib-reason')?.textContent).toBe(OFFER_TEXT);
+    expect(button('Continue on Codex')!.className).toContain('ck-btn--primary');
+    expect(button('Remind me at 14:05')!.className).not.toContain('ck-btn--primary');
   });
 
-  it('has no hand-off button of its own: the backend choices answer, Other agent… opens the picker', () => {
+  it('has no hand-off button of its own: the backend choices answer (Continue on Codex included), Other agent… opens the picker', () => {
     render(usage, { onOpenPane: () => {} });
     for (const label of buttons()) {
       expect(label).not.toMatch(/hand|continue with|resume|switch|cancel/i);
@@ -87,9 +94,10 @@ describe('LimitCard', () => {
 
   it('answers with the choice ids the backend reads', () => {
     const onAnswer = render(usage);
+    act(() => button('Continue on Codex')!.click());
     act(() => button('Remind me at 14:05')!.click());
     act(() => button('Stop here')!.click());
-    expect(onAnswer.mock.calls).toEqual([[{ choice_id: 'remind' }], [{ choice_id: 'stop' }]]);
+    expect(onAnswer.mock.calls).toEqual([[{ choice_id: 'continue:codex' }], [{ choice_id: 'remind' }], [{ choice_id: 'stop' }]]);
   });
 
   it('names the pane and can open its terminal', () => {
@@ -101,7 +109,7 @@ describe('LimitCard', () => {
   });
 
   it('with its own wait on, the backend says so and the card shows it', () => {
-    render({ ...usage, context: 'Claude Code is set to continue on its own. Handing the work to another agent is coming in a later update.' });
+    render({ ...usage, context: `Claude Code is set to continue on its own. Continuing on Codex stops that. ${OFFER_TEXT}` });
     expect(host.querySelector('.ib-reason')?.textContent).toContain('set to continue on its own');
   });
 
@@ -110,16 +118,17 @@ describe('LimitCard', () => {
       ...usage,
       question: "Claude Code ran out of usage. It didn't say when it can continue.",
       choices: [
+        { id: 'continue:codex', label: 'Continue on Codex' },
         { id: 'remind', label: 'Remind me in 1 hour' },
         { id: 'stop', label: 'Stop here' },
       ],
     });
-    expect(buttons()).toEqual(['Remind me in 1 hour', 'Stop here', 'Other agent…']);
+    expect(buttons()).toEqual(['Continue on Codex', 'Remind me in 1 hour', 'Stop here', 'Other agent…']);
   });
 
   it('a pane without a run has nothing to stop: Dismiss, and no Other agent…', () => {
-    render({ ...usage, choices: [usage.choices[0], { id: 'stop', label: 'Dismiss' }], limit: { ...usage.limit!, has_run: false } });
-    expect(buttons()).toEqual(['Remind me at 14:05', 'Dismiss']);
+    render({ ...usage, choices: [usage.choices[0], usage.choices[1], { id: 'stop', label: 'Dismiss' }], limit: { ...usage.limit!, has_run: false } });
+    expect(buttons()).toEqual(['Continue on Codex', 'Remind me at 14:05', 'Dismiss']);
   });
 
   it('the reminder card has one button and says the limit should have reset', () => {
@@ -151,7 +160,7 @@ describe('Other agent… on a limit card', () => {
 
   it('is not offered when the card has no pane to stop', () => {
     render({ ...usage, pane_id: undefined });
-    expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here']);
+    expect(buttons()).toEqual(['Continue on Codex', 'Remind me at 14:05', 'Stop here']);
   });
 
   it('opens the picker for this pane, with its agents listed', async () => {
@@ -166,7 +175,7 @@ describe('Other agent… on a limit card', () => {
     vi.mocked(keepGoingContinue).mockResolvedValue(undefined as never);
     render(usage);
     await act(async () => button('Other agent…')!.click());
-    await act(async () => button('Continue on Codex')!.click());
+    await act(async () => sheetButton('Continue on Codex')!.click());
     expect(keepGoingContinue).toHaveBeenCalledWith('p-claude', 'codex', true, 'l1');
     expect(host.querySelector('.ck-keep-going-sheet')).toBeNull();
   });
@@ -182,7 +191,8 @@ describe('Other agent… on a limit card', () => {
 
 describe('a limit card on a companion\'s pane', () => {
   const resetMs = Date.now() + 3 * 3_600_000;
-  const companionCard: Question = { ...usage, pane_id: 'companion-mochi', limit: { ...usage.limit!, reset_at_ms: resetMs } };
+  // The backend never offers Continue on a companion's pane (`NotHere`): two choices and no hand-over line.
+  const companionCard: Question = { ...usage, pane_id: 'companion-mochi', context: undefined, choices: usage.choices.slice(1), limit: { ...usage.limit!, reset_at_ms: resetMs } };
   const mochi: CompanionView = {
     id: 'mochi',
     name: 'Mochi',
