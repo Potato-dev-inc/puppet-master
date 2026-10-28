@@ -1,0 +1,223 @@
+/* The Morning page of Night Shift: a full overlay, dense rows, grayscale tokens only. */
+.cockpit .ck-morning {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 28px 24px 24px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.cockpit .ck-morning-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.cockpit .ck-morning-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cockpit .ck-morning-select {
+  align-self: flex-start;
+  height: 28px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  color: var(--label);
+  font: inherit;
+  font-size: 12.5px;
+}
+.cockpit .ck-morning-summary {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-morning-totals,
+.cockpit .ck-morning-live {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--label-3);
+}
+.cockpit .ck-morning-empty {
+  margin: 8px 0;
+  color: var(--label-3);
+}
+.cockpit .ck-morning-error {
+  margin: 0;
+  color: var(--label);
+}
+.cockpit .ck-morning-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-size: 12.5px;
+  color: var(--label-2);
+}
+.cockpit .ck-morning-notice p,
+.cockpit .ck-morning-ask-all p {
+  margin: 0;
+}
+.cockpit .ck-morning-ask-all {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.cockpit .ck-morning-ask {
+  font-size: 12.5px;
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-morning-titles,
+.cockpit .ck-morning-list,
+.cockpit .ck-morning-events {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cockpit .ck-morning-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+  color: var(--label-2);
+}
+.cockpit .ck-morning-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cockpit .ck-morning-group-title {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--label-3);
+}
+.cockpit .ck-morning-task {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-morning-task.is-closed {
+  padding: 8px 0;
+  color: var(--label-3);
+}
+.cockpit .ck-morning-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-width: 0;
+}
+.cockpit .ck-morning-glyph {
+  width: 12px;
+  text-align: center;
+  color: var(--label-3);
+}
+.cockpit .ck-morning-title {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-morning-project,
+.cockpit .ck-morning-plan,
+.cockpit .ck-morning-size,
+.cockpit .ck-morning-closed {
+  font-size: 12px;
+  color: var(--label-3);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-morning-headline {
+  font-size: 12.5px;
+  color: var(--label-2);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-morning-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.cockpit .ck-morning-toggle {
+  flex: 0 0 auto;
+}
+.cockpit .ck-morning-note {
+  margin: 4px 0 0 24px;
+  font-size: 12px;
+  color: var(--label-2);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-morning-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 0 24px;
+  font-size: 12.5px;
+  color: var(--label-2);
+}
+.cockpit .ck-morning-details p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-morning-details ul {
+  gap: 2px;
+}
+.cockpit .ck-morning-section {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--label-3);
+}
+.cockpit .ck-morning-events li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  color: var(--label-2);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-morning-time {
+  min-width: 42px;
+  font-variant-numeric: tabular-nums;
+  color: var(--label-3);
+}
+.cockpit .ck-morning-older {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .cockpit .ck-morning {
+    padding: 20px 16px;
+  }
+  .cockpit .ck-morning-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .cockpit .ck-morning-note,
+  .cockpit .ck-morning-details {
+    margin-left: 0;
+  }
+}
