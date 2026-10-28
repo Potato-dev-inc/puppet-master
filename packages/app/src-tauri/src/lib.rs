@@ -171,6 +171,7 @@ pub fn run() {
         .manage(AppState::new())
         .manage(commands::SessionChatState::default())
         .manage(clip::store::ClipState::default())
+        .manage(live_room::service::LiveRoomState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_panes,
             commands::session_chat_open,
@@ -183,6 +184,15 @@ pub fn run() {
             commands::chat_export_html,
             commands::chat_export_markdown,
             commands::chat_export_save,
+            commands::live_room_preview,
+            commands::live_room_start,
+            commands::live_room_stop,
+            commands::live_room_pause,
+            commands::live_room_resume,
+            commands::live_room_status,
+            commands::live_room_copy_link,
+            commands::live_room_config_get,
+            commands::live_room_config_set,
             commands::clip_plan,
             commands::clip_stage,
             commands::clip_save,
@@ -666,6 +676,8 @@ pub fn run() {
             askbar::glue::init(app.handle());
             team::init(app.handle().clone(), registry_for_panes.clone());
             companion::live::start(app.handle().clone(), registry_for_panes.clone());
+            // A room a crash left on the relay is ended now (its own thread: it may wait for the network).
+            live_room::service::cleanup_at_boot(app_paths::app_data_dir());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });
@@ -701,6 +713,10 @@ pub fn run() {
                 }
             }
             if matches!(event, tauri::RunEvent::Exit) {
+                // The link ends with the app: best effort, the relay's time limit ends it otherwise.
+                if let Some(room) = app_handle.try_state::<live_room::service::LiveRoomState>() {
+                    room.stop_all(live_room::publisher::StopReason::AppQuit);
+                }
                 standby::shutdown();
                 if let Some(chat) = app_handle.try_state::<commands::SessionChatState>() {
                     chat.shutdown();
