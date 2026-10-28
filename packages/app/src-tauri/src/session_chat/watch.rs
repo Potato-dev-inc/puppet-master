@@ -36,6 +36,13 @@ pub trait Sink: Send + Sync {
     fn source(&self, _pane_id: &str, _source: &str) {}
 }
 
+/// Sees every batch of items a pane's reader puts in its list (also the first look, which is not sent to the
+/// `Sink`). It runs under the pane's items lock: it must only hand the items on, never wait on anything slow.
+/// The chat search index is one (`chat_index`).
+pub trait ItemObserver: Send + Sync {
+    fn observe(&self, pane_id: &str, items: &[ChatItem]);
+}
+
 /// What the watcher asks about a pane: its facts, or `None` when the pane is gone.
 pub trait PaneLookup: Send + Sync {
     fn facts(&self, pane_id: &str) -> Option<PaneFacts>;
@@ -369,6 +376,8 @@ pub struct Watchers {
     alive: Arc<AtomicUsize>,
     /// Which pane follows which file (see `claims`).
     claims: Arc<Claims>,
+    /// Told of every item batch (the chat search index).
+    observer: Option<Arc<dyn ItemObserver>>,
 }
 
 impl Watchers {
@@ -377,7 +386,13 @@ impl Watchers {
     }
 
     pub fn with_tuning(sink: Arc<dyn Sink>, panes: Arc<dyn PaneLookup>, tuning: Tuning) -> Self {
-        Watchers { sink, panes, tuning, open: Mutex::new(HashMap::new()), alive: Arc::new(AtomicUsize::new(0)), claims: Arc::new(Claims::default()) }
+        Watchers { sink, panes, tuning, open: Mutex::new(HashMap::new()), alive: Arc::new(AtomicUsize::new(0)), claims: Arc::new(Claims::default()), observer: None }
+    }
+
+    /// Tells `observer` of every item the readers read from now on.
+    pub fn with_observer(mut self, observer: Arc<dyn ItemObserver>) -> Self {
+        self.observer = Some(observer);
+        self
     }
 
     /// Starts following the pane (once) and returns the items so far, read before this returns when the
@@ -417,7 +432,7 @@ impl Watchers {
         let Some(first) = reader.step(&*self.panes, pane_id, Instant::now(), self.tuning.relocate) else {
             return Vec::new();
         };
-        apply(&watch, first, self.tuning.max_items, None);
+        apply(&watch, first, self.tuning.max_items, None, self.observer.as_deref().map(|o| (o, pane_id)));
         let snapshot = watch.snapshot();
         *watch.waiting.lock() = waiting_of(&watch, &reader, &*self.panes, pane_id);
         *watch.source.lock() = reader.source();
@@ -430,6 +445,7 @@ impl Watchers {
             panes: self.panes.clone(),
             tuning: self.tuning,
             alive: self.alive.clone(),
+            observer: self.observer.clone(),
         };
         self.alive.fetch_add(1, Ordering::SeqCst);
         match std::thread::Builder::new().name("session-chat".into()).spawn(move || worker.run()) {
@@ -502,6 +518,7 @@ struct Worker {
     panes: Arc<dyn PaneLookup>,
     tuning: Tuning,
     alive: Arc<AtomicUsize>,
+    observer: Option<Arc<dyn ItemObserver>>,
 }
 
 impl Worker {
@@ -515,7 +532,7 @@ impl Worker {
             let Some(change) = self.reader.step(&*self.panes, &self.pane_id, Instant::now(), self.tuning.relocate) else {
                 break;
             };
-            apply(&self.watch, change, self.tuning.max_items, Some((&*self.sink, &self.pane_id)));
+            apply(&self.watch, change, self.tuning.max_items, Some((&*self.sink, &self.pane_id)), self.observer.as_deref().map(|o| (o, self.pane_id.as_str())));
             let source = self.reader.source();
             {
                 let mut known = self.watch.source.lock();
@@ -548,7 +565,7 @@ fn waiting_of(watch: &Watch, reader: &Reader, panes: &dyn PaneLookup, pane_id: &
 
 /// Puts a change into the pane's items (dropping the oldest past `max`) and sends it to the sink.
 /// Sending happens under the items lock so a snapshot never misses or repeats a batch.
-fn apply(watch: &Watch, change: Change, max: usize, out: Option<(&dyn Sink, &str)>) {
+fn apply(watch: &Watch, change: Change, max: usize, out: Option<(&dyn Sink, &str)>, observer: Option<(&dyn ItemObserver, &str)>) {
     let mut items = watch.items.lock();
     let upsert = matches!(change, Change::Upsert(_));
     let (batch, mut reset) = match change {
@@ -560,6 +577,9 @@ fn apply(watch: &Watch, change: Change, max: usize, out: Option<(&dyn Sink, &str
         }
     };
     let count = batch.len();
+    if let Some((observer, pane_id)) = observer {
+        observer.observe(pane_id, &batch);
+    }
     for item in &batch {
         if upsert {
             // An item sent again under its id replaces the old copy where it stands.

@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { openPreview, previewLabel } from '../../lib/pane-preview';
+import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
+import { requestChatJump } from '../../lib/chatJump';
+import type { ChatHit } from '../../lib/chatSearch';
+import { useChatSearch } from '../../hooks/useChatSearch';
+import '../../styles/cockpit-chat-search.css';
+import { ChatHitDetail, ChatHitRows, SEARCH_CHATS_HINT, SEARCH_CHATS_TITLE } from './ChatHits';
 import { T as WELCOME } from '../firstrun/copy';
 import { DotSpinner } from './DotSpinner';
-import { IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
+import { IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSearch, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 import { settingsShortcuts } from './palette-shortcuts';
 import { useMissionsEnabled } from '../../lib/missions';
@@ -26,8 +32,11 @@ interface Item {
   run: () => void;
 }
 
+export type PaletteMode = 'commands' | 'chats';
+
 export function Palette({
   c,
+  initialMode = 'commands',
   onClose,
   onOpenDoctor,
   onStopAll,
@@ -39,6 +48,8 @@ export function Palette({
   onNewCompanion,
 }: {
   c: CockpitApi;
+  /** `chats`: open straight in "Search all chats" (Ctrl+Shift+F). */
+  initialMode?: PaletteMode;
   onClose: () => void;
   onOpenDoctor?: () => void;
   onStopAll?: () => void;
@@ -54,6 +65,11 @@ export function Palette({
 }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
+  const [mode, setMode] = useState<PaletteMode>(initialMode);
+  // A hit whose pane is gone, shown read-only.
+  const [closedHit, setClosedHit] = useState<ChatHit | null>(null);
+  const listing = useAgentRegistry();
+  const chats = useChatSearch(query, mode === 'chats');
   const listRef = useRef<HTMLDivElement>(null);
 
   const missionsOn = useMissionsEnabled();
@@ -145,6 +161,19 @@ export function Palette({
         });
       }
     }
+    out.push({
+      id: 'act:search-chats',
+      group: 'Actions',
+      title: SEARCH_CHATS_TITLE,
+      desc: 'Find an answer from any agent, any day',
+      keywords: 'find history conversation messages',
+      icon: <IconSearch />,
+      hint: SEARCH_CHATS_HINT,
+      run: () => {
+        setMode('chats');
+        setQuery('');
+      },
+    });
     if (onStopAll) {
       out.push({
         id: 'act:stop-all',
@@ -227,30 +256,54 @@ export function Palette({
     [items, query],
   );
 
-  useEffect(() => setIndex(0), [query]);
+  const count = mode === 'chats' ? chats.hits.length : filtered.length;
+  useEffect(() => setIndex(0), [query, mode]);
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
-  }, [index, filtered]);
+  }, [index, filtered, chats.hits]);
 
   const choose = (item: Item | undefined) => {
     if (!item) return;
+    // "Search all chats" switches the palette over and keeps it open.
+    if (item.id === 'act:search-chats') {
+      item.run();
+      return;
+    }
     onClose();
     item.run();
+  };
+
+  // Opens the pane's Chat at the message; a pane that is gone shows what was kept.
+  const chooseHit = (hit: ChatHit | undefined) => {
+    if (!hit) return;
+    if (!c.registry.panes.has(hit.paneId)) {
+      setClosedHit(hit);
+      return;
+    }
+    onClose();
+    requestChatJump(hit.paneId, hit.itemId);
+    c.select(hit.paneId);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setIndex((i) => (filtered.length ? (i + 1) % filtered.length : 0));
+      setIndex((i) => (count ? (i + 1) % count : 0));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setIndex((i) => (filtered.length ? (i - 1 + filtered.length) % filtered.length : 0));
+      setIndex((i) => (count ? (i - 1 + count) % count : 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      choose(filtered[index]);
+      if (mode === 'chats') chooseHit(chats.hits[index]);
+      else choose(filtered[index]);
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      onClose();
+      if (closedHit) setClosedHit(null);
+      else onClose();
+    } else if (e.key === 'Backspace' && mode === 'chats' && !query) {
+      // Nothing left to delete: back to the commands.
+      e.preventDefault();
+      setMode('commands');
     }
   };
 
@@ -264,15 +317,49 @@ export function Palette({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Switch pane, start an agent, run an action"
-          aria-label="Search commands"
+          placeholder={mode === 'chats' ? 'Search what was said in any chat' : 'Switch pane, start an agent, run an action'}
+          aria-label={mode === 'chats' ? SEARCH_CHATS_TITLE : 'Search commands'}
           role="combobox"
           aria-expanded="true"
           aria-controls="ck-palette-list"
         />
-        <div className="ck-palette-list" id="ck-palette-list" role="listbox" ref={listRef}>
-          {filtered.length === 0 && <p className="ck-sub ck-pad">No matches</p>}
-          {filtered.map((item, i) => {
+        {mode === 'chats' && (
+          <div className="ck-palette-mode">
+            <span>{SEARCH_CHATS_TITLE}</span>
+            <span className="ck-palette-mode-note">Chats you have opened</span>
+          </div>
+        )}
+        {closedHit && (
+          <ChatHitDetail hit={closedHit} agentName={agentLabel(listing, closedHit.agent)} now={Date.now()} onBack={() => setClosedHit(null)} />
+        )}
+        <div className="ck-palette-list" id="ck-palette-list" role="listbox" ref={listRef} hidden={!!closedHit}>
+          {mode === 'chats' && (
+            <>
+              {chats.hits.length === 0 && (
+                <p className="ck-sub ck-pad">
+                  {!query.trim()
+                    ? 'Type to search every chat you have opened.'
+                    : chats.state === 'searching'
+                      ? 'Searching…'
+                      : chats.state === 'failed'
+                        ? 'Search is not available right now.'
+                        : chats.state === 'off'
+                          ? 'Search is off — turn it on in Settings'
+                          : 'No matches'}
+                </p>
+              )}
+              <ChatHitRows
+                hits={chats.hits}
+                index={index}
+                agentName={(id) => agentLabel(listing, id)}
+                onHover={setIndex}
+                onChoose={chooseHit}
+                now={Date.now()}
+              />
+            </>
+          )}
+          {mode === 'commands' && filtered.length === 0 && <p className="ck-sub ck-pad">No matches</p>}
+          {mode === 'commands' && filtered.map((item, i) => {
             const header = item.group !== lastGroup ? item.group : null;
             lastGroup = item.group;
             return (

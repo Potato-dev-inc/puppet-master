@@ -5,7 +5,8 @@
 
 use super::AppState;
 use crate::pty::PaneRegistry;
-use crate::session_chat::{ApiEndpoint, ChatItem, Opening, PaneFacts, PaneLookup, ScreenRead, Sink, Watchers};
+use crate::chat_index::{Answer, ChatIndex, ContextLookup, PaneContext};
+use crate::session_chat::{ApiEndpoint, ChatItem, ItemObserver, Opening, PaneFacts, PaneLookup, ScreenRead, Sink, Watchers};
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -20,14 +21,28 @@ const NO_SOURCE: &str = "Chat is not available for this pane: it has no agent to
 #[derive(Default)]
 pub struct SessionChatState {
     watchers: OnceCell<Arc<Watchers>>,
+    /// The search index of every chat read (`None`: it could not be opened, search is off).
+    index: OnceCell<Option<Arc<ChatIndex>>>,
 }
 
 impl SessionChatState {
-    /// The readers shared by the desktop windows and the phone route (built on first use).
+    /// The readers shared by the desktop windows and the phone route (built on first use). Every item they read
+    /// goes to the search index.
     pub fn watchers(&self, app: &AppHandle, registry: &Arc<Mutex<PaneRegistry>>) -> Arc<Watchers> {
         self.watchers
-            .get_or_init(|| Arc::new(Watchers::new(Arc::new(EventSink(app.clone())), Arc::new(RegistryPanes(registry.clone())))))
+            .get_or_init(|| {
+                let watchers = Watchers::new(Arc::new(EventSink(app.clone())), Arc::new(RegistryPanes(registry.clone())));
+                Arc::new(match self.index(registry) {
+                    Some(index) => watchers.with_observer(index as Arc<dyn ItemObserver>),
+                    None => watchers,
+                })
+            })
             .clone()
+    }
+
+    /// The search index of this profile (opened on first use).
+    pub fn index(&self, registry: &Arc<Mutex<PaneRegistry>>) -> Option<Arc<ChatIndex>> {
+        self.index.get_or_init(|| crate::chat_index::open_default(Arc::new(RegistryPanes(registry.clone())))).clone()
     }
 
     /// The readers, if a chat view has already built them. Reading them never opens a reader.
@@ -145,6 +160,26 @@ impl PaneLookup for RegistryPanes {
     fn screen(&self, pane_id: &str, known: Option<u64>) -> Option<ScreenRead> {
         crate::session_chat::read_pane(&self.0, pane_id, known)
     }
+}
+
+/// Where an item came from, for the search: the pane's agent, the name of its folder and its session id.
+impl ContextLookup for RegistryPanes {
+    fn context(&self, pane_id: &str) -> Option<PaneContext> {
+        let info = self.0.lock().get(pane_id)?.info.clone();
+        let session = crate::agent_hooks::ledger::pinned_session(pane_id).or_else(|| crate::pty::launch_session::get(pane_id));
+        Some(PaneContext::of(&info.agent_type, &info.cwd, session.as_deref()))
+    }
+}
+
+/// Search across every chat that was read: the items whose text has all the typed words, newest first, with a
+/// snippet and the ranges to highlight. `enabled` is false when the person turned the index off (then no hits).
+/// Empty when nothing was typed.
+#[tauri::command]
+pub async fn chat_search(state: State<'_, AppState>, chat: State<'_, SessionChatState>, query: String, limit: Option<usize>) -> Result<Answer, String> {
+    let Some(index) = chat.index(&state.registry) else { return Ok(Answer { enabled: crate::chat_index::enabled(), hits: Vec::new() }) };
+    tauri::async_runtime::spawn_blocking(move || index.search(&query, limit.unwrap_or(30)))
+        .await
+        .map_err(|e| format!("INTERNAL: {e}"))?
 }
 
 /// Start following the pane's session file, or its screen. `{ available, reason, items, source }`; the items so far

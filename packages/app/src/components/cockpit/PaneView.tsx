@@ -39,6 +39,7 @@ import { MissionProgress } from './mission/MissionProgress';
 import { missionOfPane, useMissions } from '../../lib/missions';
 import { useAgentRegistry } from '../../lib/agentRegistry';
 import { SessionChatPanel } from '../chat/SessionChatPanel';
+import { useChatJump } from '../../lib/chatJump';
 import { composerBlock } from '../../lib/paneOutbox';
 
 type Tab = 'mission' | 'terminal' | 'chat' | 'changes' | 'transcript' | 'receipt' | 'history';
@@ -140,6 +141,13 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
     setDetails(false);
     setDockIx(0);
   }, [paneId]);
+
+  // A search result opens this pane's Chat (the chat itself scrolls to the message).
+  const jump = useChatJump(paneId);
+  useEffect(() => {
+    if (jump && chatAllowed) setTab('chat');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jump?.nonce, paneId]);
 
   useEffect(() => {
     if (tab === 'changes' && !worktree) setTab('terminal');
