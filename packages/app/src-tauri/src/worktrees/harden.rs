@@ -226,3 +226,27 @@ pub fn remote_has_branch(
     let listed = run(dir, &["ls-remote", "--heads", remote, &wanted], env)?;
     Ok(listed.lines().any(|line| line.split_whitespace().nth(1) == Some(wanted.as_str())))
 }
+
+/// `git diff <args>` on a copy, for the push check (spec n32 section 3.6 C, threats S6 and S7).
+/// Always adds `--no-textconv --no-ext-diff`: a diff driver (`diff.<name>.textconv` or
+/// `diff.<name>.command`) is a program the agent could plant, and a diff would run it. The env must
+/// be a hardened one from [`git_env`]; an empty env is refused, so the plain path cannot be used by
+/// mistake. Output is returned as it is (no trim), so `-z` names and diff lines stay exact.
+pub fn diff(dir: &Path, args: &[&str], env: &[(String, String)]) -> Result<String, OperationError> {
+    if env.is_empty() {
+        return Err(OperationError::new("INVALID_ARGUMENT", "a diff needs the hardened git env", false));
+    }
+    let filters = with_filters_off(dir, env)?;
+    let mut all = vec!["diff", "--no-textconv", "--no-ext-diff", "--no-color", "--no-renames"];
+    all.extend_from_slice(args);
+    let out = git_raw(dir, &all, &refs(&filters))?;
+    if out.ok {
+        Ok(out.stdout)
+    } else {
+        Err(OperationError::new(
+            "GIT_FAILED",
+            format!("git diff failed: {}", out.stderr.trim()),
+            false,
+        ))
+    }
+}
