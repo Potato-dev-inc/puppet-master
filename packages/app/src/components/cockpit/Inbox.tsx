@@ -11,6 +11,7 @@ import { blockingItems, itemsOfKind } from '../../lib/attention';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
 import { AskNotices } from './AskNotices';
 import { CanaryNotices } from './CanaryNotices';
+import { ImportChatsCard } from './ImportChatsCard';
 import { BudgetCard } from './BudgetCard';
 import { ConsentCard } from './ConsentCard';
 import { LimitCard } from './LimitCard';
@@ -265,6 +266,7 @@ export function Inbox({
 
       <AskNotices />
       <CanaryNotices />
+      <ImportChatsCard />
 
       <TeamSection now={c.now} paneNames={c.names} />
     </div>
