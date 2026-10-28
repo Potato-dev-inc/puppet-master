@@ -16,8 +16,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use parking_lot::Mutex;
 use serde::Serialize;
 
-use super::entry::{entries_of, is_kept, PaneContext};
+use super::entry::{entries_of, is_kept, Entry, PaneContext};
 use super::filter::{Facets, Filters};
+use super::imported::ImportedChatRow;
 use super::store::{Hit, Store};
 use crate::session_chat::{ChatItem, ItemObserver};
 
@@ -34,7 +35,8 @@ pub struct Answer {
 }
 
 /// What the index holds now: whether it is on, how many items, how many bytes the file takes, and how many old copies
-/// of a damaged index are left on disk.
+/// of a damaged index are left on disk. `imported_chats` and `imported_items` count the old chats read in (not in
+/// `items`, which counts what the panes said).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
@@ -43,6 +45,8 @@ pub struct Status {
     pub bytes: u64,
     /// Old copies of a damaged index (they hold old chat text; "Clear search index" removes them).
     pub old_copies: usize,
+    pub imported_chats: usize,
+    pub imported_items: usize,
 }
 
 struct Job {
@@ -121,7 +125,38 @@ impl ChatIndex {
     pub fn status(&self) -> Result<Status, String> {
         let store = self.store.lock();
         let (items, bytes) = store.usage().map_err(|error| format!("INTERNAL: chat index: {error}"))?;
-        Ok(Status { enabled: self.enabled(), items, bytes, old_copies: store.old_copies() })
+        let (imported_chats, imported_items) = store.imported_usage().map_err(|error| format!("INTERNAL: chat index: {error}"))?;
+        Ok(Status { enabled: self.enabled(), items, bytes, old_copies: store.old_copies(), imported_chats, imported_items })
+    }
+
+    /// Writes one old chat whole (`Store::replace_chat`): its earlier copy is replaced, and a killed app or an error
+    /// leaves the chat as it was. Refused with `INDEX_OFF` when the index is off, so nothing is written then.
+    pub fn import_chat(&self, row: &ImportedChatRow, entries: &[Entry]) -> Result<(), String> {
+        if !self.enabled() {
+            return Err("INDEX_OFF".into());
+        }
+        self.store.lock().replace_chat(row, entries).map_err(|error| format!("INTERNAL: chat import: {error}"))
+    }
+
+    /// The stamp an old chat was read with (`None` when it was never imported). Equal stamp = not changed.
+    pub fn imported_stamp(&self, agent: &str, session: &str) -> Result<Option<String>, String> {
+        self.store.lock().imported_stamp(agent, session).map_err(|error| format!("INTERNAL: chat import: {error}"))
+    }
+
+    /// Whether a live chat (the panes said it) is in the index under this agent and session.
+    pub fn has_live(&self, agent: &str, session: &str) -> Result<bool, String> {
+        self.store.lock().has_live(agent, session).map_err(|error| format!("INTERNAL: chat import: {error}"))
+    }
+
+    /// The record of one old chat, if it was imported.
+    pub fn imported_chat(&self, agent: &str, session: &str) -> Result<Option<ImportedChatRow>, String> {
+        self.store.lock().imported_chat(agent, session).map_err(|error| format!("INTERNAL: chat import: {error}"))
+    }
+
+    /// Removes only the old chats (their text is erased from the file). Live items stay. Returns the status after it.
+    pub fn clear_imported(&self) -> Result<Status, String> {
+        self.store.lock().clear_imported().map_err(|error| format!("INTERNAL: chat import: {error}"))?;
+        self.status()
     }
 
     /// Removes every item and its text from the file (see `Store::clear`), and the old copies of a damaged index
