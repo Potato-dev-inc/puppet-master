@@ -1,21 +1,25 @@
-//! Hand-off at the limit, step one: DETECT ONLY (`D:\pm-night\DESIGN-RELAY.md`, build steps 1-2).
+//! Hand-off at the limit: detect it, tell the person, and keep going on another agent when they tap.
 //!
-//! When an agent's plan runs out, Puppet Master notices from the screen and tells the person. It
-//! does nothing else yet: no hand-off, no resume, no key pressed in the agent's pane.
+//! When an agent's plan runs out, Puppet Master notices from the screen and raises a card. The card
+//! can offer `Continue on <agent>`: a person's tap moves the task to another agent in the same
+//! folder (`keep_going`, which never runs under this engine's lock). Nothing here moves a task by
+//! itself, resumes an agent, or presses a key in an agent's pane.
 //!
 //! - `limits`: the `[limits]` table (rules as data per agent profile) and its validation.
 //! - `detect`: the generic detector, one screen in and at most one [`LimitHit`] out, with the guards
 //!   against false matches (an agent quoting the limit text is not a limit).
 //! - `reset`: "resets 5pm" / "try again at 9:45 PM" read as a moment, in this machine's zone.
 //! - `watch`: the per-pane state machine (a limit must hold still before it counts).
-//! - `card`: the Inbox card ("Claude Code ran out of usage. It can continue at 14:05.") and its two
-//!   answers, "Remind me at 14:05" and "Stop here".
+//! - `card`: the Inbox cards ("Claude Code ran out of usage. It can continue at 14:05.") and what
+//!   answering them asks for: "Continue on ...", "Remind me at 14:05", "Stop here".
+//! - `keep_going`: the hand-over to another agent, the come-back check and the records behind them.
 //! - this file: the engine that ties them to live panes, runs and the questions store.
 //!
-//! What this step never does (each is tested):
+//! What this never does (each is tested):
 //! - type into a pane, or press anything the agent itself would use to continue. Claude's own
 //!   "continue automatically at usage limit" wait is left exactly as it is; the `/rate-limit-options`
-//!   menu is never answered. Both choices on the card are bookkeeping inside Puppet Master.
+//!   menu is never answered. "Remind me" and "Stop here" are bookkeeping inside Puppet Master; a
+//!   hand-over ends the old agent's process by its pid and starts a new run.
 //! - treat a transient rate limit as a limit: a retry is a status line, never a card.
 //! - offer another login of the same vendor.
 //!
@@ -84,6 +88,21 @@ pub trait Env {
     fn mark(&self, pane_id: &str, text: &str);
     /// A line for the usage-limit log behind "Your plans" (`crate::plans_report`). Default: none.
     fn log_limit(&self, _entry: crate::plans_report::limit_log::Entry) {}
+    /// What the limit card offers for `pane_id` (Keep going). `limited` looks up the engine's own limit
+    /// notes: this runs inside the engine's lock, so an implementation must use it and not call the
+    /// engine again. Default: nothing is offered.
+    fn keep_going_offer(
+        &self,
+        _pane_id: &str,
+        _ctx: &PaneCtx,
+        _hit: &LimitHit,
+        _limited: &dyn Fn(&str, Option<&str>) -> Option<Option<u64>>,
+    ) -> keep_going::model::KeepGoingOffer {
+        keep_going::model::KeepGoingOffer::NotHere
+    }
+    /// A person's answer asked for a hand-over. Must return at once and do the work elsewhere: it is
+    /// called inside the engine's lock. Default: nothing happens.
+    fn keep_going(&self, _request: keep_going::live::Request) {}
 }
 
 struct CardRef {
@@ -258,15 +277,8 @@ impl Engine {
             }
         }
         let now = env.clock().now_ms().max(0) as u64;
-        // Keep going's offer is wired in KG-8; until then the card has no "Continue on" choice.
-        let card = card::limit_card(
-            hit,
-            &ctx.agent_label,
-            pane_id,
-            operation_id.is_some(),
-            env.clock(),
-            &keep_going::model::KeepGoingOffer::NotHere,
-        );
+        let offer = env.keep_going_offer(pane_id, &ctx, hit, &|agent, account| self.agent_limit(agent, account, now));
+        let card = card::limit_card(hit, &ctx.agent_label, pane_id, operation_id.is_some(), env.clock(), &offer);
         if let Some(created) = card::raise(env.questions(), card, now) {
             self.cards.insert(pane_id.to_string(), CardRef { card_id: created.id, project: ctx.project, operation_id });
         }
@@ -306,6 +318,7 @@ impl Engine {
     /// A person answered a card.
     pub fn resolved(&mut self, env: &dyn Env, question: &Question) {
         let now = env.clock().now_ms().max(0) as u64;
+        let answered_by = question.answer.as_ref().map(|answer| answer.answered_by.clone()).unwrap_or_else(|| "desktop".to_string());
         match card::decision(question, now) {
             card::Decision::Remind { pane_id, agent_label, window, due_ms } => {
                 self.reminders.retain(|r| r.pane_id != pane_id);
@@ -314,11 +327,17 @@ impl Engine {
                 env.mark(&pane_id, &format!("limit:remind due={due_ms}"));
             }
             card::Decision::StopRun { pane_id } => self.stop_run(env, &pane_id),
-            // Keep going hand-overs start in `keep_going::live` (KG-8); nothing to do here yet.
-            card::Decision::Continue { .. }
-            | card::Decision::ComeBack { .. }
-            | card::Decision::Stay { .. }
-            | card::Decision::Retry { .. } => {}
+            // Keep going: queued for a thread, never run under this lock (`keep_going::live`).
+            card::Decision::Continue { pane_id, target } => {
+                env.keep_going(keep_going::live::Request::Continue { pane_id, target, who: keep_going::live::who_of(&answered_by) })
+            }
+            card::Decision::ComeBack { pane_id } => {
+                env.keep_going(keep_going::live::Request::ComeBack { pane_id, who: keep_going::live::who_of(&answered_by) })
+            }
+            card::Decision::Stay { pane_id } => env.keep_going(keep_going::live::Request::Stay { pane_id }),
+            card::Decision::Retry { pane_id, target } => {
+                env.keep_going(keep_going::live::Request::Retry { pane_id, target, who: keep_going::live::who_of(&answered_by) })
+            }
             card::Decision::Nothing => {}
         }
         if let Some(pane) = question.pane_id.as_deref() {
@@ -473,6 +492,20 @@ impl Env for LiveEnv {
         #[cfg(test)]
         let _ = entry;
     }
+
+    fn keep_going_offer(
+        &self,
+        pane_id: &str,
+        _ctx: &PaneCtx,
+        _hit: &LimitHit,
+        limited: &dyn Fn(&str, Option<&str>) -> Option<Option<u64>>,
+    ) -> keep_going::model::KeepGoingOffer {
+        keep_going::live::offer_for(pane_id, limited)
+    }
+
+    fn keep_going(&self, request: keep_going::live::Request) {
+        keep_going::live::spawn(request);
+    }
 }
 
 static ENGINE: Lazy<Mutex<Engine>> = Lazy::new(|| {
@@ -519,6 +552,8 @@ pub fn tick(alive: &dyn Fn(&str) -> bool) {
     for pane_id in changed {
         crate::pane_activity::invalidate(&pane_id);
     }
+    // Keep going's come-back check runs after the engine's lock is released.
+    keep_going::live::tick(SystemClock.now_ms().max(0) as u64);
 }
 
 /// A person answered a limit card (`questions::QuestionStore::answer`).
@@ -552,5 +587,9 @@ pub fn agent_limit(agent_id: &str, account: Option<&str>) -> Option<Option<u64>>
 /// The pane's status line while a limit is on screen (waiting at a usage limit, or retrying a
 /// transient rate limit), for `pane_activity`.
 pub fn status_line(pane_id: &str) -> Option<(crate::tui::ActivityKind, String)> {
+    // A pane whose task was handed to another agent says so before anything about its limit.
+    if let Some(line) = keep_going::live::status_line(pane_id) {
+        return Some(line);
+    }
     ENGINE.lock().status_line(&LiveEnv, pane_id)
 }
