@@ -150,7 +150,9 @@ pub fn tick_after(pattern: Pattern) -> Option<Duration> {
     is_animated(pattern).then_some(FRAME_INTERVAL)
 }
 
-/// Tray tooltip: "Puppet Master — 2 need you · 3 working".
+/// Tray tooltip: "Puppet Master — 2 need you · 3 working". Only tests read it now: the live tooltip
+/// is `tray::summary_line`, the one writer.
+#[cfg(test)]
 pub fn tooltip(agg: &Aggregate) -> String {
     let mut parts: Vec<String> = Vec::new();
     match agg.blocking {

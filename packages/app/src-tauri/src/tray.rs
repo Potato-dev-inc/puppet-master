@@ -2,8 +2,63 @@
 //! registry listing and the open panes, so it is unit-tested without a window system; the Tauri
 //! menu is just a rendering of it.
 
+use crate::pane_jobs::Job;
 use crate::ui_mode::UiMode;
 use serde_json::Value;
+use std::time::Duration;
+
+/// The tooltip when nothing is going on, and the prefix of every tooltip.
+const TOOLTIP_NAME: &str = "Puppet Master";
+
+/// Tray tooltip from the pane statuses and the background jobs: `Puppet Master · 2 need you · 3 working
+/// · 1 server running`. A job counts as a server when it listens on a port. Only the words, no agent
+/// names. Standby (hidden) panes must be left out by the caller.
+pub fn summary_line(statuses: &[&str], jobs: &[Job]) -> String {
+    let waiting = statuses.iter().filter(|s| **s == "waiting_input").count();
+    let working = statuses.iter().filter(|s| **s == "running").count();
+    let servers = jobs.iter().filter(|j| !j.ports.is_empty()).count();
+    let mut parts: Vec<String> = Vec::new();
+    if waiting > 0 {
+        parts.push(format!("{waiting} {}", if waiting == 1 { "needs you" } else { "need you" }));
+    }
+    if working > 0 {
+        parts.push(format!("{working} working"));
+    }
+    if servers > 0 {
+        parts.push(format!("{servers} {} running", if servers == 1 { "server" } else { "servers" }));
+    }
+    if parts.is_empty() {
+        parts.push("nothing running".into());
+    }
+    format!("{TOOLTIP_NAME} \u{b7} {}", parts.join(" \u{b7} "))
+}
+
+/// How a refresh that asks at `since_last` after the previous one is handled.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Throttle {
+    /// Run now.
+    Now,
+    /// Run once the window closes, after this wait.
+    Later(Duration),
+    /// A run is already waiting for the window to close; it will read the newest state.
+    Skip,
+}
+
+/// The tray refreshes at most once per second.
+pub const REFRESH_EVERY: Duration = Duration::from_secs(1);
+
+pub fn throttle(since_last: Option<Duration>, pending: bool) -> Throttle {
+    match since_last {
+        Some(elapsed) if elapsed < REFRESH_EVERY => {
+            if pending {
+                Throttle::Skip
+            } else {
+                Throttle::Later(REFRESH_EVERY - elapsed)
+            }
+        }
+        _ => Throttle::Now,
+    }
+}
 
 /// One entry of the tray menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,7 +236,10 @@ pub fn build_model(agents: &[Value], panes: &[PaneRow], ready: &[String], mode: 
 
 mod runtime {
     use super::*;
+    use crate::pane_jobs::PaneRef;
     use crate::AppState;
+    use std::sync::Mutex;
+    use std::time::Instant;
     use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use tauri::{AppHandle, Listener, Manager, Wry};
@@ -241,8 +299,51 @@ mod runtime {
         Menu::with_items(app, &refs)
     }
 
-    /// Rebuild the menu so it reflects the current panes and agents.
+    /// Last refresh time and whether a deferred refresh is already waiting (see `throttle`).
+    struct RefreshGate {
+        last: Option<Instant>,
+        pending: bool,
+    }
+
+    static GATE: Mutex<RefreshGate> = Mutex::new(RefreshGate { last: None, pending: false });
+
+    fn gate() -> std::sync::MutexGuard<'static, RefreshGate> {
+        GATE.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Rebuild the menu and the tooltip so they reflect the current panes, agents and jobs. At most
+    /// once per second; a call inside that window runs once more when it closes, so the last state
+    /// always lands.
     pub fn refresh(app: &AppHandle) {
+        let decision = {
+            let mut gate = gate();
+            let decision = throttle(gate.last.map(|t| t.elapsed()), gate.pending);
+            match decision {
+                Throttle::Now => gate.last = Some(Instant::now()),
+                Throttle::Later(_) => gate.pending = true,
+                Throttle::Skip => {}
+            }
+            decision
+        };
+        match decision {
+            Throttle::Now => refresh_now(app),
+            Throttle::Skip => {}
+            Throttle::Later(wait) => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(wait);
+                    {
+                        let mut gate = gate();
+                        gate.pending = false;
+                        gate.last = Some(Instant::now());
+                    }
+                    refresh_now(&app);
+                });
+            }
+        }
+    }
+
+    fn refresh_now(app: &AppHandle) {
         let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
         match build_menu(app) {
             Ok(menu) => {
@@ -250,6 +351,20 @@ mod runtime {
             }
             Err(e) => tracing::warn!(error = %e, "tray menu rebuild failed"),
         }
+        let _ = tray.set_tooltip(Some(current_summary(app)));
+    }
+
+    /// The tooltip for the panes and jobs open now. Standby (hidden) panes are not the person's work.
+    fn current_summary(app: &AppHandle) -> String {
+        let Some(state) = app.try_state::<AppState>() else { return summary_line(&[], &[]) };
+        let panes: Vec<_> = state.registry.lock().list().into_iter().filter(|p| !crate::pty::hidden::is_hidden(&p.id)).collect();
+        let statuses: Vec<&str> = panes.iter().map(|p| p.status.as_str()).collect();
+        let refs: Vec<PaneRef> = panes
+            .iter()
+            .map(|p| PaneRef { id: p.id.clone(), agent_type: p.agent_type.clone(), pid: p.pid })
+            .collect();
+        let jobs: Vec<Job> = crate::pane_jobs::jobs_for_panes(&refs).into_values().flatten().collect();
+        summary_line(&statuses, &jobs)
     }
 
     /// Open a visible pane for `agent` in the default project folder and pop it out. A Preload worker
@@ -488,7 +603,7 @@ mod runtime {
         }
         builder.build(app)?;
         tracing::info!("tray icon created (tooltip \"Puppet Master\")");
-        for event in ["pty://panes-changed", "agent_definitions_changed", crate::standby::READY_EVENT, "ui://mode-changed"] {
+        for event in ["pty://panes-changed", "pty://status", "agent_definitions_changed", crate::standby::READY_EVENT, "ui://mode-changed"] {
             let handle = app.clone();
             app.listen(event, move |_| refresh(&handle));
         }
@@ -649,5 +764,53 @@ mod tests {
         assert_eq!(parse_command("new:kilo"), Some(Command::NewPane("kilo".into())));
         assert_eq!(parse_command("pane:abc"), Some(Command::FocusPane("abc".into())));
         assert_eq!(parse_command("none"), None);
+    }
+
+    fn job(ports: &[u16]) -> Job {
+        Job { pid: 1, parent_pid: 0, name: "node".into(), command: "node server.js".into(), started_at_ms: 0, ports: ports.to_vec() }
+    }
+
+    #[test]
+    fn zero_panes_say_nothing_is_running() {
+        assert_eq!(summary_line(&[], &[]), "Puppet Master \u{b7} nothing running");
+        // Open panes that are idle are not running either.
+        assert_eq!(summary_line(&["idle", "idle"], &[]), "Puppet Master \u{b7} nothing running");
+    }
+
+    #[test]
+    fn mixed_statuses_and_a_server_give_the_right_counts() {
+        let statuses = ["waiting_input", "waiting_input", "running", "running", "running", "idle"];
+        assert_eq!(
+            summary_line(&statuses, &[job(&[8765])]),
+            "Puppet Master \u{b7} 2 need you \u{b7} 3 working \u{b7} 1 server running"
+        );
+    }
+
+    #[test]
+    fn plural_words_follow_the_count() {
+        assert_eq!(summary_line(&["waiting_input"], &[]), "Puppet Master \u{b7} 1 needs you");
+        assert_eq!(summary_line(&["running"], &[]), "Puppet Master \u{b7} 1 working");
+        assert_eq!(summary_line(&[], &[job(&[3000])]), "Puppet Master \u{b7} 1 server running");
+        assert_eq!(
+            summary_line(&[], &[job(&[3000]), job(&[5173, 5174])]),
+            "Puppet Master \u{b7} 2 servers running"
+        );
+    }
+
+    #[test]
+    fn a_background_job_without_a_port_is_not_a_server() {
+        // A test runner or watcher is a job, but it does not count as a server.
+        assert_eq!(summary_line(&[], &[job(&[])]), "Puppet Master \u{b7} nothing running");
+        assert_eq!(summary_line(&["running"], &[job(&[]), job(&[8000])]), "Puppet Master \u{b7} 1 working \u{b7} 1 server running");
+    }
+
+    #[test]
+    fn throttle_runs_now_when_idle_and_defers_inside_the_window() {
+        let almost = Duration::from_millis(200);
+        assert_eq!(throttle(None, false), Throttle::Now);
+        assert_eq!(throttle(Some(REFRESH_EVERY), false), Throttle::Now);
+        assert_eq!(throttle(Some(almost), false), Throttle::Later(REFRESH_EVERY - almost));
+        // A deferred run is already waiting: a further call adds nothing, it will read the newest state.
+        assert_eq!(throttle(Some(almost), true), Throttle::Skip);
     }
 }
