@@ -122,6 +122,25 @@ Full page: [`features/night-shift.md`](features/night-shift.md). Off by default 
 |---|---|---|
 | Assign an issue: a GitHub label from you or someone on your list starts an agent in a separate copy, after you say yes. The agent cannot push. Puppet Master opens a draft PR (`gh`, your own sign-in) and never merges. Held runs and risky changes always ask. ([`features/assign-an-issue.md`](features/assign-an-issue.md)) | `issue_intake/`, `commands/issue_intake.rs`, `pty/env_guard.rs`, `worktrees/harden.rs`, `components/settings/blocks/AssignIssueSettings.tsx`, `components/cockpit/IssueCard.tsx` | **experimental**: unit tests with a fake GitHub and a fake world; no run against real GitHub yet |
 
+## 1g. Agent Store ("More agents", Windows only)
+
+Full page: [`features/agent-store.md`](features/agent-store.md). Entry points: "+" menu > More agents, Set up agents > Browse more agents, Settings > Agents > Browse more agents, palette > Open Agent Store. Not run live yet.
+
+| Feature | Where | Status |
+|---|---|---|
+| Grid of 19 catalog agents: vendor, license, sign-in, tier chip (Tested or Basic support), search, five filter chips, one main button per card that opens the detail sheet | `components/store/` (`StoreHost`, `AgentStore`, `AgentStoreCard`, `AgentDetail`), `lib/agent-store-model.ts`, `styles/agent-store.css`, `CockpitApp.tsx` (`view === 'store'`) | experimental |
+| Catalog as data: one folder per agent under `catalog/agents/`, embedded in the app; catalog check (11 rules) as a cargo test; generator `scripts/gen-store-catalog.mjs` | `packages/app/src-tauri/catalog/`, `agent_store/catalog.rs`, `agent_store/check.rs`, `agent_store/embedded.rs` | experimental |
+| Install: vendor command shown first, confirmed, run in a visible PowerShell window; winget, npm, uv, then the vendor script last with a trust tick; then PATH refresh, health check, record, Add | `agent_install/` (`plan_for` store fallback), `components/store/useInstallChain.ts`, `components/cockpit/InstallSheet.tsx` | experimental |
+| Add to Puppet Master: writes the shipped definition, approves it as a Store approval ("Added from the Agent Store"); refuses a missing program, an unconfirmed short name, an existing file | `agent_store/add.rs`, `tui/declarative/service.rs` (`approve_as_store`) | experimental |
+| Sign in: Open starts the agent in its own pane; the Store never types into a pane or reads a credential | `components/store/AgentDetail.tsx` | experimental |
+| Check it works: the wizard's real run as a report, with a cost sentence and a Start button; keeps numbers and version only; approves nothing | `lib/agentStoreCheck.ts`, `components/store/StoreCheck.tsx`, `lib/agentWizardAuto.ts` (`dryRun`) | experimental |
+| Remove from Puppet Master (the Store's own file only; recoverable from Settings > Agents) and Uninstall the program (only for a program the Store installed, through winget, npm or uv) | `agent_store/add.rs` (`remove_in`), `agent_store/uninstall.rs`, `agent_install/plan.rs` (`plan_uninstall`) | experimental |
+| Store record `<app data>/agent-store.json`: ids, install method and package, versions, dates, counts only | `agent_store/record.rs` | experimental |
+| Desktop only: nine Tauri commands; no bridge route, no MCP tool (grep test) | `commands/agent_store.rs` | experimental |
+| Publisher check for npm and PyPI names (network, maintainer, before a release) | `scripts/store-verify-publishers.mjs` | experimental |
+| Known gap: built-in cards (Claude Code, Codex, Cursor Agent, OpenCode) show the vendor name as the title; the four also show the Tested chip with `windows_tested = false` | `agent_store/catalog.rs` (`label`), `catalog/agents/{claude,codex,cursor_agent,opencode}/entry.toml` | gap |
+| Not in the catalog: Amp, Grok CLI, Codebuff (vendor facts not confirmed), Antigravity CLI (no confirmed install source) | `catalog/agents/` | gap |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.

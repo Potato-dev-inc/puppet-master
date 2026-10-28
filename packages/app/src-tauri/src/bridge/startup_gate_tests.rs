@@ -63,13 +63,22 @@ fn operation(project: &std::path::Path) -> crate::operations::OperationSnapshot 
     crate::operations::create_operation(request).unwrap().0
 }
 
+/// How long a test waits for something the run does on its own thread. Only a hang detector: the run
+/// waits in real time (400 ms release confirm, 250 ms idle, 1.5 s quiet, 400 ms park polls), and a
+/// machine running the whole suite stretches every one of those looks (measured with the module pinned
+/// to one core among 16 busy threads: waits of 1 to 2 s took up to 24 s). A lower limit failed the
+/// module on `timed out` although the run was only slow; nothing a test asserts depends on this value.
+const WAIT_LIMIT: Duration = Duration::from_secs(90);
+
+#[track_caller]
 fn wait_for<T>(mut check: impl FnMut() -> Option<T>) -> T {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let site = std::panic::Location::caller().line();
+    let began = Instant::now();
     loop {
         if let Some(value) = check() {
             return value;
         }
-        assert!(Instant::now() < deadline, "timed out");
+        assert!(began.elapsed() < WAIT_LIMIT, "timed out after {:?} waiting at startup_gate_tests.rs:{site}", began.elapsed());
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -399,8 +408,19 @@ fn parked_run(pane: &'static str, card_screen: &'static str) -> (Arc<Mutex<PaneR
     (registry, op, handle)
 }
 
+/// The stored record. The dispatch thread rewrites it (write to a temp file, then replace) while a test reads
+/// it; one read under load came back `OPERATION_NOT_FOUND` for a record that exists, so a failed read is
+/// retried before it counts.
 fn stored(op: &OperationSnapshot) -> OperationSnapshot {
-    crate::operations::get_operation(&op.project_path, &op.operation_id).unwrap()
+    let mut last = None;
+    for _ in 0..50 {
+        match crate::operations::get_operation(&op.project_path, &op.operation_id) {
+            Ok(found) => return found,
+            Err(error) => last = Some(error),
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("the stored run could not be read for 1 s: {last:?}");
 }
 
 fn decline_and_finish(pane: &'static str, how: Decline, supervisor_sees_the_dialog: bool) {
@@ -447,6 +467,9 @@ fn decline_and_finish_on(
         assert_eq!(now.status, OperationStatus::WaitingInput, "{how:?}: a parked run stays parked");
         assert_eq!(now.stage.as_deref(), Some("waiting_for_pane_readiness"), "{how:?}: the dispatch thread owns the stage");
     }
+    // The run must have looked at the dialog before it is taken away: a decline it never saw coming is a
+    // different error (it never knew the folder was untrusted), and under load the thread can be late.
+    wait_for(|| crate::pane_prompt::gate_was_seen(pane).then_some(()));
     std::thread::sleep(Duration::from_millis(150));
     assert!(!handle.is_finished(), "{how:?}: held while the dialog shows");
 

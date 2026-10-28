@@ -150,6 +150,21 @@ describe('Board', () => {
     expect(els.notice.textContent).toBe('Paused by the owner');
   });
 
+  it('the pill says PAUSED while the room is paused and LIVE again after', () => {
+    const { doc, els } = freshPage();
+    const board = new Board(doc, els, { onSelect: () => {}, onFollow: () => {} });
+    const room = (paused: boolean) => ({ title: 't', endsAt: 1, paused, hidden: 0 });
+    board.draw(liveModel({ v: 1, kind: 'snap', room: room(false), panes }), { active: null, follow: false });
+    expect(els.live.textContent).toBe('LIVE');
+    expect(els.live.hasAttribute('data-paused')).toBe(false);
+    board.draw(liveModel({ v: 1, kind: 'snap', room: room(true), panes }), { active: null, follow: false });
+    expect(els.live.textContent).toBe('PAUSED');
+    expect(els.live.hidden).toBe(false);
+    expect(els.live.hasAttribute('data-paused')).toBe(true);
+    board.draw(liveModel({ v: 1, kind: 'snap', room: room(false), panes }), { active: null, follow: false });
+    expect(els.live.textContent).toBe('LIVE');
+  });
+
   it('the page has no input, textarea, form or editable element', () => {
     const { doc, els } = freshPage();
     const board = new Board(doc, els, { onSelect: () => {}, onFollow: () => {} });

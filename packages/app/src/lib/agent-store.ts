@@ -83,6 +83,8 @@ export interface StoreList {
 export interface StoreUninstall {
   available: boolean;
   steps: InstallStep[];
+  /** Why the Store cannot remove it, in plain words; null when Uninstall is available. */
+  reason: string | null;
   /** The vendor's removal sentence for a script install, or "". */
   note: string;
 }
