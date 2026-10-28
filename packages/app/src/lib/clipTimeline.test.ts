@@ -180,11 +180,17 @@ describe('captionFor', () => {
     expect(captionFor(steps)).toBe('Read 6 files · Ran 2 commands');
   });
 
-  it('adds a failure count when a command failed', () => {
-    expect(captionFor([step(0, 'Bash', { ok: false })])).toBe('Ran 1 command · 1 failed');
+  it('shows the failure count inside the group, as the chat does', () => {
+    expect(captionFor([step(0, 'Bash', { ok: false })])).toBe('Ran 1 command (1 failed)');
     expect(captionFor([step(0, 'Bash', { ok: true }), step(10, 'Bash', { ok: false }), step(20, 'Bash', { ok: false })])).toBe(
-      'Ran 3 commands · 2 failed',
+      'Ran 3 commands (2 failed)',
     );
+  });
+
+  it('does not repeat the failure count', () => {
+    const text = captionFor([step(0, 'Bash', { ok: false }), step(10, 'Read', { paths: ['a.ts'], ok: false })]);
+    expect(text).toBe('Ran 1 command (1 failed) · Read 1 file (1 failed)');
+    expect(text.match(/failed/g)).toHaveLength(2);
   });
 
   it('does not count a result that is not known as a failure', () => {
@@ -200,7 +206,7 @@ describe('captionFor', () => {
     const steps = names.map((name, i) => step(i * 100, name, { paths: [`p${i}.ts`], writes: name === 'Edit', helper: name === 'Task', ok: i === 4 ? false : true }));
     const text = captionFor(steps);
     expect(words(text)).toBeLessThanOrEqual(12);
-    expect(text.endsWith('1 failed')).toBe(true);
+    expect(text).toContain('Ran 1 command (1 failed)');
   });
 
   it('says Used N tools for a tool it does not know', () => {

@@ -1,7 +1,7 @@
 // The timeline of a clip: four scenes (title, replay, result, end card) and the captions shown over the replay.
 // Pure code with no DOM. The drawing reads the scenes and captions made here; the captions use the same activity
 // wording as the chat ("Read 6 files · Ran 2 commands"), so no agent is named.
-import { activitySummary } from '../components/chat/chatActivity';
+import { activitySummaryParts } from '../components/chat/chatActivity';
 import type { ClipPlan, Step } from './clipTypes';
 import type { ToolCallItem, ToolResultItem, ToolStep } from './sessionChatModel';
 
@@ -74,18 +74,24 @@ export function buildTimeline(plan: ClipPlan, requestOverride?: string): Timelin
 }
 
 /**
- * The caption for a group of steps: the activity wording ("Read 6 files · Ran 2 commands"), plus "· 1 failed" when a
- * command failed. Cut to at most 12 words by dropping whole parts from the end, so a failure is kept.
+ * The caption for a group of steps: the activity wording from the chat ("Read 6 files · Ran 2 commands (1 failed)").
+ * The failure count is the chat's own, so it is not added again here. Cut to at most 12 words: parts with no failure
+ * are dropped first, from the end, so a failure is kept while any other part is left.
  */
 export function captionFor(steps: readonly Step[]): string {
   if (steps.length === 0) return '';
-  const parts = activitySummary(steps.map(toToolStep))
-    .split(' · ')
-    .filter((part) => part !== '');
-  const failed = steps.filter((step) => step.ok === false).length;
-  const tail = failed > 0 ? [`${failed} failed`] : [];
-  const line = () => [...parts, ...tail].join(' · ');
-  while (parts.length > 0 && wordCount(line()) > CAPTION_MAX_WORDS) parts.pop();
+  const kept = activitySummaryParts(steps.map(toToolStep));
+  const line = () => kept.map((part) => (part.failed === null ? part.text : `${part.text} ${part.failed}`)).join(' · ');
+  while (kept.length > 0 && wordCount(line()) > CAPTION_MAX_WORDS) {
+    let index = kept.length - 1;
+    for (let i = kept.length - 1; i >= 0; i--) {
+      if (kept[i]!.failed === null) {
+        index = i;
+        break;
+      }
+    }
+    kept.splice(index, 1);
+  }
   return cutWords(line(), CAPTION_MAX_WORDS);
 }
 
