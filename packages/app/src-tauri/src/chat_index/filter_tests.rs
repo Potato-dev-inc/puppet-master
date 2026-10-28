@@ -31,6 +31,7 @@ fn row_of(id: &str, agent: &str, folder: &str, kind: &'static str, text: &str, a
         folder: folder.into(),
         at_ms,
         text: text.into(),
+        imported: false,
     }
 }
 
