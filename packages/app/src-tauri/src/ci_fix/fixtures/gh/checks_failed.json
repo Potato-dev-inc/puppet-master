@@ -1,0 +1,32 @@
+{
+  "total_count": 3,
+  "check_runs": [
+    {
+      "id": 1001,
+      "name": "lint",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.com/acme/billing/runs/1001",
+      "details_url": "https://github.com/acme/billing/actions/runs/9001/job/1001",
+      "app": { "slug": "github-actions" }
+    },
+    {
+      "id": 1002,
+      "name": "test",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.com/acme/billing/runs/1002",
+      "details_url": "https://github.com/acme/billing/actions/runs/9001/job/1002",
+      "app": { "slug": "github-actions" }
+    },
+    {
+      "id": 1003,
+      "name": "build",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/acme/billing/runs/1003",
+      "details_url": "https://github.com/acme/billing/actions/runs/9001/job/1003",
+      "app": { "slug": "github-actions" }
+    }
+  ]
+}

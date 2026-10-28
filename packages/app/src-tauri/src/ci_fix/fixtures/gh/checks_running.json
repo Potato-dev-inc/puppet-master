@@ -1,0 +1,23 @@
+{
+  "total_count": 2,
+  "check_runs": [
+    {
+      "id": 2001,
+      "name": "test",
+      "status": "in_progress",
+      "conclusion": null,
+      "html_url": "https://github.com/acme/billing/runs/2001",
+      "details_url": "https://github.com/acme/billing/actions/runs/9002/job/2001",
+      "app": { "slug": "github-actions" }
+    },
+    {
+      "id": 2002,
+      "name": "lint",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/acme/billing/runs/2002",
+      "details_url": "https://github.com/acme/billing/actions/runs/9002/job/2002",
+      "app": { "slug": "github-actions" }
+    }
+  ]
+}
