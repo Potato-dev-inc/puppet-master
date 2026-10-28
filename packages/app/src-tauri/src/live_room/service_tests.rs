@@ -12,6 +12,7 @@ use pm_relay_protocol::b64;
 use pm_relay_protocol::room::RoomFrame;
 
 use super::*;
+use crate::live_room::pin::ChatShare;
 use crate::live_room::publisher::PaneNow;
 use crate::live_room::seal::open;
 use crate::pty::status::PaneStatus;
@@ -82,6 +83,7 @@ impl Source for FakeSource {
             activity: None,
             pending_card: false,
             screen_source: false,
+            chat: ChatShare::Shared,
         }]
     }
 
