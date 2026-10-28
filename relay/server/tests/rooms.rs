@@ -446,3 +446,85 @@ fn the_relay_dump_holds_ids_and_sizes_only() {
     assert!(!dump.contains(&key_id(&owner_key)), "no room key");
     assert!(!dump.contains(&read_hash(&read)), "no read hash");
 }
+
+/// The bytes the relay counts for a frame: its JSON body, as the owner sends it. Single-digit seqs keep it
+/// the same size for every frame of one kind.
+fn body_size(kind: FrameKind, ct_len: usize) -> u64 {
+    serde_json::to_vec(&frame("aaaaaaaaaaaaaaaaaaaaaaaaaa", 1, kind, ct_len)).unwrap().len() as u64
+}
+
+/// The seqs a viewer sees from the start of the room.
+fn seqs(ctx: &Ctx, room: &str, read: &[u8], n: u8) -> Vec<u64> {
+    let (status, body) = view(ctx, &format!("/v1/rooms/{room}/frames?after=0&wait=0"), read, &seat(n));
+    assert_eq!(status, 200, "{body}");
+    let batch: serde_json::Value = serde_json::from_str(&body).unwrap();
+    batch["frames"].as_array().unwrap().iter().map(|f| f["seq"].as_u64().unwrap()).collect()
+}
+
+#[test]
+fn at_the_global_cap_the_busiest_room_drops_its_oldest_frames_first() {
+    let s = body_size(FrameKind::Delta, 1000);
+    let ctx = setup(Limits { global_room_bytes: 7 * s, ..Limits::default() });
+    let (ka, kb) = (key(60), key(61));
+    let a = register(&ctx, &ka, &token(62));
+    let b = register(&ctx, &kb, &token(63));
+    for seq in 1..=5 {
+        assert_eq!(post_frame(&ctx, &ka, &a, &frame(&a, seq, FrameKind::Delta, 1000)).0, 200);
+    }
+    for seq in 1..=2 {
+        assert_eq!(post_frame(&ctx, &kb, &b, &frame(&b, seq, FrameKind::Delta, 1000)).0, 200);
+    }
+    // Seven frames fill the cap. The eighth is accepted: room a (five frames, the busiest) loses its oldest.
+    assert_eq!(post_frame(&ctx, &kb, &b, &frame(&b, 3, FrameKind::Delta, 1000)).0, 200);
+    assert_eq!(seqs(&ctx, &a, &token(62), 1), vec![2, 3, 4, 5]);
+    assert_eq!(seqs(&ctx, &b, &token(63), 2), vec![1, 2, 3], "the quieter room keeps all of its frames");
+}
+
+#[test]
+fn snapshots_alone_at_the_global_cap_refuse_with_507() {
+    let z = body_size(FrameKind::Snap, 1000);
+    let ctx = setup(Limits { global_room_bytes: z + 100, ..Limits::default() });
+    let (ka, kb) = (key(64), key(65));
+    let a = register(&ctx, &ka, &token(66));
+    let b = register(&ctx, &kb, &token(67));
+    assert_eq!(put_snapshot(&ctx, &ka, &a, &frame(&a, 1, FrameKind::Snap, 1000)).0, 200);
+
+    // Nothing can be dropped to fit a delta beside the only snapshot.
+    let (status, body) = post_frame(&ctx, &ka, &a, &frame(&a, 2, FrameKind::Delta, 1000));
+    assert_eq!(status, 507);
+    assert!(body.contains("\"error\""), "a plain error: {body}");
+    // A second snapshot does not fit beside the first either.
+    let (status, _) = put_snapshot(&ctx, &kb, &b, &frame(&b, 1, FrameKind::Snap, 1000));
+    assert_eq!(status, 507);
+    // The first room is untouched.
+    assert_eq!(view(&ctx, &format!("/v1/rooms/{a}/snapshot"), &token(66), &seat(1)).0, 200);
+    assert_eq!(view(&ctx, &format!("/v1/rooms/{b}/snapshot"), &token(67), &seat(1)).0, 204);
+}
+
+#[test]
+fn a_snapshot_at_the_global_cap_drops_other_rooms_deltas() {
+    let s = body_size(FrameKind::Delta, 1000);
+    // The snapshot is one byte smaller than a delta: five deltas fill the cap, the snapshot pushes it over.
+    let ctx = setup(Limits { global_room_bytes: 5 * s, ..Limits::default() });
+    let (ka, kb) = (key(68), key(69));
+    let a = register(&ctx, &ka, &token(70));
+    let b = register(&ctx, &kb, &token(71));
+    for seq in 1..=5 {
+        assert_eq!(post_frame(&ctx, &ka, &a, &frame(&a, seq, FrameKind::Delta, 1000)).0, 200);
+    }
+    assert_eq!(put_snapshot(&ctx, &kb, &b, &frame(&b, 1, FrameKind::Snap, 1000)).0, 200);
+    assert_eq!(seqs(&ctx, &a, &token(70), 1), vec![2, 3, 4, 5], "the oldest delta of the busiest room went");
+}
+
+#[test]
+fn each_room_keeps_its_own_ring_of_deltas() {
+    let s = body_size(FrameKind::Delta, 1000);
+    let ctx = setup(Limits { room_ring_bytes: 3 * s, ..Limits::default() });
+    let owner_key = key(72);
+    let read = token(73);
+    let room = register(&ctx, &owner_key, &read);
+    for seq in 1..=5 {
+        assert_eq!(post_frame(&ctx, &owner_key, &room, &frame(&room, seq, FrameKind::Delta, 1000)).0, 200);
+    }
+    assert_eq!(seqs(&ctx, &room, &read, 1), vec![3, 4, 5], "the room's ring is three frames");
+}

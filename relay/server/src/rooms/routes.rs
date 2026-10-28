@@ -70,6 +70,7 @@ fn http(e: RoomError) -> Refusal {
         RoomError::SlowDown => refuse(StatusCode::TOO_MANY_REQUESTS, "slow down"),
         RoomError::Conflict(why) => refuse(StatusCode::CONFLICT, why),
         RoomError::Busy => refuse(StatusCode::SERVICE_UNAVAILABLE, "the relay is busy, try again shortly"),
+        RoomError::Storage => refuse(StatusCode::INSUFFICIENT_STORAGE, "the relay is out of room memory, try again later"),
     }
 }
 
@@ -157,7 +158,7 @@ async fn put_snapshot(
     if frame.room != room {
         return Err(refuse(StatusCode::BAD_REQUEST, "the frame is for another room"));
     }
-    let status = relay.rooms.put_snapshot(&room, frame, relay.room_now(), &relay.limits).map_err(http)?;
+    let status = relay.rooms.put_snapshot(&room, frame, body.len(), relay.room_now(), &relay.limits).map_err(http)?;
     Ok(Json(status).into_response())
 }
 

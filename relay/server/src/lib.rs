@@ -84,6 +84,11 @@ pub struct Limits {
     pub rooms_per_address_per_hour: u32,
     /// Rooms that may be open (not ended) on this relay at once; more is refused with 503.
     pub max_open_rooms: u32,
+    /// Bytes of deltas one room keeps (oldest dropped first).
+    pub room_ring_bytes: u64,
+    /// Bytes all rooms hold together (snapshots and deltas). At the cap the busiest room gives up its
+    /// oldest deltas; when snapshots alone do not fit, the frame is refused with 507.
+    pub global_room_bytes: u64,
     /// Owner frames per room: a burst of 10, refilled at this rate per second.
     pub room_frames_per_second: u32,
     /// Owner frames per room per day.
@@ -112,7 +117,9 @@ impl Default for Limits {
             max_windows: 500_000,
             max_seen_sigs: 2_000_000,
             rooms_per_address_per_hour: 10,
-            max_open_rooms: 200,
+            max_open_rooms: 100,
+            room_ring_bytes: 2 * 1024 * 1024,
+            global_room_bytes: 256 * 1024 * 1024,
             room_frames_per_second: 2,
             room_frames_per_day: 7_200,
             viewer_requests_per_minute: 120,

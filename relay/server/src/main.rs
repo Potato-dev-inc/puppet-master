@@ -12,7 +12,7 @@
 use pm_relay::{serve, Cidr, Config, Relay};
 
 /// The number after a flag, or exit with a message.
-fn number(args: &mut impl Iterator<Item = String>, flag: &str) -> u32 {
+fn number<T: std::str::FromStr>(args: &mut impl Iterator<Item = String>, flag: &str) -> T {
     args.next().and_then(|v| v.parse().ok()).unwrap_or_else(|| {
         eprintln!("{flag} needs a whole number");
         std::process::exit(2);
@@ -47,11 +47,14 @@ fn main() {
             "--room-frames-per-day" => config.limits.room_frames_per_day = number(&mut args, &arg),
             "--viewer-requests-per-minute" => config.limits.viewer_requests_per_minute = number(&mut args, &arg),
             "--seats-per-address" => config.limits.seats_per_address = number(&mut args, &arg),
+            "--room-ring-bytes" => config.limits.room_ring_bytes = number(&mut args, &arg),
+            "--global-room-bytes" => config.limits.global_room_bytes = number(&mut args, &arg),
             "-h" | "--help" => {
                 println!(
                     "pm-relay [--listen 127.0.0.1:8787] [--db relay.sqlite | --memory] [--trusted-proxy <address or range>]...\n\
-                     Live Room limits (defaults): [--rooms-per-address-per-hour 10] [--max-open-rooms 200] \
-                     [--room-frames-per-second 2] [--room-frames-per-day 7200] [--viewer-requests-per-minute 120] [--seats-per-address 4]"
+                     Live Room limits (defaults): [--rooms-per-address-per-hour 10] [--max-open-rooms 100] \
+                     [--room-frames-per-second 2] [--room-frames-per-day 7200] [--viewer-requests-per-minute 120] [--seats-per-address 4] \
+                     [--room-ring-bytes 2097152] [--global-room-bytes 268435456]"
                 );
                 return;
             }

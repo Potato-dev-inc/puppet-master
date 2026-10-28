@@ -2,9 +2,10 @@
 //!
 //! A room is an in-memory entry, never written to disk: a restart ends every room, and the owner's
 //! app then sees `RelayEnded`. The relay keeps the room's registration (its key id, the hash of its
-//! read token, expiry and viewer limit), the newest snapshot, up to 300 deltas or 4 MiB of them, and
-//! one seat per viewer page load. Frames are ciphertext; the read token is only ever compared by its
-//! hash. Nothing here reads or logs what a viewer sees.
+//! read token, expiry and viewer limit), the newest snapshot, up to 300 deltas or 2 MiB of them (per room),
+//! and one seat per viewer page load. All rooms together hold at most `global_room_bytes`: at that cap the
+//! busiest room drops its oldest deltas first. Frames are ciphertext; the read token is only ever compared
+//! by its hash. Nothing here reads or logs what a viewer sees.
 //!
 //! Time comes from the caller (`Relay::room_now`), so tests can move the clock. The lock is never held
 //! across an await. The HTTP routes live in `rooms/routes.rs`.
@@ -23,8 +24,6 @@ pub use routes::routes;
 
 /// Deltas kept per room (oldest dropped first).
 pub const RING_FRAMES: usize = 300;
-/// Bytes of deltas kept per room (oldest dropped first).
-pub const RING_BYTES: usize = 4 * 1024 * 1024;
 /// Frames in one `GET …/frames` answer at most; the viewer asks again for the rest.
 pub const BATCH_FRAMES: usize = 100;
 /// Owner frames a room may send in a burst; refilled at `room_frames_per_second`.
@@ -48,6 +47,8 @@ pub enum RoomError {
     Conflict(&'static str),
     /// Too many open rooms on this relay (503).
     Busy,
+    /// The relay's room memory is full and nothing can be dropped to make room (507).
+    Storage,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -71,6 +72,7 @@ pub(crate) struct Room {
     /// Set once the room stopped or ran out of time; the room then keeps only its tombstone.
     ended: Option<RoomEnd>,
     snapshot: Option<RoomFrame>,
+    snapshot_bytes: usize,
     deltas: VecDeque<(RoomFrame, usize)>,
     delta_bytes: usize,
     /// The newest `seq` the owner sent (snapshots and deltas share one counter).
@@ -92,6 +94,7 @@ impl Room {
             max_viewers: reg.max_viewers,
             ended: None,
             snapshot: None,
+            snapshot_bytes: 0,
             deltas: VecDeque::new(),
             delta_bytes: 0,
             last_seq: 0,
@@ -114,6 +117,7 @@ impl Room {
     fn stop(&mut self, end: RoomEnd) {
         self.ended = Some(end);
         self.snapshot = None;
+        self.snapshot_bytes = 0;
         self.deltas.clear();
         self.delta_bytes = 0;
         self.seats.clear();
@@ -166,15 +170,24 @@ impl Room {
         Ok(())
     }
 
+    /// Bytes this room holds: its snapshot and its deltas.
+    fn bytes(&self) -> usize {
+        self.snapshot_bytes + self.delta_bytes
+    }
+
     /// Keeps a delta or state frame; the oldest go when the ring is over its frame or byte cap.
-    fn keep_delta(&mut self, frame: RoomFrame, size: usize) {
+    fn keep_delta(&mut self, frame: RoomFrame, size: usize, ring_bytes: usize) {
         self.delta_bytes += size;
         self.deltas.push_back((frame, size));
-        while self.deltas.len() > RING_FRAMES || self.delta_bytes > RING_BYTES {
-            match self.deltas.pop_front() {
-                Some((_, gone)) => self.delta_bytes -= gone,
-                None => break,
-            }
+        while self.deltas.len() > RING_FRAMES || self.delta_bytes > ring_bytes {
+            self.drop_oldest_delta();
+        }
+    }
+
+    /// Drops the oldest delta (a no-op when there is none).
+    fn drop_oldest_delta(&mut self) {
+        if let Some((_, gone)) = self.deltas.pop_front() {
+            self.delta_bytes -= gone;
         }
     }
 
@@ -224,6 +237,42 @@ fn open_rooms(rooms: &mut HashMap<String, Room>, now: u64) -> usize {
         .count()
 }
 
+/// Snapshot bytes of every room except `skip` (snapshots are never dropped to make room, so they must fit).
+fn snapshot_bytes(rooms: &HashMap<String, Room>, skip: &str) -> usize {
+    rooms.iter().filter(|(id, _)| id.as_str() != skip).map(|(_, r)| r.snapshot_bytes).sum()
+}
+
+/// Drops deltas until the relay holds at most `cap` bytes. Each one comes from the busiest room that still
+/// has deltas (most delta bytes), oldest first. Callers check first that the snapshots fit, so this always
+/// ends at or under the cap.
+fn enforce(rooms: &mut HashMap<String, Room>, cap: usize) {
+    loop {
+        let total: usize = rooms.values().map(Room::bytes).sum();
+        if total <= cap {
+            return;
+        }
+        let busiest =
+            rooms.iter().filter(|(_, r)| !r.deltas.is_empty()).max_by_key(|(_, r)| r.delta_bytes).map(|(id, _)| id.clone());
+        match busiest.and_then(|id| rooms.get_mut(&id)) {
+            Some(room) => room.drop_oldest_delta(),
+            None => return,
+        }
+    }
+}
+
+/// Checks a frame against its room before any budget is spent: the room exists, is live, and the
+/// `seq` rises.
+fn check_frame(rooms: &mut HashMap<String, Room>, id: &str, seq: u64, now: u64) -> Result<(), RoomError> {
+    let room = find(rooms, id, now)?;
+    if let Some(end) = room.ended {
+        return Err(RoomError::Ended(end));
+    }
+    if seq <= room.last_seq {
+        return Err(RoomError::Conflict("frame sequence number does not rise"));
+    }
+    Ok(())
+}
+
 /// The relay's rooms. Lives inside `Relay`; every method takes the time and the limits from the caller.
 #[derive(Default)]
 pub struct Rooms {
@@ -251,44 +300,57 @@ impl Rooms {
         Ok(find(&mut rooms, id, now)?.key.clone())
     }
 
-    /// Replaces the snapshot and drops every delta (all of them are older: `seq` rises).
-    pub fn put_snapshot(&self, id: &str, frame: RoomFrame, now: u64, limits: &Limits) -> Result<RoomStatus, RoomError> {
+    /// Replaces the snapshot of `size` bytes and drops every delta (all of them are older: `seq` rises).
+    /// The other rooms' deltas go first if the relay is at its byte cap.
+    pub fn put_snapshot(
+        &self,
+        id: &str,
+        frame: RoomFrame,
+        size: usize,
+        now: u64,
+        limits: &Limits,
+    ) -> Result<RoomStatus, RoomError> {
         let mut rooms = self.rooms.lock().unwrap();
+        check_frame(&mut rooms, id, frame.seq, now)?;
+        let cap = limits.global_room_bytes as usize;
+        // The room's own old snapshot and deltas are replaced, so only the other rooms' snapshots count.
+        if snapshot_bytes(&rooms, id).saturating_add(size) > cap {
+            return Err(RoomError::Storage);
+        }
         let room = find(&mut rooms, id, now)?;
-        if let Some(end) = room.ended {
-            return Err(RoomError::Ended(end));
-        }
-        if frame.seq <= room.last_seq {
-            return Err(RoomError::Conflict("frame sequence number does not rise"));
-        }
         if !room.spend(now, limits) {
             return Err(RoomError::SlowDown);
         }
         room.last_seq = frame.seq;
         room.snapshot = Some(frame);
+        room.snapshot_bytes = size;
         room.deltas.clear();
         room.delta_bytes = 0;
         room.notify.notify_waiters();
-        Ok(room.status(now))
+        let status = room.status(now);
+        enforce(&mut rooms, cap);
+        Ok(status)
     }
 
-    /// Keeps one delta or state frame of `size` bytes.
+    /// Keeps one delta or state frame of `size` bytes. At the relay's byte cap, the busiest room's oldest
+    /// deltas go first; refused with `Storage` only when the snapshots alone leave no room.
     pub fn push(&self, id: &str, frame: RoomFrame, size: usize, now: u64, limits: &Limits) -> Result<RoomStatus, RoomError> {
         let mut rooms = self.rooms.lock().unwrap();
+        check_frame(&mut rooms, id, frame.seq, now)?;
+        let cap = limits.global_room_bytes as usize;
+        if snapshot_bytes(&rooms, "").saturating_add(size) > cap {
+            return Err(RoomError::Storage);
+        }
         let room = find(&mut rooms, id, now)?;
-        if let Some(end) = room.ended {
-            return Err(RoomError::Ended(end));
-        }
-        if frame.seq <= room.last_seq {
-            return Err(RoomError::Conflict("frame sequence number does not rise"));
-        }
         if !room.spend(now, limits) {
             return Err(RoomError::SlowDown);
         }
         room.last_seq = frame.seq;
-        room.keep_delta(frame, size);
+        room.keep_delta(frame, size, limits.room_ring_bytes as usize);
         room.notify.notify_waiters();
-        Ok(room.status(now))
+        let status = room.status(now);
+        enforce(&mut rooms, cap);
+        Ok(status)
     }
 
     /// The owner stopped the room: wiped at once, tombstone kept.
@@ -368,7 +430,7 @@ impl Rooms {
                 room.last_seq,
                 room.deltas.len(),
                 room.delta_bytes,
-                room.snapshot.as_ref().map(|s| s.ct.len()).unwrap_or(0),
+                room.snapshot_bytes,
                 room.viewers(now),
             ));
         }
