@@ -7,6 +7,7 @@ import type { PublicSettings } from '../../lib/bridge-settings';
 import type { BridgeLinkStats } from '../../lib/bridge-sse';
 import { DotSpinner } from '../cockpit/DotSpinner';
 import { NotificationsToggle } from './NotificationsToggle';
+import { TelegramOffRow } from './TelegramOffRow';
 
 /** Past this drag distance (or this speed) a swipe down closes the sheet. */
 const SWIPE_CLOSE_PX = 110;
@@ -282,6 +283,7 @@ export function MenuSheet({
 
         <h2 className="ph-sec">Notifications</h2>
         <NotificationsToggle baseUrl={bridgeUrl} bridgeReady={bridgeReady} />
+        <TelegramOffRow baseUrl={bridgeUrl} bridgeReady={bridgeReady} />
 
         <h2 className="ph-sec">Terminal</h2>
         <div className="ph-group">

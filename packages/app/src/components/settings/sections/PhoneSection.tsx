@@ -10,6 +10,7 @@ import type { RowDef, SettingsEnv } from '../model';
 import { Btn, InfoRow, SettingRow, SettingToggle } from '../settings-ui';
 import { TunnelSection } from '../TunnelSection';
 import { PairedDevices } from '../blocks/PairedDevices';
+import { TelegramSetup } from '../blocks/TelegramSetup';
 
 type PairedDevice = Awaited<ReturnType<typeof tauri.listPairedMobileDevices>>[number];
 
@@ -161,5 +162,13 @@ export const phoneRows: RowDef[] = [
     group: 'Devices',
     danger: true,
     render: (env) => <RevokeAllRow env={env} />,
+  },
+  {
+    id: 'telegram',
+    label: 'Telegram (early)',
+    hint: 'Ask your agents and answer them by Telegram text. Telegram is a third party, so read the warning first.',
+    keywords: 'telegram bot text message chat token pairing remote early',
+    group: 'Telegram (early)',
+    render: (env) => <TelegramSetup env={env} />,
   },
 ];
