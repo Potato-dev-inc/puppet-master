@@ -1203,3 +1203,8 @@ mod chat_reply;
 
 #[path = "fake_tui_safety_net.rs"]
 mod safety_net;
+
+// ---- Assign an issue: a labeled issue, a guarded copy, a draft PR (fake gh, local bare remote, zero tokens) -----------
+
+#[path = "fake_tui_issue_intake.rs"]
+mod issue_intake;
