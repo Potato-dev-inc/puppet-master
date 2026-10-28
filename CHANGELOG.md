@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Pick for me: the first row of the "+" menu suggests one agent (and its saved login) for the project, from your own
+  Scores for that project (last 90 days), and says why in one plain sentence. With little history it says it is too
+  early and suggests your usual agent. Nothing starts until you press Start; nothing you type is read or sent, and
+  nothing is stored. Desktop app only. Built and unit-tested; no live run with real agents yet. See
+  `docs/features/pick-for-me.md`.
+
 - Night Shift (Preview, off by default: Settings > General > Labs): write up to 10 tasks in Tonight, pick the plans and a stop
   time, and Puppet Master works through them while you sleep, each in its own separate copy, checking your declared tests
   after every turn. It never answers a trust, permission or sign-in screen, never merges anything, and sends one push in the
