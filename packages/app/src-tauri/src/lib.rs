@@ -34,6 +34,7 @@ mod mcp_runtime;
 pub mod mcp_sessions;
 mod mcp_status;
 mod missions;
+mod night_shift;
 mod mobile_pairing;
 mod mobile_tunnel;
 mod tunnel_config;
