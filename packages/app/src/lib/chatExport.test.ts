@@ -11,6 +11,6 @@ describe('chatPageFileName', () => {
 describe('chat export commands outside the desktop shell', () => {
   it('refuse to run', async () => {
     await expect(chatExportHtml('pane-1')).rejects.toThrow('Desktop shell required: chat_export_html');
-    await expect(chatExportSave('C:/x.html', '<p>')).rejects.toThrow('Desktop shell required: chat_export_save');
+    await expect(chatExportSave('token', 'C:/x.html')).rejects.toThrow('Desktop shell required: chat_export_save');
   });
 });

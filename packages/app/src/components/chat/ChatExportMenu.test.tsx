@@ -9,6 +9,7 @@ import { ChatExportMenu, type ChatExportApi } from './ChatExportMenu';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+const TOKEN = 'one-time-token';
 const PAGE = '<!doctype html><html><body><p>hello</p></body></html>';
 const PICKED = 'C:\Users\you\Downloads\chat.html';
 
@@ -17,8 +18,8 @@ let root: Root;
 
 function fakeApi(over: Partial<ChatExportApi> = {}): ChatExportApi {
   return {
-    html: vi.fn(async () => PAGE),
-    save: vi.fn(async (path: string) => path),
+    html: vi.fn(async () => ({ html: PAGE, token: TOKEN })),
+    save: vi.fn(async (_token: string, path: string) => path),
     pickPath: vi.fn(async () => PICKED),
     ...over,
   };
@@ -96,10 +97,25 @@ describe('ChatExportMenu', () => {
     await act(async () => clickable('Save as page…').click());
     await flush();
     expect(api.pickPath).toHaveBeenCalledWith(chatPageFileName());
-    expect(api.save).toHaveBeenCalledWith(PICKED, PAGE);
+    expect(api.save).toHaveBeenCalledWith(TOKEN, PICKED);
     const status = document.querySelector('[role="status"]')?.textContent ?? '';
     expect(status).toContain(`Saved to ${PICKED}`);
     expect(status).toContain('Nothing was sent anywhere.');
+  });
+
+  it('sends the one-time token and the path, never the page, and gets a new page for the next save', async () => {
+    const html = vi.fn().mockResolvedValueOnce({ html: PAGE, token: 'first' }).mockResolvedValueOnce({ html: PAGE, token: 'second' });
+    const api = fakeApi({ html });
+    render(api);
+    await openPreview();
+    await act(async () => clickable('Save as page…').click());
+    await flush();
+    expect(api.save).toHaveBeenLastCalledWith('first', PICKED);
+    expect(html).toHaveBeenCalledTimes(2);
+    await act(async () => clickable('Save as page…').click());
+    await flush();
+    expect(api.save).toHaveBeenLastCalledWith('second', PICKED);
+    for (const call of vi.mocked(api.save).mock.calls) expect(call).toHaveLength(2);
   });
 
   it('a cancelled dialog saves nothing and keeps the preview open', async () => {

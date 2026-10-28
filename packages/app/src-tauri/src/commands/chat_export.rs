@@ -6,7 +6,7 @@ use super::session_chat::SessionChatState;
 use super::AppState;
 use crate::session_chat::export::{self, Meta, TurnRange};
 use crate::session_chat::{Hold, Opening};
-use std::path::PathBuf;
+use serde::Serialize;
 use std::time::Duration;
 use tauri::{AppHandle, State};
 
@@ -14,6 +14,14 @@ const NO_SOURCE: &str = "Chat is not available for this pane: it has no agent to
 /// The export holds the pane's reader only while it reads the items; it lets go at once.
 const HOLDER: &str = "chat-export";
 const HOLD_FOR: Duration = Duration::from_secs(30);
+
+/// A chat page for the preview, and the one-time token that saves exactly this page (`chat_export_save`).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPage {
+    pub html: String,
+    pub token: String,
+}
 
 /// The chat of a pane as one HTML page (see `session_chat::export`). `from_turn` / `to_turn` keep those turns
 /// (inclusive, numbered by the person's messages); both optional.
@@ -25,7 +33,7 @@ pub async fn chat_export_html(
     pane_id: String,
     from_turn: Option<u32>,
     to_turn: Option<u32>,
-) -> Result<String, String> {
+) -> Result<ExportPage, String> {
     let range = TurnRange { from: from_turn, to: to_turn };
     range.check()?;
     let (agent_type, cwd) = {
@@ -34,6 +42,7 @@ pub async fn chat_export_html(
         (pane.info.agent_type.clone(), pane.info.cwd.clone())
     };
     let opening = Opening::for_agent(&agent_type).ok_or_else(|| NO_SOURCE.to_string())?;
+    let pane_id_kept = pane_id.clone();
     let watchers = chat.watchers(&app, &state.registry);
     let items = tauri::async_runtime::spawn_blocking(move || {
         opening.open(&watchers, &pane_id, Hold::lease(HOLDER, HOLD_FOR));
@@ -49,17 +58,15 @@ pub async fn chat_export_html(
         folder: export::folder_of(&cwd, ctx.home.as_deref()),
         date: chrono::Local::now().format("%Y-%m-%d").to_string(),
     };
-    Ok(export::page(&items, &meta, range, &ctx))
+    let html = export::page(&items, &meta, range, &ctx);
+    let token = chat.pages().keep(&pane_id_kept, &html)?;
+    Ok(ExportPage { html, token })
 }
 
-/// Writes the page the preview showed to `path` (a file name ending in .html). Returns the path written.
+/// Writes the page the preview showed to `path`, a place the save dialog returned. The page is not sent back by the
+/// window: it is the one Rust made and kept under `token` (see `session_chat::export_save`), so only that page can be
+/// written, once. Returns the path written.
 #[tauri::command]
-pub async fn chat_export_save(path: String, html: String) -> Result<String, String> {
-    let dest = PathBuf::from(path.trim());
-    let is_html = dest.extension().is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"));
-    if dest.as_os_str().is_empty() || !is_html {
-        return Err("Choose a file name that ends in .html.".into());
-    }
-    std::fs::write(&dest, html.as_bytes()).map_err(|e| format!("Could not write the file: {e}"))?;
-    Ok(dest.to_string_lossy().to_string())
+pub async fn chat_export_save(chat: State<'_, SessionChatState>, token: String, path: String) -> Result<String, String> {
+    chat.pages().save(&token, &path).map(|dest| dest.to_string_lossy().to_string())
 }

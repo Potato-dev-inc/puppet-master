@@ -11,6 +11,7 @@
 //!
 //! Only chats that were read (a Chat tab or the phone had the pane open) are in the index.
 
+mod aside;
 mod entry;
 mod feeder;
 mod query;

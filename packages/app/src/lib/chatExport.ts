@@ -9,14 +9,20 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   return invoke<T>(command, args);
 }
 
-/** The whole chat of a pane as one HTML document (the preview shows exactly this, and saving writes exactly this). */
-export function chatExportHtml(paneId: string): Promise<string> {
-  return call<string>('chat_export_html', { paneId });
+/** The page Rust made (the preview shows `html`) and the one-time token that saves exactly that page. */
+export interface ExportPage {
+  html: string;
+  token: string;
 }
 
-/** Writes `html` to `path` (a file name ending in .html). Resolves to the path written. */
-export function chatExportSave(path: string, html: string): Promise<string> {
-  return call<string>('chat_export_save', { path, html });
+/** The whole chat of a pane as one HTML document, with the token that `chatExportSave` needs. */
+export function chatExportHtml(paneId: string): Promise<ExportPage> {
+  return call<ExportPage>('chat_export_html', { paneId });
+}
+
+/** Writes the page behind `token` to `path` (what the save dialog returned). The window never sends the page itself. Resolves to the path written. */
+export function chatExportSave(token: string, path: string): Promise<string> {
+  return call<string>('chat_export_save', { token, path });
 }
 
 /** A default file name for the save dialog, e.g. `chat-2026-10-28-1530.html`. */

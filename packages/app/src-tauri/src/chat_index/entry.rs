@@ -1,6 +1,6 @@
 //! What the index keeps of a chat item, already redacted.
 
-use crate::session_chat::{cut_to, ChatItem};
+use crate::session_chat::{cut_to, home_to_tilde, ChatItem};
 
 /// Longest text kept per item, in characters (a longer one is cut with a trailing "…").
 pub const MAX_TEXT_CHARS: usize = 4000;
@@ -65,7 +65,10 @@ pub fn entry_of(pane_id: &str, ctx: &PaneContext, item: &ChatItem, now_ms: i64) 
         ChatItem::ToolCall { at, name, summary, .. } => ("tool", at, format!("{name} {summary}"), MAX_TITLE_CHARS),
         _ => return None,
     };
-    let text = clean(crate::redact::text(raw.trim()).as_str());
+    let redact_ctx = crate::redact::known::context();
+    let home = redact_ctx.home.as_deref();
+    // Redacted first, then the home folder becomes `~` (the account name is not kept), then cut to size.
+    let text = clean(&home_to_tilde(crate::redact::text_with(raw.trim(), &redact_ctx).as_str(), home));
     let text = cut_to(text.trim(), limit);
     if text.is_empty() {
         return None;
@@ -76,7 +79,7 @@ pub fn entry_of(pane_id: &str, ctx: &PaneContext, item: &ChatItem, now_ms: i64) 
         item_id: item.id().to_string(),
         kind,
         agent: ctx.agent.clone(),
-        folder: clean(crate::redact::text(&ctx.folder).as_str()),
+        folder: clean(&home_to_tilde(crate::redact::text_with(&ctx.folder, &redact_ctx).as_str(), home)),
         at_ms: at_ms(at, now_ms),
         text,
     })
@@ -85,7 +88,10 @@ pub fn entry_of(pane_id: &str, ctx: &PaneContext, item: &ChatItem, now_ms: i64) 
 impl PaneContext {
     /// The labels for a pane: its agent, the name of its folder and its session id (empty when not known).
     pub fn of(agent: &str, cwd: &str, session: Option<&str>) -> Self {
-        PaneContext { agent: agent.to_string(), folder: folder_name(cwd), session: session.unwrap_or_default().to_string() }
+        // A pane in the home folder shows as `~`, never as the account name.
+        let home = crate::redact::known::context().home.clone();
+        let folder = folder_name(&home_to_tilde(cwd, home.as_deref()));
+        PaneContext { agent: agent.to_string(), folder, session: session.unwrap_or_default().to_string() }
     }
 }
 
