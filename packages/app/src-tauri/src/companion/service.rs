@@ -26,7 +26,7 @@ use super::model::{
     CompanionProfile, CompanionState, CompanionView, FeedItem, FeedKind, NeedsRef, NextCheckIn,
 };
 use super::store::{self, Runtime};
-use super::{agents, brief, files, memory, schedule, view};
+use super::{agents, brief, files, memory, schedule, today, view};
 
 /// How often a companion's pending list is read.
 const PENDING_EVERY_MS: i64 = 3_000;
@@ -36,6 +36,8 @@ const REPLY_AFTER_MS: i64 = 1_500;
 const REPLY_GIVE_UP_MS: i64 = 8_000;
 /// A message that could not be handed to the outbox for this long is dropped (the outbox has its own 2 h).
 const OUTGOING_GIVE_UP_MS: i64 = 2 * 60 * 60 * 1000;
+/// How often the day's finished turns are looked at while `today.md` is on.
+const TODAY_EVERY_MS: i64 = 3_000;
 /// The text every check-in message starts with.
 pub const CHECKIN_PREFIX: &str = "[Check-in:";
 
@@ -56,6 +58,8 @@ pub(super) enum OutKind {
     /// A scheduled message; the label.
     Checkin(String),
     Tidy,
+    /// The one-time "today.md now exists" note for a running agent (the brief is read at a start only).
+    Notice,
 }
 
 #[derive(Clone, Debug)]
@@ -69,6 +73,18 @@ pub(super) struct Outgoing {
 #[derive(Clone, Debug)]
 pub(super) struct ReplyWait {
     pub since_ms: i64,
+}
+
+/// What the `today.md` writer remembers between ticks (nothing is kept while the toggle is off).
+#[derive(Default)]
+pub(super) struct TodayState {
+    /// The local day `today.md` was last made ready for.
+    pub day: Option<String>,
+    /// Turns already written: (pane, turn, ended at).
+    pub seen: std::collections::HashSet<(String, u32, i64)>,
+    /// Lines that were already in the file when this run picked it up.
+    pub known: std::collections::HashSet<String>,
+    pub polled_ms: i64,
 }
 
 /// Everything the service keeps in memory for one companion.
@@ -92,6 +108,7 @@ pub(super) struct Slot {
     /// The coming start has its own feed line (nap, restart): no second "woke" line.
     pub quiet_start: bool,
     pub agent_label: String,
+    pub today: TodayState,
 }
 
 pub(super) struct Inner {
@@ -126,6 +143,7 @@ impl Slot {
             skip_reply: false,
             quiet_start: false,
             agent_label,
+            today: TodayState::default(),
         }
     }
 }
@@ -195,6 +213,7 @@ impl Service {
         runtime_dirty |= self.maybe_nap(&profile, slot, &pane_id, now, offset);
         self.read_reply(&profile, slot, &pane_id, now);
         self.refresh_pending(&profile, slot, now);
+        self.update_today(&profile, slot, now, offset);
         slot.prev_state = Some(slot.state);
 
         if runtime_dirty {
@@ -308,10 +327,7 @@ impl Service {
         agents::check_launch_args(&profile.launch_args).map_err(|e| e.to_string())?;
         self.host.agent_ok(&profile.agent_type, &profile.folder)?;
         files::ensure_home(&self.root, profile).map_err(|e| e.to_string())?;
-        let home = Path::new(&profile.folder);
-        let texts = memory::snapshot(&self.root, &profile.id, home).map_err(|e| e.to_string())?;
-        let instruction_files = self.host.instruction_files(&profile.agent_type);
-        brief::write(home, &brief::compose(&profile.name, &texts), &instruction_files).map_err(|e| e.to_string())?;
+        let instruction_files = self.write_brief(profile)?;
         self.host.spawn(&SpawnSpec {
             pane_id: pane_id.to_string(),
             agent_type: profile.agent_type.clone(),
@@ -319,7 +335,8 @@ impl Service {
             extra_args: profile.launch_args.clone(),
             account: profile.account.clone(),
         })?;
-        slot.outgoing.retain(|o| o.kind != OutKind::Primer);
+        // The brief just written already says what the notice says.
+        slot.outgoing.retain(|o| !matches!(o.kind, OutKind::Primer | OutKind::Notice));
         if brief::needs_primer(&instruction_files) {
             let (target, _) = brief::target(&instruction_files);
             slot.outgoing.insert(0, Outgoing { kind: OutKind::Primer, text: brief::primer(&target), queued_ms: now });
@@ -327,6 +344,17 @@ impl Service {
         }
         slot.last_reply_id = None;
         Ok(())
+    }
+
+    /// Writes the brief into the agent's instruction file (the `today.md` rule only when it is on).
+    /// Returns the agent's instruction files.
+    pub(super) fn write_brief(&self, profile: &CompanionProfile) -> Result<Vec<crate::tui::InstructionFile>, String> {
+        let home = Path::new(&profile.folder);
+        let texts = memory::snapshot(&self.root, &profile.id, home).map_err(|e| e.to_string())?;
+        let instruction_files = self.host.instruction_files(&profile.agent_type);
+        let text = brief::compose_with(&profile.name, &texts, profile.share_today);
+        brief::write(home, &text, &instruction_files).map_err(|e| e.to_string())?;
+        Ok(instruction_files)
     }
 
     // ---- 3. the face ----------------------------------------------------------------------------
@@ -387,6 +415,10 @@ impl Service {
                     slot.outgoing.remove(0);
                     if let OutKind::Checkin(label) = &next.kind {
                         self.feed(profile, FeedKind::Checkin, now, &format!("Asked \"{label}\""));
+                    }
+                    if next.kind == OutKind::Notice {
+                        // Its answer is not worth a feed line or a push.
+                        slot.skip_reply = true;
                     }
                 }
                 Err(reason) => {
@@ -474,6 +506,51 @@ impl Service {
         }
         slot.pending = count;
         slot.pending_seen = true;
+    }
+
+    /// `today.md` (spec: "the companion sees your day"). Off: nothing is read or written, and the next
+    /// time it is turned on the file is picked up again from the start of the local day. On: the file is
+    /// made ready for today (yesterday's text goes to `days/`), then every few seconds the finished
+    /// turns of other panes since local midnight are added once each.
+    fn update_today(&self, profile: &CompanionProfile, slot: &mut Slot, now: i64, offset: i32) {
+        if !profile.share_today {
+            if slot.today.day.is_some() {
+                slot.today = TodayState::default();
+            }
+            return;
+        }
+        let home = Path::new(&profile.folder);
+        let day = schedule::today_key(now, offset);
+        if slot.today.day.as_deref() != Some(day.as_str()) {
+            if let Err(e) = today::roll_over(home, &day) {
+                tracing::warn!(companion = %profile.id, error = %e, "could not prepare today.md");
+                return;
+            }
+            slot.today.day = Some(day);
+            slot.today.seen.clear();
+            slot.today.known = today::existing_lines(home);
+            slot.today.polled_ms = i64::MIN / 2;
+        }
+        if now - slot.today.polled_ms < TODAY_EVERY_MS {
+            return;
+        }
+        slot.today.polled_ms = now;
+        let since = today::day_start_ms(now, offset);
+        let mut lines = Vec::new();
+        for turn in self.host.finished_turns(since).iter().filter(|t| today::include(t)) {
+            if !slot.today.seen.insert((turn.pane_id.clone(), turn.turn, turn.ended_at_ms)) {
+                continue;
+            }
+            let line = today::line(turn, offset);
+            if slot.today.known.insert(line.clone()) {
+                lines.push(line);
+            }
+        }
+        if let Err(e) = today::append(home, &lines) {
+            tracing::warn!(companion = %profile.id, error = %e, "could not write today.md");
+            // Start over next tick (the file is read again, the lines are tried again).
+            slot.today.day = None;
+        }
     }
 
     // ---- views ------------------------------------------------------------------------------------

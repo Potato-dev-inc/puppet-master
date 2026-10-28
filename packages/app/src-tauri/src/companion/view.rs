@@ -52,6 +52,7 @@ pub fn build(profile: &CompanionProfile, live: &Live) -> CompanionView {
         restarts: live.restarts,
         auto_start: profile.auto_start,
         push_replies: profile.push_replies,
+        share_today: profile.share_today,
     }
 }
 
@@ -95,6 +96,7 @@ mod tests {
             auto_start: true,
             memory_review: true,
             push_replies: true,
+            share_today: false,
             nap_at: None,
             checkins: vec![],
             created_ms: 1,

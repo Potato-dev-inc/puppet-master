@@ -68,6 +68,8 @@ export interface CompanionView {
   autoStart: boolean;
   /** Whether a reply pushes the phones that may watch. Missing on a view from before the setting: on. */
   pushReplies?: boolean;
+  /** Whether the companion sees what the person's other agents did today. Missing on an older view: off. */
+  shareToday?: boolean;
 }
 
 export type PendingKind = 'note' | 'user' | 'forget';
@@ -121,6 +123,7 @@ export interface CompanionDraft {
   autoStart?: boolean;
   memoryReview?: boolean;
   pushReplies?: boolean;
+  shareToday?: boolean;
   napAt?: HhMm | null;
   checkins?: CheckIn[];
 }
@@ -362,6 +365,7 @@ export function fakeCompanionTransport(seed: FakeCompanionSeed = {}): FakeCompan
         if (patch.avatar !== undefined) next.avatar = patch.avatar;
         if (patch.persona !== undefined) next.persona = patch.persona;
         if (patch.pushReplies !== undefined) next.pushReplies = patch.pushReplies;
+        if (patch.shareToday !== undefined) next.shareToday = patch.shareToday;
         if (patch.agentType !== undefined) next.agentType = patch.agentType;
         if (patch.folder !== undefined) next.folder = patch.folder;
         if (patch.autoStart !== undefined) next.autoStart = patch.autoStart;
