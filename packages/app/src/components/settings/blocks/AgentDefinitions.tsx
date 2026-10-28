@@ -65,10 +65,13 @@ type Purging = { kind: 'one'; item: RemovedAgent } | { kind: 'all'; total: numbe
 export function AgentDefinitions({
   api = tauriAgentDefinitionsApi,
   wizardApi,
+  onOpenStore,
 }: {
   api?: AgentDefinitionsApi;
   /** The wizard's backend; tests pass a mock. */
   wizardApi?: WizardApi;
+  /** Opens the Agent Store. The "Browse more agents" button is hidden when this is absent. */
+  onOpenStore?: () => void;
 }) {
   const [listing, setListing] = useState<DefinitionsListing | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -371,6 +374,11 @@ export function AgentDefinitions({
           <button type="button" className={BTN} disabled={busy} onClick={() => setWizardOpen(true)}>
             Add with wizard
           </button>
+          {onOpenStore && (
+            <button type="button" className={BTN} disabled={busy} onClick={onOpenStore}>
+              Browse more agents
+            </button>
+          )}
           {note && (
             <span role="status" data-testid="agent-toast" className="text-xs text-pm-muted">
               {note}
@@ -820,6 +828,11 @@ function DefinitionItem({
       {row.state === 'active' && row.approved_by === 'wizard' && (
         <p data-testid="approved-by-wizard" className="mt-1 text-xs text-pm-muted">
           Approved by the wizard after {row.approval_checks ?? 0} checks passed
+        </p>
+      )}
+      {row.approved_by === 'store' && (
+        <p data-testid="approved-by-store" className="mt-1 text-xs text-pm-muted">
+          Added from the Agent Store
         </p>
       )}
       {row.state === 'active' && row.id && <RunModeControl agentId={row.id} />}
