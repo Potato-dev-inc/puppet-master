@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIP_COLORS, CLIP_WIDTH, drawFrame, layoutTerminal, type Ctx2D } from './clipDraw';
+import { CLIP_COLORS, CLIP_WIDTH, drawFrame, firstRow, layoutTerminal, type Ctx2D } from './clipDraw';
 import { GuardCounter } from './clipGuard';
 import { buildTimeline, type Timeline } from './clipTimeline';
 import type { ClipPlan, Frame, Replay, Run, Step, TerminalReplay } from './clipTypes';
@@ -102,20 +102,57 @@ function plan(extra: Partial<ClipPlan> = {}): ClipPlan {
 const REPLAY_AT = 3_000;
 
 describe('layoutTerminal', () => {
-  it('keeps the font between 9 and 20 px and fits a normal terminal without cropping', () => {
-    const r = layoutTerminal(80, 24);
-    expect(r.fontPx).toBeCloseTo(520 / (24 * 1.25), 5);
+  it('fills the width of the area when the height allows it', () => {
+    const r = layoutTerminal(80, 12);
+    expect(r.fontPx).toBeCloseTo(1200 / (80 * 0.6), 5);
+    expect(r.x).toBe(40);
     expect(r.crop).toBe(false);
+    expect(r.maxRows).toBeGreaterThanOrEqual(12);
   });
 
-  it('caps the font at 20 px for a small screen', () => {
-    expect(layoutTerminal(10, 1).fontPx).toBe(20);
+  it('is limited by the height of the area for a tall terminal and centres the narrower text', () => {
+    const r = layoutTerminal(80, 24);
+    expect(r.fontPx).toBeCloseTo(540 / (24 * 1.2), 5);
+    expect(r.crop).toBe(false);
+    const width = 80 * 0.6 * r.fontPx;
+    expect(r.x).toBeCloseTo(40 + (1200 - width) / 2, 5);
+    expect(r.maxRows).toBe(24);
   });
 
-  it('floors the font at 9 px and crops the right side for a very wide screen', () => {
+  it('draws a 110 x 30 terminal much larger than the old 45 percent of the frame', () => {
+    const r = layoutTerminal(110, 30);
+    const widthShare = (110 * 0.6 * r.fontPx) / CLIP_WIDTH;
+    expect(widthShare).toBeGreaterThan(0.75);
+    expect(r.fontPx).toBeGreaterThanOrEqual(12);
+  });
+
+  it('caps the font at 26 px for a small screen', () => {
+    expect(layoutTerminal(10, 1).fontPx).toBe(26);
+  });
+
+  it('floors the font at 12 px, crops the right side for a very wide screen', () => {
     const r = layoutTerminal(300, 24);
-    expect(r.fontPx).toBe(9);
+    expect(r.fontPx).toBe(12);
     expect(r.crop).toBe(true);
+  });
+
+  it('floors the font at 12 px for a very tall screen and says how many rows fit', () => {
+    const r = layoutTerminal(110, 60);
+    expect(r.fontPx).toBe(12);
+    expect(r.maxRows).toBe(Math.floor(540 / (12 * 1.2)));
+    expect(r.maxRows).toBeLessThan(60);
+  });
+});
+
+describe('firstRow', () => {
+  it('shows everything when it fits and keeps the bottom when it does not', () => {
+    expect(firstRow(20, 37, null)).toBe(0);
+    expect(firstRow(46, 37, null)).toBe(9);
+  });
+
+  it('starts at the cursor when the cursor is above the window', () => {
+    expect(firstRow(46, 37, 3)).toBe(3);
+    expect(firstRow(46, 37, 30)).toBe(9);
   });
 });
 
@@ -152,6 +189,22 @@ describe('drawFrame scenes', () => {
     expect(row?.font).toContain(`${layoutTerminal(80, 1).fontPx}px`);
     expect(row?.x).toBe(40);
     expect(row?.y).toBe(48);
+  });
+
+  it('scales the terminal text to the layout and keeps the bottom rows of a tall screen', () => {
+    const rowCount = 50;
+    const rowTable: Run[][] = Array.from({ length: rowCount }, (_, i) => [{ t: `line ${i}`, s: 0 }]);
+    const frames: Frame[] = [{ atMs: 0, rows: rowTable.map((_, i) => i), cursor: null }];
+    const p = plan({ replay: terminal(frames, rowTable, { cols: 110, rows: rowCount, rowFrom: 0, rowTo: rowCount - 1 }) });
+    const r = render(p, REPLAY_AT + 10);
+    const layout = layoutTerminal(110, rowCount);
+    const drawn = r.texts.filter((d) => /^line \d+$/.test(d.text));
+    expect(drawn).toHaveLength(layout.maxRows);
+    expect(drawn[0]!.text).toBe(`line ${rowCount - layout.maxRows}`);
+    expect(drawn[drawn.length - 1]!.text).toBe(`line ${rowCount - 1}`);
+    expect(drawn[0]!.x).toBe(layout.x);
+    expect(drawn[0]!.y).toBe(48);
+    expect(pxOf(drawn[0]!.font)).toBe(layout.fontPx);
   });
 
   it('draws the caret at its cell', () => {
@@ -230,6 +283,15 @@ describe('drawFrame scenes', () => {
     const p = plan({ result: { files: null, checks: null, sentence: 'Answered the question.' } });
     const tl = buildTimeline(p);
     expect(render(p, tl.scenes.find((s) => s.kind === 'result')!.startMs + 100, tl).strings).toContain('Answered the question.');
+  });
+
+  it('says "No files changed" for a read-only turn and never draws "0 files changed"', () => {
+    const p = plan({ result: { files: { count: 0, added: 0, deleted: 0, names: [] }, checks: null, sentence: 'Read the notes.' } });
+    const tl = buildTimeline(p);
+    const r = render(p, tl.scenes.find((s) => s.kind === 'result')!.startMs + 100, tl);
+    expect(r.strings).toContain('No files changed');
+    expect(r.strings).toContain('Read the notes.');
+    expect(r.strings.some((t) => /0 files? changed|\+0|-0/.test(t))).toBe(false);
   });
 
   it('draws the end card with exactly the fixed label', () => {

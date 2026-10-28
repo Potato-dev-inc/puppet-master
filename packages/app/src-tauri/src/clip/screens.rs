@@ -13,8 +13,14 @@ use crate::flight::ring::{Event, Kind, Snapshot};
 
 /// Real time kept before the turn starts, so the first screen is not cut.
 const PAD_BEFORE_MS: i64 = 300;
-/// Real time kept after the turn ends.
+/// Real time kept after the turn ends, at least.
 const PAD_AFTER_MS: i64 = 700;
+/// After the turn's end the replay goes on while output keeps coming at most this far apart. A pane
+/// rests (its status turns idle) a moment before its last screen is drawn, and the clip used to stop on
+/// the spinner line without the agent's answer.
+const SETTLE_QUIET_MS: i64 = 1_200;
+/// The most the replay runs past the end of the turn while it waits for the output to go quiet.
+const SETTLE_MAX_MS: i64 = 8_000;
 /// Clip time between two keyframes.
 pub const KEYFRAME_MS: u32 = 100;
 /// Clip time between two keyframes when 100 ms would pass `MAX_FRAMES`.
@@ -149,7 +155,7 @@ pub fn replay_every(snap: &Snapshot, start_ms: u64, end_ms: u64, every_ms: u32) 
     let start = start_ms as i64;
     let end = end_ms as i64;
     let lo = start - PAD_BEFORE_MS;
-    let hi = end + PAD_AFTER_MS;
+    let hi = settled_end(snap, end);
 
     // Events before the window are fed without sampling, so the screen is right when the turn
     // starts. Events in the window are kept for sampling. Time only moves forward.
@@ -198,9 +204,10 @@ pub fn replay_every(snap: &Snapshot, start_ms: u64, end_ms: u64, every_ms: u32) 
     // Active time: the window after squeezing. The map is linear inside each gap, so the squeezed
     // span between the window's two ends is exactly the time that is left.
     let active_ms = time_map.squeezed_at(end) - time_map.squeezed_at(start);
-    let clip = length_ms.max(1) as f64;
+    // The turn's own part of the clip: the settle tail after its end does not count in the speed.
+    let clip = time_map.clip_at(end).saturating_sub(time_map.clip_at(start)).max(1) as f64;
     let speed_x = (active_ms / clip).round().max(1.0) as u32;
-    let raw_speed_x = ((end - start) as f64 / clip).round().max(1.0) as u32;
+    let raw_speed_x = ((end - start) as f64 / length_ms.max(1) as f64).round().max(1.0) as u32;
 
     let stamps: Vec<u32> = sampled.iter().map(|&(_, t)| time_map.clip_at(t)).collect();
     let mut frames = Vec::new();
@@ -246,6 +253,37 @@ pub fn replay_every(snap: &Snapshot, start_ms: u64, end_ms: u64, every_ms: u32) 
         truncated: snap.truncated,
         time_map,
     })
+}
+
+/// The real time the replay stops at: the turn's end plus its padding, extended while output keeps
+/// coming (the agent drawing its answer). The tail stops at a quiet gap of `SETTLE_QUIET_MS`, at the
+/// first input after the turn (the person typing the next message), and at `SETTLE_MAX_MS`.
+fn settled_end(snap: &Snapshot, end: i64) -> i64 {
+    let mut hi = end + PAD_AFTER_MS;
+    let limit = end + SETTLE_MAX_MS;
+    let mut seen_until = end;
+    for event in &snap.events {
+        let t = unix_ms(snap, event);
+        if t <= end {
+            continue;
+        }
+        match event.kind {
+            Kind::Input => {
+                // The next message: what it echoes is not this turn's.
+                hi = hi.min(t);
+                break;
+            }
+            Kind::Output => {
+                if t - seen_until > SETTLE_QUIET_MS || t > limit {
+                    break;
+                }
+                seen_until = t;
+                hi = hi.max((t + PAD_AFTER_MS).min(limit + PAD_AFTER_MS));
+            }
+            Kind::Resize | Kind::Marker => {}
+        }
+    }
+    hi
 }
 
 /// Clip times of the keyframes: every `every` ms below the length, then the length itself.
@@ -563,6 +601,91 @@ mod tests {
         let after = last(&replayed);
         assert_eq!(cell(after, 0, 25).ch, " ");
         assert_eq!(line(after, 1), "Z");
+    }
+
+    #[test]
+    fn a_repaint_after_a_recorded_resize_lands_on_the_new_grid() {
+        // A TUI draws a right border with absolute positions. ConPTY repaints at the new width right
+        // after a resize, so the recorded resize must come first and the replay must use its grid.
+        let wide = "[2J[1;1HHEADER[1;30H|[3;1Hbody text[3;30H|";
+        let narrow = "[2J[1;1HHEADER[1;16H|[3;1Hbody text[3;16H|";
+        let snap = snap_with((30, 4), false, vec![out(0, wide), resize(1000, 16, 4), out(1005, narrow)]);
+        let (start, end) = window(0, 4000);
+        let replayed = replay(&snap, start, end).expect("replays");
+        let before = replayed.frames.iter().find(|f| cell(f, 0, 29).ch == "|").expect("the wide screen is drawn");
+        assert_eq!(cell(before, 2, 29).ch, "|");
+        let after = last(&replayed);
+        assert_eq!(line(after, 0), "HEADER         |");
+        assert_eq!(line(after, 2), "body text      |");
+        // Nothing of the wide screen is left, and the padded columns are blank.
+        assert!((16..30).all(|c| cell(after, 0, c).ch == " " && cell(after, 2, c).ch == " "));
+        assert_eq!(replayed.cols, 30);
+    }
+
+    #[test]
+    fn a_grow_and_a_shrink_in_one_turn_each_use_their_own_grid() {
+        let snap = snap_with(
+            (20, 3),
+            false,
+            vec![
+                out(0, "[2J[1;1Hone[1;20H|"),
+                resize(800, 40, 3),
+                out(805, "[2J[1;1Hone[1;40H|"),
+                resize(1600, 12, 3),
+                out(1605, "[2J[1;1Hone[1;12H|"),
+            ],
+        );
+        let (start, end) = window(0, 4000);
+        let replayed = replay(&snap, start, end).expect("replays");
+        let borders: Vec<usize> = replayed
+            .frames
+            .iter()
+            .filter_map(|f| (0..40).rev().find(|&c| cell(f, 0, c).ch == "|"))
+            .collect();
+        for width in [20usize, 40, 12] {
+            assert!(borders.contains(&(width - 1)), "no frame has the border at column {width}: {borders:?}");
+        }
+        assert!(borders.iter().all(|c| [19, 39, 11].contains(c)), "a frame has a border on a wrong column: {borders:?}");
+    }
+
+    #[test]
+    fn the_answer_drawn_just_after_the_turn_end_is_in_the_replay() {
+        // The pane rests at 5.0 s (the summary's end) while the spinner is still on screen; the answer
+        // is drawn at 5.9 s and 6.7 s, each within the quiet gap of the one before.
+        let mut items: Vec<Item> = (0..=50).map(|i| out(i * 100, if i == 0 { "[2J[1;1Hworking" } else { "." })).collect();
+        items.push(out(5_000, "[2J[1;1Hspinner Vibing"));
+        items.push(out(5_900, "[2J[1;1Hthe answer"));
+        items.push(out(6_700, "[2;1Hand its last line"));
+        let snap = snap_with((40, 4), false, items);
+        let (start, end) = window(0, 5_000);
+        let replayed = replay(&snap, start, end).expect("replays");
+        let last_frame = last(&replayed);
+        assert_eq!(line(last_frame, 0), "the answer");
+        assert_eq!(line(last_frame, 1), "and its last line");
+    }
+
+    #[test]
+    fn the_tail_stops_at_a_quiet_gap_at_input_and_at_the_cap() {
+        let base: Vec<Item> = (0..=50).map(|i| out(i * 100, if i == 0 { "[2J[1;1Hone" } else { "." })).collect();
+        let (start, end) = window(0, 5_000);
+        // A gap of 2 s after the end: the later output is another thing and is not replayed.
+        let mut gap = base.clone();
+        gap.push(out(7_000, "[2J[1;1Hlater"));
+        let replayed = replay(&snap_with((40, 4), false, gap), start, end).expect("replays");
+        assert!(line(last(&replayed), 0).starts_with("one"));
+        // Typing after the turn ends the tail, even when output follows at once.
+        let mut typed = base.clone();
+        typed.push((5_300, Kind::Input, 0, b"next".to_vec()));
+        typed.push(out(5_400, "[2J[1;1Hecho next"));
+        let replayed = replay(&snap_with((40, 4), false, typed), start, end).expect("replays");
+        assert!(line(last(&replayed), 0).starts_with("one"));
+        // Output that never rests is cut at the cap (8 s) plus the padding.
+        let mut busy = base;
+        busy.extend((0..200).map(|i| out(5_100 + i * 100, ".")));
+        let replayed = replay(&snap_with((40, 4), false, busy), start, end).expect("replays");
+        // From 300 ms before the turn: 300 + 5 000 + the 8 000 cap + 700 padding at most; a stop at the end would be 6 000.
+        assert!(replayed.length_ms <= 300 + 5_000 + 8_000 + 700 + 100, "{}", replayed.length_ms);
+        assert!(replayed.length_ms > 10_000, "{}", replayed.length_ms);
     }
 
     #[test]

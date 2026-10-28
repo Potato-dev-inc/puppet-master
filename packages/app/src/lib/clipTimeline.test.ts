@@ -85,6 +85,24 @@ describe('buildTimeline scenes', () => {
     expectSound(timeline);
   });
 
+  it('leaves the result scene out when it has nothing to show, so no blank stretch is left', () => {
+    const empty = { files: null, checks: null, sentence: '' };
+    const timeline = buildTimeline(plan(activity(8_000), [step(0, 'Read')], { result: empty }));
+    expect(timeline.scenes.map((scene) => scene.kind)).toEqual(['title', 'replay', 'end']);
+    expect(timeline.totalMs).toBe(3_000 + 8_000 + 2_500);
+    expectSound(timeline);
+    const spaces = buildTimeline(plan(activity(8_000), [], { result: { files: null, checks: '  ', sentence: ' ' } }));
+    expect(spaces.scenes.map((scene) => scene.kind)).toEqual(['title', 'replay', 'end']);
+  });
+
+  it('keeps the result scene for any one fact: no files changed, checks or a sentence', () => {
+    const zero = { files: { count: 0, added: 0, deleted: 0, names: [] }, checks: null, sentence: '' };
+    for (const result of [zero, { files: null, checks: 'all checks passed (1/1)', sentence: '' }, { files: null, checks: null, sentence: 'Done.' }]) {
+      const timeline = buildTimeline(plan(activity(8_000), [], { result }));
+      expect(timeline.scenes.map((scene) => scene.kind)).toEqual(['title', 'replay', 'result', 'end']);
+    }
+  });
+
   it('keeps the agent label on the title and the end card', () => {
     const timeline = buildTimeline(plan(activity(4_000)));
     expect(timeline.scenes[0]).toMatchObject({ kind: 'title', agent: 'Test Agent', request: 'Fix the login page' });
