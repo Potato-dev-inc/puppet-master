@@ -50,7 +50,8 @@ pub struct RegisteredRow {
 #[derive(Debug, Clone, Default)]
 pub struct Inputs {
     pub tools: Tools,
-    /// The registry row for the entry's id, if any.
+    /// The registry row for the entry's id. When nothing is registered, the loader's row for a
+    /// definition file with this id (stale or unapproved), if there is one.
     pub registered: Option<RegisteredRow>,
     /// The approval of the registered definition file (`None` for a built-in profile).
     pub approval: Option<ApprovalState>,
@@ -105,18 +106,33 @@ pub fn detect(entry: &CatalogEntry) -> Inputs {
 /// `detect` with the Store record read from `record_path` (tests point it at a scratch file).
 pub(super) fn detect_at(entry: &CatalogEntry, record_path: &Path) -> Inputs {
     let id = entry.entry.store.id.as_str();
-    let loaded = loader::last_entry_for(id);
-    let registered = tui::descriptors().into_iter().find(|d| d.id == id).map(|d| {
-        let text = match (d.source == CODE_SOURCE, loaded.as_ref()) {
-            (false, Some(found)) => fs::read_to_string(&found.path).ok(),
-            _ => None,
-        };
-        RegisteredRow {
-            source: d.source.to_string(),
-            text,
-            installed: d.installed,
+    detect_with(entry, record_path, loader::last_entry_for(id))
+}
+
+/// `detect_at` with the loader's row for this id passed in (`detect_at` passes the last reload's row).
+fn detect_with(entry: &CatalogEntry, record_path: &Path, loaded: Option<loader::Entry>) -> Inputs {
+    let id = entry.entry.store.id.as_str();
+    let registered = match tui::descriptors().into_iter().find(|d| d.id == id) {
+        Some(d) => {
+            let text = match (d.source == CODE_SOURCE, loaded.as_ref()) {
+                (false, Some(found)) => fs::read_to_string(&found.path).ok(),
+                _ => None,
+            };
+            Some(RegisteredRow {
+                source: d.source.to_string(),
+                text,
+                installed: d.installed,
+            })
         }
-    });
+        // Nothing is registered: a stale or unapproved file is still on disk with this id. Its loader
+        // row is the row the card needs for the review state (SPEC 3.4), so it stands in for the
+        // registry row. The program is not registered, so `installed` is false.
+        None => loaded.as_ref().map(|found| RegisteredRow {
+            source: found.source.to_string(),
+            text: fs::read_to_string(&found.path).ok(),
+            installed: false,
+        }),
+    };
     let here = std::env::current_dir().unwrap_or_default();
     let found_path = entry
         .definition_text
@@ -462,5 +478,72 @@ windows_tested = false
         // The probe name is not a program on any PATH, so nothing is found.
         assert!(inputs.found_path.is_none());
         assert_eq!(card_state(&entry, &inputs).0, if cfg!(windows) { CardState::Available } else { CardState::Unsupported });
+    }
+
+    /// A scratch file in the temp folder, unique to this test run.
+    fn scratch(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pm-n57-{}-{name}", std::process::id()))
+    }
+
+    /// The definition file (`text`) and a Store record that added `entry`, both on disk.
+    fn stale_store_files(entry: &CatalogEntry, text: &str, tag: &str) -> (PathBuf, PathBuf) {
+        let def = scratch(&format!("{tag}-definition.toml"));
+        let rec = scratch(&format!("{tag}-record.json"));
+        fs::write(&def, text).expect("write the definition file");
+        let mut record = record::StoreRecord::default();
+        record.agents.insert(entry.entry.store.id.to_string(), store_record());
+        fs::write(&rec, serde_json::to_string(&record).expect("the record as json")).expect("write the record");
+        (def, rec)
+    }
+
+    /// The loader's row for a definition file on disk, with this approval state. Nothing is registered.
+    fn loaded_row(path: &Path, approval: ApprovalState) -> loader::Entry {
+        loader::Entry {
+            path: path.to_path_buf(),
+            id: Some("n57stale".into()),
+            source: "user",
+            state: if approval == ApprovalState::Stale {
+                loader::DefState::ApprovalStale
+            } else {
+                loader::DefState::NeedsApproval
+            },
+            approval: Some(approval),
+            fingerprint: None,
+            errors: Vec::new(),
+            shadowed_by: None,
+            meta: None,
+            binary_changed: false,
+        }
+    }
+
+    #[test]
+    fn a_stored_definition_whose_approval_went_stale_asks_for_review_when_nothing_is_registered() {
+        let entry = store_entry("n57stale", false);
+        let shipped = entry.definition_text.clone().expect("the shipped copy");
+        for approval in [ApprovalState::Stale, ApprovalState::Unapproved] {
+            let (def, rec) = stale_store_files(&entry, &shipped, &format!("review-{approval:?}"));
+            let inputs = detect_with(&entry, &rec, Some(loaded_row(&def, approval)));
+            assert_eq!(inputs.registered.as_ref().and_then(|row| row.text.as_deref()), Some(shipped.as_str()));
+            let (state, reason) = card_state(&entry, &inputs);
+            assert_eq!(state, CardState::NeedsReview, "{approval:?}: {reason}");
+            assert!(reason.contains("Settings > Agents"), "{reason}");
+            let _ = fs::remove_file(&def);
+            let _ = fs::remove_file(&rec);
+        }
+    }
+
+    #[test]
+    fn a_stored_definition_the_person_edited_is_their_own_version_when_nothing_is_registered() {
+        let entry = store_entry("n57stale", false);
+        let shipped = entry.definition_text.clone().expect("the shipped copy");
+        let edited = shipped.replace("label = \"Test n57stale\"", "label = \"Mine\"");
+        assert_ne!(edited, shipped);
+        let (def, rec) = stale_store_files(&entry, &edited, "edited");
+        let inputs = detect_with(&entry, &rec, Some(loaded_row(&def, ApprovalState::Stale)));
+        let (state, reason) = card_state(&entry, &inputs);
+        assert_eq!(state, CardState::OwnVersion, "{reason}");
+        assert_eq!(reason, "You have your own n57stale definition, so the Store leaves it alone.");
+        let _ = fs::remove_file(&def);
+        let _ = fs::remove_file(&rec);
     }
 }
