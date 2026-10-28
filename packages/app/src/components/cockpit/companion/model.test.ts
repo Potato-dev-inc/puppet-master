@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { buildWhen, checkInLabel, countChars, formatCount, isCompanionPaneId, isValidName, newCheckInId, parseClock, stateLineOf } from './model';
+import {
+  buildWhen,
+  checkInLabel,
+  clockValue,
+  countChars,
+  formatCount,
+  isCompanionPaneId,
+  isValidName,
+  movedNote,
+  movesWhenFree,
+  newCheckInId,
+  nextClockMs,
+  parseClock,
+  stateLineOf,
+  untilText,
+} from './model';
 
 describe('companion panes', () => {
   it('a companion pane is companion-<id>; other panes are not', () => {
@@ -67,5 +82,36 @@ describe('check-in schedules', () => {
     expect(checkInLabel('  Morning brief  ')).toBe('Morning brief');
     expect(checkInLabel('a'.repeat(60))).toHaveLength(40);
     expect(newCheckInId(() => 0.5)).toMatch(/^[0-9a-f]{8}$/);
+  });
+});
+
+describe('moving to another agent', () => {
+  const now = new Date(2026, 9, 28, 10, 0, 0).getTime();
+
+  it('the next moment the clock shows a time: later today, or tomorrow when it has passed', () => {
+    expect(nextClockMs({ h: 17, m: 0 }, now)).toBe(new Date(2026, 9, 28, 17, 0, 0).getTime());
+    expect(nextClockMs({ h: 9, m: 59 }, now)).toBe(new Date(2026, 9, 29, 9, 59, 0).getTime());
+    expect(nextClockMs({ h: 10, m: 0 }, now)).toBe(new Date(2026, 9, 29, 10, 0, 0).getTime());
+  });
+
+  it('a time input value from a moment', () => {
+    expect(clockValue(new Date(2026, 9, 28, 7, 5, 0).getTime())).toBe('07:05');
+  });
+
+  it('says a time as a clock today and with the weekday on another day', () => {
+    expect(untilText(new Date(2026, 9, 28, 17, 0, 0).getTime(), now)).toBe('17:00');
+    expect(untilText(new Date(2026, 9, 29, 9, 30, 0).getTime(), now)).toBe('Thu 09:30');
+  });
+
+  it('the waiting sentence names the companion', () => {
+    expect(movesWhenFree('Mochi')).toBe('Moves when Mochi is free');
+  });
+
+  it('says where a moved companion came from, and when it goes back', () => {
+    expect(movedNote({ previousAgentLabel: null, untilMs: null }, now)).toBeNull();
+    expect(movedNote({ previousAgentLabel: 'Claude Code', untilMs: null }, now)).toBe('Moved from Claude Code.');
+    expect(movedNote({ previousAgentLabel: 'Claude Code', untilMs: new Date(2026, 9, 28, 17, 0, 0).getTime() }, now)).toBe(
+      'Moved from Claude Code. Goes back at 17:00.',
+    );
   });
 });

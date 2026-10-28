@@ -136,6 +136,10 @@ export function CompanionHome({ companion, bridge, transport, abilities, chatAll
           <Avatar id={companion.avatar} size={HOME_FACE_PX} state={state} name={name} />
           <h1 className="ph-comp-name">{name}</h1>
           <p className="ph-comp-state">{companion.stateLine}</p>
+          <p className="ph-comp-agent">
+            On {companion.agentLabel}
+            {companion.untilMs ? ` until ${clockLabel(companion.untilMs)}` : ''}
+          </p>
           {needs && (
             <button type="button" className="ph-btn ph-btn--primary ph-comp-wide" onClick={() => onOpenCard(needs.itemId)}>
               Open card

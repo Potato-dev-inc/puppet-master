@@ -95,3 +95,36 @@ export function parseClock(value: string): HhMm | null {
   const m = Number(match[2]);
   return h <= 23 && m <= 59 ? { h, m } : null;
 }
+
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/** `17:00`: the local clock of a moment, in the form a time input takes. */
+export function clockValue(ms: number): string {
+  const at = new Date(ms);
+  return `${pad2(at.getHours())}:${pad2(at.getMinutes())}`;
+}
+
+/** The next moment the local clock shows `at`: today when it is still ahead, else tomorrow. */
+export function nextClockMs(at: HhMm, now: number): number {
+  const day = new Date(now);
+  day.setHours(at.h, at.m, 0, 0);
+  if (day.getTime() <= now) day.setDate(day.getDate() + 1);
+  return day.getTime();
+}
+
+/** `17:00` for a moment later today, `Thu 17:00` for another day. */
+export function untilText(ms: number, now: number): string {
+  const at = new Date(ms);
+  const today = new Date(now);
+  const sameDay = at.getFullYear() === today.getFullYear() && at.getMonth() === today.getMonth() && at.getDate() === today.getDate();
+  return sameDay ? clockValue(ms) : `${at.toLocaleDateString('en-US', { weekday: 'short' })} ${clockValue(ms)}`;
+}
+
+/** The sentence under the state line while a move waits. */
+export const movesWhenFree = (name: string): string => `Moves when ${name} is free`;
+
+/** What the Setup card says about a companion that was moved: where it came from and when it goes back. */
+export function movedNote(view: Pick<CompanionView, 'previousAgentLabel' | 'untilMs'>, now: number): string | null {
+  if (!view.previousAgentLabel) return null;
+  return view.untilMs ? `Moved from ${view.previousAgentLabel}. Goes back at ${untilText(view.untilMs, now)}.` : `Moved from ${view.previousAgentLabel}.`;
+}

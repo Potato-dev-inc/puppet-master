@@ -20,6 +20,7 @@
 //! - `host`: what the service needs from the app (`Host` trait); `live` implements it over the real
 //!   registry, outbox, attention list and session chat, and runs the thread `companion-keeper`
 //! - `service`: the tick over every companion; `manage`: create, edit, wake, sleep, memory, check-ins
+//! - `moving`: move a companion to another agent and back (never while it is busy)
 //! - `today`: `today.md`, the day's turns of the person's other agents (opt-in per companion)
 //! - `view`: `CompanionView` for the desktop (with the folder) and the phone (without)
 //!
@@ -35,6 +36,7 @@ pub mod live;
 pub mod manage;
 pub mod memory;
 pub mod model;
+pub mod moving;
 pub mod personas;
 pub mod schedule;
 pub mod service;
@@ -44,6 +46,8 @@ pub mod view;
 
 pub use service::Service;
 
+#[cfg(test)]
+mod move_tests;
 #[cfg(test)]
 mod service_tests;
 #[cfg(test)]
