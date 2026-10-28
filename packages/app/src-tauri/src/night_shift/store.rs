@@ -68,6 +68,16 @@ impl Store {
         written
     }
 
+    /// One finished run from `history/`, by id. A bad id, a missing or unreadable file, or a file whose
+    /// own id differs = none. Only ids that pass `valid_run_id` become a file name (S12).
+    pub fn get(&self, id: &str) -> Option<NightRun> {
+        if !valid_run_id(id) {
+            return None;
+        }
+        let run: NightRun = read_json(&self.history_path(id))?;
+        (run.id == id && validate_ids(&run).is_ok()).then_some(run)
+    }
+
     /// Copy a finished run to `history/<id>.json`. Older files are never deleted.
     pub fn archive(&self, run: &NightRun) -> Result<(), String> {
         validate_ids(run)?;
@@ -274,6 +284,28 @@ mod tests {
         assert_eq!(rows[0].line, "0 of 1 done");
         let files = fs::read_dir(scratch.0.join("history")).expect("history dir").count();
         assert_eq!(files, 16, "old files are never deleted, only left off the list");
+    }
+
+    #[test]
+    fn get_reads_one_archived_run_and_refuses_a_bad_id_or_a_mismatch() {
+        let scratch = Scratch::new();
+        let store = scratch.store();
+        let run = finished_run(3, 4_000);
+        store.archive(&run).expect("archive");
+        let back = store.get(&run.id).expect("the archived run");
+        assert_eq!(back.id, run.id);
+        assert_eq!(back.finished_ms, Some(4_000));
+        assert!(store.get("ns-00000000000g").is_none(), "not a run id");
+        assert!(store.get("../run").is_none(), "no path from an id");
+        assert!(store.get(&NightRun::new_id()).is_none(), "no such file");
+        // A file renamed to another run's id is not that run.
+        let other = finished_run(4, 5_000);
+        fs::write(
+            scratch.0.join("history").join(format!("{}.json", other.id)),
+            serde_json::to_string(&run).expect("json"),
+        )
+        .expect("write");
+        assert!(store.get(&other.id).is_none(), "the file's own id must match");
     }
 
     #[test]

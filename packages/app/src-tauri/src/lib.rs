@@ -464,6 +464,7 @@ pub fn run() {
             commands::night_report_save,
             commands::night_settings_get,
             commands::night_settings_set,
+            commands::night_get,
             commands::worktree_list,
             commands::worktree_diff,
             commands::second_opinion_agents,
@@ -742,6 +743,8 @@ pub fn run() {
                     room.stop_all(live_room::publisher::StopReason::AppQuit);
                 }
                 standby::shutdown();
+                // The computer may sleep again: a Night Shift hold must not outlive the app.
+                night_shift::power::release_all();
                 if let Some(chat) = app_handle.try_state::<commands::SessionChatState>() {
                     chat.shutdown();
                 }

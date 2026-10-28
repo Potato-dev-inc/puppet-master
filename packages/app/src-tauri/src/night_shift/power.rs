@@ -11,9 +11,13 @@
 //! No process is ever found or stopped by its name. The lid and the power button still sleep the
 //! computer; that is the system's own rule.
 
+use std::collections::HashMap;
 use std::process::{Child, Stdio};
 use std::sync::mpsc::{self, Sender};
 use std::thread::JoinHandle;
+
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 
 use crate::proc_util::hidden_command;
 
@@ -67,6 +71,47 @@ pub fn keep_awake(reason: &str) -> Result<Guard, String> {
         let argv = command_for(std::env::consts::OS, std::process::id(), reason).ok_or_else(|| "not available".to_string())?;
         spawn_child(&argv)
     }
+}
+
+// ---- holds by run, so the app can let go of all of them when it exits -----------------------------
+
+/// The holds that are on right now, by run id. A `Guard` kept only inside one adapter would be
+/// unreachable when the app exits, and the Linux helper (`sleep infinity`) would outlive us.
+static HOLDS: Lazy<Mutex<HashMap<String, Guard>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Keep the computer awake for `key` (a run id). A second call for the same key keeps the first hold.
+pub fn hold(key: &str, reason: &str) -> Result<(), String> {
+    if HOLDS.lock().contains_key(key) {
+        return Ok(());
+    }
+    let guard = keep_awake(reason)?;
+    adopt(key, guard);
+    Ok(())
+}
+
+/// Register a hold that is already on. A hold already there for `key` is released (dropped).
+pub fn adopt(key: &str, guard: Guard) {
+    HOLDS.lock().insert(key.to_string(), guard);
+}
+
+/// Let the computer sleep again for `key`.
+pub fn release(key: &str) {
+    // Dropped outside the lock: a drop waits for a thread or a child process.
+    let guard = HOLDS.lock().remove(key);
+    drop(guard);
+}
+
+/// Let go of every hold. The app calls this when it exits. Returns how many were held.
+pub fn release_all() -> usize {
+    let all: Vec<Guard> = HOLDS.lock().drain().map(|(_, guard)| guard).collect();
+    let count = all.len();
+    drop(all);
+    count
+}
+
+/// Whether `key` holds the computer awake now.
+pub fn is_held(key: &str) -> bool {
+    HOLDS.lock().contains_key(key)
 }
 
 /// The helper command that keeps the computer awake on `os` (`std::env::consts::OS` names), or
@@ -209,5 +254,25 @@ mod tests {
         // the hold starts and that dropping it returns (the thread is joined).
         let guard = keep_awake("Night Shift").expect("keep_awake should start on Windows");
         drop(guard);
+    }
+
+    #[test]
+    fn a_hold_is_kept_by_run_and_the_exit_hook_lets_go_of_every_one() {
+        let (a, b) = (long_sleeper(), long_sleeper());
+        let (pid_a, pid_b) = (a.id(), b.id());
+        adopt("ns-test-hold-a", Guard { held: Held::Child(a) });
+        adopt("ns-test-hold-b", Guard { held: Held::Child(b) });
+        assert!(is_held("ns-test-hold-a") && is_held("ns-test-hold-b"));
+        assert!(pid_alive(pid_a) && pid_alive(pid_b));
+
+        release("ns-test-hold-a");
+        assert!(!is_held("ns-test-hold-a"));
+        assert!(wait_until_dead(pid_a), "release kills the helper it started, by its pid");
+        assert!(pid_alive(pid_b), "the other run keeps its hold");
+
+        assert!(release_all() >= 1);
+        assert!(!is_held("ns-test-hold-b"));
+        assert!(wait_until_dead(pid_b), "the exit hook ends every helper");
+        assert_eq!(release_all(), 0, "nothing is left to release");
     }
 }
