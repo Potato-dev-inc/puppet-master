@@ -37,9 +37,12 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::watch;
+
+mod rooms;
 
 const HOUR_MS: u64 = 60 * 60 * 1000;
 const DAY_MS: u64 = 24 * HOUR_MS;
@@ -77,6 +80,18 @@ pub struct Limits {
     /// refused (503) rather than growing without bound.
     pub max_windows: usize,
     pub max_seen_sigs: usize,
+    /// Live Room registrations per client address per hour.
+    pub rooms_per_address_per_hour: u32,
+    /// Rooms that may be open (not ended) on this relay at once; more is refused with 503.
+    pub max_open_rooms: u32,
+    /// Owner frames per room: a burst of 10, refilled at this rate per second.
+    pub room_frames_per_second: u32,
+    /// Owner frames per room per day.
+    pub room_frames_per_day: u32,
+    /// Viewer calls per client address per minute.
+    pub viewer_requests_per_minute: u32,
+    /// Viewer seats per client address per room.
+    pub seats_per_address: u32,
 }
 
 impl Default for Limits {
@@ -96,6 +111,12 @@ impl Default for Limits {
             sockets_per_device: 4,
             max_windows: 500_000,
             max_seen_sigs: 2_000_000,
+            rooms_per_address_per_hour: 10,
+            max_open_rooms: 200,
+            room_frames_per_second: 2,
+            room_frames_per_day: 7_200,
+            viewer_requests_per_minute: 120,
+            seats_per_address: 4,
         }
     }
 }
@@ -244,6 +265,10 @@ pub struct Relay {
     windows: Mutex<HashMap<String, Window>>,
     seen_sigs: Mutex<SeenSigs>,
     sockets: Mutex<HashMap<String, usize>>,
+    /// Live Room rooms, in memory only.
+    rooms: rooms::Rooms,
+    /// Added to the clock for Live Room calls (tests move time with `advance_room_clock`).
+    room_clock_ms: AtomicU64,
 }
 
 type Refusal = (StatusCode, Json<serde_json::Value>);
@@ -345,7 +370,19 @@ impl Relay {
             windows: Mutex::new(HashMap::new()),
             seen_sigs: Mutex::new(SeenSigs::default()),
             sockets: Mutex::new(HashMap::new()),
+            rooms: rooms::Rooms::default(),
+            room_clock_ms: AtomicU64::new(0),
         }))
+    }
+
+    /// The clock Live Room calls use (signature time, expiry, seats).
+    pub fn room_now(&self) -> u64 {
+        now_ms().saturating_add(self.room_clock_ms.load(Ordering::SeqCst))
+    }
+
+    /// Test hook: move the Live Room clock forward, as if that much time passed.
+    pub fn advance_room_clock(&self, ms: u64) {
+        self.room_clock_ms.fetch_add(ms, Ordering::SeqCst);
     }
 
     /// Count one more under `key` in a window of `span_ms`; false when over `max` (or when the
@@ -486,9 +523,10 @@ impl Relay {
             }
             a + b
         };
+        let rooms = self.rooms.sweep(self.room_now());
         self.windows.lock().unwrap().retain(|_, w| now.saturating_sub(w.start_ms) < w.span_ms);
         self.signals.lock().unwrap().retain(|_, tx| tx.receiver_count() > 0);
-        Ok(removed)
+        Ok(removed + rooms)
     }
 
     /// Test hook: forget an envelope as if the relay dropped it.
@@ -524,6 +562,7 @@ impl Relay {
                 out.push('\n');
             }
         }
+        out.push_str(&self.rooms.dump(self.room_now()));
         out
     }
 }
@@ -884,6 +923,7 @@ pub fn router(relay: Arc<Relay>) -> Router {
         .route("/v1/teams/{team}/envelopes", post(post_envelope).get(get_envelopes).layer(DefaultBodyLimit::max(MAX_ENVELOPE_BYTES)))
         .route("/v1/teams/{team}/ws", get(ws))
         .route("/v1/teams/{team}/joins", post(post_join).get(get_joins).layer(DefaultBodyLimit::max(MAX_JOIN_BYTES)))
+        .merge(rooms::routes())
         .with_state(relay)
 }
 
