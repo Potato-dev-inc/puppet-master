@@ -43,6 +43,7 @@ export function Palette({
   onOpenMemory,
   onUndoLastTurn,
   onOpenWelcome,
+  onStartCrew,
   companions,
   onOpenCompanion,
   onNewCompanion,
@@ -58,6 +59,8 @@ export function Palette({
   onUndoLastTurn?: (paneId: string) => void;
   /** Shows the first-run welcome again. */
   onOpenWelcome?: () => void;
+  /** Opens "Start crew": pick a saved team of agents and a folder. */
+  onStartCrew?: () => void;
   /** The companions (null: no companion backend). Each one gets an "Open {name}" row. */
   companions?: CompanionView[] | null;
   onOpenCompanion?: (id: string) => void;
@@ -204,6 +207,17 @@ export function Palette({
         run: onOpenWelcome,
       });
     }
+    if (onStartCrew) {
+      out.push({
+        id: 'act:start-crew',
+        group: 'Actions',
+        title: 'Start crew…',
+        desc: 'Start a saved team of agents in a folder',
+        keywords: 'crew team helpers saved template',
+        icon: <IconLayers />,
+        run: onStartCrew,
+      });
+    }
     if (onOpenMemory) {
       out.push({
         id: 'act:memory',
@@ -249,7 +263,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn, onOpenWelcome, missionsOn, companions, onOpenCompanion, onNewCompanion]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn, onOpenWelcome, onStartCrew, missionsOn, companions, onOpenCompanion, onNewCompanion]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

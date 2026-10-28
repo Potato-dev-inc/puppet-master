@@ -1,0 +1,142 @@
+/* Crews: the "Save this team" and "Start crew" sheets and the rail button. Grayscale tokens only. */
+.cockpit .ck-sheet--crew {
+  width: 560px;
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+}
+.cockpit .ck-sheet--crew code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--label);
+}
+
+/* Save: one block per role. */
+.cockpit .ck-crew-roles,
+.cockpit .ck-crew-list,
+.cockpit .ck-crew-result {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-crew-role {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+.cockpit .ck-crew-role-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cockpit .ck-crew-role-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+.cockpit .ck-crew-role-meta {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--label-3);
+  white-space: nowrap;
+}
+.cockpit .ck-crew-role-task {
+  min-height: 56px;
+}
+
+/* Start: a list of crews to pick from, then the folder. */
+.cockpit .ck-crew-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cockpit .ck-crew-pick {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--label);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms var(--ease);
+}
+.cockpit .ck-crew-pick:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+.cockpit .ck-crew-pick.is-picked {
+  background: var(--fill-active);
+  border-color: var(--label);
+  box-shadow: inset 0 0 0 1px var(--label);
+}
+.cockpit .ck-crew-pick:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-crew-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.cockpit .ck-crew-problem {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-crew-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.cockpit .ck-crew-folder-label {
+  color: var(--label-3);
+}
+.cockpit .ck-crew-folder-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label);
+}
+
+/* Result: who started, who failed, who waited. */
+.cockpit .ck-crew-result li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+}
+.cockpit .ck-crew-mark {
+  flex: none;
+  width: 76px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--label-3);
+}
+.cockpit .ck-crew-result li.is-failed .ck-crew-mark,
+.cockpit .ck-crew-result li.is-failed .ck-crew-result-name {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-crew-result li.is-waiting .ck-crew-result-name {
+  color: var(--label-3);
+}
+
+/* The rail's "Save this team" button, under the helpers. */
+.cockpit .ck-rail-action {
+  margin-top: 8px;
+  width: 100%;
+}

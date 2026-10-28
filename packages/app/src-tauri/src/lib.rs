@@ -37,6 +37,7 @@ mod mobile_tunnel;
 mod tunnel_config;
 mod one_brain;
 mod companion;
+mod crews;
 mod opencode;
 pub mod operations;
 #[cfg(test)]
@@ -406,6 +407,12 @@ pub fn run() {
             commands::plain_preview,
             commands::plain_open_preview,
             commands::plain_send,
+            commands::crews_list,
+            commands::crews_get,
+            commands::crews_draft,
+            commands::crews_save,
+            commands::crews_remove,
+            commands::crews_start,
             commands::first_run_state,
             commands::first_run_start_task,
             commands::first_run_task_status,
