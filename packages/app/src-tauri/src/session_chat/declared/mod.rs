@@ -4,11 +4,13 @@
 //! Generic: no agent is named here.
 
 mod format;
+mod history;
 mod history_table;
 pub(crate) mod path;
 mod source;
 mod table;
 
+pub use history::DeclaredHistory;
 pub use history_table::{HistoryIdFrom, HistoryTable};
 pub use path::{cwd_placeholders, Names};
 pub use source::DeclaredSource;
@@ -16,5 +18,7 @@ pub use table::{validate_session_chat, SessionChatTable};
 
 #[cfg(test)]
 mod history_table_tests;
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod tests;
