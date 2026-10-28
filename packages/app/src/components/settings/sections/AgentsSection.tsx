@@ -9,6 +9,7 @@ import { agentHealthApi, type AgentHealth } from '../../../lib/agent-health';
 import { Popup } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
 import { SettingRow, SettingToggle } from '../settings-ui';
+import { KeepGoingRows } from './KeepGoingRows';
 
 type HookMode = 'off' | 'shadow' | 'evidence';
 
@@ -100,6 +101,14 @@ export const agentsRows: RowDef[] = [
     group: 'Live updates',
     labs: { name: 'Live updates', about: 'Claude Code and Codex report when they start, ask and finish.' },
     render: (env) => <LiveUpdates env={env} />,
+  },
+  {
+    id: 'keep-going',
+    label: 'When an agent runs out of usage',
+    hint: 'Pick the agents a task can move to when the agent it runs on runs out of usage.',
+    keywords: 'keep going continue move another agent limit usage run out reset back first resets offer order fallback backup hand over ask runs',
+    group: 'Keep going',
+    render: (env) => <KeepGoingRows onSaved={env.markSaved} />,
   },
   {
     id: 'definitions',
