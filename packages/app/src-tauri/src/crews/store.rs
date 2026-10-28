@@ -58,6 +58,26 @@ pub fn load(dir: &Path, slug: &str) -> Result<Crew, CrewError> {
     parse(&text)
 }
 
+/// One crew as the list shows it: its roles' agents (each once) and the first problem, if any.
+pub fn summary(slug: &str, crew: &Crew, agent_state: &dyn Fn(&str) -> AgentState) -> Summary {
+    let problem = validate(crew, agent_state).first().map(|e| e.message.clone());
+    let mut agents: Vec<String> = Vec::new();
+    for r in &crew.roles {
+        if !agents.contains(&r.agent_type) {
+            agents.push(r.agent_type.clone());
+        }
+    }
+    Summary { slug: slug.to_string(), name: crew.name.clone(), roles: crew.roles.len(), agents, problem }
+}
+
+/// A saved crew by slug, or a starter (`starter:<id>`, see `starters`).
+pub fn load_any(dir: &Path, slug: &str) -> Result<Crew, CrewError> {
+    match super::starters::lookup(slug) {
+        Some(crew) => Ok(crew),
+        None => load(dir, slug),
+    }
+}
+
 /// Every crew file, by name.
 pub fn list(dir: &Path, agent_state: &dyn Fn(&str) -> AgentState) -> Vec<Summary> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
@@ -70,16 +90,7 @@ pub fn list(dir: &Path, agent_state: &dyn Fn(&str) -> AgentState) -> Vec<Summary
         })
         .take(MAX_FILES)
         .map(|(slug, _)| match load(dir, &slug) {
-            Ok(crew) => {
-                let problem = validate(&crew, agent_state).first().map(|e| e.message.clone());
-                let mut agents: Vec<String> = Vec::new();
-                for r in &crew.roles {
-                    if !agents.contains(&r.agent_type) {
-                        agents.push(r.agent_type.clone());
-                    }
-                }
-                Summary { slug, name: crew.name, roles: crew.roles.len(), agents, problem }
-            }
+            Ok(crew) => summary(&slug, &crew, agent_state),
             Err(e) => Summary { name: slug.clone(), slug, roles: 0, agents: Vec::new(), problem: Some(e.message) },
         })
         .collect();

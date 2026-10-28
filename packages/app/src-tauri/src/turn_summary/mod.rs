@@ -9,6 +9,7 @@
 //!
 //! This file is the glue to the running app (registry, checkpoints, Tauri events, SSE).
 
+pub mod blame;
 pub mod digest;
 pub mod http;
 pub mod model;
@@ -17,6 +18,8 @@ pub mod presence;
 pub mod settle;
 pub mod store;
 pub mod tracker;
+#[cfg(test)]
+mod blame_tests;
 #[cfg(test)]
 mod sentence_tests;
 #[cfg(test)]

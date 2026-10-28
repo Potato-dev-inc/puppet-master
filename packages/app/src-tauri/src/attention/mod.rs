@@ -275,6 +275,12 @@ fn publish(snapshot: &Snapshot) {
         let _ = app.emit("attention://changed", snapshot);
     }
     crate::ambient::notify_changed();
+    // The tray tooltip shows this count too (`tray::summary_line`). Not in unit tests, for the same
+    // reason as the emit above: the tray's windowing code would load in the test exe.
+    #[cfg(not(test))]
+    {
+        crate::tray::request_refresh();
+    }
 }
 
 /// The SSE frame for a snapshot body.

@@ -1,25 +1,52 @@
-//! Saving the chat page without trusting the webview. The page is made in Rust (`chat_export_html`) and kept here
-//! under a one-time token; the save command takes that token and the path the save dialog returned, never the page.
-//! So a script in the webview cannot write chosen content, and the path is checked here: absolute, `.html` or `.htm`,
-//! not a link, not a device name, and an existing target must be a plain file. The page has a size cap.
+//! Saving the chat without trusting the webview. The page (HTML) or the Markdown file is made in Rust
+//! (`chat_export_html`, `chat_export_markdown`) and kept here under a one-time token; the save command takes that
+//! token and the path the save dialog returned, never the text. So a script in the webview cannot write chosen
+//! content. The token remembers its kind: an HTML token saves `.html` or `.htm` only, a Markdown token `.md` only.
+//! The path is checked here too: absolute, not a link, not a device name, and an existing target must be a plain
+//! file. Both kinds have a size cap.
 
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 use parking_lot::Mutex;
 
-/// Largest page that is kept or written, in bytes.
+/// Largest page or file that is kept or written, in bytes.
 pub const MAX_PAGE_BYTES: usize = 20 * 1024 * 1024;
-/// Pages kept at once (the oldest goes first); each is bound to the token it was handed out with.
+/// Pages kept at once (the oldest goes first). A pane keeps at most one page of each kind.
 const KEEP_PAGES: usize = 4;
 
 const NEED_HTML: &str = "Choose a file name that ends in .html.";
+const NEED_MD: &str = "Choose a file name that ends in .md.";
 const GONE: &str = "This page is no longer available. Close this window and open Save as page again.";
+
+/// What a kept text is. The token it was handed out with only saves that kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageKind {
+    Html,
+    Markdown,
+}
+
+impl PageKind {
+    fn extensions(self) -> &'static [&'static str] {
+        match self {
+            PageKind::Html => &["html", "htm"],
+            PageKind::Markdown => &["md"],
+        }
+    }
+
+    fn need_name(self) -> &'static str {
+        match self {
+            PageKind::Html => NEED_HTML,
+            PageKind::Markdown => NEED_MD,
+        }
+    }
+}
 
 struct Held {
     token: String,
     pane_id: String,
-    html: String,
+    kind: PageKind,
+    text: String,
 }
 
 /// The pages made and not yet saved.
@@ -29,31 +56,34 @@ pub struct Pages {
 }
 
 impl Pages {
-    /// Keeps `html` for `pane_id` and returns its one-time token. The pane's earlier page (and its token) is dropped.
-    pub fn keep(&self, pane_id: &str, html: &str) -> Result<String, String> {
-        if html.len() > MAX_PAGE_BYTES {
-            return Err("This chat is too big to save as one page. Pick fewer turns.".into());
+    /// Keeps `text` (of `kind`) for `pane_id` and returns its one-time token. The pane's earlier text of the same
+    /// kind (and its token) is dropped.
+    pub fn keep(&self, pane_id: &str, kind: PageKind, text: &str) -> Result<String, String> {
+        if text.len() > MAX_PAGE_BYTES {
+            return Err("This chat is too big to save as one file. Pick fewer turns.".into());
         }
         let token = uuid::Uuid::new_v4().to_string();
         let mut held = self.held.lock();
-        held.retain(|page| page.pane_id != pane_id);
-        held.push(Held { token: token.clone(), pane_id: pane_id.to_string(), html: html.to_string() });
+        held.retain(|page| !(page.pane_id == pane_id && page.kind == kind));
+        held.push(Held { token: token.clone(), pane_id: pane_id.to_string(), kind, text: text.to_string() });
         if held.len() > KEEP_PAGES {
             held.remove(0);
         }
         Ok(token)
     }
 
-    /// Writes the page behind `token` to `path`. The token is used up once the page is written; a path that is
-    /// refused, or a write that fails, leaves it so the person can choose another place. Returns the path written.
+    /// Writes the text behind `token` to `path`, which must have the token's kind's extension. The token is used up
+    /// once the file is written; a path that is refused, or a write that fails, leaves it so the person can choose
+    /// another place. Returns the path written.
     pub fn save(&self, token: &str, path: &str) -> Result<PathBuf, String> {
-        let dest = check_dest(path)?;
+        let kind = self.held.lock().iter().find(|page| page.token == token).map(|page| page.kind).ok_or_else(|| GONE.to_string())?;
+        let dest = check_dest(path, kind)?;
         let page = {
             let mut held = self.held.lock();
             let at = held.iter().position(|page| page.token == token).ok_or_else(|| GONE.to_string())?;
             held.remove(at)
         };
-        match write_new_or_plain(&dest, page.html.as_bytes()) {
+        match write_new_or_plain(&dest, page.text.as_bytes()) {
             Ok(()) => Ok(dest),
             Err(error) => {
                 self.held.lock().push(page);
@@ -68,21 +98,21 @@ impl Pages {
     }
 }
 
-/// The place to write, or why it is refused.
-pub fn check_dest(path: &str) -> Result<PathBuf, String> {
+/// The place to write, or why it is refused. The name must end in the extension of `kind`.
+pub fn check_dest(path: &str, kind: PageKind) -> Result<PathBuf, String> {
     let dest = PathBuf::from(path.trim());
     if dest.as_os_str().is_empty() {
-        return Err(NEED_HTML.into());
+        return Err(kind.need_name().into());
     }
     if !dest.is_absolute() {
-        return Err("Save the page where the save window put it: a full path is needed.".into());
+        return Err("Save the file where the save window put it: a full path is needed.".into());
     }
     if dest.components().any(|c| matches!(c, Component::ParentDir | Component::CurDir)) {
         return Err("The path must not contain . or .. parts.".into());
     }
-    let is_html = dest.extension().is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"));
-    if !is_html {
-        return Err(NEED_HTML.into());
+    let ext_ok = dest.extension().is_some_and(|e| kind.extensions().iter().any(|want| e.eq_ignore_ascii_case(want)));
+    if !ext_ok {
+        return Err(kind.need_name().into());
     }
     if is_device_name(&dest) {
         return Err("That file name is reserved by the system. Choose another.".into());

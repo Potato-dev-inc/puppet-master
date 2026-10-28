@@ -65,6 +65,8 @@ pub use service::Service;
 #[cfg(test)]
 mod foreman_tests;
 #[cfg(test)]
+mod gate_tests;
+#[cfg(test)]
 mod move_tests;
 #[cfg(test)]
 mod service_tests;

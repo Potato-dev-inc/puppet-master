@@ -1,12 +1,16 @@
 // The agent's own text (a session file) as formatted text: headings, bold, code, lists, quotes, rules and tables.
 // The tree comes from lib/chatMarkdown; every piece is a React element with text children, so no HTML from the
 // message is ever created. Links show their text and keep the address in `title`; they are not clickable.
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { parseChatMarkdown, type Align, type Block, type Inline, type ListBlock } from '../../lib/chatMarkdown';
+import '../../styles/chat-copy.css';
 
 export interface ChatMarkdownProps {
   text: string;
 }
+
+/** How long the button says "Copied". */
+const COPIED_MS = 1500;
 
 export function ChatMarkdown({ text }: ChatMarkdownProps) {
   return <div className="ck-chat-md min-w-0 break-words ck-chat-text">{renderBlocks(safeParse(text))}</div>;
@@ -37,11 +41,7 @@ function renderBlock(block: Block, key: number): ReactNode {
       return <h3 key={key} className={cls}>{children}</h3>;
     }
     case 'code':
-      return (
-        <pre key={key} data-lang={block.lang || undefined} className="ck-chat-md-pre rounded border border-pm-border bg-pm-panel">
-          <code>{block.text}</code>
-        </pre>
-      );
+      return <CodeBlock key={key} lang={block.lang} text={block.text} />;
     case 'list':
       return renderList(block, key);
     case 'quote':
@@ -51,6 +51,42 @@ function renderBlock(block: Block, key: number): ReactNode {
     case 'table':
       return renderTable(block, key);
   }
+}
+
+/** A fenced block with a Copy button. The button copies the code as written: no language tag, no added newline. */
+function CodeBlock({ lang, text }: { lang: string; text: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // No clipboard here (or it said no): the button keeps saying Copy.
+      return;
+    }
+    setCopied(true);
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+  };
+
+  return (
+    <div className="ck-chat-md-code-wrap">
+      <pre data-lang={lang || undefined} className="ck-chat-md-pre rounded border border-pm-border bg-pm-panel">
+        <code>{text}</code>
+      </pre>
+      <button type="button" className="ck-chat-md-copy" data-copied={copied || undefined} onClick={() => void copy()}>
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
+  );
 }
 
 function renderList(list: ListBlock, key?: number): ReactNode {

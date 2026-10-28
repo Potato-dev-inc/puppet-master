@@ -1,6 +1,6 @@
 // "Save this team": the pane and the helpers under it, as a crew you can start again in any folder. The draft comes from
 // the live panes (folder -> {folder}, secrets and personal folder names taken out); the person edits names and tasks here
-// before anything is saved.
+// before anything is saved. "Copy to My crews" passes a starter in as `initial` instead: the same editor, nothing saved yet.
 import { useEffect, useRef, useState } from 'react';
 import { crewErrorText, crewsApi, type Crew, type CrewProblem, type CrewsApi } from '../../../lib/crews-api';
 import { Sheet } from '../Sheet';
@@ -9,13 +9,16 @@ import '../../../styles/cockpit-crews.css';
 
 export function SaveCrewSheet({
   paneId,
+  initial,
   api = crewsApi,
   agentName,
   onClose,
   onSaved,
 }: {
   /** The pane whose helpers are saved with it. */
-  paneId: string;
+  paneId?: string;
+  /** A crew to edit and save as a copy (no pane is read then). */
+  initial?: Crew;
   api?: CrewsApi;
   /** Display name of an agent type ("Codex"). */
   agentName: (agentType: string) => string;
@@ -32,6 +35,11 @@ export function SaveCrewSheet({
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (initial) {
+      setCrew(initial);
+      return;
+    }
+    if (!paneId) return;
     let live = true;
     api
       .draft(paneId)
@@ -44,7 +52,7 @@ export function SaveCrewSheet({
     return () => {
       live = false;
     };
-  }, [api, paneId]);
+  }, [api, paneId, initial]);
 
   const edit = (next: Crew) => {
     setCrew(next);
@@ -84,12 +92,16 @@ export function SaveCrewSheet({
   return (
     <Sheet labelledBy="ck-crew-save-t" role="dialog" className="ck-sheet--crew" onClose={busy ? undefined : onClose}>
       <h2 className="ck-section" id="ck-crew-save-t">
-        Save this team
+        {initial ? 'Copy this crew' : 'Save this team'}
       </h2>
-      <p className="ck-sub">
-        Saves each agent, its first task and who started whom. The folder becomes <code>{'{folder}'}</code>, so you can start this crew in any folder. Secrets and
-        personal folder names are taken out.
-      </p>
+      {initial ? (
+        <p className="ck-sub">Edit the copy, then save it to My crews. The starter itself does not change.</p>
+      ) : (
+        <p className="ck-sub">
+          Saves each agent, its first task and who started whom. The folder becomes <code>{'{folder}'}</code>, so you can start this crew in any folder. Secrets
+          and personal folder names are taken out.
+        </p>
+      )}
 
       {!crew && !error && <p className="ck-sub">Reading the team…</p>}
 

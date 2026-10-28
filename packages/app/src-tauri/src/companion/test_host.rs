@@ -32,6 +32,11 @@ pub struct FakeHost {
     pub waiting: Mutex<Vec<String>>,
     pub blocking: Mutex<Option<Blocking>>,
     pub sign_in: AtomicBool,
+    /// A dismissible startup notice is on the pane (by pane id), and whether its keys close it.
+    pub notice: Mutex<Vec<String>>,
+    pub notice_obeys: AtomicBool,
+    /// Every pane the keeper pressed the notice keys on.
+    pub notice_presses: Mutex<Vec<String>>,
     pub activity: Mutex<Option<String>>,
     pub reply: Mutex<Option<Reply>>,
     pub sentence: Mutex<Option<Reply>>,
@@ -71,6 +76,9 @@ impl FakeHost {
             waiting: Mutex::new(Vec::new()),
             blocking: Mutex::new(None),
             sign_in: AtomicBool::new(false),
+            notice: Mutex::new(Vec::new()),
+            notice_obeys: AtomicBool::new(true),
+            notice_presses: Mutex::new(Vec::new()),
             activity: Mutex::new(None),
             reply: Mutex::new(None),
             sentence: Mutex::new(None),
@@ -146,6 +154,7 @@ impl Host for FakeHost {
 
     fn kill(&self, pane_id: &str) {
         self.killed.lock().push(pane_id.to_string());
+        self.notice.lock().retain(|p| p != pane_id);
         self.panes.lock().remove(pane_id);
     }
 
@@ -167,6 +176,23 @@ impl Host for FakeHost {
 
     fn sign_in_gate(&self, _pane_id: &str) -> bool {
         self.sign_in.load(Ordering::SeqCst)
+    }
+
+    fn notice_gate(&self, pane_id: &str) -> bool {
+        self.notice.lock().iter().any(|p| p == pane_id)
+    }
+
+    fn dismiss_notice(&self, pane_id: &str) -> bool {
+        if !self.notice_gate(pane_id) {
+            return false;
+        }
+        self.notice_presses.lock().push(pane_id.to_string());
+        if self.notice_obeys.load(Ordering::SeqCst) {
+            self.notice.lock().retain(|p| p != pane_id);
+            // The menu is gone: the pane settles at its input box.
+            self.panes.lock().insert(pane_id.to_string(), Pane::Alive(Status::Idle));
+        }
+        true
     }
 
     fn activity(&self, _pane_id: &str) -> Option<String> {

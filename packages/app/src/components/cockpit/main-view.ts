@@ -72,3 +72,55 @@ export function splitStillOn(split: string | null, opts: { selectedId: string | 
 export function isSplitShortcut(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): boolean {
   return e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === '\\';
 }
+
+// Split view sizing. The ratio is the left side's share of the room both sides share (the window minus the divider).
+// The CSS in cockpit-split.css uses the same minimum, so a side never gets narrower than this.
+
+/** The narrowest a side may get, in px. */
+export const SPLIT_SIDE_MIN_PX = 320;
+/** The divider's hit area, in px (its line is drawn in the middle of it). */
+export const SPLIT_DIVIDER_PX = 9;
+/** One Left or Right arrow press on the focused divider moves it this far, in px. */
+export const SPLIT_KEY_STEP_PX = 24;
+/** The even split. A double-click on the divider goes back here. */
+export const SPLIT_DEFAULT_RATIO = 0.5;
+
+/**
+ * Keeps `ratio` so both sides are at least SPLIT_SIDE_MIN_PX wide. `span` is the px both sides share (the
+ * split's width minus the divider). Too narrow for two minimum sides: the even split.
+ */
+export function clampSplitRatio(ratio: number, span: number): number {
+  if (!Number.isFinite(ratio) || !(span >= SPLIT_SIDE_MIN_PX * 2)) return SPLIT_DEFAULT_RATIO;
+  const low = SPLIT_SIDE_MIN_PX / span;
+  return Math.min(1 - low, Math.max(low, ratio));
+}
+
+/** The ratio after a Left (negative) or Right (positive) arrow: the divider moves `deltaPx` px. */
+export function nudgeSplitRatio(ratio: number, deltaPx: number, span: number): number {
+  if (!(span > 0)) return clampSplitRatio(ratio, span);
+  return clampSplitRatio(ratio + deltaPx / span, span);
+}
+
+/** The ratio for a divider dragged so the left side is `leftPx` px wide. */
+export function ratioFromLeftPx(leftPx: number, span: number): number {
+  if (!(span > 0)) return SPLIT_DEFAULT_RATIO;
+  return clampSplitRatio(leftPx / span, span);
+}
+
+/** Whether a platform string is macOS (Cmd is the main modifier there, Ctrl elsewhere). */
+export function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+}
+
+/**
+ * Ctrl+Alt+Left / Ctrl+Alt+Right (Cmd+Alt on a Mac) move the focus to the left or right side. Any other
+ * modifier, or any other key, is not ours: null. The caller only asks while the split is open.
+ */
+export function splitFocusKey(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>, mac: boolean): SplitSide | null {
+  const mainModifier = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  if (!mainModifier || !e.altKey || e.shiftKey) return null;
+  if (e.key === 'ArrowLeft') return 'left';
+  if (e.key === 'ArrowRight') return 'right';
+  return null;
+}

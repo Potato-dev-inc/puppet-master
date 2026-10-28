@@ -19,7 +19,9 @@ mod app_paths;
 mod bridge;
 mod budgets;
 mod canary;
+mod channels;
 mod checkpoints;
+mod clip;
 mod commands;
 mod context_pack;
 mod event_log;
@@ -45,6 +47,7 @@ mod operations_contract_tests;
 mod pane_activity;
 mod pane_jobs;
 mod pane_preview;
+mod point;
 mod loop_guard;
 mod panic;
 mod askbar;
@@ -171,6 +174,7 @@ pub fn run() {
             commands::chat_index_set_enabled,
             commands::chat_index_clear,
             commands::chat_export_html,
+            commands::chat_export_markdown,
             commands::chat_export_save,
             commands::pane_message_send,
             commands::pane_message_cancel,
@@ -386,6 +390,7 @@ pub fn run() {
             commands::mission_resume,
             commands::mission_decide,
             commands::turn_summaries,
+            commands::changes_blame,
             commands::presence_cockpit_focus,
             commands::away_digest_pending,
             commands::away_digest_dismiss,
@@ -414,6 +419,8 @@ pub fn run() {
             commands::plain_send,
             commands::crews_list,
             commands::crews_get,
+            commands::crews_starters,
+            commands::crews_agents,
             commands::crews_draft,
             commands::crews_save,
             commands::crews_remove,
