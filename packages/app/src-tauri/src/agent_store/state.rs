@@ -103,7 +103,7 @@ pub fn detect(entry: &CatalogEntry) -> Inputs {
 }
 
 /// `detect` with the Store record read from `record_path` (tests point it at a scratch file).
-fn detect_at(entry: &CatalogEntry, record_path: &Path) -> Inputs {
+pub(super) fn detect_at(entry: &CatalogEntry, record_path: &Path) -> Inputs {
     let id = entry.entry.store.id.as_str();
     let loaded = loader::last_entry_for(id);
     let registered = tui::descriptors().into_iter().find(|d| d.id == id).map(|d| {
@@ -135,7 +135,7 @@ fn detect_at(entry: &CatalogEntry, record_path: &Path) -> Inputs {
 }
 
 /// The program is on PATH, or the registry says it is installed (built-in profiles).
-fn found(inputs: &Inputs) -> bool {
+pub(super) fn found(inputs: &Inputs) -> bool {
     inputs.found_path.is_some() || inputs.registered.as_ref().is_some_and(|row| row.installed)
 }
 

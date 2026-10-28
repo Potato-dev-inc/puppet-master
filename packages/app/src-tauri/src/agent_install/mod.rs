@@ -100,10 +100,11 @@ pub fn plan_for(agent_id: &str, tools: &Tools) -> Result<(Plan, Option<String>),
     Ok((plan, descriptor.install_hint))
 }
 
-/// The install plan for a catalog entry that is not registered. The label is the vendor's name from
-/// the entry. `spec` is its Windows install spec, or `None` (then the plan says why it is blocked).
+/// The install plan for a catalog entry that is not registered. The label is `CatalogEntry::label`
+/// (the definition's name, else the vendor's). `spec` is its Windows install spec, or `None` (then the
+/// plan says why it is blocked).
 pub fn store_plan(entry: &CatalogEntry, spec: Option<&InstallSpec>, tools: &Tools) -> Plan {
-    plan::plan_install(&entry.entry.store.id, &entry.entry.vendor.name, spec, tools)
+    plan::plan_install(&entry.entry.store.id, &entry.label(), spec, tools)
 }
 
 /// The health probe for a catalog entry that is not registered. The program is looked up the way
@@ -114,7 +115,7 @@ pub fn store_probe(entry: &CatalogEntry, here: &Path) -> Option<Probe> {
     let words = |text: &str| Some(text.trim().to_string()).filter(|t| !t.is_empty());
     Some(Probe {
         id: entry.entry.store.id.clone(),
-        label: entry.entry.vendor.name.clone(),
+        label: entry.label(),
         installed: program.is_some(),
         version_command: program.map(|program| VersionCommand {
             program: program.to_string_lossy().into_owned(),

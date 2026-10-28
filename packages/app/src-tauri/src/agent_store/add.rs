@@ -19,14 +19,14 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::catalog::{self, CatalogEntry};
+use super::check::forbidden_in_store;
 use crate::tui::declarative::approvals::{self, now_rfc3339};
 use crate::tui::declarative::loader::{reload_into, LoadInputs, OwnedInputs};
 use crate::tui::declarative::removal;
 use crate::tui::declarative::resolve::resolve_binary;
-use crate::tui::declarative::schema::{parse_definition, Definition};
+use crate::tui::declarative::schema::parse_definition;
 use crate::tui::declarative::service::approve_as_store;
 use crate::tui::declarative::sources::scan_dir;
-use crate::tui::declarative::wizard::bypass::hits_in_definition;
 use crate::tui::registry::Registry;
 
 #[cfg(test)]
@@ -146,25 +146,6 @@ pub fn remove_in(
         "removed_id": removed.get("removed_id").cloned().unwrap_or(Value::Null),
         "fixtures_kept": kept,
     }))
-}
-
-/// Check rule 4 of the catalog check (SPEC-n32 3.7), run again on the shipped text before anything is written.
-/// A Store definition may not change another tool's files, turn hooks on, set environment variables, allow a
-/// shell or carry a flag that turns off the agent's own safety questions.
-pub fn forbidden_in_store(def: &Definition) -> Option<String> {
-    if def.mcp_host.is_some() {
-        return Some("[mcp_host] writes into the agent's own settings file".into());
-    }
-    if def.hooks.is_some() {
-        return Some("[hooks] changes how the agent reports its work".into());
-    }
-    if !def.env.set.is_empty() {
-        return Some("[env] set changes the environment the agent starts in".into());
-    }
-    if def.agent.allow_interpreter {
-        return Some("allow_interpreter lets the agent run a shell".into());
-    }
-    hits_in_definition(def).first().map(|hit| format!("`{}` is refused, {}", hit.token, hit.why))
 }
 
 /// The shipped entry and its definition text. A built-in agent has no file, and an unknown id has nothing.

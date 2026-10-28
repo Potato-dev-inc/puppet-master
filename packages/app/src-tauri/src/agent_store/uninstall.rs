@@ -53,12 +53,12 @@ pub fn uninstall_plan(
     tools: &Tools,
 ) -> Plan {
     let id = entry.entry.store.id.as_str();
-    let label = entry.entry.vendor.name.as_str();
+    let label = entry.label();
     match install {
-        Some(install) => plan_uninstall(id, label, spec, &install.method, &install.package, tools),
+        Some(install) => plan_uninstall(id, &label, spec, &install.method, &install.package, tools),
         None => Plan {
             agent_id: id.into(),
-            label: label.into(),
+            label,
             steps: Vec::new(),
             blocked: Some(NOT_STORE_INSTALL.into()),
         },
@@ -149,7 +149,7 @@ windows_tested = false
         let entry = store_entry("acme");
         let plan = uninstall_plan(&entry, Some(&acme_spec()), Some(&record("npm", "test-acme-cli")), &tools());
         assert!(plan.blocked.is_none(), "{:?}", plan.blocked);
-        assert_eq!(plan.label, "Test Vendor");
+        assert_eq!(plan.label, "Test acme", "the definition's name, not the vendor's");
         assert_eq!(plan.steps.len(), 1, "one step, never a prerequisite");
         assert_eq!(plan.steps[0].command, "npm uninstall -g test-acme-cli");
         let view = plan_view(&plan, None);

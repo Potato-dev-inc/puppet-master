@@ -161,7 +161,7 @@ fn an_unregistered_store_id_gets_a_plan_from_its_catalog_entry() {
     let plan = store_plan(&entry, Some(&spec), &tools);
     assert!(plan.blocked.is_none(), "{:?}", plan.blocked);
     assert_eq!(plan.agent_id, "acme");
-    assert_eq!(plan.label, "Test Vendor");
+    assert_eq!(plan.label, "Test acme", "the definition's name, not the vendor's");
     assert_eq!(plan.steps.len(), 1);
     assert_eq!(plan.steps[0].command, "npm install -g test-acme-cli");
     assert_eq!(plan_view(&plan, None)["available"], true);
@@ -180,7 +180,7 @@ fn the_store_probe_finds_the_program_from_its_definition_and_says_when_it_is_mis
     let entry = store_entry("nimbus");
     let probe = store_probe(&entry, Path::new(".")).expect("the definition names a binary");
     assert_eq!(probe.id, "nimbus");
-    assert_eq!(probe.label, "Test Vendor");
+    assert_eq!(probe.label, "Test nimbus");
     assert!(!probe.installed, "no nimbus program is on PATH in a test");
     assert!(probe.version_command.is_none());
     let health = crate::agent_health::check_probe(&probe, crate::agent_health::VERSION_TIMEOUT);
