@@ -72,10 +72,20 @@ export function PointBoxApp({ api = pointApi }: { api?: PointApi }): JSX.Element
     return text;
   };
 
-  /** After a send or an Edit in Chat the session is over: clear the text and reload the state. */
-  const finished = () => {
+  /**
+   * The box is empty: no text, no picks, no notes. The next pick opens with a blank box. Runs first in
+   * Discard, so the box is clear even when the shell is slow to answer.
+   */
+  const clearBox = () => {
     setRequest('');
+    setError(null);
     setInfo(null);
+    setState((s) => ({ ...s, picks: [] }));
+  };
+
+  /** After a send or an Edit in Chat the session is over: clear the box and reload the state. */
+  const finished = () => {
+    clearBox();
     load();
   };
 
@@ -143,15 +153,14 @@ export function PointBoxApp({ api = pointApi }: { api?: PointApi }): JSX.Element
   };
 
   const discard = async () => {
+    clearBox();
     try {
       await api.discard();
-      setRequest('');
-      setError(null);
-      setInfo(null);
-      setState((s) => ({ ...s, picks: [] }));
     } catch (e) {
       setError(messageOf(e));
     }
+    // Ask the shell again, so the box shows what it really holds (empty after a good discard).
+    load();
   };
 
   const hide = () => {

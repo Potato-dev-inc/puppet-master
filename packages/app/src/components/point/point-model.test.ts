@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PickView, Target } from '../../lib/point-api';
-import { MAX_REQUEST, boxKey, groupTargets, sourceLine } from './point-model';
+import { MAX_REQUEST, boxKey, groupTargets, sourceLine, targetLabel } from './point-model';
 
 function pick(over: Partial<PickView> = {}): PickView {
   return {
@@ -40,6 +40,26 @@ describe('sourceLine', () => {
   it('returns null when the page gave neither', () => {
     expect(sourceLine(pick())).toBeNull();
     expect(sourceLine(pick({ component: '', source: null }))).toBeNull();
+  });
+});
+
+describe('targetLabel', () => {
+  it('shows the agent label and the pane title after a dot', () => {
+    expect(targetLabel({ agentLabel: 'Claude Code', title: 'fix-pricing' })).toBe('Claude Code · fix-pricing');
+  });
+
+  it('leaves the title out when it repeats the agent label', () => {
+    expect(targetLabel({ agentLabel: 'Claude Code', title: 'Claude Code' })).toBe('Claude Code');
+  });
+
+  it('treats a title that differs only by case or outer spaces as the same name', () => {
+    expect(targetLabel({ agentLabel: 'Claude Code', title: 'claude code' })).toBe('Claude Code');
+    expect(targetLabel({ agentLabel: ' Codex ', title: 'Codex ' })).toBe('Codex');
+  });
+
+  it('shows only the agent label when the pane has no title', () => {
+    expect(targetLabel({ agentLabel: 'Codex', title: '' })).toBe('Codex');
+    expect(targetLabel({ agentLabel: 'Codex', title: '   ' })).toBe('Codex');
   });
 });
 
