@@ -107,6 +107,8 @@ export interface HarnessScenario {
   night?: import('./night-fixtures').NightScenario;
   /** What broke the tests?: what the mocked `wb_*` commands answer (see what-broke-it-fixtures.ts). */
   whatBroke?: import('./what-broke-it-fixtures').WhatBrokeItScenario;
+  /** What broke it: the result card. What the mocked `wb_*` result commands answer (see what-broke-it-result-fixtures.ts). */
+  whatBrokeItResult?: import('./what-broke-it-result-fixtures').WhatBrokeItResultScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */
   teamConfig?: Partial<import('../lib/team').TeamConfigView>;
   /** Set up agents > Install: what the mocked `agents_install_*` commands answer. */
