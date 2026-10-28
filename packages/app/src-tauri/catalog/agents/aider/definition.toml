@@ -1,0 +1,21 @@
+# Aider, generic. Install facts from https://aider.chat/docs/install.html: the Windows PowerShell
+# script https://aider.chat/install.ps1 and the uv package aider-chat. The page lists Python 3.8 to
+# 3.13 for uv; this uses 3.12. The script is the second, high-risk choice (after uv).
+schema_version = 1
+
+[agent]
+id = "aider"
+label = "Aider"
+kind = "generic"
+experimental = true
+description = "Aider, a command line coding agent. It runs in a visible pane and chat is read from the screen."
+
+[binary]
+names = ["aider"]
+
+[install.windows]
+source = "https://aider.chat/docs/install.html"
+uv = "aider-chat"
+python = "3.12"
+script_url = "https://aider.chat/install.ps1"
+note = "Installs with uv for Python 3.12. The vendor page lists Python 3.8 to 3.13."

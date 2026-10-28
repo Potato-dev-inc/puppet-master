@@ -1,0 +1,15 @@
+# Droid (Factory), generic. The command is `droid` and the first run signs in through the browser,
+# both from https://docs.factory.com/cli/getting-started/quickstart.
+# No [install.windows]: the vendor page did not show an install command, so the Store only adds a
+# program that is already on this PC.
+schema_version = 1
+
+[agent]
+id = "droid"
+label = "Droid"
+kind = "generic"
+experimental = true
+description = "Factory's Droid CLI. It runs in a visible pane and chat is read from the screen."
+
+[binary]
+names = ["droid"]
