@@ -163,6 +163,15 @@ fn result_html(out: &mut String, ok: bool, output: &str, ctx: &RedactContext) {
 }
 
 fn turn_end_html(out: &mut String, outcome: &TurnOutcome, duration_ms: Option<u64>) {
+    let parts = turn_end_parts(outcome, duration_ms);
+    if parts.is_empty() {
+        return;
+    }
+    out.push_str(&format!("<div class=\"turn-end\"><span>{}</span></div>\n", escape(&parts.join(" · "))));
+}
+
+/// How a turn ended and how long it took, as words (empty when there is nothing to say).
+pub(super) fn turn_end_parts(outcome: &TurnOutcome, duration_ms: Option<u64>) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
     match outcome {
         TurnOutcome::Interrupted => parts.push("Interrupted".into()),
@@ -172,13 +181,10 @@ fn turn_end_html(out: &mut String, outcome: &TurnOutcome, duration_ms: Option<u6
     if let Some(ms) = duration_ms {
         parts.push(format!("Worked for {}", worked(ms)));
     }
-    if parts.is_empty() {
-        return;
-    }
-    out.push_str(&format!("<div class=\"turn-end\"><span>{}</span></div>\n", escape(&parts.join(" · "))));
+    parts
 }
 
-fn worked(ms: u64) -> String {
+pub(super) fn worked(ms: u64) -> String {
     let secs = ms / 1000;
     if secs < 60 {
         format!("{secs}s")
