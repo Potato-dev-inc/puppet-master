@@ -94,10 +94,16 @@ fn a_conflicted_copy_can_be_thrown_away_but_not_kept_again_from_its_row() {
 #[test]
 fn a_pending_copy_names_the_branch_keep_would_merge_into() {
     let run = morning_fixture();
+    let asked = std::cell::RefCell::new(Vec::new());
     let view = view_of_with(&run, &ctx(), 0, &|project| {
-        assert_eq!(project, "C:\\Users\\you\\work\\app", "the lookup gets the task's project");
+        asked.borrow_mut().push(project.to_string());
         Some("main".into())
     });
+    assert_eq!(
+        asked.into_inner(),
+        ["C:\\Users\\you\\work\\app", "C:\\Users\\you\\work\\docs"],
+        "the lookup gets each pending copy's own project, in task order"
+    );
     assert_eq!(view.tasks[0].into.as_deref(), Some("main"), "a pending copy with a copy");
     assert_eq!(view.tasks[1].into.as_deref(), Some("main"), "a needs-a-look copy too");
     assert_eq!(view.tasks[2].into, None, "a task that did not run has no copy to merge");
@@ -115,7 +121,10 @@ fn a_kept_copy_keeps_the_branch_it_merged_into_and_no_lookup_runs() {
     assert_eq!(view.tasks[0].review_text.as_deref(), Some("Kept · merged into release"));
     let mut thrown = morning_fixture();
     thrown.tasks[0].review = Review::Discarded { at_ms: 6 };
-    let view = view_of_with(&thrown, &ctx(), 0, &|_| panic!("a thrown-away copy has no branch to look up"));
+    let view = view_of_with(&thrown, &ctx(), 0, &|project| {
+        assert_ne!(project, "C:\\Users\\you\\work\\app", "a thrown-away copy has no branch to look up");
+        None
+    });
     assert_eq!(view.tasks[0].into, None);
 }
 
