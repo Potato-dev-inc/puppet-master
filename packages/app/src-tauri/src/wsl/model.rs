@@ -99,6 +99,18 @@ pub enum WslStatus {
     Broken { line: String },
 }
 
+impl WslStatus {
+    /// The "not installed" state with the official install command as text (shown with Copy only).
+    pub fn not_installed() -> Self {
+        Self::NotInstalled { command: INSTALL_COMMAND.to_string() }
+    }
+
+    /// The "no distro" state with the official add-distro command as text (shown with Copy only).
+    pub fn no_distro() -> Self {
+        Self::NoDistro { command: ADD_DISTRO_COMMAND.to_string() }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Distro {
