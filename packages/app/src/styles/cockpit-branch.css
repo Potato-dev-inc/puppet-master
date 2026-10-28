@@ -153,3 +153,30 @@
   margin: 10px 0 0;
   font-size: 11.5px;
 }
+
+/* The Branch button on a finished turn's end line (components/chat/SessionChatView.tsx). Same look as Make clip:
+   quiet text, shown on hover or focus, always on the newest finished turn. */
+.cockpit .ck-chat-branch-btn {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--label-3);
+  font-size: 11px;
+  opacity: 0;
+  transition:
+    opacity 160ms var(--ease),
+    color 160ms var(--ease);
+}
+.cockpit .ck-chat-turn:hover .ck-chat-branch-btn,
+.cockpit .ck-chat-branch-btn:focus-visible,
+.cockpit .ck-chat-branch-btn.is-always {
+  opacity: 1;
+}
+.cockpit .ck-chat-branch-btn:hover {
+  color: var(--label);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-chat-branch-btn {
+    transition: none;
+  }
+}
