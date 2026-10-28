@@ -195,8 +195,18 @@ impl Ctx {
         }
     }
 
+    /// Updates the link. When the state or the error changed (not just the time of the last poll), the
+    /// desktop is told, so the status line in Settings does not keep saying "Connecting…".
     fn set_link(&self, f: impl FnOnce(&mut LinkInfo)) {
-        f(&mut lock(&self.link));
+        let moved = {
+            let mut link = lock(&self.link);
+            let before = (link.state, link.error);
+            f(&mut link);
+            before != (link.state, link.error)
+        };
+        if moved && self.current() {
+            self.host.changed();
+        }
     }
 
     /// Telegram refused for good: say why, audit it, and stop. A poller that was already replaced
@@ -205,10 +215,11 @@ impl Ctx {
         if !self.current() {
             return;
         }
-        self.set_link(|l| {
-            l.state = LinkState::Error;
-            l.error = Some(err);
-        });
+        {
+            let mut link = lock(&self.link);
+            link.state = LinkState::Error;
+            link.error = Some(err);
+        }
         self.halt.store(true, Ordering::SeqCst);
         self.host.audit(audit::Kind::ChannelError, "Telegram stopped", json!({ "error": error_code(err) }));
         self.host.changed();
