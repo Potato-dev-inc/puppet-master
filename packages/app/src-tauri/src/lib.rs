@@ -12,6 +12,7 @@ mod agent_contexts;
 pub mod agent_runs;
 mod agent_health;
 mod agent_install;
+mod agent_store;
 pub mod agent_hooks;
 mod app_lifecycle;
 mod autostart;
