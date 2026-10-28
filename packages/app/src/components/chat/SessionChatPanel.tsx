@@ -4,6 +4,7 @@
 import { useMemo, type ReactNode } from 'react';
 import { usePaneOutbox } from '../../hooks/usePaneOutbox';
 import { tauriOutboxTransport } from '../../lib/paneOutbox';
+import { useComposerDraft } from '../../lib/composerDraft';
 import { usePendingBubbles } from '../../hooks/usePendingBubbles';
 import { useSessionChat } from '../../hooks/useSessionChat';
 import { ChatComposer } from './ChatComposer';
@@ -25,6 +26,8 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote }: { paneId: s
   const { bubbles, hide } = usePendingBubbles(outbox.messages, userTexts);
   const side = useSideQuestion(paneId, chat.turns);
   const jump = useChatJump(paneId);
+  // The Point and Fix draft ('Edit in Chat') for this pane's box: taken only while the box is shown.
+  const draft = useComposerDraft(reply ? paneId : null);
   return (
     <SessionChatView
       state={chat.state}
@@ -43,7 +46,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote }: { paneId: s
       overlay={side.box}
       dock={dock}
       pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
-      composer={reply ? <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} /> : undefined}
+      composer={reply ? <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} /> : undefined}
     />
   );
 }
