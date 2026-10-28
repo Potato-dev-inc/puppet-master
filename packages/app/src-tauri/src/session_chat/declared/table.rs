@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::history_table::{validate_history, HistoryTable};
 use crate::tui::declarative::schema::DefError;
 
 /// Longest pointer, in characters, and most segments in one.
@@ -167,6 +168,10 @@ pub struct SessionChatTable {
     /// Tool names that start a helper agent.
     #[serde(default)]
     pub helper_tools: Vec<String>,
+    /// Where the CLI keeps all its old chats, for the importer. Absent = no old chats for this agent. Left out of
+    /// the fingerprint when absent, so definitions without it keep their approval.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<HistoryTable>,
 }
 
 fn default_glob() -> String {
@@ -192,11 +197,14 @@ pub fn validate_session_chat(table: &SessionChatTable) -> Vec<DefError> {
             errors.push(error("AGENT_DEF_INCONSISTENT", &path, format!("at most {MAX_TOOL_NAMES} tool names of 1-{MAX_VALUE_CHARS} characters")));
         }
     }
+    if let Some(history) = &table.history {
+        errors.extend(validate_history(history, &table.file_glob));
+    }
     errors
 }
 
 /// The placeholder names of `text` (`home`, `env:NAME`, ...), or what is wrong with its braces.
-fn placeholders(text: &str) -> Result<Vec<&str>, String> {
+pub(super) fn placeholders(text: &str) -> Result<Vec<&str>, String> {
     let mut found = Vec::new();
     let mut rest = text;
     while let Some(open) = rest.find(['{', '}']) {
