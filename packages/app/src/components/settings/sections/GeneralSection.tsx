@@ -24,6 +24,7 @@ import { TeamSettings } from '../blocks/TeamSettings';
 import { WhatsNew, WHATS_NEW_LABEL } from '../blocks/WhatsNew';
 import { NumberControl, TextControl } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
+import { PACKAGE_CHECK_LABEL, PACKAGE_CHECK_NOTE, PackageCheckRow } from './PackageCheckRow';
 import { T as SIMPLE } from '../../simple/copy';
 import { T as WELCOME } from '../../firstrun/copy';
 import { reopenPatch } from '../../firstrun/model';
@@ -291,6 +292,14 @@ export const generalRows: RowDef[] = [
     keywords: 'loop guard stuck warning warnings sensitivity repeats quiet too long global shortcut stop all agents panic',
     group: 'While agents work',
     render: (env) => <LoopGuardSettingsBlock onSaved={env.markSaved} />,
+  },
+  {
+    id: 'package-check',
+    label: PACKAGE_CHECK_LABEL,
+    hint: PACKAGE_CHECK_NOTE,
+    keywords: 'package packages install installs npm pip pypi cargo crates gem gems go registry lookup look-alike lookalike typo squat supply chain age downloads scripts',
+    group: 'Safety',
+    render: (env) => <PackageCheckRow onSaved={env.markSaved} />,
   },
   {
     id: 'away-minutes',

@@ -83,6 +83,7 @@ describe('General: every control renders', () => {
       'Stuck warning sensitivity',
       'Quiet for too long',
       'Global shortcut: stop all agents',
+      'Check packages before installs',
       'Away digest after',
       'Checkpoints',
       'Keep last N checkpoints',
