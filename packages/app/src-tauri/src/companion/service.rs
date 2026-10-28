@@ -38,6 +38,8 @@ const REPLY_GIVE_UP_MS: i64 = 8_000;
 const OUTGOING_GIVE_UP_MS: i64 = 2 * 60 * 60 * 1000;
 /// How often the day's finished turns are looked at while `today.md` is on.
 const TODAY_EVERY_MS: i64 = 3_000;
+/// A notice that ignored its dismiss keys is left alone this long (the pane outbox's `gate_retry`).
+const GATE_RETRY_MS: i64 = crate::pane_outbox::GATE_RETRY.as_millis() as i64;
 /// The text every check-in message starts with.
 pub const CHECKIN_PREFIX: &str = "[Check-in:";
 
@@ -109,6 +111,10 @@ pub(super) struct Slot {
     pub quiet_start: bool,
     pub agent_label: String,
     pub today: TodayState,
+    /// A dismissible startup notice (an update menu) is on the pane right now.
+    pub notice_open: bool,
+    /// When the keeper last pressed that notice's dismiss keys (epoch ms); they wait `GATE_RETRY_MS` before another try.
+    pub notice_pressed_ms: Option<i64>,
 }
 
 pub(super) struct Inner {
@@ -144,6 +150,8 @@ impl Slot {
             quiet_start: false,
             agent_label,
             today: TodayState::default(),
+            notice_open: false,
+            notice_pressed_ms: None,
         }
     }
 }
@@ -206,6 +214,9 @@ impl Service {
         while let Some(action) = todo.pop_front() {
             runtime_dirty |= self.run_action(&profile, slot, &pane_id, action, now, &mut todo);
         }
+
+        // 2b. a startup notice on the companion's own pane
+        self.close_notice(&profile, slot, &pane_id, seen, now);
 
         // 3. the face
         self.derive_state(&profile, slot, &pane_id, now);
@@ -360,6 +371,26 @@ impl Service {
         let text = brief::compose_full(&profile.name, &texts, rules, &skills);
         brief::write(home, &text, &instruction_files).map_err(|e| e.to_string())?;
         Ok(instruction_files)
+    }
+
+    /// A dismissible startup notice (an update menu) nobody is going to close: the pane reads `running` while it
+    /// shows, so a move or a nap would wait for ever. Presses only the keys the profile declares for it, at most
+    /// once per `GATE_RETRY_MS`, and looks again on the next tick. A screen only the person may pass (trust,
+    /// sign-in) is not a notice: nothing is pressed and it stays the normal card. Only this companion's pane.
+    fn close_notice(&self, profile: &CompanionProfile, slot: &mut Slot, pane_id: &str, seen: Pane, now: i64) {
+        slot.notice_open = false;
+        if !slot.keeper.want() || seen != Pane::Alive(Status::Running) || !self.host.notice_gate(pane_id) {
+            slot.notice_pressed_ms = None;
+            return;
+        }
+        slot.notice_open = true;
+        if slot.notice_pressed_ms.is_some_and(|at| now - at < GATE_RETRY_MS) {
+            return;
+        }
+        if self.host.dismiss_notice(pane_id) {
+            tracing::debug!(companion = %profile.id, "closed a startup notice with its own keys");
+            slot.notice_pressed_ms = Some(now);
+        }
     }
 
     // ---- 3. the face ----------------------------------------------------------------------------

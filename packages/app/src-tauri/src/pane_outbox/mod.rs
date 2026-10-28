@@ -38,6 +38,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+/// How long a startup notice that ignored its dismiss keys is left alone before the keys are pressed again
+/// (the pane outbox and the companion keeper both use it).
+pub const GATE_RETRY: Duration = Duration::from_secs(20);
+
 /// How often a worker looks, how long a message may wait, how long a finished one stays listed.
 #[derive(Debug, Clone, Copy)]
 pub struct Timing {
@@ -59,7 +63,7 @@ impl Default for Timing {
             give_up: Duration::from_secs(2 * 60 * 60),
             keep: Duration::from_secs(120),
             after_send: Duration::from_millis(1500),
-            gate_retry: Duration::from_secs(20),
+            gate_retry: GATE_RETRY,
         }
     }
 }
