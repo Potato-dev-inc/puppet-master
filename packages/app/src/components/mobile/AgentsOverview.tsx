@@ -8,6 +8,7 @@ import type { LoopSignalInfo } from '../../lib/bridge-types';
 import { ago, glyphStatus, groupPanes, previewLines, projectName, waitingCount } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from '../cockpit/DotSpinner';
 import { DigestCard } from './DigestCard';
+import { FocusBar } from './FocusBar';
 import { isLive } from '../../lib/questions';
 import { blockingCount, type AttentionSnapshot } from '../../lib/attention';
 import { QuestionsView, useQuestionPolling } from './QuestionsList';
@@ -114,6 +115,8 @@ export function AgentsOverview({
     );
   }
 
+  // The PC's device block says what this phone may do; without it (an old PC) Focus stays hidden.
+  const canControl = attention?.device?.can_control === true;
   const waiting = attention
     ? String(blockingCount(attention)).padStart(2, '0')
     : waitingCount(panes, { questions: liveQuestions, stuckPaneIds: stuck ? [...stuck.keys()] : [] });
@@ -150,6 +153,7 @@ export function AgentsOverview({
         {header}
         {cards}
         <TeamGroup bridge={bridge} bridgeReady={bridgeReady} />
+        <FocusBar bridge={bridge} bridgeReady={bridgeReady} canControl={canControl} />
         <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
         <div className="ph-empty">
           <div className="ph-dotgrid" aria-hidden="true" />
@@ -171,6 +175,7 @@ export function AgentsOverview({
       {header}
       {cards}
       <TeamGroup bridge={bridge} bridgeReady={bridgeReady} />
+      <FocusBar bridge={bridge} bridgeReady={bridgeReady} canControl={canControl} />
       <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
       {groupPanes(panes).map((group) => (
         <section key={group.id} aria-label={group.title}>
