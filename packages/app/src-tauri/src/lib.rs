@@ -28,6 +28,7 @@ mod context_pack;
 mod event_log;
 mod git_exclude;
 mod handoff;
+mod issue_intake;
 mod events;
 mod mcp_hints;
 mod mcp_install;
