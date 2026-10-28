@@ -523,7 +523,8 @@ fn build_reads_a_seeded_project_end_to_end() {
     assert_eq!(report.projects.len(), 1);
     assert_eq!(report.projects[0].turns, 5);
     assert_eq!(report.notes[0], "Counting Undo from now on.");
-    assert!(report.notes.contains(&"1 turn had no file information, so it is left out of Undone and Asked you.".to_string()), "{:?}", report.notes);
+    // Every turn here has a summary (pane-5 has one without files, which still counts in Asked you).
+    assert!(!report.notes.iter().any(|n| n.contains("no summary")), "{:?}", report.notes);
     assert!(report.notes.contains(&"1 of 5 turns had checks. Checks count only when a run is started with them.".to_string()), "{:?}", report.notes);
     assert!(report.notes.contains(&"1 record could not be read. Its turns are not counted.".to_string()), "{:?}", report.notes);
 

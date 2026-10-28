@@ -288,9 +288,15 @@ impl Runtime {
         if pane.status == "running" && self.env.run_open(pane_id, &pane) {
             return Err(CheckpointError::RunOpen);
         }
+        // Read before the files move. Best effort: a target that cannot be found is simply not noted.
+        let target = self.list(pane_id).ok().and_then(|items| items.into_iter().find(|c| c.id == id));
         let report = engine::restore(&project, pane_id, id, pane.status == "running", self.env.now_ms(), &self.limits())?;
         // The safety snapshot counts as this pane's latest automatic snapshot.
         self.state.lock().last_at.insert(pane_id.to_string(), self.env.now_ms());
+        // Scores counts the turns this Undo put back. Best effort: a log error never breaks Undo.
+        if let Some(target) = target {
+            crate::scores::undo_log::note_restore(pane_id, &target.kind, target.at_ms, self.env.now_ms());
+        }
         Ok(report)
     }
 
@@ -342,6 +348,13 @@ static LIVE: Lazy<Runtime> = Lazy::new(|| Runtime::new(Arc::new(LiveEnv)));
 
 pub fn live() -> &'static Runtime {
     &LIVE
+}
+
+/// Test seam: the Undo log calls this runtime made on this thread (see `scores::undo_log`). It lives
+/// here so the checkpoint tests never need to name the scores module.
+#[cfg(test)]
+pub(crate) fn take_noted_restores() -> Vec<(String, String, u64, u64)> {
+    crate::scores::undo_log::take_noted_restores()
 }
 
 /// Name of the worker thread that takes automatic snapshots.

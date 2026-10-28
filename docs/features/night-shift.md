@@ -62,9 +62,12 @@ While the switch is off, the `+` menu item `Tonight…` and the palette commands
 - **A task that needs a look** says why in plain words: `Codex asked to trust the folder.`, `Stopped to ask a question`,
   `Tests still fail (9 of 12, was 7 of 12)`, `The checks pass, but the tests were changed`, `Ran out of usage`, `Cut off at
   07:00 while working`. A green run whose tests were changed is never `Ready`.
-- **The phone** (paired, with the `watch` power): `GET /night` returns a redacted copy of the page (no project names, no pane
-  ids, no turn sentences, no agent questions, titles cut), and `POST /night/stop` (needs `control`) stops the night. Keep and
-  Throw away are not on the phone. The phone card that draws this (NS-20) is not in this build yet; the routes are.
+- **The phone** (`components/mobile/NightSummary.tsx`, a card above the Agents list in the phone page). It reads `GET /night`
+  (needs `watch`), a redacted copy of the page (no project names, no paths, no pane ids, no turn sentences, no agent questions,
+  titles cut), and shows the summary line and one row per task, refreshed while the page is open. `Stop Night Shift` shows only
+  while the night runs and only with the `control` power (`POST /night/stop`), and asks once more: `Stop Night Shift now? Tasks
+  still running are cut off. Their copies are kept.` The card ends with `Keep and Throw away are on your computer.` Keep and
+  Throw away are not on the phone.
 
 ## Safety
 
@@ -91,7 +94,7 @@ While the switch is off, the `+` menu item `Tonight…` and the palette commands
 | Engine | `night_shift/`: `model` (types, limits), `store` (`run.json`, `history/`, `settings.json`, `projects.json`), `checks` (declared tests), `plan` (who runs next, the limit decision), `classify` + `report` (results and the exact words), `runner` (the supervisor, one tick per 5 s), `io` + `io_live` + `io_start` + `io_facts` (the adapter over missions, `run_agent` and the copies), `review` (Keep, Throw away), `view` + `page` (what the UI, the phone and the saved page read), `power` (keep awake), `quiet` (silent panes and runs) |
 | Seams in other modules | missions: `Starter::Night` and `quiet`; budgets and pushes check the quiet set; `push/night.rs` (one push kind); the audit kind `night_shift`; the Labs key `night_shift_enabled` |
 | Commands | `commands/night.rs`, `commands/night/start.rs` (everything Start checks): `night_state`, `night_plans`, `night_checks_get/set`, `night_start`, `night_stop`, `night_keep`, `night_throw_away`, `night_keep_all_ready`, `night_get`, `night_seen`, `night_report_html/save`, `night_settings_get/set` |
-| Bridge | `bridge/routes/night.rs`: `GET /night`, `POST /night/stop` |
+| Bridge | `bridge/routes/night.rs`: `GET /night`, `POST /night/stop`; the phone card is `components/mobile/NightSummary.tsx` |
 | UI (`packages/app/src`) | `components/cockpit/night/` (`TonightSheet`, `TestsPopover`, `PlansPicker`, `TonightHost`, `NightChip`, `MorningPage`, `TaskRow`), `lib/night.ts`, `lib/night-host.ts`, `styles/night*.css`, `dev/night-fixtures.ts` |
 
 ## Tests
@@ -109,7 +112,7 @@ While the switch is off, the `+` menu item `Tonight…` and the palette commands
   3. Keep merges a copy into the project, Throw away removes a copy, and a second Keep that edits the same line conflicts and
      leaves the project and its copy as they were.
   Run: `cargo test --features dev-fake-tui --test fake_tui_e2e night -- --test-threads=1`.
-- **vitest:** the files next to each component in `components/cockpit/night/`, and `lib/night*.test.ts`.
+- **vitest:** the files next to each component in `components/cockpit/night/`, `components/mobile/NightSummary.test.tsx`, and `lib/night*.test.ts`.
 
 ## Limits (v1)
 

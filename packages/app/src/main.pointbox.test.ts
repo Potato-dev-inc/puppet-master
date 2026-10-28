@@ -2,7 +2,7 @@
 // The Point box route (`index.html?pointbox=1`) resolves to the Point box root, next to the askbar route.
 // Node environment on purpose: main.tsx imports `virtual:pwa-register`, which only the app's Vite config
 // (with the PWA plugin) can resolve; in node (SSR transform) that import is left for runtime and never runs here.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // main.tsx reads the window and the document when it loads. Node has neither, so a small stand-in
 // carries the query string; the test sets `location.search` before each load.
@@ -69,6 +69,13 @@ async function loadRouteFor(search: string) {
 }
 
 describe('main.tsx point box route', () => {
+  // The first load pulls in the whole app module graph. Transforming that cold graph takes 2 to 4 s on a busy
+  // PC (measured), so the first route test used to spend its 5 s limit on it. Warming the graph once here, under
+  // its own limit, leaves each route check to measure only the route. Every test still loads main.tsx fresh.
+  beforeAll(async () => {
+    await loadRouteFor('');
+  }, 60_000);
+
   beforeEach(() => {
     dom.location.hash = '';
   });

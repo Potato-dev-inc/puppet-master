@@ -226,11 +226,16 @@ fn undo_note_says_since_when_or_from_now_on() {
 #[test]
 fn notes_say_what_is_left_out() {
     let mut i = inputs();
+    // Turn 0: a summary with files. Turn 1: a summary without files, which still counts in Asked you.
+    // Turns 2 to 5 have no summary at all.
     i.turns[0].files_changed = Some(2);
+    i.turns[0].asked_you = Some(false);
+    i.turns[1].asked_you = Some(true);
     i.turns[1].checks_green = Some(true);
     i.unreadable_records = 2;
     let notes = report(&i, Some("C:/Users/you/shop"), None).notes;
-    assert!(notes.contains(&"5 turns had no file information, so they are left out of Undone and Asked you.".to_string()), "{notes:?}");
+    assert!(notes.contains(&"4 turns had no summary, so they are left out of Undone and Asked you.".to_string()), "{notes:?}");
+    assert!(!notes.iter().any(|n| n.contains("file information")), "{notes:?}");
     assert!(notes.contains(&"1 of 6 turns had checks. Checks count only when a run is started with them.".to_string()), "{notes:?}");
     assert!(notes.contains(
         &"Tokens are not counted. Only usage an agent reports itself could show here, and it is not saved per turn.".to_string()
@@ -241,6 +246,7 @@ fn notes_say_what_is_left_out() {
     i.turns.truncate(1);
     let one = report(&i, None, None).notes;
     assert!(one.contains(&"1 record could not be read. Its turns are not counted.".to_string()), "{one:?}");
+    assert!(!one.iter().any(|n| n.contains("no summary")), "the one turn has a summary: {one:?}");
     assert!(one.contains(&"0 of 1 turns had checks. Checks count only when a run is started with them.".to_string()), "{one:?}");
 }
 
