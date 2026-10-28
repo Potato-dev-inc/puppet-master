@@ -144,7 +144,7 @@ export function PhoneChatView({
   const { bubbles, hide } = usePendingBubbles(outbox.messages, userTexts);
   const pending = canSend ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined;
   const composer = canSend ? (
-    <ChatComposer onSend={outbox.send} blockedReason={sendBlock} />
+    <ChatComposer onSend={outbox.send} blockedReason={sendBlock} voice />
   ) : (
     <p className="ph-chat-send-off" data-testid="phone-chat-no-send">{NO_SEND_NOTE}</p>
   );
