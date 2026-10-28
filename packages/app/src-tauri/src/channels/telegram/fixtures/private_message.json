@@ -1,0 +1,10 @@
+{
+  "update_id": 1001,
+  "message": {
+    "message_id": 55,
+    "from": {"id": 1001, "is_bot": false, "first_name": "Test", "username": "test_user"},
+    "chat": {"id": 1001, "first_name": "Test", "username": "test_user", "type": "private"},
+    "date": 1761600000,
+    "text": "/status"
+  }
+}

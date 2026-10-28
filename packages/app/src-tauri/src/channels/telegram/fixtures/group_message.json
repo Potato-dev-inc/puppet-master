@@ -1,0 +1,11 @@
+{
+  "update_id": 1002,
+  "message": {
+    "message_id": 40,
+    "from": {"id": 1002, "is_bot": false, "first_name": "Group Member", "username": "group_member"},
+    "chat": {"id": -1001234567890, "title": "Test group", "type": "supergroup"},
+    "date": 1761600100,
+    "reply_to_message": {"message_id": 30, "chat": {"id": -1001234567890, "type": "supergroup"}, "date": 1761600000, "text": "earlier"},
+    "text": "/panes"
+  }
+}
