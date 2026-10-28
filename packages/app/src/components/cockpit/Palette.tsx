@@ -45,6 +45,7 @@ export function Palette({
   onUndoLastTurn,
   onOpenWelcome,
   onStartCrew,
+  onOpenShortcuts,
   companions,
   onOpenCompanion,
   onNewCompanion,
@@ -63,6 +64,8 @@ export function Palette({
   onOpenWelcome?: () => void;
   /** Opens "Start crew": pick a saved team of agents and a folder. */
   onStartCrew?: () => void;
+  /** Opens the keyboard shortcuts sheet. */
+  onOpenShortcuts?: () => void;
   /** The companions (null: no companion backend). Each one gets an "Open {name}" row. */
   companions?: CompanionView[] | null;
   onOpenCompanion?: (id: string) => void;
@@ -220,6 +223,18 @@ export function Palette({
         run: onStartCrew,
       });
     }
+    if (onOpenShortcuts) {
+      out.push({
+        id: 'act:shortcuts',
+        group: 'Actions',
+        title: 'Keyboard shortcuts',
+        desc: 'Every key that works in the app',
+        keywords: 'keys keyboard hotkeys help shortcut',
+        icon: <IconNote />,
+        hint: '?',
+        run: onOpenShortcuts,
+      });
+    }
     if (onOpenMemory) {
       out.push({
         id: 'act:memory',
@@ -276,7 +291,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onUndoLastTurn, onOpenWelcome, onStartCrew, missionsOn, companions, onOpenCompanion, onNewCompanion]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, companions, onOpenCompanion, onNewCompanion]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),
