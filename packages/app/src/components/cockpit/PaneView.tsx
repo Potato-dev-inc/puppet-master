@@ -12,6 +12,7 @@ import '../../styles/cockpit-helpers.css';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
+import { pointApi } from '../../lib/point-api';
 import { dockItems, headerStateLine, DOCK_LABEL } from './pane-chrome';
 import { IconClose, IconGlobe, IconCopy, IconInfo, IconMore, IconRail, IconReflow, IconRename, IconStop } from './Icons';
 import { SessionRail } from './rail/SessionRail';
@@ -153,6 +154,15 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jump?.nonce, paneId]);
 
+  // Point and Fix put a message into this pane's Chat box (Edit in Chat): the Chat tab opens to show it.
+  useEffect(
+    () =>
+      pointApi.onDraft((id) => {
+        if (id === paneId && chatAllowed) setTab('chat');
+      }),
+    [paneId, chatAllowed],
+  );
+
   useEffect(() => {
     if (tab === 'changes' && !worktree) setTab('terminal');
     if (tab === 'mission' && !mission) setTab('terminal');
@@ -278,11 +288,24 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           <button
             type="button"
             className="ck-preview-chip"
-            title={`Has a preview · ${preview.url.replace(/^https?:\/\//, '')}. Opens in your browser.`}
-            onClick={() => void openPreview(preview.url).catch(() => c.notify('Could not open the preview'))}
+            title={`Preview · ${preview.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}. Point at something to fix it.`}
+            onClick={() =>
+              void pointApi.openPreview(paneId, preview.port).catch((e: unknown) => c.notify(typeof e === 'string' ? e : 'Could not open the preview'))
+            }
           >
             <IconGlobe />
             <span>Preview</span>
+          </button>
+        )}
+        {preview && (
+          <button
+            type="button"
+            className="ck-icon-btn"
+            aria-label="Open the preview in your browser"
+            title="Open in your browser"
+            onClick={() => void openPreview(preview.url).catch(() => c.notify('Could not open the preview'))}
+          >
+            <IconGlobe />
           </button>
         )}
         {rail.fits && (

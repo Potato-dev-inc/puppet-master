@@ -3,15 +3,16 @@
 //! A code profile ships an `install.toml` beside its `mod.rs` (`include_str!`), a TOML definition
 //! adds an `[install.windows]` table. Both parse into the same `InstallSpec`, so the generic install
 //! machinery (`crate::agent_install`) never names an agent. A spec holds only closed, validated
-//! fields (a winget package id, an npm package name, an https script URL). It never holds a
-//! command line: Puppet Master builds the argv itself, so a spec cannot smuggle in shell text.
+//! fields (a winget package id, an npm package name, a PyPI name for `uv`, an https script URL). It
+//! never holds a command line: Puppet Master builds the argv itself, so a spec cannot smuggle in
+//! shell text.
 
 use serde::{Deserialize, Serialize};
 
-/// The install methods a spec may name, in no particular order.
-pub const METHODS: &[&str] = &["winget", "npm", "script"];
+/// The install methods a spec may name, in preference order (the default order).
+pub const METHODS: &[&str] = &["winget", "npm", "uv", "script"];
 /// Tools a spec may say it `requires` (their own install specs live in `agent_install/tools.toml`).
-pub const REQUIRED_TOOLS: &[&str] = &["git", "node"];
+pub const REQUIRED_TOOLS: &[&str] = &["git", "node", "uv"];
 
 /// `[install.windows]`: where an agent comes from and which ways exist to install it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,13 +20,17 @@ pub const REQUIRED_TOOLS: &[&str] = &["git", "node"];
 pub struct InstallSpec {
     /// The vendor page the information comes from. Shown to the user ("where this comes from").
     pub source: String,
-    /// Methods in order of preference (`winget`, `npm`, `script`). Empty = that same order.
+    /// Methods in order of preference (`winget`, `npm`, `uv`, `script`). Empty = that same order.
     #[serde(default)]
     pub order: Vec<String>,
     /// A winget package id, e.g. `Anthropic.ClaudeCode`.
     pub winget: Option<String>,
     /// An npm package name for `npm install -g`.
     pub npm: Option<String>,
+    /// A PyPI project name for `uv tool install <package>` (Python agents, e.g. `aider-chat`).
+    pub uv: Option<String>,
+    /// The Python version `uv` should use, e.g. `3.12`. Only allowed together with `uv`.
+    pub python: Option<String>,
     /// The vendor's own PowerShell installer (`irm <url> | iex`). High risk: shown, and run only
     /// after an extra confirmation, never preferred over winget or npm.
     pub script_url: Option<String>,
@@ -75,6 +80,7 @@ impl InstallSpec {
             let declared = match *method {
                 "winget" => self.winget.is_some(),
                 "npm" => self.npm.is_some(),
+                "uv" => self.uv.is_some(),
                 _ => self.script_url.is_some(),
             };
             if declared && !out.contains(method) {
@@ -105,6 +111,19 @@ impl InstallSpec {
                 return Err(format!("install.windows.npm: {package:?} is not an npm package name"));
             }
         }
+        if let Some(package) = &self.uv {
+            if !is_pypi_package(package) {
+                return Err(format!("install.windows.uv: {package:?} is not a PyPI package name"));
+            }
+        }
+        if let Some(version) = &self.python {
+            if self.uv.is_none() {
+                return Err("install.windows.python needs a uv package".into());
+            }
+            if !is_python_version(version) {
+                return Err(format!("install.windows.python: {version:?} is not a Python version like 3.12"));
+            }
+        }
         if let Some(url) = &self.script_url {
             if !is_https_url(url) {
                 return Err("install.windows.script_url must be an https URL".into());
@@ -119,9 +138,25 @@ impl InstallSpec {
             return Err("install.windows.note must be one line of at most 240 characters".into());
         }
         if self.ordered_methods().is_empty() {
-            return Err("install.windows declares no usable method (winget, npm or script_url)".into());
+            return Err("install.windows declares no usable method (winget, npm, uv or script_url)".into());
         }
         Ok(())
+    }
+}
+
+/// A PyPI project name: letters, digits, dot, dash, underscore; 1 to 100 characters. Never a
+/// leading `-` (it would read as a flag) or `.`.
+pub fn is_pypi_package(name: &str) -> bool {
+    (1..=100).contains(&name.len())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        && !name.starts_with(['.', '-'])
+}
+
+/// A Python version uv accepts as `--python`: `3.` then one or two digits, e.g. `3.12`.
+pub fn is_python_version(version: &str) -> bool {
+    match version.strip_prefix("3.") {
+        Some(minor) => (1..=2).contains(&minor.len()) && minor.chars().all(|c| c.is_ascii_digit()),
+        None => false,
     }
 }
 
@@ -236,6 +271,18 @@ note = "No Node.js and no administrator needed."
             ("script_url", "https://exa mple.com/i.ps1"),
             ("script_url", "https://localhost/i.ps1"),
             ("script_url", "https://example.com/$env:TEMP"),
+            ("uv", "aider-chat; calc"),
+            ("uv", "aider-chat' -e"),
+            ("uv", "--help"),
+            ("uv", "-aider"),
+            ("uv", ".hidden"),
+            ("uv", "aider chat"),
+            ("uv", "aider-chat && calc"),
+            ("python", "3.12; calc"),
+            ("python", "--help"),
+            ("python", "3.12'"),
+            ("python", "3.123"),
+            ("python", "2.7"),
         ];
         for (key, value) in cases {
             let text = format!(
@@ -243,7 +290,11 @@ note = "No Node.js and no administrator needed."
                 value.replace('\\', "\\\\").replace('"', "\\\"")
             );
             // Add a valid fallback so only the bad key can be the reason.
-            let text = if key == "winget" { format!("{text}npm=\"ok\"\n") } else { text };
+            let text = match key {
+                "winget" => format!("{text}npm=\"ok\"\n"),
+                "python" => format!("{text}uv=\"aider-chat\"\n"),
+                _ => text,
+            };
             assert!(parse_install_toml(&text).is_err(), "{key}={value:?} must be rejected");
         }
     }
@@ -252,8 +303,66 @@ note = "No Node.js and no administrator needed."
     fn requires_and_order_only_take_known_names() {
         let base = "[install.windows]\nsource=\"https://example.com/x\"\nnpm=\"pkg\"\n";
         assert!(parse_install_toml(&format!("{base}requires=[\"git\"]")).is_ok());
+        assert!(parse_install_toml(&format!("{base}requires=[\"uv\"]")).is_ok());
         assert!(parse_install_toml(&format!("{base}requires=[\"curl\"]")).is_err());
         assert!(parse_install_toml(&format!("{base}order=[\"choco\"]")).is_err());
+        // `pip` (the system Python) is never a method: only winget, npm, uv and the script exist.
+        assert!(parse_install_toml(&format!("{base}order=[\"pip\"]")).is_err());
+    }
+
+    #[test]
+    fn uv_packages_parse_and_keep_their_place_before_the_script() {
+        let text = "[install.windows]\nsource=\"https://aider.chat/docs/install.html\"\n\
+                    uv=\"aider-chat\"\npython=\"3.12\"\nscript_url=\"https://aider.chat/install.ps1\"\n";
+        let spec = parse_install_toml(text).unwrap().unwrap();
+        assert_eq!(spec.uv.as_deref(), Some("aider-chat"));
+        assert_eq!(spec.python.as_deref(), Some("3.12"));
+        assert_eq!(spec.ordered_methods(), ["uv", "script"]);
+        let with_npm = "[install.windows]\nsource=\"https://example.com/x\"\n\
+                        script_url=\"https://example.com/i.ps1\"\nuv=\"pkg\"\nnpm=\"pkg\"\nwinget=\"A.B\"\n";
+        let spec = parse_install_toml(with_npm).unwrap().unwrap();
+        assert_eq!(spec.ordered_methods(), ["winget", "npm", "uv", "script"]);
+    }
+
+    #[test]
+    fn a_uv_spec_without_a_script_never_reports_the_script_method() {
+        // Without a script_url, a `uv` spec must not fall through to the script method.
+        let spec = parse_install_toml("[install.windows]\nsource=\"https://example.com/x\"\nuv=\"aider-chat\"\n")
+            .unwrap()
+            .unwrap();
+        assert_eq!(spec.ordered_methods(), ["uv"]);
+        // A script-only spec that asks for uv first has no usable uv method, so it is refused.
+        let text = "[install.windows]\nsource=\"https://example.com/x\"\n\
+                    order=[\"uv\"]\nscript_url=\"https://example.com/i.ps1\"\n";
+        assert!(parse_install_toml(text).unwrap_err().contains("no usable method"));
+    }
+
+    #[test]
+    fn python_needs_uv_and_a_plain_minor_version() {
+        let base = "[install.windows]\nsource=\"https://example.com/x\"\n";
+        assert!(parse_install_toml(&format!("{base}uv=\"aider-chat\"\npython=\"3.12\"\n")).is_ok());
+        assert!(parse_install_toml(&format!("{base}uv=\"aider-chat\"\npython=\"3.9\"\n")).is_ok());
+        let npm_python = parse_install_toml(&format!("{base}npm=\"pkg\"\npython=\"3.12\"\n"));
+        assert!(npm_python.unwrap_err().contains("needs a uv"));
+        assert!(parse_install_toml(&format!("{base}uv=\"aider-chat\"\npython=\"3.\"\n")).is_err());
+        assert!(parse_install_toml(&format!("{base}uv=\"aider-chat\"\npython=\"3.12 \"\n")).is_err());
+    }
+
+    #[test]
+    fn pypi_names_and_python_versions_are_strict() {
+        for good in ["aider-chat", "Mistral_Vibe", "pkg.name2", "a"] {
+            assert!(is_pypi_package(good), "{good} is a PyPI name");
+        }
+        let too_long = "a".repeat(101);
+        for bad in ["", "-x", ".x", "a b", "a;b", "a/b", "a\"b", "a\u{00e9}", too_long.as_str()] {
+            assert!(!is_pypi_package(bad), "{bad:?} must be refused");
+        }
+        for good in ["3.12", "3.9", "3.0"] {
+            assert!(is_python_version(good), "{good} is a Python version");
+        }
+        for bad in ["", "3", "3.", "3.123", "2.7", "3.12.1", "3.1a", " 3.12", "3,12"] {
+            assert!(!is_python_version(bad), "{bad:?} must be refused");
+        }
     }
 
     #[test]

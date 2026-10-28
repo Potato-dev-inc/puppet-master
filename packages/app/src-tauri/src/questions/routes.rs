@@ -10,7 +10,7 @@
 //! (`mcp_sessions::authorize` refuses routes that are not a catalog tool): an agent cannot
 //! answer its own question. A paired phone passes the normal bearer-token gate in `router.rs`.
 
-use super::{now_ms, store, Choice, NewQuestion, Question, QuestionError};
+use super::{now_ms, store, Choice, NewQuestion, Question, QuestionError, ISSUE_KIND_PUSH, ISSUE_KIND_START};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -45,18 +45,58 @@ pub fn handle(
         ))),
         ("POST", ["questions", "ask"]) => Some(ask(body, session)),
         ("POST", ["questions", id, "answer"]) => Some(answer(id, body, via_phone)),
-        ("POST", ["questions", id, "dismiss"]) => Some(
-            store()
-                .dismiss(id, now_ms())
-                .map(|r| (200, serde_json::to_value(r).unwrap()))
-                .map_err(error),
-        ),
+        ("POST", ["questions", id, "dismiss"]) => Some(dismiss(id, via_phone)),
         _ => None,
     };
     if reply.is_some() && store().revision() != before {
         notify();
     }
     reply
+}
+
+/// Refuses a plain loopback request on a person-only card (`PERSON_ONLY_KINDS`). A budget pause card says
+/// whether an agent may keep going past its budget: an agent must not be able to add turns to itself. An
+/// issue card starts work on a GitHub issue or opens a PR: an agent must not be able to start it.
+fn check_person_only(id: &str) -> Result<(), (u16, Value)> {
+    let Some(kind) = store().get(id, now_ms()).and_then(|q| q.kind) else { return Ok(()) };
+    if kind == crate::budgets::CARD_KIND {
+        return Err((
+            403,
+            json!({
+                "code": "BUDGET_NEEDS_PERSON",
+                "error": "this card asks the person whether an agent may keep going past its budget; answer it in the Puppet Master window or from a paired phone",
+                "recoverable": false,
+            }),
+        ));
+    }
+    if is_issue_kind(&kind) {
+        return Err(issue_refusal());
+    }
+    Ok(())
+}
+
+fn is_issue_kind(kind: &str) -> bool {
+    kind == ISSUE_KIND_START || kind == ISSUE_KIND_PUSH
+}
+
+fn issue_refusal() -> (u16, Value) {
+    (
+        403,
+        json!({
+            "code": "ISSUE_NEEDS_PERSON",
+            "error": "this card starts or publishes work on a GitHub issue; answer it in the Puppet Master window or from a paired phone",
+            "recoverable": false,
+        }),
+    )
+}
+
+/// Dismissing an issue card says "not now" for the person. Only the person (desktop or phone) may do it, so
+/// a plain loopback request is refused for those. Budget and other cards keep today's dismiss rules.
+fn dismiss(id: &str, via_phone: bool) -> RouteReply {
+    if !via_phone && store().get(id, now_ms()).and_then(|q| q.kind).is_some_and(|k| is_issue_kind(&k)) {
+        return Err(issue_refusal());
+    }
+    store().dismiss(id, now_ms()).map(|r| (200, serde_json::to_value(r).unwrap())).map_err(error)
 }
 
 fn answer(id: &str, body: &Value, via_phone: bool) -> RouteReply {
@@ -74,16 +114,8 @@ fn answer(id: &str, body: &Value, via_phone: bool) -> RouteReply {
             }),
         ));
     }
-    // The same goes for a budget pause card: an agent must not be able to add turns to itself.
-    if !via_phone && store().get(id, now_ms()).is_some_and(|q| q.kind.as_deref() == Some(crate::budgets::CARD_KIND)) {
-        return Err((
-            403,
-            json!({
-                "code": "BUDGET_NEEDS_PERSON",
-                "error": "this card asks the person whether an agent may keep going past its budget; answer it in the Puppet Master window or from a paired phone",
-                "recoverable": false,
-            }),
-        ));
+    if !via_phone {
+        check_person_only(id)?;
     }
     let by = match string_field(body, "answered_by").as_deref() {
         Some("phone") => "phone",

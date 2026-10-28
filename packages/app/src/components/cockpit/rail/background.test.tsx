@@ -63,9 +63,9 @@ describe('BackgroundCard', () => {
     expect(host.querySelector('code')?.textContent).toBe('python -m http.server 8765');
   });
 
-  it('opens the port in the browser', () => {
+  it('opens the port in your browser on Shift+click (a plain click opens the app preview)', () => {
     act(() => root.render(<BackgroundCard paneId="p1" jobs={[job(7)]} api={api()} />));
-    click(button(':8765'));
+    act(() => void (button(':8765') as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })));
     expect(opened).toEqual(['http://localhost:8765/']);
   });
 

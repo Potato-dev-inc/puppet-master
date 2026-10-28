@@ -338,16 +338,24 @@ fn require_ready(worktree: &WorktreeRef, env: &ToolEnv) -> Result<(), OperationE
     }
 }
 
-fn push_branch(worktree: &WorktreeRef, env: &ToolEnv) -> Result<(), OperationError> {
+/// Push the copy's branch. `git_env` is the environment of PM's own git calls on the copy (hooks
+/// and fsmonitor off); it is empty for a plain push.
+pub(super) fn push_branch(
+    worktree: &WorktreeRef,
+    env: &ToolEnv,
+    git_env: &[(String, String)],
+) -> Result<(), OperationError> {
     let dir = Path::new(&worktree.path);
     let remote = remote_name(dir);
     let refspec = format!("refs/heads/{0}:refs/heads/{0}", worktree.branch);
+    let mut tool_env = env.clone();
+    tool_env.extra.extend(git_env.iter().cloned());
     // No force flag, ever: a branch that moved on the remote is refused, not overwritten.
     let ran = run_str(
         "git",
         &["push", "--set-upstream", &remote, &refspec],
         dir,
-        env,
+        &tool_env,
         PUSH_LIMIT,
     )
     .map_err(|message| err("GIT_UNAVAILABLE", message))?;
@@ -381,6 +389,19 @@ pub fn create(
     base: &str,
     env: &ToolEnv,
 ) -> Result<PrRef, OperationError> {
+    create_with(worktree, title, body, base, env, &[])
+}
+
+/// [`create`] with the environment of PM's own git calls (the push runs with it; see
+/// [`super::harden::git_env`]).
+pub fn create_with(
+    worktree: &WorktreeRef,
+    title: &str,
+    body: &str,
+    base: &str,
+    env: &ToolEnv,
+    git_env: &[(String, String)],
+) -> Result<PrRef, OperationError> {
     let dir = Path::new(&worktree.path);
     guard_branch(worktree, base)?;
     if title.trim().is_empty() {
@@ -401,7 +422,7 @@ pub fn create(
         ));
     }
     let existing = existing_pr(dir, &worktree.branch, env);
-    push_branch(worktree, env)?;
+    push_branch(worktree, env, git_env)?;
     if let Some(mut pr) = existing {
         pr.created_at_ms = worktree.pr.as_ref().map(|p| p.created_at_ms).unwrap_or(pr.created_at_ms);
         pr.checks = None;

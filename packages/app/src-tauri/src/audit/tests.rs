@@ -196,6 +196,11 @@ fn channel_kinds_have_stable_names() {
 }
 
 #[test]
+fn issue_intake_has_its_own_audit_kind() {
+    assert_eq!(Kind::IssueIntake.as_str(), "issue.intake");
+}
+
+#[test]
 fn a_channel_actor_is_its_name() {
     assert_eq!(Who::Channel("telegram".into()).parts(), ("channel", Some("telegram".to_string())));
     assert_eq!(Who::Desktop.parts(), ("desktop", None), "other actors are unchanged");
