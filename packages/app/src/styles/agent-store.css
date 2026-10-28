@@ -1,0 +1,170 @@
+/* Agent Store grid. Cockpit monochrome tokens only; 3 columns on a wide window, 1 on a narrow one. */
+.cockpit .ck-store {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 40px 28px 56px;
+  height: 100%;
+  overflow-y: auto;
+}
+.cockpit .ck-store-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cockpit .ck-store-head .ck-sub {
+  max-width: 56ch;
+}
+.cockpit .ck-store-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.cockpit .ck-store-search {
+  flex: 1 1 220px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--sep);
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+}
+.cockpit .ck-store-search::placeholder {
+  color: var(--label-3);
+}
+.cockpit .ck-store-search:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-store-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cockpit .ck-store-chips button {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--sep);
+  background: transparent;
+  color: var(--label-2);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 160ms var(--ease);
+}
+.cockpit .ck-store-chips button:hover {
+  background: var(--fill-active);
+}
+.cockpit .ck-store-chips button[aria-pressed='true'] {
+  background: var(--fill-active);
+  color: var(--label);
+}
+.cockpit .ck-store-chips button:focus-visible {
+  box-shadow: var(--focus);
+}
+.cockpit .ck-store-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+}
+@media (max-width: 760px) {
+  .cockpit .ck-store-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.cockpit .ck-store-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--sep);
+  background: var(--fill);
+}
+.cockpit .ck-store-card-head {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+.cockpit .ck-store-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--fill-active);
+  color: var(--label);
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+}
+.cockpit .ck-store-card-title {
+  min-width: 0;
+}
+.cockpit .ck-store-tagline,
+.cockpit .ck-store-reason {
+  margin: 3px 0 0;
+  color: var(--label-2);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-store-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.cockpit .ck-store-tag,
+.cockpit .ck-store-modes {
+  font-size: 11px;
+  color: var(--label-2);
+}
+.cockpit .ck-store-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--sep);
+}
+.cockpit .ck-store-tag[data-tier='verified'] {
+  color: var(--label);
+}
+.cockpit .ck-store-modes {
+  color: var(--label-3);
+}
+.cockpit .ck-store-reason {
+  color: var(--label-3);
+}
+.cockpit .ck-store-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+}
+.cockpit .ck-store-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--sep);
+  color: var(--label);
+  font-size: 13px;
+}
+.cockpit .ck-store-error p {
+  margin: 0;
+}
+.cockpit .ck-store-empty {
+  margin-top: 24px;
+}
