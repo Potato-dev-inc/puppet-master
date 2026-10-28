@@ -1,0 +1,36 @@
+/* The old-chat viewer (components/history/ImportedChatSheet): a wide sheet with the chat in a bordered box. Grayscale only. */
+.cockpit .ck-sheet.history-viewer {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+}
+.cockpit .history-viewer-banner {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label-2);
+}
+.cockpit .history-viewer-reason {
+  margin: 0;
+  color: var(--label-3);
+}
+.cockpit .history-viewer-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: min(56vh, 520px);
+  overflow: hidden;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+}
+.cockpit .history-viewer-body > .ck-chat {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.cockpit .history-viewer-status {
+  margin: auto;
+}
+.cockpit .history-viewer-continue {
+  white-space: nowrap;
+}
