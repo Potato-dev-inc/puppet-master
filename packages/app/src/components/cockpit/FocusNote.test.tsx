@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FocusView } from '../../lib/focus';
 import { FocusNote } from './FocusNote';
+import { lastFocusMinutes, presetOrder } from './palette-focus';
 
 const ipc = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: ipc.invoke }));
@@ -79,6 +80,16 @@ describe('the note while Focus is off', () => {
     click(button('25 min'));
     await flush();
     expect(ipc.invoke).toHaveBeenCalledWith('focus_start', { minutes: 25 });
+  });
+
+  it('a chip remembers its length, so the palette lists it first next time', async () => {
+    window.localStorage.removeItem('pm.focus.lastMinutes');
+    render({ view: OFF });
+    click(button('90 min'));
+    await flush();
+    expect(lastFocusMinutes()).toBe(90);
+    expect(presetOrder(lastFocusMinutes())).toEqual([90, 25, 45]);
+    window.localStorage.removeItem('pm.focus.lastMinutes');
   });
 
   it('hands the answer to onChange so the note shows the new state at once', async () => {

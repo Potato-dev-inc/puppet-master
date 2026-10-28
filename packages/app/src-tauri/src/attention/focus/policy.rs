@@ -58,6 +58,8 @@ pub fn tier_of_push(kind: PushKind, risk: Option<Level>) -> Tier {
         PushKind::RunFailed => Tier::Hold,
         PushKind::CompanionReply => Tier::Hold,
         PushKind::NightShift => Tier::Hold,
+        // The end message and the reminder are built by Focus itself, so they are never gated.
+        PushKind::Focus => Tier::Through,
     }
 }
 
@@ -75,6 +77,7 @@ pub fn class_of_push(kind: PushKind) -> Option<Class> {
         PushKind::Consent => None,
         PushKind::Budget => None,
         PushKind::Limit => None,
+        PushKind::Focus => None,
     }
 }
 
@@ -125,7 +128,7 @@ mod tests {
     ];
 
     /// Every push kind, in a fixed order.
-    const PUSH_ALL: [PushKind; 11] = [
+    const PUSH_ALL: [PushKind; 12] = [
         PushKind::WaitingInput,
         PushKind::Error,
         PushKind::RunFinished,
@@ -137,6 +140,7 @@ mod tests {
         PushKind::Limit,
         PushKind::CompanionReply,
         PushKind::NightShift,
+        PushKind::Focus,
     ];
 
     /// Exhaustive on purpose (no wildcard): a new attention kind breaks this test file until it is listed.
@@ -172,6 +176,7 @@ mod tests {
             PushKind::Limit => 8,
             PushKind::CompanionReply => 9,
             PushKind::NightShift => 10,
+            PushKind::Focus => 11,
         }
     }
 
@@ -192,7 +197,7 @@ mod tests {
 
     #[test]
     fn push_list_is_complete_and_in_order() {
-        assert_eq!(PUSH_ALL.len(), 11);
+        assert_eq!(PUSH_ALL.len(), 12);
         for (i, kind) in PUSH_ALL.iter().enumerate() {
             assert_eq!(push_slot(*kind), i, "{}", kind.as_str());
         }
@@ -241,7 +246,7 @@ mod tests {
     #[test]
     fn push_table_full() {
         // (kind, risk, tier). Only WaitingInput reads the risk.
-        let table: [(PushKind, Option<Level>, Tier); 14] = [
+        let table: [(PushKind, Option<Level>, Tier); 15] = [
             (PushKind::WaitingInput, Some(Level::High), Tier::Through),
             (PushKind::WaitingInput, Some(Level::Medium), Tier::Quiet),
             (PushKind::WaitingInput, Some(Level::Low), Tier::Quiet),
@@ -256,6 +261,7 @@ mod tests {
             (PushKind::RunFailed, None, Tier::Hold),
             (PushKind::CompanionReply, None, Tier::Hold),
             (PushKind::NightShift, None, Tier::Hold),
+            (PushKind::Focus, None, Tier::Through),
         ];
         for (kind, risk, want) in table {
             assert_eq!(

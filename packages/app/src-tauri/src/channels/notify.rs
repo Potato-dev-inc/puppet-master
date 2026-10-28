@@ -139,7 +139,8 @@ impl Notifier {
             out: Outgoing {
                 text: compose(&lines),
                 keyboard,
-                silent: false,
+                // Focus: a card that waits for the person goes without the notification sound.
+                silent: crate::attention::focus::live::quiet_for(c.kind, c.focus_risk()),
             },
             remember: c.pane_id.clone().map(Target::Pane),
         })

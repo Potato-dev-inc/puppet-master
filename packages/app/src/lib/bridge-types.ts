@@ -482,6 +482,8 @@ export type BridgeEvent =
   | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean }
   /** Pending `ask_user` questions changed; refetch the list. `revision` increases with each change. */
   | { type: 'questions'; revision: number }
+  /** Focus changed on the PC (`event: focus`, needs `watch`): the phone's redacted view. The Focus bar reads again. */
+  | { type: 'focus'; view: PhoneFocus }
   /** The full attention snapshot (what needs the person); apply it only when its `rev` is newer. */
   | { type: 'attention'; snapshot: AttentionSnapshot }
   /** The PC refused typed input over the socket (`input-error` frame): `error` is its reason. */

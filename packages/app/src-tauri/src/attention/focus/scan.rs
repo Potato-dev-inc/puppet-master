@@ -6,6 +6,7 @@
 //! kinds are never waiters. A waiter keeps only the key (never shown), the tier and the time. No card text.
 
 use super::model::{Settings, Tier, Waiter, WAITERS_CAP};
+use super::policy::tier_of_attention;
 use crate::attention::model::{lane_of, Item, Kind, Lane, Level, Snapshot, State};
 use std::collections::HashSet;
 
@@ -34,19 +35,6 @@ fn fact_of(item: &Item) -> ItemFact {
     }
 }
 
-/// The tier of a blocking card (SPEC 3.2, attention table). `None` for the Hold kinds (`Review`, `Done`).
-/// This mirrors `policy::tier_of_attention` (FT-4); keep the two in step until FT-4 lands and this can call it.
-fn blocking_tier(kind: Kind, risk: Option<Level>) -> Option<Tier> {
-    match kind {
-        Kind::Consent | Kind::Tamper | Kind::Budget | Kind::Stuck | Kind::Answer => Some(Tier::Through),
-        Kind::Approval if risk == Some(Level::High) => Some(Tier::Through),
-        Kind::Approval | Kind::TrustGate | Kind::Question | Kind::Limit | Kind::Setup | Kind::Error => {
-            Some(Tier::Quiet)
-        }
-        Kind::Review | Kind::Done => None,
-    }
-}
-
 /// The new waiters: open blocking cards raised at or after `started_ms` whose key is not in `known`.
 /// A key counts once, even when it shows up twice in one batch. The list stops at `WAITERS_CAP` in total, so
 /// `known.len()` counts against it. A card with no raise time is skipped: it cannot be placed in the session.
@@ -64,7 +52,11 @@ pub fn scan(items: &[ItemFact], started_ms: u64, known: &[Waiter], _settings: &S
         if !item.open || lane_of(item.kind) != Lane::Blocking {
             continue;
         }
-        let Some(tier) = blocking_tier(item.kind, item.risk) else { continue };
+        // The one tier table (SPEC 3.2). A Hold kind is never a waiter.
+        let tier = tier_of_attention(item.kind, item.risk);
+        if tier == Tier::Hold {
+            continue;
+        }
         let Some(since) = item.since_ms else { continue };
         if since < started_ms || !seen.insert(item.key.as_str()) {
             continue;

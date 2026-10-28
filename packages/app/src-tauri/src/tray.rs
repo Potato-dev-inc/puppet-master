@@ -258,6 +258,24 @@ pub fn summary_line_with_focus(base: String, left_min: Option<u32>) -> String {
     format!("{head}Focus {left} min left \u{b7} {rest}")
 }
 
+/// Run a Focus menu command on an engine. The tray is the person at the desktop, so every change is `By::Tray`.
+/// Any other command is not a Focus command and does nothing.
+pub fn run_focus_command<I: crate::attention::focus::live::Io>(
+    engine: &crate::attention::focus::live::Engine<I>,
+    command: &Command,
+) -> Result<(), crate::attention::focus::model::FocusError> {
+    use crate::attention::focus::model::By;
+    match command {
+        Command::FocusStart(minutes) => engine.start(*minutes, By::Tray).map(|_| ()),
+        Command::FocusExtend => engine.extend(By::Tray).map(|_| ()),
+        Command::FocusEnd => {
+            engine.end(By::Tray);
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 /// `pane://spawn-stage` payload. `stage` is claiming | spawning | attached | ready | failed.
 pub fn spawn_stage_payload(agent_id: &str, pane_id: Option<&str>, stage: &str, warm: bool, message: Option<&str>) -> Value {
     let mut v = serde_json::json!({ "agent_id": agent_id, "pane_id": pane_id, "stage": stage, "warm": warm });
@@ -289,13 +307,15 @@ pub fn ready_decision(alive: bool, has_output: bool, elapsed_ms: u64) -> ReadyDe
     }
 }
 
-pub fn build_model(agents: &[Value], panes: &[PaneRow], ready: &[String], mode: UiMode) -> Vec<Item> {
+/// `focus_left_min` is the minutes left while Focus is on, else `None` (the Focus submenu then offers only the lengths).
+pub fn build_model(agents: &[Value], panes: &[PaneRow], ready: &[String], mode: UiMode, focus_left_min: Option<u32>) -> Vec<Item> {
     vec![
         Item::Submenu { label: "New pane".into(), items: new_pane_items(agents, ready) },
         Item::Submenu { label: "Panes".into(), items: pane_items(panes) },
         Item::Separator,
         Item::Action { id: ID_COCKPIT.into(), label: "Open cockpit".into(), enabled: true },
         Item::Submenu { label: "Mode".into(), items: mode_items(mode) },
+        Item::Submenu { label: "Focus".into(), items: focus_items(focus_left_min) },
         Item::Action { id: ID_STOP_ALL.into(), label: "Stop all agents".into(), enabled: true },
         Item::Action { id: ID_SETTINGS.into(), label: "Settings\u{2026}".into(), enabled: true },
         Item::Action { id: ID_QUIT.into(), label: "Quit Puppet Master".into(), enabled: true },
@@ -358,7 +378,7 @@ mod runtime {
                     .collect()
             })
             .unwrap_or_default();
-        build_model(&agents, &panes, &crate::standby::ready_agents(), crate::ui_mode::current())
+        build_model(&agents, &panes, &crate::standby::ready_agents(), crate::ui_mode::current(), crate::attention::focus::live::minutes_left())
     }
 
     fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -430,7 +450,8 @@ mod runtime {
             }
             Err(e) => tracing::warn!(error = %e, "tray menu rebuild failed"),
         }
-        let _ = tray.set_tooltip(Some(tooltip_for(crate::live_room::service::is_live(), current_summary(app))));
+        let summary = summary_line_with_focus(current_summary(app), crate::attention::focus::live::minutes_left());
+        let _ = tray.set_tooltip(Some(tooltip_for(crate::live_room::service::is_live(), summary)));
     }
 
     /// The tooltip for the panes and jobs open now. Standby (hidden) panes are not the person's work.
@@ -658,8 +679,15 @@ mod runtime {
                     }
                 });
             }
-            // Focus Time items are not in the menu yet (FT-9 wires the engine and the submenu), so none is clicked.
-            Some(Command::FocusStart(_) | Command::FocusEnd | Command::FocusExtend) => {}
+            // Focus Time (the person clicked the tray, so `By::Tray`). Off the menu thread: ending writes the state
+            // file and reads the attention list.
+            Some(command @ (Command::FocusStart(_) | Command::FocusEnd | Command::FocusExtend)) => {
+                std::thread::spawn(move || {
+                    if let Err(error) = run_focus_command(crate::attention::focus::live::engine(), &command) {
+                        tracing::warn!(code = error.code, "tray: Focus change refused");
+                    }
+                });
+            }
             None => {}
         }
     }
@@ -687,7 +715,7 @@ mod runtime {
         }
         builder.build(app)?;
         tracing::info!("tray icon created (tooltip \"Puppet Master\")");
-        for event in ["pty://panes-changed", "pty://status", "agent_definitions_changed", crate::standby::READY_EVENT, "ui://mode-changed"] {
+        for event in ["pty://panes-changed", "pty://status", "agent_definitions_changed", crate::standby::READY_EVENT, "ui://mode-changed", "focus://changed"] {
             let handle = app.clone();
             app.listen(event, move |_| refresh(&handle));
         }
@@ -791,15 +819,48 @@ mod tests {
 
     #[test]
     fn model_has_the_top_level_entries_in_order() {
-        let model = build_model(&[agent("kilo", "Kilo", true, true)], &[], &[], UiMode::Orchestration);
+        let model = build_model(&[agent("kilo", "Kilo", true, true)], &[], &[], UiMode::Orchestration, None);
         assert!(matches!(&model[0], Item::Submenu { label, .. } if label == "New pane"));
         assert!(matches!(&model[1], Item::Submenu { label, .. } if label == "Panes"));
         assert_eq!(model[2], Item::Separator);
         assert!(matches!(&model[3], Item::Action { id, label, .. } if id == "cockpit" && label == "Open cockpit"));
         assert!(matches!(&model[4], Item::Submenu { label, .. } if label == "Mode"));
-        assert!(matches!(&model[5], Item::Action { id, label, .. } if id == "stop-all" && label == "Stop all agents"));
-        assert!(matches!(&model[6], Item::Action { id, .. } if id == "settings"));
-        assert!(matches!(&model[7], Item::Action { id, label, .. } if id == "quit" && label == "Quit Puppet Master"));
+        assert!(matches!(&model[5], Item::Submenu { label, items } if label == "Focus" && items == &focus_items(None)));
+        assert!(matches!(&model[6], Item::Action { id, label, .. } if id == "stop-all" && label == "Stop all agents"));
+        assert!(matches!(&model[7], Item::Action { id, .. } if id == "settings"));
+        assert!(matches!(&model[8], Item::Action { id, label, .. } if id == "quit" && label == "Quit Puppet Master"));
+    }
+
+    #[test]
+    fn the_focus_submenu_sits_after_mode_and_follows_the_engine() {
+        let off = build_model(&[], &[], &[], UiMode::Orchestration, None);
+        let Item::Submenu { items, .. } = &off[5] else { panic!("focus submenu") };
+        assert_eq!(items, &focus_items(None));
+        let on = build_model(&[], &[], &[], UiMode::Orchestration, Some(31));
+        let Item::Submenu { label, items } = &on[5] else { panic!("focus submenu") };
+        assert_eq!(label, "Focus");
+        assert!(items.iter().any(|i| matches!(i, Item::Action { id, label, .. } if id == "focus:end" && label == "End Focus (31 min left)")));
+    }
+
+    #[test]
+    fn menu_clicks_run_on_the_engine_as_the_tray() {
+        use crate::attention::focus::fake_io::{rig, MIN, T0};
+        use crate::attention::focus::model::By;
+        let (engine, io) = rig();
+        run_focus_command(&engine, &parse_command("focus:45").unwrap()).unwrap();
+        assert_eq!(engine.view().desktop.ends_at_ms, Some(T0 + 45 * MIN));
+        assert_eq!(io.audits.lock()[0].0, Some(By::Tray), "the tray is the person at the desktop");
+        run_focus_command(&engine, &parse_command("focus:more").unwrap()).unwrap();
+        assert_eq!(engine.view().desktop.ends_at_ms, Some(T0 + 60 * MIN));
+        run_focus_command(&engine, &parse_command("focus:90").unwrap()).unwrap();
+        assert_eq!(engine.view().desktop.minutes, 90);
+        run_focus_command(&engine, &parse_command("focus:end").unwrap()).unwrap();
+        assert!(!engine.view().desktop.on);
+        run_focus_command(&engine, &parse_command("focus:end").unwrap()).unwrap();
+        assert!(run_focus_command(&engine, &parse_command("focus:more").unwrap()).is_err(), "nothing to extend");
+        // A command that is not about Focus changes nothing.
+        run_focus_command(&engine, &Command::Quit).unwrap();
+        assert!(!engine.view().desktop.on);
     }
 
     #[test]
@@ -814,7 +875,7 @@ mod tests {
                 .collect();
             assert_eq!(checked, vec![format!("mode:{}", mode.as_str())]);
         }
-        let model = build_model(&[], &[], &[], UiMode::Individual);
+        let model = build_model(&[], &[], &[], UiMode::Individual, None);
         let Item::Submenu { items, .. } = &model[4] else { panic!("mode submenu") };
         assert_eq!(items.len(), 2);
     }

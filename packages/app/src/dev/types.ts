@@ -105,6 +105,8 @@ export interface HarnessScenario {
   missions?: import('./mission-fixtures').MissionScenario;
   /** Keep going: the picker rows, the hand-over lines per pane and the brief the mocked `keep_going_*` commands answer. */
   keepGoing?: import('./keep-going-fixtures').KeepGoingScenario;
+  /** Focus Time: start with a Focus running, or a just-ended summary; the mocked `focus_*` commands then start, extend and end it (see focus-fixtures.ts). */
+  focus?: import('./focus-fixtures').FocusScenario;
   /** Night Shift: what the state, plans and checks the mocked `night_*` commands answer (see night-fixtures.ts). */
   night?: import('./night-fixtures').NightScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */

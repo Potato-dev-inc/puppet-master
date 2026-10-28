@@ -299,6 +299,10 @@ pub fn notify_companion_reply(companion_id: &str, name: &str, text: &str, enable
     if !enabled || !ctx.hub.has_subscribers() {
         return;
     }
+    // Focus: the phone ping waits (the chat above already took its own window path).
+    if crate::attention::focus::live::hold(crate::attention::focus::model::Class::Companion, name, None) {
+        return;
+    }
     let step = ctx.hub.companion_replies().lock().reply(companion_id, name, text, now_ms());
     match step {
         Step::Skip => {}
@@ -404,6 +408,10 @@ pub fn notify_night(line: &str, enabled: bool) {
     if !enabled || !ctx.hub.has_subscribers() {
         return;
     }
+    // Focus: the morning push waits (the Morning page has the report).
+    if crate::attention::focus::live::hold(crate::attention::focus::model::Class::Night, "Night Shift", None) {
+        return;
+    }
     let message = night::Message { line: line.to_string() };
     let deliveries = ctx.hub.night_deliveries(&message, now_ms());
     send_deliveries(&ctx.hub, deliveries);
@@ -452,7 +460,24 @@ fn classify_question(question: &crate::questions::Question, label: String) -> (K
     (Kind::Question, label, None)
 }
 
+/// Focus: a ping that can wait is held, not sent. It is counted and listed in the summary; neither the phone nor
+/// the chat sees it, except a run end in a pane the person is talking to in the chat (that is an answer, SPEC
+/// 3.1). One atomic read when Focus is off.
+fn focus_holds(candidate: &Candidate) -> bool {
+    use crate::attention::focus::live;
+    if !live::hold_push(candidate.kind, candidate.focus_risk(), &candidate.agent_label) {
+        return false;
+    }
+    if matches!(candidate.kind, Kind::RunFinished | Kind::RunFailed) {
+        crate::channels::offer_answer(candidate);
+    }
+    true
+}
+
 fn dispatch(ctx: &Ctx, candidate: Candidate) {
+    if focus_holds(&candidate) {
+        return;
+    }
     // The chat gets its own look first: a person with Telegram and no subscribed phone still hears it.
     crate::channels::offer(&candidate);
     if !ctx.hub.has_subscribers() {
@@ -666,8 +691,91 @@ mod tests {
         std::thread::sleep(Duration::from_millis(30));
         assert_eq!(r.bot.texts().len(), 1, "no conversation window, no companion reply");
 
+        // Focus (FT-9): a card that waits for the person reaches the chat silently; the words are the same.
+        {
+            let _focus = crate::attention::focus::live::testing::force_default();
+            let mut quiet = candidate(Kind::Error, "p2");
+            quiet.heading = Some("auth refactor".into());
+            dispatch(&ctx, quiet);
+            wait_for("the quiet message", || r.bot.texts().len() == 2);
+            assert_eq!(r.bot.silent.lock().clone(), vec![false, true], "only the Focus one is silent");
+            assert_eq!(r.bot.texts()[1], r.bot.texts()[0].replace("p1", "p2"), "same words");
+        }
+
+        // A held run end never reaches the chat for any other reason, even with run notices on.
+        r.host.edit_config(|c| c.notify_runs = true);
+        {
+            let _focus = crate::attention::focus::live::testing::force_default();
+            dispatch(&ctx, candidate(Kind::RunFinished, "p3"));
+            std::thread::sleep(Duration::from_millis(30));
+            assert_eq!(r.bot.texts().len(), 2, "held, so the chat heard nothing");
+        }
+        dispatch(&ctx, candidate(Kind::RunFinished, "p4"));
+        wait_for("the run notice", || r.bot.texts().len() == 3);
+
         r.rt.stop();
         assert!(nobody_to_tell(&ctx), "switched off again: back to the early return");
+    }
+
+    fn candidate(kind: Kind, key: &str) -> Candidate {
+        Candidate {
+            kind,
+            key: key.into(),
+            pane_id: Some(key.into()),
+            agent_label: "Codex".into(),
+            heading: Some("auth refactor".into()),
+            prompt: None,
+            item: None,
+            detail: None,
+        }
+    }
+
+    /// Focus (FT-9): a run end is held before the chat and before the phone plan. The gate for that phone is still
+    /// untouched afterwards, so the same key sends at once when Focus is off.
+    #[test]
+    fn dispatch_holds_a_run_end_during_focus_and_plans_nothing() {
+        use crate::attention::focus::live::testing::{force_default, held};
+        use crate::attention::focus::model::Class;
+        use hub::testing::{hub_with, FakeDirectory};
+        let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a")]));
+        let hub = Arc::new(hub_with("focus_dispatch", dir));
+        let (sub, _, _) = store::test_subscription("https://fcm.googleapis.com/fcm/send/focus-dispatch");
+        hub.store().lock().upsert("dev-a", sub).unwrap();
+        assert!(hub.has_subscribers());
+        let ctx = Ctx { hub: hub.clone(), registry: Arc::new(Mutex::new(PaneRegistry::default())) };
+
+        let run = candidate(Kind::RunFinished, "pane-focus-1");
+        {
+            let _focus = force_default();
+            dispatch(&ctx, run.clone());
+            dispatch(&ctx, candidate(Kind::RunFailed, "pane-focus-2"));
+            assert_eq!(held(), vec![(Class::RunDone, "Codex".to_string()), (Class::RunFailed, "Codex".to_string())]);
+        }
+        let (verdict, deliveries) = hub.plan(&run, now_ms());
+        assert_eq!(verdict, Verdict::Send, "dispatch never reached the gate while Focus held it");
+        assert_eq!(deliveries.len(), 1);
+        assert!(deliveries[0].kind == Kind::RunFinished);
+    }
+
+    #[test]
+    fn only_the_kinds_that_can_wait_are_held() {
+        use crate::attention::focus::live::testing::{force_default, held};
+        let _focus = force_default();
+        for kind in [Kind::RunFinished, Kind::RunFailed, Kind::CompanionReply, Kind::NightShift] {
+            assert!(focus_holds(&candidate(kind, "pane-k")), "{} waits", kind.as_str());
+        }
+        let before = held().len();
+        for kind in [Kind::WaitingInput, Kind::Error, Kind::Question, Kind::TrustGate, Kind::Consent, Kind::Budget, Kind::Limit, Kind::Focus] {
+            assert!(!focus_holds(&candidate(kind, "pane-k")), "{} is never held", kind.as_str());
+        }
+        assert_eq!(held().len(), before, "nothing else was counted");
+    }
+
+    #[test]
+    fn outside_focus_nothing_is_held() {
+        for kind in [Kind::RunFinished, Kind::RunFailed, Kind::CompanionReply, Kind::NightShift] {
+            assert!(!focus_holds(&candidate(kind, "pane-off")), "{}", kind.as_str());
+        }
     }
 
     #[test]

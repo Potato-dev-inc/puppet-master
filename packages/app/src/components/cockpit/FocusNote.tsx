@@ -3,6 +3,7 @@
 // missions it has folded away. Grayscale only: an urgent count is plain text, the card carries the weight.
 import { useState } from 'react';
 import { FOCUS_PRESETS, focusEnd, focusExtend, focusStart, heldText, leftText, type FocusView } from '../../lib/focus';
+import { rememberFocusMinutes } from './palette-focus';
 import '../../styles/focus-note.css';
 
 export function FocusNote({
@@ -44,7 +45,11 @@ export function FocusNote({
               type="button"
               className={`ck-chip ck-focus-note-chip${isDefault ? ' is-default' : ''}`}
               data-default={isDefault ? 'true' : undefined}
-              onClick={() => run(focusStart(m))}
+              onClick={() => {
+                // The palette lists the length you started last first.
+                rememberFocusMinutes(m);
+                run(focusStart(m));
+              }}
             >
               {m} min
             </button>

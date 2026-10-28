@@ -1,11 +1,12 @@
 //! The end-of-Focus message and its one reminder, for the phones (SPEC n33 3.4 E, FT-7).
 //!
-//! Counts only. The line comes from `attention::focus::summary` (the counts part) or from `reminder_line`,
+//! Counts only. The line comes from `attention::focus::summary` (the counts part) or from `nudge::text`,
 //! and never names an agent, a pane, a task or a sentence. `PushHub::focus_deliveries` builds one message per
 //! phone that may watch and is not looking at the PWA, and `push::notify_focus` sends it. A phone with "Hide
 //! details" on gets the fixed sentence instead of the counts. Not urgent: the phone shows it when it next wakes.
 
 use super::triggers::{truncate_chars, MAX_BODY_CHARS};
+use crate::attention::focus::nudge;
 
 /// The title of the end-of-Focus message.
 pub const SUMMARY_TITLE: &str = "Focus is over";
@@ -30,7 +31,7 @@ impl Message {
 
     /// The one reminder for `waiting` quiet cards that stayed open for 20 minutes.
     pub fn reminder(waiting: u32) -> Self {
-        Self { title: REMINDER_TITLE.to_string(), line: reminder_line(waiting) }
+        Self { title: REMINDER_TITLE.to_string(), line: nudge::text(waiting as usize) }
     }
 
     /// The notification body. `hidden` is a phone with "Hide details on lock screen" on: the fixed
@@ -41,15 +42,6 @@ impl Message {
         } else {
             truncate_chars(&self.line, MAX_BODY_CHARS)
         }
-    }
-}
-
-/// "1 agent has waited 20 minutes for you." or "3 agents have waited 20 minutes for you." Counts only.
-pub fn reminder_line(waiting: u32) -> String {
-    if waiting == 1 {
-        "1 agent has waited 20 minutes for you.".to_string()
-    } else {
-        format!("{waiting} agents have waited 20 minutes for you.")
     }
 }
 
@@ -110,8 +102,8 @@ mod tests {
 
     #[test]
     fn the_reminder_reads_one_agent_or_many() {
-        assert_eq!(reminder_line(1), "1 agent has waited 20 minutes for you.");
-        assert_eq!(reminder_line(3), "3 agents have waited 20 minutes for you.");
+        assert_eq!(Message::reminder(1).line, "1 agent has waited 20 minutes for you.");
+        assert_eq!(Message::reminder(3).line, "3 agents have waited 20 minutes for you.");
         let message = Message::reminder(3);
         assert_eq!(message.title, "Waiting for you");
         assert_eq!(message.body(false), "3 agents have waited 20 minutes for you.");

@@ -25,6 +25,10 @@ pub mod summary;
 pub mod view;
 
 #[cfg(test)]
+mod engine_tests;
+#[cfg(test)]
+pub(crate) mod fake_io;
+#[cfg(test)]
 mod model_tests;
 #[cfg(test)]
 mod store_tests;
@@ -35,8 +39,47 @@ mod view_tests;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-static ON: AtomicBool = AtomicBool::new(false);
-static DEADLINE_MS: AtomicU64 = AtomicU64::new(0);
+/// The fast flag: on, and the deadline. The app has one (`GLOBAL`); an engine under test brings its own, so
+/// parallel tests never share it.
+pub struct Flag {
+    on: AtomicBool,
+    deadline_ms: AtomicU64,
+}
+
+impl Flag {
+    pub const fn new() -> Self {
+        Self { on: AtomicBool::new(false), deadline_ms: AtomicU64::new(0) }
+    }
+
+    /// True only while on and `now_ms` is before the deadline. Needs no tick: a dead tick thread cannot keep
+    /// pings held past the end.
+    pub fn is_on_at(&self, now_ms: u64) -> bool {
+        self.on.load(Ordering::SeqCst) && now_ms < self.deadline_ms.load(Ordering::SeqCst)
+    }
+
+    /// `None` turns it off.
+    pub fn set(&self, deadline_ms: Option<u64>) {
+        match deadline_ms {
+            Some(deadline) => {
+                self.deadline_ms.store(deadline, Ordering::SeqCst);
+                self.on.store(true, Ordering::SeqCst);
+            }
+            None => {
+                self.on.store(false, Ordering::SeqCst);
+                self.deadline_ms.store(0, Ordering::SeqCst);
+            }
+        }
+    }
+}
+
+impl Default for Flag {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The app's flag, set by the live engine.
+pub(crate) static GLOBAL: Flag = Flag::new();
 
 /// True only while a session is on and now is before its deadline. Cheap and lock-free; every hook calls it first.
 pub fn is_on() -> bool {
@@ -45,19 +88,10 @@ pub fn is_on() -> bool {
 
 /// `is_on` for a given time (tests and the engine).
 pub fn is_on_at(now_ms: u64) -> bool {
-    ON.load(Ordering::SeqCst) && now_ms < DEADLINE_MS.load(Ordering::SeqCst)
+    GLOBAL.is_on_at(now_ms)
 }
 
 /// Set by the engine when a session starts, changes or ends. `None` turns Focus off.
 pub(crate) fn set_session(deadline_ms: Option<u64>) {
-    match deadline_ms {
-        Some(deadline) => {
-            DEADLINE_MS.store(deadline, Ordering::SeqCst);
-            ON.store(true, Ordering::SeqCst);
-        }
-        None => {
-            ON.store(false, Ordering::SeqCst);
-            DEADLINE_MS.store(0, Ordering::SeqCst);
-        }
-    }
+    GLOBAL.set(deadline_ms);
 }

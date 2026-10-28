@@ -1094,3 +1094,50 @@ fn golden_focus_end() {
         .expect("sent");
     assert_eq!(golden(&note), include_str!("golden/focus.txt").trim_end());
 }
+
+// ---- Focus: a card that waits for the person goes to the chat without the notification sound (FT-9) ----
+
+fn offered_silent(kind: Kind, level: RiskLevel, headline: &str) -> bool {
+    let mut world = World::new();
+    let p = approval("npm install left-pad", false, level, headline);
+    let c = candidate(kind, Some(p), Some(item()));
+    Notifier::default().offer(&c, None, &cfg(), world.links(), 1).expect("sent").out.silent
+}
+
+#[test]
+fn outside_focus_nothing_is_silent() {
+    assert!(!offered_silent(Kind::WaitingInput, RiskLevel::Medium, "Install packages"));
+    assert!(!offered_silent(Kind::Error, RiskLevel::Low, "x"));
+}
+
+#[test]
+fn a_waiting_card_is_silent_during_focus_and_keeps_its_text() {
+    let mut world = World::new();
+    let p = approval("npm install left-pad", false, RiskLevel::Medium, "Install packages");
+    let c = candidate(Kind::WaitingInput, Some(p), Some(item()));
+    let loud = Notifier::default().offer(&c, None, &cfg(), world.links(), 1).expect("sent");
+
+    let _focus = crate::attention::focus::live::testing::force_default();
+    let mut world = World::new();
+    let quiet = Notifier::default().offer(&c, None, &cfg(), world.links(), 1).expect("sent");
+    assert!(quiet.out.silent);
+    assert!(!loud.out.silent);
+    assert_eq!(quiet.out.text.as_str(), loud.out.text.as_str(), "same words");
+    assert_eq!(quiet.out.keyboard, loud.out.keyboard, "same buttons");
+}
+
+#[test]
+fn a_high_risk_approval_and_a_budget_are_never_silent_during_focus() {
+    let _focus = crate::attention::focus::live::testing::force_default();
+    assert!(!offered_silent(Kind::WaitingInput, RiskLevel::High, "Delete a folder"));
+    assert!(!offered_silent(Kind::Budget, RiskLevel::Low, "x"));
+    assert!(!offered_silent(Kind::Consent, RiskLevel::Low, "x"));
+    assert!(offered_silent(Kind::Error, RiskLevel::Low, "x"));
+}
+
+#[test]
+fn with_the_switch_off_a_waiting_card_is_not_silent() {
+    use crate::attention::focus::model::Settings;
+    let _focus = crate::attention::focus::live::testing::force(Settings { default_minutes: 45, quiet_blocking: false });
+    assert!(!offered_silent(Kind::WaitingInput, RiskLevel::Medium, "Install packages"));
+}
