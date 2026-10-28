@@ -328,3 +328,31 @@ describe('empty and first-run states', () => {
     expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Use Simple mode')).toBe(false);
   });
 });
+
+describe('Assign an issue cards in the Inbox', () => {
+  it('draws an issue question as an IssueCard, and a number key never answers it', () => {
+    const start: Question = {
+      id: 'iss-1',
+      kind: 'issue_start',
+      question: 'Start on #42 "Login button does nothing" with Codex?',
+      context: 'Repo: acme/billing (issue #42)\nLabeled by @you. Written by @someone.',
+      choices: [{ id: 'start', label: 'Start with Codex' }, { id: 'not_now', label: 'Not now' }],
+      allow_free_text: false,
+      urgency: 'normal',
+      created_at_ms: NOW - 30_000,
+      expires_at_ms: NOW + 600_000,
+      state: 'pending',
+    };
+    const { api, answerQuestion } = fixture({ questions: [question(), start] });
+    mount(api);
+    const card = cards().find((c) => c.dataset.kind === 'issue')!;
+    expect(card).toBeDefined();
+    expect(card.querySelector('.ib-title')?.textContent).toBe('Login button does nothing');
+    expect(card.querySelector('.ib-meta')?.textContent).toBe('GitHub issue #42 · acme/billing');
+    expect(card.hasAttribute('data-guard')).toBe(true);
+    press('1', card.querySelector('button')!);
+    expect(answerQuestion).not.toHaveBeenCalled();
+    // the generic question card is still drawn for the other question
+    expect(cards().some((c) => c.dataset.kind === 'question')).toBe(true);
+  });
+});

@@ -3,7 +3,7 @@ import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectWithCopy } from './shell-labels';
 import { hasEverSpawned } from '../../lib/agent-health';
 import { sortInbox, type InboxEntry } from '../../lib/inbox-order';
-import { isBudget, isConsent, isLimit, type QuestionAnswer } from '../../lib/questions';
+import { isBudget, isConsent, isIssueCard, isLimit, type QuestionAnswer } from '../../lib/questions';
 import { patchSettings } from '../../lib/settings';
 import { PaneApprovalCard } from './PaneApprovalCard';
 import { PaneStuckCard } from './StuckCard';
@@ -16,6 +16,7 @@ import { BudgetCard } from './BudgetCard';
 import { ConsentCard } from './ConsentCard';
 import { LimitCard } from './LimitCard';
 import { QuestionCard } from './QuestionCard';
+import { IssueCard } from './IssueCard';
 import { PaneErrorCard } from './InboxError';
 import { focusWithRing } from './InboxCard';
 import { handleInboxKey, isEditable } from './inbox-keys';
@@ -114,6 +115,15 @@ export function Inbox({
               companionTransport={companionTransport}
             />
           ),
+        });
+      } else if (isIssueCard(q)) {
+        // Assign an issue: a start or push card for a GitHub issue. It sorts with the questions.
+        out.push({
+          key: `issue:${q.id}`,
+          kind: 'question',
+          since: q.created_at_ms,
+          quick: false,
+          render: () => <IssueCard q={q} now={c.now} onAnswer={answer(q.id)} onOpenPane={open(q.pane_id)} />,
         });
       } else {
         out.push({
