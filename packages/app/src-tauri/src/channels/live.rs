@@ -89,6 +89,13 @@ pub fn offer(candidate: &Candidate) {
     }
 }
 
+/// A pane's status changed (called by `push::notify_pane_status`, whether or not anyone listens).
+pub fn pane_status(pane_id: &str, status: &str) {
+    if let Some(rt) = current() {
+        rt.pane_status(pane_id, status);
+    }
+}
+
 /// A companion's reply (called by `push::notify_companion_reply`).
 pub fn companion_reply(companion_id: &str, name: &str, text: &str) {
     if let Some(rt) = current() {

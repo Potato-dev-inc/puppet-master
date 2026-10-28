@@ -11,6 +11,7 @@ import {
   DISCONNECT_BODY,
   ERROR_TEXT,
   NO_STORE,
+  STATUS_POLL_MS,
   statusLine,
   TELEGRAM_FOOTER,
   TELEGRAM_WARNING,
@@ -252,6 +253,76 @@ describe('TelegramSetup', () => {
     const api = fakeApi({ ...PAIRED_STATUS, enabled: true, state: 'on', lastPollAtMs: Date.now() - 12_000 });
     await mount(api);
     expect(text()).toContain('On · last check 12 s ago');
+  });
+
+  it('leaves "Connecting…" when the PC says the status changed', async () => {
+    const api = fakeApi({ ...PAIRED_STATUS, enabled: true, state: 'connecting' });
+    let changed: () => void = () => {};
+    api.onChanged.mockImplementation((listener: () => void) => {
+      changed = listener;
+      return () => {};
+    });
+    await mount(api);
+    expect(text()).toContain('Connecting…');
+    api.status.mockResolvedValue({ ...PAIRED_STATUS, enabled: true, state: 'on', lastPollAtMs: Date.now() });
+    await act(async () => changed());
+    await settle();
+    expect(text()).not.toContain('Connecting…');
+    expect(text()).toContain('On · last check');
+  });
+
+  it('shows a conflict that happens while the page is open, from the event', async () => {
+    const api = fakeApi({ ...PAIRED_STATUS, enabled: true, state: 'on', lastPollAtMs: Date.now() });
+    let changed: () => void = () => {};
+    api.onChanged.mockImplementation((listener: () => void) => {
+      changed = listener;
+      return () => {};
+    });
+    await mount(api);
+    api.status.mockResolvedValue({ ...PAIRED_STATUS, enabled: true, state: 'error', error: 'conflict' });
+    await act(async () => changed());
+    await settle();
+    expect(text()).toContain(ERROR_TEXT.conflict);
+  });
+
+  describe('while the link is connecting or on', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('asks again every few seconds and stops when it has stopped', async () => {
+      const api = fakeApi({ ...PAIRED_STATUS, enabled: true, state: 'connecting' });
+      await act(async () => {
+        root.render(<TelegramSetup env={makeEnv()} api={api as unknown as TelegramApi} />);
+      });
+      expect(api.status).toHaveBeenCalledTimes(1);
+      api.status.mockResolvedValue({ ...PAIRED_STATUS, enabled: true, state: 'on', lastPollAtMs: Date.now() });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STATUS_POLL_MS);
+      });
+      expect(api.status).toHaveBeenCalledTimes(2);
+      expect(text()).not.toContain('Connecting…');
+      api.status.mockResolvedValue({ ...PAIRED_STATUS, enabled: true, state: 'error', error: 'token_rejected' });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STATUS_POLL_MS);
+      });
+      expect(text()).toContain(ERROR_TEXT.token_rejected);
+      const calls = api.status.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STATUS_POLL_MS * 3);
+      });
+      expect(api.status).toHaveBeenCalledTimes(calls);
+    });
+
+    it('does not poll while Telegram is off', async () => {
+      const api = fakeApi(BASE);
+      await act(async () => {
+        root.render(<TelegramSetup env={makeEnv()} api={api as unknown as TelegramApi} />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STATUS_POLL_MS * 3);
+      });
+      expect(api.status).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('shows the BotFather sentence for a conflict', async () => {
