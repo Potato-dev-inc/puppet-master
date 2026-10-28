@@ -113,7 +113,16 @@ struct Tree {
 
 impl Tree {
     fn new(name: &str) -> Tree {
-        let root = std::env::temp_dir().join(format!("pm-transcript-{name}-{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::SeqCst)));
+        // a folder that is new, not one an earlier run left behind: process ids repeat across runs and the folders are
+        // not removed, and a stale file of the same size would look unchanged
+        let root = loop {
+            let candidate = std::env::temp_dir().join(format!("pm-transcript-{name}-{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::SeqCst)));
+            match std::fs::create_dir(&candidate) {
+                Ok(()) => break candidate,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("{}: {e}", candidate.display()),
+            }
+        };
         for dir in ["home", "proj", "elsewhere"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
@@ -146,6 +155,12 @@ impl Tree {
         let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
         file.write_all((lines.join("\n") + "\n").as_bytes()).unwrap();
     }
+
+    /// Sets when `path` was last written. Two writes a moment apart can get the same timestamp or either order, so a
+    /// test that says which file is the newer one sets the times itself.
+    fn set_modified(&self, path: &Path, when: SystemTime) {
+        std::fs::OpenOptions::new().write(true).open(path).unwrap().set_modified(when).unwrap();
+    }
 }
 
 fn search<'a>(roots: &'a Roots, before: &'a Snapshot) -> Search<'a> {
@@ -167,6 +182,10 @@ fn a_transcript_in_the_program_folder_under_home_becomes_a_table_with_placeholde
     let before = Snapshot::take(&roots);
     tree.write(&dir.join("new.jsonl"), &FLAT);
     tree.append(&dir.join("old.jsonl"), &[r#"{"role":"user","content":"added to an older file"}"#]);
+    // the transcript is the newest file in the folder: set the times, so the clock's tick decides nothing
+    let now = SystemTime::now();
+    tree.set_modified(&dir.join("old.jsonl"), now - Duration::from_secs(10));
+    tree.set_modified(&dir.join("new.jsonl"), now);
     let found = find(&search(&roots, &before)).expect("found");
     assert_eq!(found.dir, "{home}/.acme/sessions/{cwd_slug}");
     assert!(!found.tool);
