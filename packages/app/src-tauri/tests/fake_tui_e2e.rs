@@ -1208,3 +1208,8 @@ mod safety_net;
 
 #[path = "fake_tui_keep_going.rs"]
 mod keep_going;
+
+// ---- Assign an issue: a labeled issue, a guarded copy, a draft PR (fake gh, local bare remote, zero tokens) -----------
+
+#[path = "fake_tui_issue_intake.rs"]
+mod issue_intake;
