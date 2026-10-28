@@ -47,6 +47,7 @@ export function Palette({
   onStopAll,
   onOpenMemory,
   onOpenPlans,
+  onOpenScores,
   onUndoLastTurn,
   onOpenWelcome,
   onStartCrew,
@@ -63,6 +64,8 @@ export function Palette({
   onStopAll?: () => void;
   onOpenMemory?: () => void;
   onOpenPlans?: () => void;
+  /** Opens "Scores on your code". Absent: no Scores action. */
+  onOpenScores?: () => void;
   /** Opens the restore confirmation for the pane's last turn (never restores by itself). */
   onUndoLastTurn?: (paneId: string) => void;
   /** Shows the first-run welcome again. */
@@ -291,6 +294,17 @@ export function Palette({
         run: onOpenPlans,
       });
     }
+    if (onOpenScores) {
+      out.push({
+        id: 'act:scores',
+        group: 'Actions',
+        title: 'Scores on your code',
+        desc: 'Which agent works best here, from your own history',
+        keywords: 'scores best agent compare results history',
+        icon: <IconChart />,
+        run: onOpenScores,
+      });
+    }
     out.push(...settingsShortcuts(c, { missionsOn, projectPath: c.selectedId ? (c.registry.panes.get(c.selectedId)?.info?.cwd ?? null) : null }));
     out.push(
       {
@@ -325,7 +339,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, companions, onOpenCompanion, onNewCompanion]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, companions, onOpenCompanion, onNewCompanion]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

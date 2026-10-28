@@ -18,6 +18,7 @@ import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SettingsView } from './components/cockpit/SettingsView';
 import { PlansMonth } from './components/cockpit/PlansMonth';
+import { AgentScores } from './components/cockpit/AgentScores';
 import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
@@ -290,6 +291,7 @@ export default function CockpitApp() {
         onOpenDoctor={() => setView('doctor')}
         onOpenMemory={() => setView('memory')}
         onOpenPlans={() => setView('plans')}
+        onOpenScores={() => setView('scores')}
         companions={companions.companions}
         openCompanionId={view === 'companion' ? companionId : null}
         onOpenCompanion={openCompanion}
@@ -320,6 +322,12 @@ export default function CockpitApp() {
           />
         ) : view === 'plans' ? (
           <PlansMonth onClose={closeOverlay} />
+        ) : view === 'scores' ? (
+          <AgentScores
+            // Same project rule as Project memory: a pane in a separate copy belongs to the project the copy came from.
+            project={c.selectedId ? projectOfCwd(c.registry.panes.get(c.selectedId)?.info.cwd) : null}
+            onClose={closeOverlay}
+          />
         ) : view === 'settings' ? (
           <SettingsView key={settings.viewKey} {...settings.viewProps} />
         ) : view === 'spawn' && c.spawn ? (
@@ -381,6 +389,7 @@ export default function CockpitApp() {
           onStopAll={stopAll}
           onOpenMemory={() => setView('memory')}
           onOpenPlans={() => setView('plans')}
+          onOpenScores={() => setView('scores')}
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}
           onStartCrew={() => setCrewOpen(true)}
