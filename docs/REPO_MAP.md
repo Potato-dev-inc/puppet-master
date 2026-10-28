@@ -443,6 +443,29 @@ through `render::clean` (sanitize, strict redaction, e-mail masks, 1,500-charact
 Tests: `channels/*_tests.rs`, `channels/engine_tests.rs`, `channels/runtime_tests.rs`, `channels/setup_tests.rs`,
 `channels/notify_tests.rs`, `channels/telegram/api/tests.rs`, the golden texts in `channels/golden/`. No test talks to Telegram.
 
+### 3.10 Clip It (`clip/`)
+
+A short video of one finished turn, made on the PC (feature page `docs/features/clip-it.md`). The Rust side replays the
+pane's own terminal record and redacts every row before anything leaves Rust. The webview draws the frames on a canvas and
+encodes the MP4. Tauri commands only: no bridge route, no SSE event, no MCP tool, no phone cap.
+
+| File | What |
+|---|---|
+| `clip/model.rs` | the `ClipPlan` JSON (camelCase, the contract with the webview) and the caps: 180 frames, 3 MB plan, 40 steps, 48 MB staged file, 30-minute plan token |
+| `clip/screens.rs` | replays the pane's terminal record (`flight::ring`, at most 2 MB) into frames; only output and resize events; a time map that squeezes gaps to 400 ms |
+| `clip/scrub.rs` | the privacy wall: every row through `redact::strict` and `session_chat::export_text::plain`, logical lines and cross-row secrets, known process values, distinct-row cache, `hidden` count |
+| `clip/steps.rs` | tool steps, the request text and the result facts: every string through `plain`, cut to fixed lengths. Assistant text is not read here |
+| `clip/window.rs` | which turn (the last one, or the given user message) and its time window; refusal sentences for a running turn and for a turn with no times |
+| `clip/plan.rs` | builds the whole plan from the ring, the chat items and the turn summaries; falls back to the activity scene, and says why in a note |
+| `clip/store.rs` | `Plans`: tokens (from `issue`, 30 minutes), `stage` (magic bytes, size, extension), `save` (one-time, through `check_dest_with`, keeps the bytes when the path is refused) |
+| `clip/guard_tests.rs` | no `clip` in `bridge/` or `tool_registry/` sources; `catalog_version` unchanged; no `write_input`, `press_key` or `answer_prompt` in `clip/` |
+| `commands/clip.rs` | Tauri commands `clip_plan`, `clip_stage` (raw body + `x-clip-token` / `x-clip-ext` headers), `clip_save` (registered in `lib.rs`) |
+| UI: `lib/clip.ts`, `clipTypes.ts`, `clipTimeline.ts`, `clipDraw.ts`, `clipEncode.ts`, `clipGuard.ts`, `mp4Mux.ts` | the TS mirror of the plan, the timeline (max 30 s), the canvas drawing, the WebCodecs encoder with a `MediaRecorder` fallback, the second privacy wall, the MP4 writer (no user-data atoms) |
+| UI: `components/chat/ClipSheet.tsx`, `useClipMaker.ts` | the "Make a clip" sheet and its state machine; mounted from `SessionChatPanel` (`Make clip` on a finished turn, and the menu item in `ChatExportMenu`); not in the phone bundle |
+
+Tests: `clip/store_tests.rs`, `clip/guard_tests.rs`, unit tests in each file; `lib/clip*.test.ts`, `lib/mp4Mux.test.ts`,
+`components/chat/ClipSheet.test.tsx`, `clipSheet.sources.test.ts` (greps the clip files for network calls).
+
 ---
 
 ## 4. "Where do I change X?"
