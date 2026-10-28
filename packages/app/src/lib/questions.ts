@@ -69,6 +69,15 @@ export const isConsent = (q: Question): boolean => q.consent !== undefined;
 /** A usage-limit card (or the reminder for one), not a question an agent asked. */
 export const isLimit = (q: Question): boolean => q.limit !== undefined;
 
+/** "Start on #42 with Codex?": the card that asks before an agent starts on a GitHub issue. */
+export const isIssueStart = (q: Question): boolean => q.kind === 'issue_start';
+
+/** "Draft PR ready for #42?": the card that asks before a branch is pushed and a draft PR is opened. */
+export const isIssuePush = (q: Question): boolean => q.kind === 'issue_push';
+
+/** Either issue card (Assign an issue). These are raised by Puppet Master only and answered by the person only. */
+export const isIssueCard = (q: Question): boolean => isIssueStart(q) || isIssuePush(q);
+
 /** What the person typed or picked: exactly one of the two. */
 export type QuestionAnswer = { choice_id: string } | { text: string };
 
