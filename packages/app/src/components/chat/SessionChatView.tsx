@@ -51,6 +51,8 @@ export interface SessionChatViewProps {
   emptyNote?: ReactNode;
   /** A control next to the view mode switch in the header (the side question button). */
   headerExtra?: ReactNode;
+  /** The chat menu at the end of the header (Save as page). */
+  headerMenu?: ReactNode;
   /** Something laid over the chat, inside it (the side question box). */
   overlay?: ReactNode;
 }
@@ -112,7 +114,7 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, overlay }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, overlay }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
   const markdown = source === 'file' || source === 'api';
@@ -151,6 +153,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
         {cliVersion && <span className="shrink-0 text-pm-muted ck-chat-cli">CLI {cliVersion}</span>}
         {headerExtra && <span className="ml-auto flex shrink-0 items-center ck-chat-head-extra">{headerExtra}</span>}
         <ViewModeToggle mode={mode} onChange={setMode} />
+        {headerMenu && <span className="flex shrink-0 items-center ck-chat-head-menu">{headerMenu}</span>}
       </header>
       <p className="border-b border-pm-border px-2 py-1 text-[11px] text-pm-muted ck-chat-note">
         {SESSION_CHAT_NOTE}
