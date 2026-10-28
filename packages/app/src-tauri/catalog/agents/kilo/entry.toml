@@ -1,0 +1,28 @@
+schema_version = 1
+
+[store]
+id = "kilo"
+tagline = "Kilo Code command line agent (@kilocode/cli)."
+tier = "verified"
+builtin = false
+categories = ["general", "open_source"]
+status = "active"
+replaced_by = ""
+ambiguous_name = false
+first_listed = "2026-10-28"
+
+[vendor]
+name = "Kilo-Org"
+homepage = "https://kilo.ai/"
+license = "MIT"
+license_kind = "open_source"
+
+[sign_in]
+kind = "either"
+summary = "Open it and type /connect. kilo auth also manages credentials."
+
+[checked]
+date = "2026-10-09"
+version = "7.8.8"
+how = "ran_on_windows"
+windows_tested = true

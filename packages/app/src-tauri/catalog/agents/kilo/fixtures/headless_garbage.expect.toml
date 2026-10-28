@@ -1,0 +1,5 @@
+kind = "headless"
+result = ""
+session = ""
+done = false
+error_code = "AGENT_OUTPUT_UNPARSEABLE"

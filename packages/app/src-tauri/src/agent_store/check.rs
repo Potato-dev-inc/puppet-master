@@ -725,12 +725,11 @@ mod tests {
         refused(&files, 6, "windows_tested");
     }
 
-    /// The kilo copy the repo ships as a test definition, with a `[profile] tested` range added so
-    /// it can be verified, and its fixtures from `tui/declarative/fixtures/kilo`.
+    /// The kilo copy the repo ships as a test definition (it carries its own `[profile] tested`
+    /// range, the same bytes as the catalog copy), and its fixtures from `tui/declarative/fixtures/kilo`.
     fn kilo_verified() -> Vec<(String, String)> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let definition = std::fs::read_to_string(root.join("tests/agent-definitions/kilo.toml")).expect("kilo definition");
-        let definition = format!("{definition}\n[profile]\ntested = \">=7.8, <8\"\n");
         let mut files = vec![
             ("agents/kilo/entry.toml".to_string(), entry_toml("kilo", "verified", true)),
             ("agents/kilo/definition.toml".to_string(), definition),
