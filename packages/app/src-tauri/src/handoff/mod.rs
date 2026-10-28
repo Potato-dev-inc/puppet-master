@@ -508,6 +508,13 @@ impl Env for LiveEnv {
     }
 }
 
+/// End-to-end tests only (`dev-fake-tui`): forget every agent limit note. A note lasts until its reset, so a limit an
+/// earlier test of the same process left behind would otherwise decide which agent a later test is offered.
+#[cfg(feature = "dev-fake-tui")]
+pub fn forget_limit_notes_for_e2e() {
+    ENGINE.lock().limited_agents.clear();
+}
+
 static ENGINE: Lazy<Mutex<Engine>> = Lazy::new(|| {
     // Unit tests never read or write the real app-data folder.
     #[cfg(test)]
