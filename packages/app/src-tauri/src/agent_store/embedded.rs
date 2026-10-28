@@ -48,7 +48,11 @@ pub static FILES: &[(&str, &str)] = &[
     ("agents/kimi/entry.toml", include_str!("../../catalog/agents/kimi/entry.toml")),
     ("agents/kiro/definition.toml", include_str!("../../catalog/agents/kiro/definition.toml")),
     ("agents/kiro/entry.toml", include_str!("../../catalog/agents/kiro/entry.toml")),
+    ("agents/mistral_vibe/definition.toml", include_str!("../../catalog/agents/mistral_vibe/definition.toml")),
+    ("agents/mistral_vibe/entry.toml", include_str!("../../catalog/agents/mistral_vibe/entry.toml")),
     ("agents/opencode/entry.toml", include_str!("../../catalog/agents/opencode/entry.toml")),
+    ("agents/pi/definition.toml", include_str!("../../catalog/agents/pi/definition.toml")),
+    ("agents/pi/entry.toml", include_str!("../../catalog/agents/pi/entry.toml")),
     ("agents/qwen/definition.toml", include_str!("../../catalog/agents/qwen/definition.toml")),
     ("agents/qwen/entry.toml", include_str!("../../catalog/agents/qwen/entry.toml")),
 ];

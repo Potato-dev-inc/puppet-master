@@ -1,0 +1,19 @@
+# Pi coding agent (pi-mono), visible mode only. Facts from the vendor's GitHub page
+# (github.com/badlogic/pi-mono), read 2026-10-28. Not run on Windows by us yet.
+# No [install.windows] on purpose: the page names the npm package @earendil-works/pi-coding-agent,
+# which differs from the planning note's @mariozechner/pi-coding-agent, so no install command is
+# shipped until one name is confirmed. Add works only when `pi` is already on PATH.
+# The command is `pi`, a short name that another program can use, so the entry is marked ambiguous_name.
+schema_version = 1
+
+[agent]
+id = "pi"
+label = "Pi"
+icon = "PI"
+description = "Pi coding agent (pi-mono), run in a visible pane."
+kind = "generic"
+experimental = true
+
+[binary]
+names = ["pi"]
+login_hint = "Start Pi and type /login."

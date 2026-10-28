@@ -1,0 +1,23 @@
+# Mistral Vibe (mistral-vibe on PyPI), visible mode only. Facts from the vendor's GitHub page
+# (github.com/mistralai/mistral-vibe), read 2026-10-28. Not run on Windows by us yet.
+# The command is `vibe`. A `vibe` program that is not Mistral's can also be on PATH, so the
+# entry is marked ambiguous_name.
+schema_version = 1
+
+[agent]
+id = "mistral_vibe"
+label = "Mistral Vibe"
+icon = "MV"
+description = "Mistral Vibe CLI (Mistral AI), installed with uv and run in a visible pane."
+kind = "generic"
+experimental = true
+
+[binary]
+names = ["vibe"]
+install_hint = "uv tool install mistral-vibe"
+login_hint = "Run vibe --setup and enter your Mistral API key."
+
+[install.windows]
+source = "https://github.com/mistralai/mistral-vibe"
+uv = "mistral-vibe"
+note = "The vendor says it works on Windows but officially targets UNIX; needs Python 3.12 or newer with the GIL enabled."
