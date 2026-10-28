@@ -33,6 +33,7 @@ import { simpleMock } from './simple-fixtures';
 import { firstRunMock, firstRunStore } from './first-run-fixtures';
 import { missionMock } from './mission-fixtures';
 import { keepGoingMock } from './keep-going-fixtures';
+import { branchMock } from './branch-fixtures';
 import { nightMock } from './night-fixtures';
 
 const DOCTOR_ROWS = [
@@ -71,6 +72,8 @@ export function installTauriMock(scenario: HarnessScenario): void {
       if (mission.handled) return mission.value;
       const keepGoing = keepGoingMock(scenario.keepGoing, cmd, a);
       if (keepGoing.handled) return keepGoing.value;
+      const branch = branchMock(scenario.branch, cmd, a);
+      if (branch.handled) return branch.value;
       const night = nightMock(scenario.night, cmd, a);
       if (night.handled) return night.value;
       switch (cmd) {
