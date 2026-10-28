@@ -27,6 +27,12 @@ pub fn cut_lines(text: &str, ctx: &RedactContext, max: usize) -> (Vec<String>, u
     (shown, all.len().saturating_sub(max))
 }
 
+/// Plain text for a file that is not HTML: redacted in strict mode, then with its e-mail addresses masked and its paths cut down to their last names.
+/// Not HTML-escaped, so the caller must not put it into markup without escaping. Reuses `cut_paths`.
+pub fn plain(text: &str, ctx: &RedactContext) -> String {
+    cut_paths(text, ctx)
+}
+
 /// `text` redacted in strict mode, then with its e-mail addresses masked (strict does not mask them, and a page may be
 /// sent on), then with its paths cut down (home folder first, then folder paths). Every export text goes through here
 /// before it is split into lines, so no line of a page or file keeps an address.

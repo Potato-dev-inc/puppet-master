@@ -2,7 +2,7 @@ use super::*;
 
 use crate::redact::RedactContext;
 use crate::session_chat::detail::{PlanItem, PlanStatus, ToolDetail};
-use crate::session_chat::export_text::{escape, strip_paths};
+use crate::session_chat::export_text::{escape, plain, strip_paths};
 use crate::session_chat::model::{ChatItem, TurnOutcome};
 use serde_json::json;
 
@@ -385,4 +385,20 @@ fn text_with_an_at_sign_that_is_not_an_address_stays() {
     let html = render(&[agent(1, "install @scope/pkg and foo@1.2.3 now")]);
     assert!(html.contains("@scope/pkg"));
     assert!(html.contains("foo@1.2.3"));
+}
+
+#[test]
+fn plain_text_drops_the_key_and_the_user_folder() {
+    let text = format!(r"key {FAKE_TOKEN} in C:\Users\you\proj\a.rs");
+    let out = plain(&text, &ctx());
+    assert!(!out.contains("sk-ant-api03"), "{out}");
+    assert!(!out.contains("Users"), "{out}");
+    assert!(!out.contains("you"), "{out}");
+    assert!(out.contains("a.rs"), "{out}");
+}
+
+#[test]
+fn plain_text_is_not_html_escaped() {
+    let out = plain(r#"a <b> & "c" C:\Users\you\x\y.rs"#, &ctx());
+    assert!(out.contains("<b>") && out.contains('&') && out.contains("\"c\""), "{out}");
 }
