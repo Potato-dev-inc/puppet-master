@@ -2,8 +2,7 @@
 // (bridge POST /channels/telegram/off). Turning it on, pairing and every other setting stay on the PC.
 // The row shows only while the PC says Telegram is on, so a phone with no paired chat never sees it.
 import { useEffect, useMemo, useState } from 'react';
-import { ngrokRequestHeaders } from '../../lib/bridge-ngrok';
-import { mergeBridgeHeaders } from '../../lib/mobile-pairing-auth';
+import { getTelegramPhoneStatus, turnTelegramOff } from '../../lib/telegram-bridge';
 
 export interface TelegramOffDeps {
   /** GET /channels/telegram. Only `on` matters here: it is false until the chat is paired and turned on. */
@@ -12,18 +11,12 @@ export interface TelegramOffDeps {
   turnOff: () => Promise<void>;
 }
 
-/** Real calls to the paired phone's bridge. Same header rules as `push-client.ts`. */
+/** Real calls to the paired phone's bridge, through `lib/telegram-bridge.ts`. */
 export function browserTelegramDeps(baseUrl: string): TelegramOffDeps {
-  async function call<T>(method: string, path: string): Promise<T> {
-    const headers = mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl) });
-    const res = await fetch(`${baseUrl}${path}`, { method, headers });
-    if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
-    return (await res.json()) as T;
-  }
   return {
-    status: () => call<{ on: boolean }>('GET', '/channels/telegram'),
+    status: () => getTelegramPhoneStatus(baseUrl),
     turnOff: async () => {
-      await call('POST', '/channels/telegram/off');
+      await turnTelegramOff(baseUrl);
     },
   };
 }
