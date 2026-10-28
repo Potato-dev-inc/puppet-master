@@ -504,6 +504,12 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// Where this agent keeps ALL its old chats, so the importer can list and read them (`crate::session_chat::history`).
+    /// `None` (the default): the importer does not bring in this agent's old chats.
+    fn session_history(&self) -> Option<&'static dyn crate::session_chat::SessionHistory> {
+        None
+    }
+
     /// The local HTTP API this agent serves its session on, which the chat view reads when `session_chat` has no
     /// file for it (`crate::session_chat::SessionApi`). `None` (the default): none. The screen is read while the API
     /// does not answer.

@@ -48,8 +48,7 @@ pub struct Note {
 
 impl Note {
     /// The send the poller performs: to the paired chat, linked to `remember` once Telegram gives the
-    /// message an id. TODO(TG-12): the engine has no notify entry point yet; the live wiring (hub events
-    /// to `Notifier::offer`) pushes this effect into the poller's `Running::outbox`.
+    /// message an id. `runtime::Runtime` queues it in the poller's `Running::outbox` (`feed.rs`).
     pub fn into_effect(self) -> crate::channels::engine::Effect {
         crate::channels::engine::Effect::Send { out: self.out, reply_to: None, remember: self.remember }
     }
@@ -357,6 +356,8 @@ impl Notifier {
             }
             // `companion_reply` builds these messages.
             Kind::CompanionReply => (Vec::new(), Vec::new()),
+            // The Night Shift morning push is for the phones only (`push::night`); the chat gets none.
+            Kind::NightShift => (Vec::new(), Vec::new()),
         }
     }
 }

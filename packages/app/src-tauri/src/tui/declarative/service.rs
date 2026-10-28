@@ -48,9 +48,10 @@ pub fn error_json(error: &DefError) -> Value {
 }
 
 fn entry_json(entry: &Entry, approvals: &Approvals) -> Value {
-    // Who approved it, when the wizard did (SPEC 11.19): Settings shows "Approved by the wizard after N checks passed".
+    // Who approved it, when it was not a person: the wizard (SPEC 11.19: "Approved by the wizard after N checks
+    // passed") or the Agent Store (AS-9). Null for a person's own approval.
     let record = (entry.state == DefState::Active).then(|| approvals.get(&entry.path)).flatten();
-    let by_wizard = record.is_some_and(|r| r.approved_by.as_deref() == Some(super::approvals::APPROVED_BY_WIZARD));
+    let approved_by = record.and_then(|r| r.approved_by.clone());
     json!({
         "id": entry.id,
         "file": entry.path.to_string_lossy(),
@@ -62,8 +63,8 @@ fn entry_json(entry: &Entry, approvals: &Approvals) -> Value {
         "binary_changed": entry.binary_changed,
         "experimental": entry.meta.as_ref().is_some_and(|m| m.experimental),
         "label": entry.meta.as_ref().map(|m| m.label.clone()),
-        "approved_by": if by_wizard { json!(super::approvals::APPROVED_BY_WIZARD) } else { Value::Null },
-        "approval_checks": if by_wizard { json!(record.map_or(0, |r| r.checks.len())) } else { Value::Null },
+        "approved_by": approved_by.as_deref().map_or(Value::Null, |by| json!(by)),
+        "approval_checks": if approved_by.is_some() { json!(record.map_or(0, |r| r.checks.len())) } else { Value::Null },
     })
 }
 
@@ -243,9 +244,12 @@ pub fn approve(
     approve_as(inputs, approvals_path, file, fingerprint, None)
 }
 
-/// Who is approving when it is not a person: the Agent Wizard after every check passed (SPEC 11.19). The
-/// record is the same one, with `approved_by` and the labels of the checks next to the usual fields.
+/// Who is approving when it is not a person: the Agent Wizard after every check passed (SPEC 11.19), or the
+/// Agent Store for a shipped file (AS-9). The record is the same one, with `approved_by` and the labels of
+/// the checks next to the usual fields.
 pub struct WizardApproval<'a> {
+    /// What the record says in `approved_by`: `APPROVED_BY_WIZARD` or `APPROVED_BY_STORE`.
+    pub label: &'static str,
     pub checks: &'a [String],
     /// The folders the wizard looked for the program in (its own search path); `None`: the process `PATH`.
     pub search: Option<&'a [PathBuf]>,
@@ -295,7 +299,7 @@ pub fn approve_as(
         approved_at: now_rfc3339(),
         headless_argv,
         tui_argv,
-        approved_by: by.map(|_| super::approvals::APPROVED_BY_WIZARD.to_string()),
+        approved_by: by.map(|b| b.label.to_string()),
         checks: by.map(|b| b.checks.to_vec()).unwrap_or_default(),
     });
     approvals.save(approvals_path).map_err(|e| ServiceError::new(503, "AGENT_DEF_STORE_FAILED", e))?;
@@ -325,7 +329,42 @@ pub fn approve_current_as_wizard(
         .find(|f| canonical_project(&f.path.to_string_lossy()) == wanted)
         .and_then(|f| f.fingerprint.clone())
         .ok_or_else(|| ServiceError::new(404, "AGENT_DEF_NOT_FOUND", format!("no definition file {file}")))?;
-    approve_as(inputs, approvals_path, file, &fingerprint, Some(&WizardApproval { checks, search }))
+    let by = WizardApproval { label: super::approvals::APPROVED_BY_WIZARD, checks, search };
+    approve_as(inputs, approvals_path, file, &fingerprint, Some(&by))
+}
+
+/// The Agent Store's approval (AS-9): only for a file whose bytes equal `embedded_text`, the copy shipped in this
+/// app version. Re-reads the file now (anything else is `STORE_FILE_CHANGED`), then records the same approval as
+/// the wizard's with `approved_by: "store"` and the checks "Shipped in this app version" and "catalog <catalog8>".
+/// A later edit makes the record stale like any other approval.
+pub fn approve_as_store(
+    inputs: &LoadInputs<'_>,
+    approvals_path: &Path,
+    file: &str,
+    embedded_text: &str,
+    catalog8: &str,
+) -> Result<Value, ServiceError> {
+    let on_disk = std::fs::read(file).map_err(|_| {
+        ServiceError::new(409, "STORE_FILE_CHANGED", "the definition file could not be read; add the agent again from the Agent Store")
+    })?;
+    if on_disk != embedded_text.as_bytes() {
+        return Err(ServiceError::new(
+            409,
+            "STORE_FILE_CHANGED",
+            "the definition file no longer matches the Agent Store copy of this app version",
+        ));
+    }
+    let wanted = canonical_project(file);
+    let (files, _) = load_all(inputs);
+    let fingerprint = files
+        .iter()
+        .filter(|f| f.origin.source != Source::Bundled)
+        .find(|f| canonical_project(&f.path.to_string_lossy()) == wanted)
+        .and_then(|f| f.fingerprint.clone())
+        .ok_or_else(|| ServiceError::new(404, "AGENT_DEF_NOT_FOUND", format!("no definition file {file}")))?;
+    let checks = ["Shipped in this app version".to_string(), format!("catalog {catalog8}")];
+    let by = WizardApproval { label: super::approvals::APPROVED_BY_STORE, checks: &checks, search: None };
+    approve_as(inputs, approvals_path, file, &fingerprint, Some(&by))
 }
 
 /// The visible-pane command the Approve dialog shows. A generic agent has no `[tui]` table (it is

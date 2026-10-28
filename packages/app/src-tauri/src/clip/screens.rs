@@ -76,6 +76,7 @@ impl TimeMap {
     }
 
     /// Length of the replay in clip milliseconds.
+    #[allow(dead_code)] // part of the time map's API; `plan` reads the length from `Replayed`
     pub fn length_ms(&self) -> u32 {
         self.length_ms
     }
@@ -116,6 +117,7 @@ pub struct Replayed {
     pub speed_x: u32,
     /// Raw speed: window length over clip length, rounded, at least 1. Pauses count in full. Not
     /// shown by default; kept for a plan that needs the unsqueezed ratio.
+    #[allow(dead_code)]
     pub raw_speed_x: u32,
     pub length_ms: u32,
     /// The ring holds at least half of the turn. When false, show the steps instead.
@@ -130,6 +132,7 @@ pub struct Replayed {
 ///
 /// `None` when there is nothing to show: the window is under 2 s, the ring has no output in it, or
 /// every frame is blank. A ring that starts too late is `Some` with `covered == false`.
+#[allow(dead_code)] // `plan` calls `replay_every` itself; this is the one-step form the tests use
 pub fn replay(snap: &Snapshot, start_ms: u64, end_ms: u64) -> Option<Replayed> {
     let fine = replay_every(snap, start_ms, end_ms, KEYFRAME_MS)?;
     if fine.frames.len() <= MAX_FRAMES {

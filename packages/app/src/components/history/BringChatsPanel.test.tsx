@@ -220,3 +220,37 @@ describe('BringChatsPanel', () => {
     expect(api.look).toHaveBeenLastCalledWith(30);
   });
 });
+
+describe('BringChatsPanel startLooking (the caller already asked)', () => {
+  async function renderWith(api: ImportApi, props: { startLooking?: boolean }) {
+    await act(async () => {
+      root.render(<BringChatsPanel api={api} {...props} />);
+    });
+    for (let i = 0; i < 4; i++) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+  }
+
+  it('looks once when it opens, with the saved window, and does not look again on re-render', async () => {
+    const api = fakeApi();
+    await renderWith(api, { startLooking: true });
+    expect(api.look).toHaveBeenCalledTimes(1);
+    expect(api.look).toHaveBeenCalledWith(365);
+    expect(text()).toContain('Claude Code · 412 chats · 38 MB');
+    expect(findMyChats()).toBeUndefined();
+    await renderWith(api, { startLooking: true });
+    expect(api.look).toHaveBeenCalledTimes(1);
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it('without the prop the intro waits for its own Find my chats press', async () => {
+    const api = fakeApi();
+    await renderWith(api, {});
+    expect(api.look).not.toHaveBeenCalled();
+    expect(findMyChats()).toBeTruthy();
+    await click(findMyChats());
+    expect(api.look).toHaveBeenCalledTimes(1);
+  });
+});

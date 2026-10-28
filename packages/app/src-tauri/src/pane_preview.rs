@@ -1,5 +1,6 @@
 //! Dev-server URLs a pane has printed ("Local: http://localhost:5173/"), so the cockpit can offer
 //! a Preview button. Agent-agnostic: it reads the visible screen tail, never an agent's name.
+//! The cockpit opens these URLs in Point and Fix (`point/`), which looks them up here by pane and port.
 //!
 //! Cost model: no work in the PTY reader. `observe` is called from `pane_activity::tick_with` for
 //! the panes the activity ticker already decided to recompute (at most once per second per pane,

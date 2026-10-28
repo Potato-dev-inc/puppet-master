@@ -50,11 +50,13 @@ mod second_opinion;
 mod session_chat;
 mod chat_index_settings;
 mod chat_export;
+mod clip;
 mod keep_going;
 mod tunnel;
 mod toolbelt;
 mod agent_pack;
 mod point;
+mod channels;
 
 pub use agent_install::*;
 pub use agent_wizard::*;
@@ -99,11 +101,13 @@ pub use pane_outbox::*;
 pub use session_chat::*;
 pub use chat_index_settings::*;
 pub use chat_export::*;
+pub use clip::*;
 pub use keep_going::*;
 pub use tunnel::*;
 pub use toolbelt::*;
 pub use agent_pack::*;
 pub use point::*;
+pub use channels::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

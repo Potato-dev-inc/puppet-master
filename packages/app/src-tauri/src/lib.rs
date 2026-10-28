@@ -170,6 +170,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::new())
         .manage(commands::SessionChatState::default())
+        .manage(clip::store::ClipState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_panes,
             commands::session_chat_open,
@@ -182,6 +183,9 @@ pub fn run() {
             commands::chat_export_html,
             commands::chat_export_markdown,
             commands::chat_export_save,
+            commands::clip_plan,
+            commands::clip_stage,
+            commands::clip_save,
             commands::keep_going_targets,
             commands::keep_going_continue,
             commands::keep_going_lineage,
@@ -472,6 +476,13 @@ pub fn run() {
             commands::question_dismiss,
             commands::agent_authority_get,
             commands::agent_authority_set,
+            commands::telegram_status,
+            commands::telegram_set_token,
+            commands::telegram_pair_start,
+            commands::telegram_pair_decide,
+            commands::telegram_set_enabled,
+            commands::telegram_set_options,
+            commands::telegram_forget,
             commands::agent_run_mode_get,
             commands::agent_run_mode_set,
             commands::audit_recent,
@@ -586,6 +597,9 @@ pub fn run() {
             };
 
             push::init(app.state::<AppState>().registry.clone());
+
+            // Text your agents: starts only if the person turned Telegram on before.
+            channels::start(app.handle().clone(), app.state::<AppState>().registry.clone());
 
             #[cfg(debug_assertions)]
             let _ = &bridge_url;

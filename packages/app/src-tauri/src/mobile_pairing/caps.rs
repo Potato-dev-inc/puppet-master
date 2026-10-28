@@ -155,6 +155,10 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         | ("POST", ["push", "presence" | "act"]) => {
             Need::Device
         }
+        // Telegram ("Text your agents"): a paired phone may read whether it is on and switch it OFF. There is
+        // no route that turns it on or pairs a chat (that is the PC only). Listed exactly: a later
+        // channels route falls through to watch/control.
+        ("GET", ["channels", "telegram"]) | ("POST", ["channels", "telegram", "off"]) => Need::Device,
 
         // A pane's chat (what the agent said and did) is pane text like a screen: it needs `watch`.
         ("GET", ["panes", _, "chat"]) => Need::Cap(Watch),
@@ -469,6 +473,19 @@ data: {\"v\":1,\"companions\":[]}
         assert_eq!(route_need("POST", &["push", "presence"]), Need::Device);
         assert_eq!(route_need("POST", &["push", "act"]), Need::Device);
         assert_eq!(route_need("POST", &["push", "broadcast"]), Need::Cap(Control), "a later push route fails closed");
+    }
+
+    #[test]
+    fn a_phone_may_read_telegram_status_and_switch_it_off_but_nothing_else() {
+        assert_eq!(route_need("GET", &["channels", "telegram"]), Need::Device);
+        assert_eq!(route_need("POST", &["channels", "telegram", "off"]), Need::Device);
+        // No way to turn it on, pair, or change what it may do: a later route fails closed.
+        assert_eq!(route_need("POST", &["channels", "telegram", "on"]), Need::Cap(Cap::Control));
+        assert_eq!(route_need("POST", &["channels", "telegram"]), Need::Cap(Cap::Control));
+        assert_eq!(route_need("POST", &["channels", "telegram", "pair"]), Need::Cap(Cap::Control));
+        assert_eq!(route_need("PUT", &["channels", "telegram", "caps"]), Need::Cap(Cap::Control));
+        assert_eq!(route_need("DELETE", &["channels", "telegram"]), Need::Cap(Cap::Control));
+        assert_eq!(route_need("GET", &["channels", "telegram", "config"]), Need::Cap(Cap::Watch));
     }
 
     fn data_of(frame: &str) -> serde_json::Value {
