@@ -293,10 +293,43 @@ fn pr_title_with(s: &IssueSnapshot, clean: &dyn Fn(&str) -> String) -> String {
     }
 }
 
+/// Who let the run start, for the last line of the pull request body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Approval {
+    /// The person tapped Start (on the desktop or the phone).
+    Person,
+    /// The repo does not ask first and the label came from someone on the list.
+    Allowed,
+}
+
+impl Approval {
+    /// `approved_by` of an issue run: `desktop` and `phone` are the person; anything else is not.
+    pub fn of(approved_by: Option<&str>) -> Approval {
+        match approved_by {
+            Some("desktop" | "phone") => Approval::Person,
+            _ => Approval::Allowed,
+        }
+    }
+
+    fn line(self) -> &'static str {
+        match self {
+            Approval::Person => "- Started after the person said yes",
+            Approval::Allowed => "- Started automatically (the label was added by an allowed person)",
+        }
+    }
+}
+
 /// The draft pull request body. It starts `Refs #42` (never `Closes`), says what Puppet Master made,
 /// and has the change facts with no task text. Cleaned for publishing (see [`publish_clean`]).
-pub fn pr_body(s: &IssueSnapshot, facts: &PrFacts, agent_label: &str, turns: u32, minutes: u32) -> String {
-    pr_body_with(s, facts, agent_label, turns, minutes, &publish_clean)
+pub fn pr_body(
+    s: &IssueSnapshot,
+    facts: &PrFacts,
+    agent_label: &str,
+    turns: u32,
+    minutes: u32,
+    approval: Approval,
+) -> String {
+    pr_body_with(s, facts, agent_label, turns, minutes, approval, &publish_clean)
 }
 
 fn pr_body_with(
@@ -305,6 +338,7 @@ fn pr_body_with(
     agent_label: &str,
     turns: u32,
     minutes: u32,
+    approval: Approval,
     clean: &dyn Fn(&str) -> String,
 ) -> String {
     let facts = PrFacts { task: None, ..facts.clone() };
@@ -314,7 +348,8 @@ fn pr_body_with(
     );
     body.push_str(&render_body(&facts));
     body.push_str(&format!(
-        "## How it was made\n\n- Agent: {agent_label} \u{b7} {turns} turns \u{b7} {minutes} min\n- Started by Puppet Master after your yes, or on its own for an allowed labeler\n"
+        "## How it was made\n\n- Agent: {agent_label} \u{b7} {turns} turns \u{b7} {minutes} min\n{}\n",
+        approval.line()
     ));
     neutralize_closing(&clean(&body))
 }
@@ -547,7 +582,7 @@ mod tests {
     fn pr_body_masks_an_e_mail_address_from_the_agent_summary() {
         let s = snap(PLAIN_TITLE, PLAIN_BODY, "someone");
         let facts = PrFacts { summary: Some("Asked you@example.com about the fix.".to_string()), ..PrFacts::default() };
-        let body = pr_body_with(&s, &facts, "Test Agent", 30, 45, &|t: &str| publish_text(t, &RedactContext::default(), None));
+        let body = pr_body_with(&s, &facts, "Test Agent", 30, 45, Approval::Person, &|t: &str| publish_text(t, &RedactContext::default(), None));
         assert!(!body.contains("you@example.com"), "{body}");
         assert!(body.contains("Asked <email> about the fix."), "{body}");
     }
@@ -562,7 +597,7 @@ mod tests {
     #[test]
     fn pr_body_starts_with_refs_and_closes_nothing() {
         let s = snap(PLAIN_TITLE, PLAIN_BODY, "someone");
-        let body = pr_body_with(&s, &facts(), "Test Agent", 30, 45, &|t: &str| strip_home(t, None));
+        let body = pr_body_with(&s, &facts(), "Test Agent", 30, 45, Approval::Person, &|t: &str| strip_home(t, None));
         assert!(body.starts_with("Refs #42\n\nDraft pull request made by Puppet Master: Test Agent worked on issue #42"));
         assert!(!body.to_lowercase().contains("closes"), "{body}");
         assert!(!body.to_lowercase().contains("fixes"), "{body}");
@@ -571,6 +606,20 @@ mod tests {
         assert!(body.contains("~\\billing\\pay.rs"), "{body}");
         assert!(!body.contains("secret task text"), "the task is not in the body");
         assert!(body.contains("## How it was made\n\n- Agent: Test Agent \u{b7} 30 turns \u{b7} 45 min\n"), "{body}");
+    }
+
+    #[test]
+    fn pr_body_says_who_let_the_run_start() {
+        let s = snap(PLAIN_TITLE, PLAIN_BODY, "someone");
+        let plain = |t: &str| strip_home(t, None);
+        let person = pr_body_with(&s, &facts(), "Test Agent", 3, 4, Approval::Person, &plain);
+        assert!(person.ends_with("- Started after the person said yes\n"), "{person}");
+        let allowed = pr_body_with(&s, &facts(), "Test Agent", 3, 4, Approval::Allowed, &plain);
+        assert!(allowed.ends_with("- Started automatically (the label was added by an allowed person)\n"), "{allowed}");
+        assert_eq!(Approval::of(Some("desktop")), Approval::Person);
+        assert_eq!(Approval::of(Some("phone")), Approval::Person);
+        assert_eq!(Approval::of(Some("auto")), Approval::Allowed);
+        assert_eq!(Approval::of(None), Approval::Allowed);
     }
 
     #[test]

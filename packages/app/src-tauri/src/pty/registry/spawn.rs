@@ -52,6 +52,26 @@ pub(super) fn process_alive(_pid: u32) -> bool {
     true
 }
 
+/// The pane's launch env, lowest to highest: the account's, the hook lane's (token), the pane id,
+/// then the env guard (when the run has one), which wins over all of them. The hook token and the
+/// pane id are the app's own variables for this pane, so a guard never strips them.
+pub(super) fn compose_pane_env(
+    account: crate::tui::LaunchEnv,
+    hook_env: Vec<(String, String)>,
+    pane_id: &str,
+    guard: Option<crate::tui::LaunchEnv>,
+) -> crate::tui::LaunchEnv {
+    let mut env = account;
+    let mut own: Vec<String> = hook_env.iter().map(|(name, _)| name.clone()).collect();
+    env.set.extend(hook_env);
+    env.set.push((crate::pty::PANE_ID_ENV.to_string(), pane_id.to_string()));
+    own.push(crate::pty::PANE_ID_ENV.to_string());
+    match guard {
+        Some(guard) => crate::pty::env_guard::layer(env, guard, &own),
+        None => env,
+    }
+}
+
 /// The PTY command for a registered profile: its `spawn_command` when it has one, otherwise the
 /// code launch path (`AgentType` + `resolve_command`), which only the built-in ids have.
 pub(super) fn launch_command(
@@ -110,12 +130,23 @@ pub fn spawn_pane(
     args: SpawnPaneArgs,
 ) -> Result<String, String> {
     if args.agent_type == "opencode_native" {
+        // A native pane is not a launched process this spawn can put an env on: a guarded run is
+        // refused instead of running unguarded.
+        if let Some(guard) = args.guard_env.as_deref() {
+            return Err(format!("env guard {guard:?} cannot be applied to a native pane; the launch is refused"));
+        }
         return crate::opencode::native::spawn_native_pane(Arc::clone(registry), app, args);
     }
 
     let profile = crate::tui::require_registered(&args.agent_type).map_err(|unknown| {
         crate::operations::OperationError::unknown_agent_type(unknown.id, unknown.valid).message
     })?;
+
+    // The guard is resolved before anything starts or is replaced: an unknown name refuses the spawn.
+    let guard_env = match args.guard_env.as_deref() {
+        Some(guard) => Some(crate::pty::guard_launch::launch_env_for(guard)?),
+        None => None,
+    };
 
     let cwd = crate::project_path::resolve_spawn_cwd(
         args.cwd.clone(),
@@ -157,10 +188,8 @@ pub fn spawn_pane(
     // the agent has no hooks or they are off, so such a pane starts exactly as before.
     let user_args = args.extra_args.clone().unwrap_or_default();
     let hooks = crate::agent_hooks::prepare_spawn(profile.id(), &pane_id, &cwd, &user_args);
-    let mut account_env = account_env;
-    account_env.set.extend(hooks.env);
     // Names the pane to any MCP shim the agent starts, so a helper it starts can be nested under it.
-    account_env.set.push((crate::pty::PANE_ID_ENV.to_string(), pane_id.clone()));
+    let account_env = compose_pane_env(account_env, hooks.env, &pane_id, guard_env);
     // An agent that serves its session over a local API is told where (the chat view reads it from there).
     let api_args = profile.prepare_session_api(&pane_id, &user_args);
     // An agent that can be told its session id gets one now, so the chat view finds this pane's own file.

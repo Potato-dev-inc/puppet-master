@@ -396,6 +396,11 @@ pub struct WorkerPersist {
     /// The user account (`crate::accounts`) this worker runs under; absent = the CLI's own login.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// The env guard this run's pane or process starts under (`pty::env_guard`, e.g. `no_push`).
+    /// Set only by Rust code inside the app, never from a request body. Persisted so a restart,
+    /// a headless fallback and a follow-up keep it. Absent = no guard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard_env: Option<String>,
     /// A warm standby worker (`crate::standby`) ran this turn instead of a freshly spawned one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub standby_used: bool,

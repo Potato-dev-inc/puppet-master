@@ -550,6 +550,7 @@ mod runtime {
                 pane_id: None,
                 read_only: false,
                 account: account.map(str::to_string),
+                guard_env: None,
             },
         )?;
         let info = state.registry.lock().list().into_iter().find(|p| p.id == pane_id);

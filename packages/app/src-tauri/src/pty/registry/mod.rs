@@ -409,6 +409,8 @@ mod codex_live_tests;
 #[cfg(test)]
 mod host_shell_tests;
 #[cfg(test)]
+mod guard_env_tests;
+#[cfg(test)]
 mod kill_tests;
 #[cfg(test)]
 mod live_permit_tests;

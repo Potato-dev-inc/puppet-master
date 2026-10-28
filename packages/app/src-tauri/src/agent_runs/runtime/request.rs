@@ -171,4 +171,9 @@ pub struct AgentRunRequest {
     /// runs) keeps the mode it names.
     #[serde(skip)]
     pub(crate) headless_unset: bool,
+    /// Crate-internal (never in the MCP schema, never read from a JSON body): the env guard the
+    /// run's pane or process starts under (`pty::env_guard`). Only Rust code inside the app sets
+    /// it. A guarded run never takes a standby or an existing pane and never adopts a pane id.
+    #[serde(skip)]
+    pub(crate) guard_env: Option<String>,
 }
