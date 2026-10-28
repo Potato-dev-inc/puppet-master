@@ -5,7 +5,7 @@
 
 mod format;
 mod history_table;
-mod path;
+pub(crate) mod path;
 mod source;
 mod table;
 

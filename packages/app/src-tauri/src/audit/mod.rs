@@ -76,6 +76,8 @@ pub enum Kind {
     ChannelMessage,
     ChannelStranger,
     ChannelError,
+    /// Night Shift (`crate::night_shift`): one kind for the night's own lines (start, task, stop).
+    NightShift,
 }
 
 impl Kind {
@@ -110,6 +112,7 @@ impl Kind {
             Self::ChannelMessage => "channel.message",
             Self::ChannelStranger => "channel.stranger",
             Self::ChannelError => "channel.error",
+            Self::NightShift => "night_shift",
         }
     }
 }

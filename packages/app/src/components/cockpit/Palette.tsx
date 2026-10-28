@@ -3,6 +3,7 @@ import type { CockpitApi } from '../../hooks/useCockpit';
 import { openPreview, previewLabel } from '../../lib/pane-preview';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { requestChatJump } from '../../lib/chatJump';
+import { requestBringChats, requestImportedChat } from '../../lib/chatImport';
 import type { ChatHit } from '../../lib/chatSearch';
 import { useChatSearch } from '../../hooks/useChatSearch';
 import { useChatFacets } from '../../hooks/useChatFacets';
@@ -195,6 +196,15 @@ export function Palette({
         setQuery('');
       },
     });
+    out.push({
+      id: 'act:bring-chats',
+      group: 'Actions',
+      title: 'Bring my old chats',
+      desc: 'Read the chats you had in other agents, into search. Nothing leaves this PC.',
+      keywords: 'import old chats claude codex opencode history bring read',
+      icon: <IconNote />,
+      run: requestBringChats,
+    });
     if (onStopAll) {
       out.push({
         id: 'act:stop-all',
@@ -331,6 +341,12 @@ export function Palette({
   // Opens the pane's Chat at the message; a pane that is gone shows what was kept.
   const chooseHit = (hit: ChatHit | undefined) => {
     if (!hit) return;
+    // An old chat the person brought in has no pane: it opens read-only in its own sheet, at the message.
+    if (hit.imported) {
+      onClose();
+      requestImportedChat(hit.agent, hit.session, hit.itemId);
+      return;
+    }
     if (!c.registry.panes.has(hit.paneId)) {
       setClosedHit(hit);
       return;

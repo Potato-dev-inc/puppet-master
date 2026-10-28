@@ -12,6 +12,7 @@ import { tauri, type AppInstallInfo, type CoordinationStorageInfo } from '../../
 import { budgetRows } from './BudgetRows';
 import { AmbientSettings } from '../blocks/AmbientSettings';
 import { AskBarSettingsBlock } from '../blocks/AskBarSettings';
+import { BringChatsSettings } from '../blocks/BringChatsSettings';
 import { ChatIndexSettings } from '../blocks/ChatIndexSettings';
 import { DiagnosticFile } from '../blocks/DiagnosticFile';
 import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
@@ -381,6 +382,14 @@ export const generalRows: RowDef[] = [
     keywords: 'keep keeps clear search index chats find ctrl shift f palette history privacy forget saved text',
     group: 'Storage',
     render: (env) => <ChatIndexSettings env={env} />,
+  },
+  {
+    id: 'bring-old-chats',
+    label: 'Bring my old chats',
+    hint: 'Read the chats you had in Claude Code, Codex and other agents on this PC, and add them to Ctrl+Shift+F search. Nothing leaves this computer. Remove them any time.',
+    keywords: 'import old chats claude codex opencode history bring',
+    group: 'Storage',
+    render: (env) => <BringChatsSettings env={env} />,
   },
   {
     id: 'missions',
