@@ -36,10 +36,15 @@ import { CompanionPage } from './components/cockpit/companion/CompanionPage';
 import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './components/cockpit/companion/model';
 import { CompanionSetupSheet } from './components/cockpit/companion/CompanionSetupSheet';
 import { StartCrewSheet } from './components/cockpit/crews/StartCrewSheet';
+import { ShortcutsSheet } from './components/cockpit/ShortcutsSheet';
+import { isTypingTarget } from './components/cockpit/rail/useRailLayout';
 import { agentLabel, useAgentRegistry } from './lib/agentRegistry';
 import './styles/cockpit.css';
 
 export type { MainView } from './components/cockpit/main-view';
+
+/** True inside a pane's terminal, where `?` is typed text. */
+const inTerminal = (target: EventTarget | null): boolean => target instanceof Element && target.closest('.terminal-host, .pm-canvas-terminal') !== null;
 
 export default function CockpitApp() {
   const c = useCockpit();
@@ -84,6 +89,8 @@ export default function CockpitApp() {
   const [setupOpen, setSetupOpen] = useState(false);
   // "Start crew…" (crews): pick a saved team and a folder.
   const [crewOpen, setCrewOpen] = useState(false);
+  // The keyboard shortcuts sheet: `?`, Ctrl+/, or "Keyboard shortcuts" in the palette.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const agentListing = useAgentRegistry();
   const companion = companions.companions?.find((x) => x.id === companionId) ?? null;
   const openCompanion = (id: string) => {
@@ -182,6 +189,20 @@ export default function CockpitApp() {
         setPaletteMode('chats');
         setPaletteOpen(true);
       }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
+  // `?` (not while typing in a box or a terminal) or Ctrl+/ opens the keyboard shortcuts sheet.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.altKey || e.defaultPrevented) return;
+      const questionMark = e.key === '?' && !e.ctrlKey && !e.metaKey && !isTypingTarget(e.target) && !inTerminal(e.target);
+      const ctrlSlash = e.key === '/' && (e.ctrlKey || e.metaKey) && !e.shiftKey;
+      if (!questionMark && !ctrlSlash) return;
+      e.preventDefault();
+      setShortcutsOpen(true);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -317,6 +338,7 @@ export default function CockpitApp() {
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}
           onStartCrew={() => setCrewOpen(true)}
+          onOpenShortcuts={() => setShortcutsOpen(true)}
           companions={companions.companions}
           onOpenCompanion={openCompanion}
           onNewCompanion={companions.companions ? () => setSetupOpen(true) : undefined}
@@ -329,6 +351,7 @@ export default function CockpitApp() {
           onClose={() => setCrewOpen(false)}
         />
       )}
+      {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
       {setupOpen && (
         <CompanionSetupSheet
           transport={tauriCompanionTransport}
