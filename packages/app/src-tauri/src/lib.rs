@@ -116,6 +116,7 @@ pub mod watch_command;
 pub mod env_probe;
 mod webview_service_worker;
 mod live_room;
+mod collision;
 
 use commands::AppState;
 use std::path::{Path, PathBuf};
