@@ -292,6 +292,12 @@ async function run(argv) {
     const hitOption = `((list) => list.find((o) => o.innerText.includes('Old chat') && o.innerText.toLowerCase().includes(${JSON.stringify(query)})) ?? list.find((o) => o.innerText.includes('Old chat')) ?? null)([...document.querySelectorAll('[role="option"]')])`;
     await clickAt(hitOption, 'the Old chat hit');
     await waitFor(`!!document.querySelector('.history-viewer')`, 'the read-only viewer');
+    // The sheet fades in and loads the chat: wait for the banner and the text, so the read below is not a race.
+    await waitFor(
+      `(() => { const v = document.querySelector('.history-viewer'); return !!v && /read-only/i.test(v.querySelector('.history-viewer-banner')?.innerText ?? '') && v.innerText.toLowerCase().includes(${JSON.stringify(query)}); })()`,
+      'the viewer to show the banner and the text',
+      15000,
+    );
     const viewer = await cdp.evaluate(
       `(() => { const v = document.querySelector('.history-viewer'); if (!v) return null; return {
         banner: v.querySelector('.history-viewer-banner')?.innerText ?? '',
