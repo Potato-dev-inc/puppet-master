@@ -47,3 +47,5 @@ packages/app/src-tauri/src/tui/claude/fixtures/ask_user_question_*.txt text eol=
 packages/app/src-tauri/src/tui/opencode/fixtures/*.json text eol=lf
 # Retyped from a screenshot, include_str!-ed by the Codex update-menu tests; keep LF.
 packages/app/src-tauri/src/tui/codex/fixtures/update_prompt_0_164_live.txt text eol=lf
+# Keep-going brief golden fixtures are compared byte for byte: keep them LF on every checkout.
+packages/app/src-tauri/src/handoff/keep_going/fixtures/*.txt text eol=lf
