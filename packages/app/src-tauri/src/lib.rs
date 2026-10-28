@@ -90,6 +90,7 @@ mod device_caps_tests;
 mod session_context;
 mod chat_index;
 mod session_chat;
+mod scores;
 mod secrets;
 mod settings_store;
 mod settings_patch;
