@@ -356,3 +356,31 @@ describe('Assign an issue cards in the Inbox', () => {
     expect(cards().some((c) => c.dataset.kind === 'question')).toBe(true);
   });
 });
+
+describe('Red to Green cards in the Inbox', () => {
+  it('draws a CI fix card, and a number key never answers it', () => {
+    const fixCard: Question = {
+      id: 'ci-1',
+      kind: 'ci_fix',
+      question: 'CI failed on #61 (lint). Ask Codex to fix it?',
+      context: 'Repo: acme/billing (pull request #61)\nTry 1 of 2 · It continues in its pane',
+      choices: [{ id: 'fix', label: 'Ask Codex to fix' }, { id: 'not_now', label: 'Not now' }],
+      allow_free_text: false,
+      urgency: 'normal',
+      created_at_ms: NOW - 30_000,
+      expires_at_ms: NOW + 600_000,
+      state: 'pending',
+    };
+    const { api, answerQuestion } = fixture({ questions: [question(), fixCard] });
+    mount(api);
+    const card = cards().find((c) => c.dataset.kind === 'ci')!;
+    expect(card).toBeDefined();
+    expect(card.querySelector('.ib-title')?.textContent).toBe('CI failed on #61. Ask Codex to fix it?');
+    expect(card.querySelector('.ib-meta')?.textContent).toBe('CI failed · #61 · acme/billing');
+    expect(card.hasAttribute('data-guard')).toBe(true);
+    press('1', card.querySelector('button')!);
+    expect(answerQuestion).not.toHaveBeenCalled();
+    // the generic question card is still drawn for the other question
+    expect(cards().some((c) => c.dataset.kind === 'question')).toBe(true);
+  });
+});
