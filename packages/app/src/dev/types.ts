@@ -103,6 +103,8 @@ export interface HarnessScenario {
   missions?: import('./mission-fixtures').MissionScenario;
   /** Keep going: the picker rows, the hand-over lines per pane and the brief the mocked `keep_going_*` commands answer. */
   keepGoing?: import('./keep-going-fixtures').KeepGoingScenario;
+  /** Collision Alert: the alerts and the switch the mocked `collision_*` commands answer (see collision-fixtures.ts). */
+  collision?: import('./collision-fixtures').CollisionScenario;
   /** Night Shift: what the state, plans and checks the mocked `night_*` commands answer (see night-fixtures.ts). */
   night?: import('./night-fixtures').NightScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */

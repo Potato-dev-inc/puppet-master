@@ -33,8 +33,8 @@
 //! - C12 Generic code names no agent. Labels come from the pane descriptors and headings.
 //! - C13 No new bridge route. The loopback trust rules are untouched.
 
-// Phase 0 skeleton: nothing calls these items until the later tasks wire them in. Remove this
-// allow once `live` is hooked up (CA-13).
+// The watch thread is started (CA-13), but the commands that read `live::views`, `ignore` and the
+// settings come with CA-14. Remove this allow once they are wired in.
 #![allow(dead_code)]
 
 pub mod model;
