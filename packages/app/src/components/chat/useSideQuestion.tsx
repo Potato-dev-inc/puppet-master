@@ -7,6 +7,32 @@ import { tauriSideQuestionApi, type SideQuestionApi } from '../../lib/sideQuesti
 import { SideQuestionBox } from './SideQuestionBox';
 
 export const SIDE_SHORTCUT_LABEL = 'Ctrl+;';
+/** How many answers a pane keeps for the "Earlier" list. */
+export const RECENT_LIMIT = 3;
+
+/** One answered side question. Kept in memory only: never saved, never sent to an agent. */
+export interface SideAnswer {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+/** Pane id -> its last answers, newest first. Module level, so it lasts until the app closes. Nothing writes it to disk. */
+const recentByPane = new Map<string, readonly SideAnswer[]>();
+
+export function recentSideAnswers(paneId: string): readonly SideAnswer[] {
+  return recentByPane.get(paneId) ?? [];
+}
+
+/** Puts an answer first and keeps only the last `RECENT_LIMIT` for that pane. */
+export function keepSideAnswer(paneId: string, entry: SideAnswer): void {
+  recentByPane.set(paneId, [entry, ...recentSideAnswers(paneId)].slice(0, RECENT_LIMIT));
+}
+
+/** Tests only: forget every pane's answers. */
+export function clearRecentSideAnswers(): void {
+  recentByPane.clear();
+}
 
 /** Ctrl+; (Cmd+; on a Mac), with no other modifier. */
 export function isSideShortcut(event: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): boolean {
@@ -23,12 +49,21 @@ function isShown(el: Element | null): boolean {
 
 export function useSideQuestion(paneId: string, turns: readonly ChatTurn[], api: SideQuestionApi = tauriSideQuestionApi): { button: ReactNode; box: ReactNode } {
   const [open, setOpen] = useState(false);
+  // Bumped when an answer is kept, so the box re-reads the pane's list.
+  const [, setVersion] = useState(0);
   const anchor = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => {
     setOpen(false);
     // Hand the keyboard back to the chat.
     anchor.current?.focus();
   }, []);
+  const onAnswer = useCallback(
+    (entry: SideAnswer) => {
+      keepSideAnswer(paneId, entry);
+      setVersion((n) => n + 1);
+    },
+    [paneId],
+  );
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -52,6 +87,8 @@ export function useSideQuestion(paneId: string, turns: readonly ChatTurn[], api:
       Ask aside
     </button>
   );
-  const box = open ? <SideQuestionBox paneId={paneId} api={api} turns={turns} onClose={close} /> : null;
+  const box = open ? (
+    <SideQuestionBox paneId={paneId} api={api} turns={turns} recent={recentSideAnswers(paneId)} onAnswer={onAnswer} onClose={close} />
+  ) : null;
   return { button, box };
 }

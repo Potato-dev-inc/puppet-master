@@ -62,6 +62,16 @@ export interface WorktreeItem {
   pr?: import('./ship-api').PrRef | null;
 }
 
+/** Who last changed a file in a project folder, from its turn summaries (`changes_blame`). */
+export interface ChangeBlame {
+  /** The agent's display name ("Codex"). */
+  agent: string;
+  /** The pane's title when the pane is still open. */
+  paneTitle: string | null;
+  /** When the turn that changed the file ended (epoch ms). */
+  atMs: number;
+}
+
 export interface WorktreeFile {
   path: string;
   status: 'added' | 'modified' | 'deleted';
@@ -261,6 +271,9 @@ export const cockpitApi = {
   ambientGetPrefs: () => call<{ animated_tray_icon: boolean }>('ambient_get_prefs'),
   ambientSetAnimatedTray: (enabled: boolean) => call<void>('ambient_set_animated_tray', { enabled }),
   turnSummaries: (paneId: string) => call<TurnSummary[]>('turn_summaries', { paneId }),
+  /** The agent (and pane) that last changed each path in `project`; a file no turn touched has no entry. */
+  changesBlame: (project: string, paths: string[]) =>
+    call<Record<string, ChangeBlame>>('changes_blame', { project, paths }),
   presenceCockpitFocus: (focused: boolean) => call<void>('presence_cockpit_focus', { focused }),
   awayDigestPending: () => call<Digest | null>('away_digest_pending'),
   awayDigestDismiss: () => call<void>('away_digest_dismiss'),

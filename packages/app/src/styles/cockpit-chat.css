@@ -743,6 +743,47 @@
   display: flex;
   gap: 6px;
 }
+/* "Earlier": the pane's last side answers, newest first. Each question is a row; a click shows its answer. */
+.cockpit .ck-sq-earlier {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-sq-earlier-title {
+  margin: 0;
+  color: var(--label-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cockpit .ck-sq-earlier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cockpit .ck-sq-earlier-q {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--label);
+  font: 12px/1.4 var(--font-ui);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cockpit .ck-sq-earlier-q:hover,
+.cockpit .ck-sq-earlier-q:focus-visible {
+  background: var(--fill);
+}
 
 /* The message a search result opened: a soft gray wash that fades out. */
 .cockpit .ck-chat-turn.is-found {
