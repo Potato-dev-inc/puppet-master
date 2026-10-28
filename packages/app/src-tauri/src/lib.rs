@@ -428,6 +428,7 @@ pub fn run() {
             commands::budget_adjust,
             commands::pane_usage,
             commands::plans_report,
+            commands::agent_scores,
             commands::pane_worktree,
             commands::pane_git_branch,
             commands::night_state,
