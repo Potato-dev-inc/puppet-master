@@ -91,6 +91,21 @@ describe('the activity line', () => {
     expect(lines().map((line) => line.textContent)).toEqual(['Ran 1 command', 'Searched 1 time']);
   });
 
+  it('says how many rows failed, in a stronger part of the line', () => {
+    const items: ChatItem[] = [
+      { kind: 'user', id: '1:0', at: null, text: 'run it' },
+      { kind: 'toolCall', id: '2:0', at: at(0), callId: 'a', name: 'Bash', summary: 'npm test' },
+      { kind: 'toolResult', id: '3:0', at: at(1), callId: 'a', ok: false, output: 'failed' },
+      { kind: 'toolCall', id: '4:0', at: at(1), callId: 'b', name: 'Bash', summary: 'npm run lint' },
+      { kind: 'toolResult', id: '5:0', at: at(2), callId: 'b', ok: true, output: '' },
+      { kind: 'turnEnd', id: '6:0', at: null, outcome: 'completed', durationMs: 2_000 },
+    ];
+    render(items);
+    expect(lines()[0]!.textContent).toBe('Ran 2 commands (1 failed) · 2s');
+    const failed = lines()[0]!.querySelector('.ck-chat-activity-failed');
+    expect(failed?.textContent?.trim()).toBe('(1 failed)');
+  });
+
   it('shows a helper as its own row, not in the line', () => {
     const items: ChatItem[] = [
       { kind: 'user', id: '1:0', at: null, text: 'review' },

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { cockpitApi, type WorktreeDiff, type WorktreeItem } from '../../lib/cockpit-api';
+import { cockpitApi, type ChangeBlame, type WorktreeDiff, type WorktreeItem } from '../../lib/cockpit-api';
 import { lineKind, plural, splitPatch, statusMark } from './diff';
+import { blameLine } from './blame-line';
 import { secondOpinionApi, type SecondOpinionApi } from '../../lib/second-opinion';
 import { AnnotatedDiff } from './AnnotatedDiff';
 import { anchorFindings, reviewHasConcerns } from './review-diff';
@@ -18,7 +19,9 @@ import '../../styles/cockpit-changes.css';
 export type ChangesApi = Pick<
   typeof cockpitApi,
   'paneWorktree' | 'worktreeDiff' | 'worktreeMerge' | 'worktreeDiscard'
->;
+> &
+  // Optional: a test double without it simply shows no blame.
+  Partial<Pick<typeof cockpitApi, 'changesBlame'>>;
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -96,6 +99,26 @@ export function Changes({
   const review = useReviewRun(paneId);
   const reviewDone = review?.phase === 'done' && review.start?.source === 'worktree' ? review : null;
   const reviewHandle = reviewDone?.start?.handle;
+  // Who last changed each file (from the turn summaries of the copy's folder). Nothing when unknown.
+  const [blame, setBlame] = useState<Record<string, ChangeBlame>>({});
+  useEffect(() => {
+    if (!item?.path || !diff || !api.changesBlame) {
+      setBlame({});
+      return;
+    }
+    let cancelled = false;
+    api
+      .changesBlame(item.path, diff.changes.files.map((f) => f.path))
+      .then((found) => {
+        if (!cancelled) setBlame(found ?? {});
+      })
+      .catch(() => {
+        if (!cancelled) setBlame({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, item?.path, diff]);
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -253,6 +276,7 @@ export function Changes({
       <ul className="ck-changes-files">
         {files.map((f) => {
           const lines = bodies.get(f.path);
+          const who = blame[f.path] ? blameLine(blame[f.path]) : null;
           const isOpen = open === f.path;
           return (
             <li key={f.path}>
@@ -266,6 +290,11 @@ export function Changes({
                   {statusMark(f.status)}
                 </span>
                 <span className="ck-changes-path">{f.path}</span>
+                {who && (
+                  <span className="ck-changes-blame" title={who.title}>
+                    {who.text}
+                  </span>
+                )}
                 <span className="ck-changes-counts">{f.binary ? 'binary' : `+${f.additions} −${f.deletions}`}</span>
                 {(notes?.get(f.path)?.length ?? 0) > 0 && (
                   <span className="ck-changes-notes">{plural(notes?.get(f.path)?.length ?? 0, 'note')}</span>

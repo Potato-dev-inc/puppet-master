@@ -14,6 +14,7 @@ import type { Question, QuestionAnswer } from './questions';
 import type { PhoneChatReply } from './sessionChatModel';
 import type { OutboxMessage } from './paneOutbox';
 import type { CompanionView, FeedItem, MemoryView, PendingDecision } from './companion';
+import type { PlansReport } from './plans-report';
 
 export interface WriteInputOptions {
   viaOpencodeApi?: boolean;
@@ -430,6 +431,8 @@ export interface BridgeClient {
   companionDecidePending?(id: string, itemId: string, decision: PendingDecision): Promise<MemoryView>;
   companionWake?(id: string): Promise<CompanionView>;
   companionSleep?(id: string): Promise<CompanionView>;
+  /** "Your plans" (`GET /plans?month=2026-10`, read only). Absent on old PCs. */
+  plansReport?(month?: string): Promise<PlansReport>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
   postOrchestratorMessage(text: string, messageId: string): Promise<void>;
   postOrchestratorViewport(viewport: {
