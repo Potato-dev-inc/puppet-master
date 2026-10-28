@@ -30,6 +30,11 @@ impl SessionChatState {
             .clone()
     }
 
+    /// The readers, if a chat view has already built them. Reading them never opens a reader.
+    pub fn existing(&self) -> Option<Arc<Watchers>> {
+        self.watchers.get().cloned()
+    }
+
     /// Stops every reader (the app is exiting).
     pub fn shutdown(&self) {
         if let Some(watchers) = self.watchers.get() {

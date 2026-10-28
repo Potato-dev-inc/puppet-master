@@ -509,3 +509,18 @@ fn a_stopped_helper_gives_back_the_turns_it_did_not_use() {
     let next = admit(&project, &second, &helper_of(&mission, Some(8)), Defaults::default(), T0).unwrap().unwrap();
     assert_eq!(next.turns, Some(8));
 }
+
+#[test]
+fn a_runs_turns_and_busy_time_come_from_its_operation_records() {
+    use super::pane_usage::{summarize, TurnRecord};
+    let project = project();
+    let run = handle();
+    finish(&project, &start_turn(&project, &run, 0));
+    start_turn(&project, &run, 1);
+    let turns: Vec<TurnRecord> = operations::turns_for_handle(&project, &run).unwrap().iter().map(TurnRecord::of).collect();
+    let own = summarize(&turns);
+    assert_eq!(own.turns, 2, "the finished turn and the one still queued both count");
+    let finished = turns[0];
+    let expected = finished.finished_at_ms.unwrap() - finished.started_at_ms.unwrap();
+    assert_eq!(own.busy_ms, expected, "only the finished turn adds busy time");
+}

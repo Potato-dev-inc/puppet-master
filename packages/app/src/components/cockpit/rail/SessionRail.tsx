@@ -9,6 +9,7 @@ import { ChangesCard } from './ChangesCard';
 import { ContextCard } from './ContextCard';
 import { HelpersCard, type HelperRow } from './HelpersCard';
 import { TasksCard } from './TasksCard';
+import { usePaneUsage } from './usePaneUsage';
 import { WhereCard } from './WhereCard';
 import { usePaneBranch } from './usePaneBranch';
 
@@ -32,6 +33,8 @@ export function SessionRail({ paneId, status, cwd, agentName, accountLabel, read
   const chat = useSessionChat(paneId, readsChat);
   const branch = usePaneBranch(paneId, status, true);
   const jobs = usePaneJobs()[paneId] ?? [];
+  // Re-read the helpers' usage whenever a status changes: a turn ending is a status change.
+  const usage = usePaneUsage(paneId, helpers.length > 0, [status, ...helpers.map((h) => `${h.id}:${h.status}`)].join('|'));
   return (
     <aside className="ck-rail" aria-label="Session details" data-testid="session-rail">
       {helperOf && (
@@ -44,7 +47,7 @@ export function SessionRail({ paneId, status, cwd, agentName, accountLabel, read
       <TasksCard plan={chat.plan} />
       <ChangesCard outputs={chat.outputs} cwd={cwd} onOpenChanges={onOpenChanges} />
       <BackgroundCard paneId={paneId} jobs={jobs} />
-      <HelpersCard helpers={helpers} onOpen={onOpenPane} />
+      <HelpersCard helpers={helpers} usage={usage} onOpen={onOpenPane} />
     </aside>
   );
 }
