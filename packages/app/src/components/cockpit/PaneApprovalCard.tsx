@@ -43,6 +43,7 @@ export function PaneApprovalCard({
     return (
       <ApprovalPrompt
         variant="card"
+        paneId={paneId}
         prompt={prompt}
         who={who}
         age={age}

@@ -4,11 +4,18 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PanePrompt } from '../../lib/cockpit-api';
 import { LEVEL_WORD, choiceWords, isBroadChoice, layoutChoices } from '../../lib/approval-risk';
+import { packageCheckLookup, type PackageCheckView } from '../../lib/package-check';
+import { LOOKALIKE_PROMPT, LOOKALIKE_VIEW, PLAIN_PROMPT } from '../../dev/package-check-fixtures';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ApprovalPrompt } from './ApprovalPrompt';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock('../../lib/package-check', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/package-check')>()),
+  packageCheckLookup: vi.fn(),
+}));
 
 let host: HTMLDivElement;
 let root: Root;
@@ -281,5 +288,96 @@ describe('the agent\'s own question', () => {
     act(() => btn('Blue')!.click());
     expect(onAnswer).toHaveBeenCalledTimes(1);
     expect(onAnswer.mock.calls[0][0]).toMatchObject({ id: '2', label: 'Blue' });
+  });
+});
+
+describe('ApprovalPrompt package check', () => {
+  const lookalike: PanePrompt = { ...LOOKALIKE_PROMPT, choices };
+  const answerWords = () => Array.from(host.querySelectorAll('[data-ib="answer"]')).map((b) => b.textContent);
+  const rowState = () => host.querySelector('.ck-pc-row')?.getAttribute('data-state');
+
+  /** Lets resolved promises and their state updates run. */
+  async function flush() {
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 0));
+    });
+  }
+
+  beforeEach(() => {
+    vi.mocked(packageCheckLookup).mockReset();
+    vi.mocked(packageCheckLookup).mockReturnValue(new Promise(() => undefined));
+  });
+
+  function renderWith(p: PanePrompt, paneId?: string, onAnswer = vi.fn()) {
+    act(() => root.render(<ApprovalPrompt prompt={p} onAnswer={onAnswer} variant="card" paneId={paneId} />));
+    return onAnswer;
+  }
+
+  it('shows the Package check block only when the prompt carries packages', () => {
+    renderWith(prompt('medium', 'Delete a folder'));
+    expect(host.querySelector('.ck-pc')).toBeNull();
+    renderWith(PLAIN_PROMPT, 'pane-1');
+    expect(host.querySelector('.ck-pc')).not.toBeNull();
+    expect(host.querySelector('.ck-pc-title')?.textContent).toBe('Package check');
+  });
+
+  it('no paneId: paints the offline row and makes no lookup', () => {
+    renderWith(lookalike);
+    expect(host.querySelectorAll('.ck-pc-row')).toHaveLength(1);
+    expect(rowState()).toBe('not_checked');
+    expect(packageCheckLookup).not.toHaveBeenCalled();
+  });
+
+  it('with paneId: looks up by pane and prompt id, fills the row, and never answers the prompt', async () => {
+    vi.mocked(packageCheckLookup).mockResolvedValue(LOOKALIKE_VIEW);
+    const onAnswer = renderWith(lookalike, 'pane-1');
+    expect(packageCheckLookup).toHaveBeenCalledWith('pane-1', 'prompt-1', false);
+    await flush();
+    expect(rowState()).toBe('checked');
+    expect(host.querySelector('.ck-pc-summary')?.textContent).toContain('Looks like lodash');
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it('High look-alike keeps Deny first and focused, with the package row on the card', () => {
+    renderWith(lookalike, 'pane-1');
+    expect(host.querySelector('[data-ib-card]')?.hasAttribute('data-guard')).toBe(true);
+    expect(answerWords()).toEqual(['Deny', 'Allow once']);
+    expect(document.activeElement).toBe(btn('Deny'));
+    expect(host.querySelector('.ck-pc-row')?.getAttribute('data-look')).toBe('');
+  });
+
+  it('button order and focus are unchanged when the lookup resolves', async () => {
+    let answer!: (view: PackageCheckView) => void;
+    vi.mocked(packageCheckLookup).mockReturnValue(new Promise<PackageCheckView>((ok) => (answer = ok)));
+    const onAnswer = renderWith(lookalike, 'pane-1');
+    const deny = btn('Deny');
+    const allowOnce = btn('Allow once');
+    const before = { words: answerWords(), focus: document.activeElement, state: rowState(), rows: host.querySelectorAll('.ck-pc-row').length };
+    expect(before.state).toBe('checking');
+
+    await act(async () => {
+      answer(LOOKALIKE_VIEW);
+    });
+    await flush();
+
+    expect(rowState()).toBe('checked');
+    expect(answerWords()).toEqual(before.words);
+    expect(btn('Deny')).toBe(deny);
+    expect(btn('Allow once')).toBe(allowOnce);
+    expect(document.activeElement).toBe(before.focus);
+    expect(host.querySelectorAll('.ck-pc-row')).toHaveLength(before.rows);
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it('Details opens the per-package facts with the footer, from the same toggle', async () => {
+    vi.mocked(packageCheckLookup).mockResolvedValue(LOOKALIKE_VIEW);
+    renderWith(lookalike, 'pane-1');
+    await flush();
+    expect(host.querySelector('.ck-pc-details')).toBeNull();
+    act(() => btn('Details')!.click());
+    expect(host.querySelector('.ck-pc-details')).not.toBeNull();
+    expect(host.querySelector('.ck-pc-foot')?.textContent).toContain('Only the package names were sent');
+    act(() => btn('Hide details')!.click());
+    expect(host.querySelector('.ck-pc-details')).toBeNull();
   });
 });
