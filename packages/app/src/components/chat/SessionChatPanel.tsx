@@ -10,6 +10,7 @@ import { useSessionChat } from '../../hooks/useSessionChat';
 import { ChatComposer } from './ChatComposer';
 import { ChatExportMenu } from './ChatExportMenu';
 import { ClipSheet, type ClipApi } from './ClipSheet';
+import { CollisionBanner } from './CollisionBanner';
 import { KeepGoingBanner } from './KeepGoingBanner';
 import { PendingMessages } from './PendingMessages';
 import { lastClippableId, SessionChatView } from './SessionChatView';
@@ -50,7 +51,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
         emptyNote={emptyNote}
         headerExtra={chat.state === 'unavailable' ? undefined : side.button}
         headerMenu={hasChat ? <ChatExportMenu paneId={paneId} onMakeClip={lastClippable ? () => setClipFor(lastClippable) : undefined} /> : undefined}
-        banner={<KeepGoingBanner paneId={paneId} onOpenPane={onOpenPane} />}
+        banner={<><CollisionBanner paneId={paneId} onOpenPane={onOpenPane} /><KeepGoingBanner paneId={paneId} onOpenPane={onOpenPane} /></>}
         canClip={hasChat}
         onMakeClip={setClipFor}
         overlay={side.box}
