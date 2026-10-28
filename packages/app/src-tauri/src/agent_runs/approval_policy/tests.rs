@@ -155,3 +155,23 @@ fn without_a_project_the_cd_target_is_not_checked() {
 fn marker_path_never_approves_hard_denied_programs() {
     assert!(approved_program("Not in allowlist: sudo", &allow(&["sudo"])).is_none());
 }
+
+fn command_prompt(command: &str) -> serde_json::Value {
+    serde_json::json!({ "kind": "command_approval", "command": command, "fully_drawn": true })
+}
+
+#[test]
+fn installs_with_a_lookalike_or_a_link_are_never_auto_approved() {
+    let list = allow(&["npm install *"]);
+    assert!(validate(&list).is_ok(), "the pattern itself is still valid");
+    assert!(approved_command("npm install lodash", &list, Some(PROJECT)).is_some());
+    assert!(approved_command("npm install lodahs", &list, Some(PROJECT)).is_none());
+    assert!(approved_command("npm install github:x/y", &list, Some(PROJECT)).is_none());
+    assert!(approved_command("npm install lodash && npm install lodahs", &list, Some(PROJECT)).is_none());
+    assert!(decide(&command_prompt("npm install lodash"), "", &list, Some(PROJECT)).is_some());
+    assert!(decide(&command_prompt("npm install lodahs"), "", &list, Some(PROJECT)).is_none());
+    assert!(decide(&command_prompt("npm install github:x/y"), "", &list, Some(PROJECT)).is_none());
+    assert!(hard_denied(&allow(&["npm", "install", "lodahs"])));
+    assert!(hard_denied(&allow(&["pip", "install", "reqests"])));
+    assert!(!hard_denied(&allow(&["npm", "install", "lodash"])));
+}
