@@ -20,6 +20,8 @@ import { SettingsView } from './components/cockpit/SettingsView';
 import { PlansMonth } from './components/cockpit/PlansMonth';
 import { MorningPage } from './components/cockpit/night/MorningPage';
 import { AgentScores } from './components/cockpit/AgentScores';
+import { StoreHost } from './components/store/StoreHost';
+import { runStoreCheck } from './lib/agentStoreCheck';
 import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
@@ -94,6 +96,8 @@ export default function CockpitApp() {
   // The split turns off by itself when its pane closes, the selection goes away, or the window gets narrow.
   if (split !== null && !splitOn) setSplit(null);
   const closeOverlay = () => setView(homeView(c.spawn !== null, c.selectedId));
+  // The Agent Store: opened from the "+" menu, the palette, Set up agents and Settings > Agents. Back returns to the resting view.
+  const openStore = () => setView('store');
   // Settings is a main view in Orchestration mode; in Individual mode `open` asks for the Settings window.
   const settings = useInlineSettings<MainView>({ mode: c.mode, view, setView, home: homeView(c.spawn !== null, c.selectedId), openWindow: c.openSettings });
   // Pane whose last turn the person is being asked to undo (opened from the palette).
@@ -333,6 +337,7 @@ export default function CockpitApp() {
         onOpenPlans={() => setView('plans')}
         onOpenMorning={() => setView('morning')}
         onOpenScores={() => setView('scores')}
+        onOpenStore={openStore}
         companions={companions.companions}
         openCompanionId={view === 'companion' ? companionId : null}
         onOpenCompanion={openCompanion}
@@ -354,7 +359,10 @@ export default function CockpitApp() {
             onNotify={c.notify}
             onShowPane={(id) => nav.select(id)}
             onClose={closeOverlay}
+            onOpenStore={openStore}
           />
+        ) : view === 'store' ? (
+          <StoreHost onOpenAgent={(id) => void c.newAgent(id)} onBack={closeOverlay} runCheck={runStoreCheck} />
         ) : view === 'memory' ? (
           <ProjectMemory
             // A pane in a separate copy belongs to the project the copy came from, not to the copy's folder.
@@ -372,7 +380,7 @@ export default function CockpitApp() {
             onClose={closeOverlay}
           />
         ) : view === 'settings' ? (
-          <SettingsView key={settings.viewKey} {...settings.viewProps} />
+          <SettingsView key={settings.viewKey} {...settings.viewProps} onOpenStore={openStore} />
         ) : view === 'spawn' && c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
         ) : view === 'companion' && companion ? (
@@ -435,6 +443,7 @@ export default function CockpitApp() {
           onOpenPlans={() => setView('plans')}
           onOpenMorning={() => setView('morning')}
           onOpenScores={() => setView('scores')}
+          onOpenStore={openStore}
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}
           onStartCrew={() => setCrewOpen(true)}

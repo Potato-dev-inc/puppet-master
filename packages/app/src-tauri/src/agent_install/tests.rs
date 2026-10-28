@@ -1,6 +1,26 @@
 use super::*;
 use crate::agent_install::plan::{Action, Method};
 
+/// A store entry `id` (its definition names one npm package), loaded the way the shipped catalog is.
+fn store_entry(id: &str) -> CatalogEntry {
+    let entry = format!(
+        "schema_version = 1\n\n[store]\nid = \"{id}\"\ntagline = \"A test agent.\"\ntier = \"starter\"\n\
+         builtin = false\ncategories = [\"general\"]\nstatus = \"active\"\nfirst_listed = \"2026-10-28\"\n\n\
+         [vendor]\nname = \"Test Vendor\"\nhomepage = \"https://example.com/{id}\"\nlicense = \"Apache-2.0\"\n\
+         license_kind = \"open_source\"\n\n[sign_in]\nkind = \"none\"\nsummary = \"No sign-in needed.\"\n\n\
+         [checked]\ndate = \"2026-10-28\"\nversion = \"1.0.0\"\nhow = \"vendor_docs\"\nwindows_tested = false\n"
+    );
+    let definition = format!(
+        "schema_version = 1\n\n[agent]\nid = \"{id}\"\nlabel = \"Test {id}\"\n\n[binary]\nnames = [\"{id}\"]\n\n\
+         [install.windows]\nsource = \"https://example.com/{id}\"\nnpm = \"test-{id}-cli\"\n"
+    );
+    let files = [(format!("agents/{id}/entry.toml"), entry), (format!("agents/{id}/definition.toml"), definition)];
+    let refs: Vec<(&str, &str)> = files.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
+    let loaded = catalog::load(&refs);
+    assert!(loaded.problems.is_empty(), "{:?}", loaded.problems);
+    loaded.entries.into_iter().next().expect("one entry")
+}
+
 fn winget_plan() -> Plan {
     Plan {
         agent_id: "t".into(),
@@ -131,6 +151,41 @@ fn cursor_agent_offers_only_the_confirmed_script() {
 #[test]
 fn an_unknown_agent_is_an_error_not_a_guess() {
     assert!(plan_for("no_such_agent", &Tools::default()).unwrap_err().starts_with("INSTALL_UNKNOWN_AGENT"));
+}
+
+#[test]
+fn an_unregistered_store_id_gets_a_plan_from_its_catalog_entry() {
+    let entry = store_entry("acme");
+    let spec = InstallSpec { source: "https://example.com/acme".into(), npm: Some("test-acme-cli".into()), ..Default::default() };
+    let tools = Tools { winget: None, present: ["node".to_string()].into_iter().collect() };
+    let plan = store_plan(&entry, Some(&spec), &tools);
+    assert!(plan.blocked.is_none(), "{:?}", plan.blocked);
+    assert_eq!(plan.agent_id, "acme");
+    assert_eq!(plan.label, "Test acme", "the definition's name, not the vendor's");
+    assert_eq!(plan.steps.len(), 1);
+    assert_eq!(plan.steps[0].command, "npm install -g test-acme-cli");
+    assert_eq!(plan_view(&plan, None)["available"], true);
+}
+
+#[test]
+fn a_store_id_without_a_windows_spec_is_blocked_with_a_reason() {
+    let entry = store_entry("acme");
+    let plan = store_plan(&entry, None, &Tools::default());
+    assert!(plan.steps.is_empty());
+    assert!(plan.blocked.is_some());
+}
+
+#[test]
+fn the_store_probe_finds_the_program_from_its_definition_and_says_when_it_is_missing() {
+    let entry = store_entry("nimbus");
+    let probe = store_probe(&entry, Path::new(".")).expect("the definition names a binary");
+    assert_eq!(probe.id, "nimbus");
+    assert_eq!(probe.label, "Test nimbus");
+    assert!(!probe.installed, "no nimbus program is on PATH in a test");
+    assert!(probe.version_command.is_none());
+    let health = crate::agent_health::check_probe(&probe, crate::agent_health::VERSION_TIMEOUT);
+    assert!(!health.installed);
+    assert_eq!(health.id, "nimbus");
 }
 
 #[test]

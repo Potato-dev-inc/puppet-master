@@ -9,7 +9,7 @@ export interface InstallStep {
   label: string;
   /** `git` / `node` for a prerequisite, null for the agent itself. */
   tool: string | null;
-  method: 'winget' | 'npm' | 'script';
+  method: 'winget' | 'npm' | 'uv' | 'script';
   /** The exact text that will run. It is also what Run sends back, so the app can refuse a changed command. */
   command: string;
   /** The vendor page this comes from. */

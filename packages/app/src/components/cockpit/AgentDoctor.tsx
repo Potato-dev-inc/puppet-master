@@ -95,6 +95,8 @@ export interface AgentDoctorProps {
   embedded?: boolean;
   /** Called with the list whenever it loads or a test changes a row. */
   onRows?: (rows: AgentHealth[]) => void;
+  /** Opens the Agent Store. The "Browse more agents" link shows only when this is given. */
+  onOpenStore?: () => void;
 }
 
 /** Where one row's install is. Absent = nothing going on. */
@@ -121,6 +123,7 @@ export function AgentDoctor({
   onShowPane,
   embedded = false,
   onRows,
+  onOpenStore,
 }: AgentDoctorProps) {
   const [rows, setRows] = useState<AgentHealth[] | null>(null);
   const [installs, setInstalls] = useState<Record<string, Install>>(() => keptInstalls);
@@ -426,6 +429,13 @@ export function AgentDoctor({
           })}
           {rows.length === 0 && <p className="ck-sub ck-pad">No agents are registered.</p>}
         </div>
+      )}
+      {onOpenStore && (
+        <p className="ck-pad">
+          <button type="button" className="ck-link" onClick={onOpenStore}>
+            Browse more agents
+          </button>
+        </p>
       )}
       {sheet && (
         <InstallSheet

@@ -1,0 +1,53 @@
+# Kiro CLI (kiro.dev), headless. Built from a real kiro-cli 2.29.1 run:
+#   kiro-cli chat --output-format stream-json "<task>"
+# prints ACP events as JSON Lines and ends with
+#   {"type":"runFinished","data":{"sessionId":"…","status":"success","finalText":"…"}}
+# Sign in once with `kiro-cli login` before approving this definition.
+schema_version = 1
+
+[agent]
+id = "kiro"
+label = "Kiro"
+icon = "KI"
+description = "Kiro CLI (AWS), headless runs through its stream-json event output."
+experimental = true
+
+[binary]
+names = ["kiro-cli"]
+windows_extensions = ["exe"]
+version_args = ["--version"]
+install_hint = "irm 'https://cli.kiro.dev/install.ps1' | iex   (then: kiro-cli login)"
+
+[features]
+dispatchable = true
+read_only_headless = false
+resumable_headless = true
+
+[headless]
+argv = ["chat", "--output-format", "stream-json"]
+task_separator = "--"
+
+[[headless.optional]]
+when = "model"
+args = ["--model", "{model}"]
+
+[[headless.optional]]
+when = "resume"
+args = ["--resume-id", "{session}"]
+
+[headless.output]
+format = "json_lines"
+
+# The whole answer is in the final event; the streamed chunks before it are partial.
+[headless.output.result]
+where = { type = "runFinished" }
+path = "data.finalText"
+pick = "last"
+
+[headless.output.session]
+where = { "~data.sessionId" = true }
+path = "data.sessionId"
+pick = "first"
+
+[headless.output.done]
+where = { type = "runFinished" }

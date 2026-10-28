@@ -142,3 +142,17 @@ describe('split view: focus keys', () => {
     expect(splitFocusKey(key({ ctrlKey: false }), false)).toBeNull();
   });
 });
+
+describe('cockpit main view: Agent Store', () => {
+  it('the store is a main view of its own that nothing rests on', () => {
+    const page: MainView = 'store';
+    expect(page).toBe('store');
+    for (const spawn of [true, false]) for (const id of ['p1', null]) expect(homeView(spawn, id)).not.toBe('store');
+  });
+
+  it('picking any pane or the inbox leaves the store, and a running spawn stays in front', () => {
+    expect(viewAfterSelect(null, 'p1')).not.toBe('store');
+    expect(viewAfterSelect(null, null)).not.toBe('store');
+    expect(viewAfterSelect({ failed: null }, 'p1')).toBe('spawn');
+  });
+});

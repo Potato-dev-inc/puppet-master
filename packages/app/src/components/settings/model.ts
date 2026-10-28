@@ -46,6 +46,8 @@ export interface SettingsEnv {
   confirm: (options: ConfirmOptions) => Promise<boolean>;
   /** Jump to another row (even one in another section): a "Now in General › Labs" link. Absent in tests. */
   openRow?: (rowId: string) => void;
+  /** Opens the Agent Store in the cockpit. Absent in the separate Settings window (the Store lives in the cockpit). */
+  openStore?: () => void;
   projectPath: string | null;
   onProjectPathChange?: (path: string) => Promise<void>;
   /** Discovered local bridge URL, or null before discovery. */

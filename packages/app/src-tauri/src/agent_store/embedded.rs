@@ -2,4 +2,31 @@
 //! Lists every Agent Store catalog file the app embeds. Run the script after a catalog change.
 
 #[rustfmt::skip]
-pub static FILES: &[(&str, &str)] = &[];
+pub static FILES: &[(&str, &str)] = &[
+    ("agents/claude/entry.toml", include_str!("../../catalog/agents/claude/entry.toml")),
+    ("agents/codex/entry.toml", include_str!("../../catalog/agents/codex/entry.toml")),
+    ("agents/cursor_agent/entry.toml", include_str!("../../catalog/agents/cursor_agent/entry.toml")),
+    ("agents/kilo/definition.toml", include_str!("../../catalog/agents/kilo/definition.toml")),
+    ("agents/kilo/entry.toml", include_str!("../../catalog/agents/kilo/entry.toml")),
+    ("agents/kilo/fixtures/headless_error.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/headless_error.expect.toml")),
+    ("agents/kilo/fixtures/headless_error.jsonl", include_str!("../../catalog/agents/kilo/fixtures/headless_error.jsonl")),
+    ("agents/kilo/fixtures/headless_garbage.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/headless_garbage.expect.toml")),
+    ("agents/kilo/fixtures/headless_garbage.txt", include_str!("../../catalog/agents/kilo/fixtures/headless_garbage.txt")),
+    ("agents/kilo/fixtures/headless_resume.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/headless_resume.expect.toml")),
+    ("agents/kilo/fixtures/headless_resume.jsonl", include_str!("../../catalog/agents/kilo/fixtures/headless_resume.jsonl")),
+    ("agents/kilo/fixtures/headless_success.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/headless_success.expect.toml")),
+    ("agents/kilo/fixtures/headless_success.jsonl", include_str!("../../catalog/agents/kilo/fixtures/headless_success.jsonl")),
+    ("agents/kilo/fixtures/headless_tool_turn.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/headless_tool_turn.expect.toml")),
+    ("agents/kilo/fixtures/headless_tool_turn.jsonl", include_str!("../../catalog/agents/kilo/fixtures/headless_tool_turn.jsonl")),
+    ("agents/kilo/fixtures/tui_idle.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/tui_idle.expect.toml")),
+    ("agents/kilo/fixtures/tui_idle.txt", include_str!("../../catalog/agents/kilo/fixtures/tui_idle.txt")),
+    ("agents/kilo/fixtures/tui_permission.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/tui_permission.expect.toml")),
+    ("agents/kilo/fixtures/tui_permission.txt", include_str!("../../catalog/agents/kilo/fixtures/tui_permission.txt")),
+    ("agents/kilo/fixtures/tui_reply.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/tui_reply.expect.toml")),
+    ("agents/kilo/fixtures/tui_reply.txt", include_str!("../../catalog/agents/kilo/fixtures/tui_reply.txt")),
+    ("agents/kilo/fixtures/tui_working.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/tui_working.expect.toml")),
+    ("agents/kilo/fixtures/tui_working.txt", include_str!("../../catalog/agents/kilo/fixtures/tui_working.txt")),
+    ("agents/kiro/definition.toml", include_str!("../../catalog/agents/kiro/definition.toml")),
+    ("agents/kiro/entry.toml", include_str!("../../catalog/agents/kiro/entry.toml")),
+    ("agents/opencode/entry.toml", include_str!("../../catalog/agents/opencode/entry.toml")),
+];

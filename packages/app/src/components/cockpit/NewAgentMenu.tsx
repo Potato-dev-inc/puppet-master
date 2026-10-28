@@ -39,6 +39,8 @@ interface Props {
   isolated?: boolean;
   onIsolated?: (on: boolean) => void;
   ship?: ShipApi;
+  /** "More agents…": opens the Agent Store. Without it the row is not drawn. */
+  onOpenStore?: () => void;
   /** "Start a mission…" (Preview, Labs). Without it the item is not drawn. */
   onStartMission?: () => void;
   /** "Tonight…" (Night Shift, Labs). Without it the item is not drawn. */
@@ -67,6 +69,7 @@ export function NewAgentMenu({
   isolated = false,
   onIsolated,
   ship = shipApi,
+  onOpenStore,
   onStartMission,
   onTonight,
 }: Props) {
@@ -351,6 +354,11 @@ export function NewAgentMenu({
             </div>
           )}
         </>
+      )}
+      {onOpenStore && (
+        <button type="button" role="menuitem" className="ck-menu-item" onClick={onOpenStore}>
+          <span>More agents…</span>
+        </button>
       )}
       {(onStartMission || onTonight) && <div className="ck-menu-sep" />}
       {onStartMission && (
