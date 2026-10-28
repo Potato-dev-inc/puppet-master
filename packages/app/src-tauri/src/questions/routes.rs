@@ -10,7 +10,7 @@
 //! (`mcp_sessions::authorize` refuses routes that are not a catalog tool): an agent cannot
 //! answer its own question. A paired phone passes the normal bearer-token gate in `router.rs`.
 
-use super::{now_ms, store, Choice, NewQuestion, Question, QuestionError, ISSUE_KIND_PUSH, ISSUE_KIND_START};
+use super::{now_ms, store, Choice, NewQuestion, Question, QuestionError, CI_KIND_FIX, CI_KIND_PUSH, ISSUE_KIND_PUSH, ISSUE_KIND_START};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -72,6 +72,9 @@ fn check_person_only(id: &str) -> Result<(), (u16, Value)> {
     if is_issue_kind(&kind) {
         return Err(issue_refusal());
     }
+    if is_ci_kind(&kind) {
+        return Err(ci_refusal());
+    }
     Ok(())
 }
 
@@ -90,11 +93,30 @@ fn issue_refusal() -> (u16, Value) {
     )
 }
 
-/// Dismissing an issue card says "not now" for the person. Only the person (desktop or phone) may do it, so
+fn is_ci_kind(kind: &str) -> bool {
+    kind == CI_KIND_FIX || kind == CI_KIND_PUSH
+}
+
+fn ci_refusal() -> (u16, Value) {
+    (
+        403,
+        json!({
+            "code": "CI_FIX_NEEDS_PERSON",
+            "error": "this card lets an agent fix or push work on a pull request; answer it in the Puppet Master window or from a paired phone",
+            "recoverable": false,
+        }),
+    )
+}
+
+/// Dismissing an issue or CI card says "not now" for the person. Only the person (desktop or phone) may do it, so
 /// a plain loopback request is refused for those. Budget and other cards keep today's dismiss rules.
 fn dismiss(id: &str, via_phone: bool) -> RouteReply {
-    if !via_phone && store().get(id, now_ms()).and_then(|q| q.kind).is_some_and(|k| is_issue_kind(&k)) {
-        return Err(issue_refusal());
+    if !via_phone {
+        match store().get(id, now_ms()).and_then(|q| q.kind) {
+            Some(kind) if is_issue_kind(&kind) => return Err(issue_refusal()),
+            Some(kind) if is_ci_kind(&kind) => return Err(ci_refusal()),
+            _ => {}
+        }
     }
     store().dismiss(id, now_ms()).map(|r| (200, serde_json::to_value(r).unwrap())).map_err(error)
 }
