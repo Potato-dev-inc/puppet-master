@@ -1,0 +1,118 @@
+/* "Make a clip" (components/chat/ClipSheet.tsx): the button on a finished turn's end line and the sheet that draws the
+   video and plays it. Grayscale tokens only. The video itself is always dark (it does not follow the app theme). */
+
+/* The button at the right of a turn's end line: quiet text, shown on hover or focus, always on the newest finished turn. */
+.cockpit .ck-chat-clip-btn {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--label-3);
+  font-size: 11px;
+  opacity: 0;
+  transition:
+    opacity 160ms var(--ease),
+    color 160ms var(--ease);
+}
+.cockpit .ck-chat-turn:hover .ck-chat-clip-btn,
+.cockpit .ck-chat-clip-btn:focus-visible,
+.cockpit .ck-chat-clip-btn.is-always {
+  opacity: 1;
+}
+.cockpit .ck-chat-clip-btn:hover {
+  color: var(--label);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-chat-clip-btn {
+    transition: none;
+  }
+}
+
+/* The sheet. */
+.cockpit .ck-clip.ck-sheet {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.cockpit .ck-clip-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.cockpit .ck-clip-label {
+  color: var(--label-3);
+  font-size: 11px;
+}
+.cockpit .ck-clip-input {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+}
+.cockpit .ck-clip-input:focus-visible {
+  outline: 2px solid var(--label-3);
+  outline-offset: 1px;
+}
+.cockpit .ck-clip-input:disabled {
+  color: var(--label-3);
+}
+.cockpit .ck-clip-redraw {
+  align-self: flex-start;
+}
+
+/* The stage: the progress while drawing, then the video at 16:9. */
+.cockpit .ck-clip-stage {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 56px;
+  margin-top: 6px;
+}
+.cockpit .ck-clip-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cockpit .ck-clip-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--fill);
+}
+.cockpit .ck-clip-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--label-2);
+  transition: width 120ms linear;
+}
+.cockpit .ck-clip-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: #0a0a0a;
+}
+.cockpit .ck-clip-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cockpit .ck-clip-note {
+  margin: 0;
+  color: var(--label-2);
+}
+.cockpit .ck-clip-error {
+  margin: 0;
+  color: var(--label);
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-clip-bar-fill {
+    transition: none;
+  }
+}

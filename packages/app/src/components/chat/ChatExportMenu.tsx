@@ -1,7 +1,7 @@
 // The chat's header menu. "Save as page" and "Save as Markdown" show the chat in a preview and save that same text
 // where the person picks. The sheet has a switch between Page and Markdown. Nothing is uploaded. The page preview is
 // an iframe with an empty sandbox (no scripts) and the page as srcdoc, so the page cannot run code or reach anything.
-// The Markdown preview is plain text.
+// The Markdown preview is plain text. With `onMakeClip` the menu also offers "Make clip of last turn" (the sheet is the panel's).
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { chatExportHtml, chatExportMarkdown, chatExportSave, chatPageFileName, type ExportFormat } from '../../lib/chatExport';
@@ -54,7 +54,7 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function ChatExportMenu({ paneId, api = tauriChatExportApi }: { paneId: string; api?: ChatExportApi }) {
+export function ChatExportMenu({ paneId, api = tauriChatExportApi, onMakeClip }: { paneId: string; api?: ChatExportApi; onMakeClip?: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [preview, setPreview] = useState<ExportFormat | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
@@ -98,6 +98,19 @@ export function ChatExportMenu({ paneId, api = tauriChatExportApi }: { paneId: s
                 {item.label}
               </button>
             ))}
+            {onMakeClip && (
+              <button
+                type="button"
+                className="ck-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onMakeClip();
+                }}
+              >
+                Make clip of last turn
+              </button>
+            )}
           </div>
         )}
       </div>
