@@ -476,6 +476,13 @@ pub fn run() {
             commands::question_dismiss,
             commands::agent_authority_get,
             commands::agent_authority_set,
+            commands::telegram_status,
+            commands::telegram_set_token,
+            commands::telegram_pair_start,
+            commands::telegram_pair_decide,
+            commands::telegram_set_enabled,
+            commands::telegram_set_options,
+            commands::telegram_forget,
             commands::agent_run_mode_get,
             commands::agent_run_mode_set,
             commands::audit_recent,
@@ -590,6 +597,9 @@ pub fn run() {
             };
 
             push::init(app.state::<AppState>().registry.clone());
+
+            // Text your agents: starts only if the person turned Telegram on before.
+            channels::start(app.handle().clone(), app.state::<AppState>().registry.clone());
 
             #[cfg(debug_assertions)]
             let _ = &bridge_url;
