@@ -22,6 +22,7 @@ import { focusWithRing } from './InboxCard';
 import { handleInboxKey, isEditable } from './inbox-keys';
 import { TeamSection } from './team/TeamSection';
 import { MissionsSection } from './mission/MissionCards';
+import { CollisionSection } from './CollisionSection';
 import { useMissions } from '../../lib/missions';
 import type { CompanionTransport, CompanionView } from '../../lib/companion';
 import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './companion/model';
@@ -273,6 +274,7 @@ export function Inbox({
       )}
 
       <MissionsSection missions={missions.missions} onChanged={missions.reload} onOpenPane={(id) => c.select(id)} onNotify={c.notify} />
+      <CollisionSection select={(id) => c.select(id)} hasPane={(id) => c.registry.panes.has(id)} />
 
       <AskNotices />
       <CanaryNotices />
