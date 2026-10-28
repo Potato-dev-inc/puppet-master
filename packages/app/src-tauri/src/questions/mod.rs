@@ -383,6 +383,8 @@ impl QuestionStore {
                 // A pause card for a run that used its budget: apply "Add turns" / "Stop here".
                 crate::budgets::answer_applied(&resolution.question);
                 crate::handoff::on_resolved(&resolution.question);
+                // A card about a GitHub issue: start the run, open the draft PR, throw the copy away.
+                crate::issue_intake::live::on_resolved(&resolution.question);
             }
         }
         result
@@ -466,6 +468,8 @@ impl QuestionStore {
         };
         if resolution.accepted {
             crate::agent_authority::consent::on_resolved(&resolution.question);
+            // Dismissing an issue card says "not now" (the routes let only the person do it).
+            crate::issue_intake::live::on_resolved(&resolution.question);
         }
         Ok(resolution)
     }

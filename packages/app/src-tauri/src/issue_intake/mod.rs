@@ -8,8 +8,14 @@
 //! - `store`: the private files under `<app data>/issue-intake/` (config, runs, two empty folders).
 //! - `pushcheck`: the push check (CI files, secret-looking files and lines, home paths, the git
 //!   fingerprint, the reasons on the card).
-//! - `github`, `filter`, `text`: later tasks (GitHub reads, trigger rules, the issue text the agent
-//!   gets). Empty for now.
+//! - `github`, `filter`, `text`: GitHub reads, the trigger rules, and the texts (the issue file the
+//!   agent reads, the task, the cards, the pull request).
+//! - `live`: the `Io` trait (everything outside the engine's memory), the real `Io`, and the few
+//!   functions the app calls: `start`, `on_resolved`, `act`, `view`, `poll_now`.
+//! - `engine`, `answers`, `flows`: the rules. `engine` is the watch loop and the cards, `answers` is what
+//!   a resolved card does, the queue and the Settings buttons; `flows` is
+//!   start, finish (the check), push and throw away. Both run against a fake `Io` in the tests.
+//! - `view`: what the Settings page and the commands read.
 //!
 //! Invariants (SPEC n32 section 4; each one is tested where it is built):
 //! - S1: the issue text never goes into a prompt. It is only in a file, as data.
@@ -28,6 +34,11 @@ pub mod github;
 pub mod filter;
 pub mod text;
 pub mod pushcheck;
+pub mod view;
+pub mod live;
+mod engine;
+mod flows;
+mod answers;
 
 #[cfg(test)]
 mod store_tests;
@@ -35,3 +46,5 @@ mod store_tests;
 mod pushcheck_tests;
 #[cfg(test)]
 mod pushcheck_git_tests;
+#[cfg(test)]
+mod engine_tests;
