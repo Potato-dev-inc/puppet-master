@@ -17,6 +17,8 @@ export interface ChatHit {
   atMs: number;
   snippet: string;
   marks: [number, number][];
+  /** True for a hit in an old chat the person brought in ("Bring my old chats"). It opens the read-only view. */
+  imported?: boolean;
 }
 
 const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
