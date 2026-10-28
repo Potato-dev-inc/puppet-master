@@ -266,13 +266,13 @@ fn days_must_be_one_to_3650() {
 #[test]
 fn the_report_names_projects_by_last_folder_name_only() {
     let mut i = Inputs::default();
-    let key = key_of_path("C:/Users/maya/secret-client/shop");
+    let key = key_of_path("C:/Users/someone/secret-client/shop");
     i.turns.push(turn(&key, NOW - DAY));
     // The stored name is a full path by mistake: still only the last name leaves.
-    i.project_names.insert(key, "C:\\Users\\maya\\secret-client\\shop".to_string());
-    let json = serde_json::to_string(&report(&i, Some("C:/Users/maya/secret-client/shop"), None)).unwrap().to_lowercase();
+    i.project_names.insert(key, "C:\\Users\\someone\\secret-client\\shop".to_string());
+    let json = serde_json::to_string(&report(&i, Some("C:/Users/someone/secret-client/shop"), None)).unwrap().to_lowercase();
     assert!(json.contains("\"label\":\"shop\""), "{json}");
-    assert!(!json.contains("maya"), "{json}");
+    assert!(!json.contains("someone"), "{json}");
     assert!(!json.contains("secret-client"), "{json}");
     assert!(!json.contains("c:/"), "{json}");
 }
