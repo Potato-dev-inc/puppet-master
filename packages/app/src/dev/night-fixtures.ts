@@ -207,7 +207,8 @@ function viewOf(tasks: NightTaskView[], over: Partial<NightView>): NightView {
     state: 'done',
     line: summaryLine(countsOf(tasks)),
     ...countsOf(tasks),
-    keepAll: tasks.filter((task) => task.canKeep).length,
+    // Like `review::keeps_in_bulk`: only a ready copy nobody has reviewed yet (a single Keep also takes the other kinds).
+    keepAll: tasks.filter((task) => task.review === 'pending' && task.class === 'ready' && task.state === 'finished' && task.canKeep).length,
     from: '23:10',
     to: '05:22',
     turns: tasks.reduce((sum, task) => sum + task.turns, 0),
@@ -307,6 +308,8 @@ export function nightMock(s: NightScenario | undefined, cmd: string, args: Recor
     case 'night_keep':
     case 'night_throw_away':
     case 'night_keep_all_ready':
+      return { handled: true, value: run };
+    case 'night_get':
       return { handled: true, value: run };
     case 'night_seen':
       return { handled: true, value: null };

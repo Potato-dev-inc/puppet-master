@@ -32,7 +32,7 @@ describe('night scenarios', () => {
 
   it('the morning page reads "4 of 5 done, tests green. 1 needs you."', () => {
     expect(MORNING_4_OF_5.line).toBe('4 of 5 done, tests green. 1 needs you.');
-    expect(MORNING_4_OF_5).toMatchObject({ total: 5, done: 4, green: 4, needsYou: 1, keepAll: 4 });
+    expect(MORNING_4_OF_5).toMatchObject({ total: 5, done: 4, green: 4, needsYou: 1, keepAll: 3 });
   });
 
   it('a Keep that conflicted is shown as failed and cannot be kept again', () => {

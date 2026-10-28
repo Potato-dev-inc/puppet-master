@@ -1,5 +1,5 @@
 // Night Shift on the desktop: the view shapes (mirroring `night_shift/view.rs` and the camelCase structs in
-// `commands/night.rs`), the 14 `night_*` commands, the `night://changed` event and the error helpers.
+// `commands/night.rs`), the 15 `night_*` commands, the `night://changed` event and the error helpers.
 // Rust `Option<T>` arrives as `T | null`. Names and argument keys must match the Rust code exactly
 // (`night.test.ts` checks them against `commands/night.rs`). Plain words follow SPEC n32 3.10.
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -240,6 +240,8 @@ export interface NightApi {
   keep: (taskId: string) => Promise<NightView>;
   throwAway: (taskId: string) => Promise<NightView>;
   keepAllReady: () => Promise<NightView>;
+  /** One run by id (the Morning page opens a past night with it). */
+  get: (id: string) => Promise<NightView>;
   seen: () => Promise<void>;
   reportHtml: () => Promise<string>;
   /** Writes the page to a file the person picked. Resolves to the path it was written to. */
@@ -258,12 +260,16 @@ export const nightApi: NightApi = {
   keep: (taskId) => call<NightView>('night_keep', { taskId }),
   throwAway: (taskId) => call<NightView>('night_throw_away', { taskId }),
   keepAllReady: () => call<NightView>('night_keep_all_ready'),
+  get: (id) => call<NightView>('night_get', { id }),
   seen: () => call<void>('night_seen'),
   reportHtml: () => call<string>('night_report_html'),
   reportSave: (path) => call<string>('night_report_save', { path }),
   settingsGet: () => call<NightSettingsView>('night_settings_get'),
   settingsSet: (settings) => call<NightSettingsView>('night_settings_set', { settings }),
 };
+
+/** One run by id: `night_get` with `{ id }`. */
+export const nightGet = (id: string): Promise<NightView> => nightApi.get(id);
 
 /** Subscribes to `night://changed`. Outside the desktop shell nothing is sent, so this is a no-op. */
 export async function onNightChanged(handler: (payload: NightChangedPayload) => void): Promise<UnlistenFn> {

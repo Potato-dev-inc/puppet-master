@@ -17,6 +17,7 @@ import {
   NIGHT_EVENT,
   nightApi,
   nightError,
+  nightGet,
   nightErrorCode,
   nightErrorText,
   onNightChanged,
@@ -77,6 +78,7 @@ const cases: Array<[string, () => Promise<unknown>]> = [
   ['night_keep', () => nightApi.keep('nt-00000001')],
   ['night_throw_away', () => nightApi.throwAway('nt-00000001')],
   ['night_keep_all_ready', () => nightApi.keepAllReady()],
+  ['night_get', () => nightGet('ns-0123456789ab')],
   ['night_seen', () => nightApi.seen()],
   ['night_report_html', () => nightApi.reportHtml()],
   ['night_report_save', () => nightApi.reportSave('C:/Users/you/Desktop/night.html')],
@@ -106,6 +108,8 @@ describe('nightApi commands', () => {
     expect(invoke).toHaveBeenLastCalledWith('night_keep', { taskId: 'nt-00000001' });
     await nightApi.start(startInput);
     expect(invoke).toHaveBeenLastCalledWith('night_start', { input: startInput });
+    await nightGet('ns-0123456789ab');
+    expect(invoke).toHaveBeenLastCalledWith('night_get', { id: 'ns-0123456789ab' });
   });
 
   it('returns the view the command resolves with, unchanged', async () => {
