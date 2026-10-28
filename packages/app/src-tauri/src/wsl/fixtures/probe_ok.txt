@@ -1,0 +1,11 @@
+PM1:pm6nonce:uid=1000
+PM1:pm6nonce:home=/home/you
+PM1:pm6nonce:home_windows=\\wsl.localhost\Ubuntu-Test\home\you
+PM1:pm6nonce:mount_root=/mnt/
+PM1:pm6nonce:git=2.43.0
+PM1:pm6nonce:interop=1
+PM1:pm6nonce:networking=nat
+PM1:pm6nonce:path=/home/you/.local/bin:/home/you/.nvm/versions/node/v20.11.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PM1:pm6nonce:prog:fake-cli=/home/you/.local/bin/fake-cli
+PM1:pm6nonce:prog:fake-tui=/usr/local/bin/fake-tui
+PM1:pm6nonce:prog:missing-cli=

@@ -1,0 +1,17 @@
+  NAME                       STATE           VERSION
+* Ubuntu-Test                Running         2
+  Ubu;ntu                    Stopped         2
+  $(touch x)                 Stopped         2
+  "Quoted"                   Stopped         2
+  Ubuntu-Café                Stopped         2
+  ..                         Stopped         2
+  -x                         Stopped         2
+  a/b                        Stopped         2
+  Debian;rm -rf x            Stopped         2
+  Fedora-Test                Running         3
+  Lonely-Test
+  Ubuntu-Test.1_ok           Stopped         2
+  bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  Stopped  2
+  bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  Stopped  2
+  Docker-Desktop-Trap        Stopped         2
+  %PATH%                     Stopped         2
