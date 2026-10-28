@@ -171,6 +171,12 @@ pub fn start_embedded_bridge(
             tracing::info!(resumed, "resumed missions");
         }
     });
+    // An unfinished Night Shift run continues too (its missions resume above).
+    let _ = thread::Builder::new().name("night-resume".into()).spawn(|| {
+        if crate::night_shift::runner::resume() {
+            tracing::info!("resumed Night Shift");
+        }
+    });
     mobile_pairing::init_pairing_store(pairing_file)?;
     crate::audit::watch_device_events();
     let _ = crate::app_paths::ensure_app_data_dir();

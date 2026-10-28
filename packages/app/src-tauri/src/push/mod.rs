@@ -396,7 +396,6 @@ pub fn notify_question(question: &crate::questions::Question) {
 /// only ("4 of 5 done, tests green. 1 needs you."). `enabled` is false when the person already opened
 /// the Morning page or the push went out before; the caller decides that. Blocks on the push service,
 /// so call it from the thread that waits for the run's end.
-// Nothing calls it until the Night Shift runner (NS-10) is wired.
 #[allow(dead_code)]
 pub fn notify_night(line: &str, enabled: bool) {
     let Some(ctx) = CTX.get() else { return };

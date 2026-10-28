@@ -38,6 +38,9 @@ pub enum Next {
 // ---- who may stop a run, and the thread -----------------------------------------------------------
 
 static STOPS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
+/// Runs asked to stop by "Stop all agents". Only a run that is Running is stopped by it: a night that
+/// has not started yet has no agents to stop and keeps its start time.
+static STOP_RUNNING: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 static ACTIVE: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 static WAKE: Lazy<(Mutex<u64>, Condvar)> = Lazy::new(|| (Mutex::new(0), Condvar::new()));
 
@@ -45,6 +48,19 @@ static WAKE: Lazy<(Mutex<u64>, Condvar)> = Lazy::new(|| (Mutex::new(0), Condvar:
 pub fn request_stop(run_id: &str) {
     STOPS.lock().insert(run_id.to_string());
     wake();
+}
+
+/// "Stop all agents" (the palette, the tray, the shortcut, the phone): every night that is running
+/// stops like the Stop button, so no new task starts behind the panic. Returns how many supervisors
+/// were asked. Their next tick (woken now) stops the open attempts, releases the keep-awake hold and
+/// saves the report; copies stay.
+pub fn stop_running_nights() -> usize {
+    let ids: Vec<String> = ACTIVE.lock().iter().cloned().collect();
+    STOP_RUNNING.lock().extend(ids.iter().cloned());
+    if !ids.is_empty() {
+        wake();
+    }
+    ids.len()
 }
 
 pub fn stop_requested(run_id: &str) -> bool {
@@ -193,7 +209,8 @@ pub fn step(run: &mut NightRun, io: &dyn NightIo) -> Next {
     if now >= run.stop_at_ms {
         return stop_everything(run, io, now, Why::TimeUp);
     }
-    if stop_requested(&run.id) {
+    let panic_stop = STOP_RUNNING.lock().remove(&run.id) && run.state == RunState::Running;
+    if stop_requested(&run.id) || panic_stop {
         return stop_everything(run, io, now, Why::Person);
     }
     if let RunState::Scheduled { start_at_ms } = run.state {

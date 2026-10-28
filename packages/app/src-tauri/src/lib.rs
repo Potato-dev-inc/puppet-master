@@ -717,6 +717,8 @@ pub fn run() {
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 standby::shutdown();
+                // The computer may sleep again: a Night Shift hold must not outlive the app.
+                night_shift::power::release_all();
                 if let Some(chat) = app_handle.try_state::<commands::SessionChatState>() {
                     chat.shutdown();
                 }

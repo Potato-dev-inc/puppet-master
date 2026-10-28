@@ -718,8 +718,12 @@ fn what_the_person_changed_in_the_saved_record_survives_the_runners_next_save() 
 
 // ---- the thread --------------------------------------------------------------------------------------------------------------------
 
+/// The supervisor registry is global: the tests that spawn threads (and "Stop all agents") take turns.
+static THREADS: Mutex<()> = Mutex::new(());
+
 #[test]
 fn spawn_runs_one_supervisor_per_run_and_a_stop_ends_it() {
+    let _turn = THREADS.lock();
     let io = Arc::new(FakeIo::new(two_plans()));
     let mut run = run_with("ns-00000000001a", vec![task(1, "/p/one", true)], 8 * HOUR);
     run.state = RunState::Scheduled { start_at_ms: T0 + 4 * HOUR };
@@ -733,6 +737,60 @@ fn spawn_runs_one_supervisor_per_run_and_a_stop_ends_it() {
     let saved = io.load().expect("saved");
     assert_eq!(saved.state, RunState::Stopped);
     assert_eq!(saved.tasks[0].outcome.as_ref().unwrap().class, Class::DidntRun);
+}
+
+/// Waits (briefly) for a supervisor thread to finish.
+fn join_in_time(handle: std::thread::JoinHandle<()>) {
+    let started = std::time::Instant::now();
+    while !handle.is_finished() {
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "the supervisor did not end");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    handle.join().expect("the supervisor ends");
+}
+
+#[test]
+fn stop_all_agents_stops_a_running_night_and_releases_the_computer() {
+    let _turn = THREADS.lock();
+    let io = Arc::new(FakeIo::new(vec![cand("fake_a", "Fake A", Some("va"))]));
+    let mut run = run_with("ns-00000000002a", vec![task(1, "/p/one", true), task(2, "/p/two", true)], 8 * HOUR);
+    run.keep_awake = true;
+    // The first tick (here, before the thread) starts a task and takes the hold.
+    step(&mut run, io.as_ref());
+    assert_eq!(run.state, RunState::Running);
+    assert_eq!(io.awake.lock().clone(), vec![true]);
+    assert_eq!(io.starts().len(), 1);
+    *io.stored.lock() = Some(run.clone());
+
+    let handle = spawn(io.clone(), run.id.clone()).expect("a supervisor");
+    assert_eq!(stop_running_nights(), 1);
+    join_in_time(handle);
+
+    let saved = io.load().expect("saved");
+    assert_eq!(saved.state, RunState::Stopped, "stopped like the Stop button");
+    assert!(matches!(saved.tasks[0].attempts[0].end, Some(AttemptEnd::StoppedByPerson)));
+    assert!(io.calls().iter().any(|c| c.starts_with("stop nt-00000001:1")), "the open attempt was stopped");
+    assert_eq!(io.awake.lock().last(), Some(&false), "the guard is released");
+    assert_eq!(io.archived.load(Ordering::SeqCst), 1, "the report is kept");
+    assert!(!is_running(&saved.id));
+    assert_eq!(stop_running_nights(), 0, "nothing left to stop");
+}
+
+#[test]
+fn stop_all_agents_leaves_a_night_that_has_not_started_alone() {
+    let _turn = THREADS.lock();
+    let io = Arc::new(FakeIo::new(two_plans()));
+    let mut run = run_with("ns-00000000003a", vec![task(1, "/p/one", true)], 8 * HOUR);
+    run.state = RunState::Scheduled { start_at_ms: T0 + 4 * HOUR };
+    *io.stored.lock() = Some(run.clone());
+    let handle = spawn(io.clone(), run.id.clone()).expect("a supervisor");
+    assert_eq!(stop_running_nights(), 1);
+    // The supervisor takes its tick; the scheduled night is still scheduled afterwards.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(is_running(&run.id), "still waiting for its start time");
+    assert!(matches!(io.load().unwrap().state, RunState::Scheduled { .. }));
+    request_stop(&run.id);
+    join_in_time(handle);
 }
 
 #[test]

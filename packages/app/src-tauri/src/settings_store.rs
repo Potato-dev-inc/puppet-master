@@ -25,6 +25,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "agent_hooks_mode",
     "agent_hooks_agents",
     "missions_enabled",
+    "night_shift_enabled",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -51,6 +52,8 @@ pub fn default_public_settings() -> Value {
         "agent_hooks_agents": {},
         // Missions (Preview): off until the person turns them on in Settings › General › Labs.
         "missions_enabled": false,
+        // Night Shift (Labs): hours of unattended work, so off until the person turns it on.
+        "night_shift_enabled": false,
     })
 }
 
@@ -152,5 +155,19 @@ mod tests {
         assert_eq!(out["mobile_keyboard_resizes_agent"], false);
         assert!(out.get("api_key").is_none() && out.get("pane_window_position").is_none());
         assert_eq!(public_settings_from_store_file(&json!({})), default_public_settings());
+    }
+
+    #[test]
+    fn night_shift_is_off_by_default_and_the_person_can_turn_it_on() {
+        let defaults = default_public_settings();
+        assert_eq!(defaults["night_shift_enabled"], false);
+        assert_eq!(defaults["missions_enabled"], false);
+        let on = merge_public_settings(&defaults, &json!({"night_shift_enabled": true}));
+        assert_eq!(on["night_shift_enabled"], true);
+        // The switch is its own: the missions switch does not turn it on.
+        let missions_only = merge_public_settings(&defaults, &json!({"missions_enabled": true}));
+        assert_eq!(missions_only["night_shift_enabled"], false);
+        let from_file = public_settings_from_store_file(&json!({"settings": {"night_shift_enabled": true}}));
+        assert_eq!(from_file["night_shift_enabled"], true);
     }
 }
