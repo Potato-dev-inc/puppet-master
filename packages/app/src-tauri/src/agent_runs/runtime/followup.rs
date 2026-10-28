@@ -15,6 +15,31 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// A follow-up or steer on a run that Keep going handed over to another agent is refused. The old
+/// run ended as `HANDED_OFF` and its pane is kept; the work now continues on the handle named in
+/// `context.continued_by`. Nothing is queued or started.
+pub(in crate::agent_runs) fn refuse_handed_off(
+    previous: &OperationSnapshot,
+) -> Result<(), OperationError> {
+    let Some(error) = previous
+        .error
+        .as_ref()
+        .filter(|error| error.code == operations::HANDED_OFF)
+    else {
+        return Ok(());
+    };
+    let continued = &error.context["continued_by"];
+    let message = match (continued["agent_type"].as_str(), continued["handle"].as_str()) {
+        (Some(agent), Some(handle)) => {
+            format!("This task moved to {agent} at a usage limit. Use handle {handle}.")
+        }
+        _ => "This task moved to another agent at a usage limit.".to_string(),
+    };
+    let mut refusal = OperationError::new(operations::HANDED_OFF, message, false);
+    refusal.context = error.context.clone();
+    Err(refusal)
+}
+
 pub fn send_agent(
     project: &str,
     handle: &str,
@@ -27,6 +52,7 @@ pub fn send_agent(
     let handle_guard = handle_lock(handle);
     let serial = handle_guard.lock();
     let previous = current_agent(project, handle, session_id.as_deref())?;
+    refuse_handed_off(&previous)?;
     let project = previous.project_path.clone();
     // A run whose budget is used up pauses here, before any turn is created or queued; a turn
     // already running is never touched. No budget on the run: no change.

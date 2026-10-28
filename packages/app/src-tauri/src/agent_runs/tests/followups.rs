@@ -1,6 +1,7 @@
 //! Follow-up turns on an existing handle: idempotency, inherited state, cursors.
 
 use crate::operations::{self, ContextPolicy, OperationStatus};
+use serde_json::json;
 use std::fs;
 use uuid::Uuid;
 
@@ -234,5 +235,78 @@ fn an_operation_can_be_found_again_by_its_idempotency_key() {
     assert!(operations::find_by_idempotency_key(&project_path, "other")
         .unwrap()
         .is_none());
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
+fn a_follow_up_on_a_handed_off_run_is_refused_with_the_new_handle() {
+    let project = std::env::temp_dir().join(format!("pm-kg-followup-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let running = running_turn(&project_path, "kg-old", "codex", None, false);
+    operations::mark_operation_handed_off(
+        &project_path,
+        &running.operation_id,
+        json!({ "keep_going": "kg-0a1b2c3d4e5f" }),
+    )
+    .unwrap();
+    operations::set_handed_off_to(
+        &project_path,
+        &running.operation_id,
+        json!({ "handle": "kg-new", "agent_type": "fake_b" }),
+    )
+    .unwrap();
+    let latest = operations::latest_agent_run(&project_path, "kg-old").unwrap();
+    let refusal = crate::agent_runs::runtime::refuse_handed_off(&latest).unwrap_err();
+    assert_eq!(refusal.code, "HANDED_OFF");
+    assert!(!refusal.recoverable);
+    assert_eq!(
+        refusal.message,
+        "This task moved to fake_b at a usage limit. Use handle kg-new."
+    );
+    assert_eq!(refusal.context["keep_going"], "kg-0a1b2c3d4e5f");
+    assert_eq!(refusal.context["continued_by"]["handle"], "kg-new");
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
+fn a_handed_off_run_without_a_new_handle_still_refuses_in_plain_words() {
+    let project = std::env::temp_dir().join(format!("pm-kg-followup-bare-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let running = running_turn(&project_path, "kg-bare", "codex", None, false);
+    let handed =
+        operations::mark_operation_handed_off(&project_path, &running.operation_id, json!({}))
+            .unwrap();
+    let refusal = crate::agent_runs::runtime::refuse_handed_off(&handed).unwrap_err();
+    assert_eq!(refusal.code, "HANDED_OFF");
+    assert_eq!(
+        refusal.message,
+        "This task moved to another agent at a usage limit."
+    );
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
+fn only_a_handed_off_run_is_refused_as_a_follow_up_target() {
+    let project = std::env::temp_dir().join(format!("pm-kg-followup-other-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    // A run still going accepts a follow-up.
+    let running = running_turn(&project_path, "kg-live", "codex", None, false);
+    assert!(crate::agent_runs::runtime::refuse_handed_off(&running).is_ok());
+    // A run stopped at a usage limit (not handed over) is not refused by this guard.
+    let other = running_turn(&project_path, "kg-limit", "codex", None, false);
+    operations::mark_operation_usage_limit(
+        &project_path,
+        &other.operation_id,
+        json!({ "kind": operations::USAGE_LIMIT_KIND }),
+    )
+    .unwrap();
+    let stopped =
+        operations::mark_operation_stopped_at_limit(&project_path, &other.operation_id, json!({}))
+            .unwrap();
+    assert_eq!(
+        stopped.error.as_ref().map(|e| e.code.as_str()),
+        Some(operations::USAGE_LIMIT_STOPPED)
+    );
+    assert!(crate::agent_runs::runtime::refuse_handed_off(&stopped).is_ok());
     let _ = fs::remove_dir_all(project);
 }
