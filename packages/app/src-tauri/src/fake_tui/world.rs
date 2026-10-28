@@ -487,7 +487,7 @@ impl Session {
             device_id: "e2e-phone".into(),
             device_name: "E2E phone".into(),
             caps: crate::attention::caps::DeviceCaps::all(),
-            lock_screen: false,
+            via: crate::attention::answer::Via::Card,
         };
         let env = crate::attention::answer::RealEnv { registry: self.world.registry.clone(), app: self.world.app.clone() };
         crate::attention::answer::answer(&env, &caller, item_id, &request)

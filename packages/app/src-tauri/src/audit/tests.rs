@@ -182,3 +182,38 @@ fn a_clock_that_moves_back_across_a_month_boundary_does_not_break_the_chain() {
 fn keep_going_hand_over_has_its_own_audit_kind() {
     assert_eq!(Kind::KeepGoing.as_str(), "keep_going.handed_over");
 }
+
+#[test]
+fn channel_kinds_have_stable_names() {
+    assert_eq!(Kind::ChannelPaired.as_str(), "channel.paired");
+    assert_eq!(Kind::ChannelUnpaired.as_str(), "channel.unpaired");
+    assert_eq!(Kind::ChannelOn.as_str(), "channel.on");
+    assert_eq!(Kind::ChannelOff.as_str(), "channel.off");
+    assert_eq!(Kind::ChannelAnswer.as_str(), "channel.answer");
+    assert_eq!(Kind::ChannelMessage.as_str(), "channel.message");
+    assert_eq!(Kind::ChannelStranger.as_str(), "channel.stranger");
+    assert_eq!(Kind::ChannelError.as_str(), "channel.error");
+}
+
+#[test]
+fn a_channel_actor_is_its_name() {
+    assert_eq!(Who::Channel("telegram".into()).parts(), ("channel", Some("telegram".to_string())));
+    assert_eq!(Who::Desktop.parts(), ("desktop", None), "other actors are unchanged");
+}
+
+#[test]
+fn a_channel_line_is_written_and_the_chain_still_verifies() {
+    let log = temp_log("channel");
+    write_five(&log);
+    let entry = log
+        .append(Kind::ChannelAnswer, &Who::Channel("telegram".into()), "Answered from Telegram: Allow once", json!({ "n": 1 }), T0 + 9)
+        .unwrap();
+    assert_eq!(entry.kind, "channel.answer");
+    assert_eq!(entry.who, "channel");
+    assert_eq!(entry.actor.as_deref(), Some("telegram"));
+    log.append(Kind::ChannelStranger, &Who::Channel("telegram".into()), "A stranger wrote to the bot", json!({ "count": 3 }), T0 + 10).unwrap();
+    let report = log.verify();
+    assert!(report.ok, "{report:?}");
+    assert_eq!(report.entries, 7);
+    assert_eq!(log.recent(1)[0].kind, "channel.stranger");
+}

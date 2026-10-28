@@ -1,0 +1,11 @@
+{
+  "update_id": 1004,
+  "edited_message": {
+    "message_id": 55,
+    "edit_date": 1761600300,
+    "from": {"id": 1001, "is_bot": false, "first_name": "Test", "username": "test_user"},
+    "chat": {"id": 1001, "first_name": "Test", "username": "test_user", "type": "private"},
+    "date": 1761600000,
+    "text": "/stop"
+  }
+}

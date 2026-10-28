@@ -17,12 +17,16 @@
 //! 6. the result is recorded: the ledger, the item's tombstone ("Allowed once from Anna's iPhone"),
 //!    the audit log.
 //!
+//! A chat answer (`Via::Telegram`) is refused for a trust gate, a consent card, a budget, a limit and
+//! any approval above low risk, right after the item is looked up and before any key is typed (see
+//! `chat_refusal`).
+//!
 //! A question, a consent card, a budget or a usage-limit card goes to the questions store (no pane
 //! write). This route is for paired people only: an agent answers through `answer_prompt`, where the
 //! agent-authority consent rules apply.
 
 use super::caps::DeviceCaps;
-use super::model::{Item, Kind, Resolution, Snapshot, State};
+use super::model::{Item, Kind, Level, Resolution, Snapshot, State};
 use super::store::PromptRec;
 use crate::agent_runs::readiness::{AgentProcess, AnswerPermit, Decider};
 use parking_lot::Mutex;
@@ -60,14 +64,24 @@ pub struct Request {
     pub answer_key: Option<String>,
 }
 
+/// Where the answer came from. A chat answer (`Telegram`) gets the narrowest rules: see [`chat_refusal`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Via {
+    /// The attention card on a paired phone.
+    Card,
+    /// A notification button on the lock screen.
+    LockScreen,
+    /// A tap or a reply in the Telegram chat (`channels/`).
+    Telegram,
+}
+
 /// The paired device that is answering.
 #[derive(Debug, Clone)]
 pub struct Caller {
     pub device_id: String,
     pub device_name: String,
     pub caps: DeviceCaps,
-    /// The tap came from a notification button on the lock screen, not from the card.
-    pub lock_screen: bool,
+    pub via: Via,
 }
 
 /// The prompt a pane shows right now, read again for an answer.
@@ -197,6 +211,23 @@ fn resolved(item: &Item, caller: &Caller) -> Reply {
     }))
 }
 
+/// The rule for a chat answer (`Via::Telegram`), enforced here as well as in the Telegram layer
+/// (defence in depth: a bug in that layer must not be enough). A trust gate, a consent card, a budget
+/// or a limit, and an approval above low risk or with no risk read, are never answered from a chat.
+/// `None` means the chat may answer this item. Every kind is listed, so a new kind must be decided here.
+fn chat_refusal(item: &Item) -> Option<&'static str> {
+    match item.kind {
+        Kind::TrustGate => Some("Only the person at this PC can pass this."),
+        Kind::Consent => Some("An agent wants more control. Decide on the PC."),
+        Kind::Budget | Kind::Limit | Kind::Tamper | Kind::Setup => Some("Decide this in Puppet Master on the PC."),
+        Kind::Approval => match item.risk.as_ref().map(|risk| risk.level) {
+            Some(Level::Low) => None,
+            _ => Some("Only low-risk approvals can be answered from a chat."),
+        },
+        Kind::Question | Kind::Error | Kind::Stuck | Kind::Review | Kind::Done | Kind::Answer => None,
+    }
+}
+
 /// `item_id` is the opaque id of the card; `request` is what the phone sent.
 pub fn answer(env: &dyn Env, caller: &Caller, item_id: &str, request: &Request) -> Reply {
     if !caller.caps.can_answer {
@@ -218,6 +249,11 @@ pub fn answer(env: &dyn Env, caller: &Caller, item_id: &str, request: &Request) 
     let Some(item) = snapshot.items.iter().find(|i| i.id == item_id) else { return gone("unknown") };
     if item.state == State::Resolved {
         return resolved(item, caller);
+    }
+    if caller.via == Via::Telegram {
+        if let Some(hint) = chat_refusal(item) {
+            return (403, json!({"error": "not_from_chat", "hint": hint}));
+        }
     }
     match item.kind {
         Kind::Approval | Kind::TrustGate => answer_prompt(env, caller, item, request, key),
@@ -267,7 +303,11 @@ fn answer_prompt(env: &dyn Env, caller: &Caller, item: &Item, request: &Request,
     // while the route took its checkpoint), the permit refuses and the screen is read ONCE more: the
     // same prompt still up gets one more try, anything else is `changed` or `gone`. Nothing is typed
     // into a screen nobody looked at.
-    let decider = if caller.lock_screen { Decider::LockScreen(caller.device_id.clone()) } else { Decider::Device(caller.device_id.clone()) };
+    let decider = match caller.via {
+        Via::Card => Decider::Device(caller.device_id.clone()),
+        Via::LockScreen => Decider::LockScreen(caller.device_id.clone()),
+        Via::Telegram => Decider::Channel(caller.device_id.clone()),
+    };
     for attempt in 0..MAX_ATTEMPTS {
         let Some(live) = env.live_prompt(&pane.id) else { return gone("moved_on") };
         let current = env.occurrence(&pane.id);
@@ -359,10 +399,10 @@ fn recorded(env: &dyn Env, caller: &Caller, item: &Item, label: &str, key: Optio
         },
     );
     // Who pressed which choice, never the command.
-    let (summary, via) = if caller.lock_screen {
-        (format!("A phone answered from its lock screen: {label}"), "push")
-    } else {
-        (format!("A phone answered a card: {label}"), "card")
+    let (summary, via) = match caller.via {
+        Via::LockScreen => (format!("A phone answered from its lock screen: {label}"), "push"),
+        Via::Card => (format!("A phone answered a card: {label}"), "card"),
+        Via::Telegram => (format!("Answered from Telegram: {label}"), "telegram"),
     };
     env.audit(caller, &summary, json!({"kind": item.kind.as_str(), "choice": label, "via": via}));
 }
@@ -448,7 +488,12 @@ impl Env for RealEnv {
     }
 
     fn audit(&self, caller: &Caller, summary: &str, detail: Value) {
-        crate::audit::record(crate::audit::Kind::Approval, crate::audit::Who::Device(Some(caller.device_id.clone())), summary, detail);
+        // A chat answer is audited as the channel (not a paired phone); the rest as the phone.
+        let (kind, who) = match caller.via {
+            Via::Telegram => (crate::audit::Kind::ChannelAnswer, crate::audit::Who::Channel("telegram".into())),
+            Via::LockScreen | Via::Card => (crate::audit::Kind::Approval, crate::audit::Who::Device(Some(caller.device_id.clone()))),
+        };
+        crate::audit::record(kind, who, summary, detail);
     }
 
     fn ledger(&self) -> &Mutex<Ledger> {
@@ -634,7 +679,7 @@ pub(crate) mod testing {
     }
 
     pub fn caller(id: &str, caps: DeviceCaps) -> Caller {
-        Caller { device_id: id.into(), device_name: format!("{id}'s phone"), caps, lock_screen: false }
+        Caller { device_id: id.into(), device_name: format!("{id}'s phone"), caps, via: Via::Card }
     }
 }
 

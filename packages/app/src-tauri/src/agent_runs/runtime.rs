@@ -32,7 +32,7 @@ pub(super) use control::settle_native_abort;
 pub(super) use control::{active_turns, interrupt_active_turns};
 pub use control::{cancel_agent, close_agent, inspect_agent};
 #[cfg(test)]
-pub(super) use followup::enqueue_followup;
+pub(super) use followup::{enqueue_followup, refuse_handed_off};
 pub use followup::send_agent;
 pub use present::agent_view_after_wait;
 /// The usage limit a run is parked at or was stopped at, for the receipt (`crate::handoff`).
