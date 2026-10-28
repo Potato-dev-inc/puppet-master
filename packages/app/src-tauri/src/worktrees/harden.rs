@@ -250,3 +250,98 @@ pub fn diff(dir: &Path, args: &[&str], env: &[(String, String)]) -> Result<Strin
         ))
     }
 }
+
+// ------------------------------------------------------------------- Red to Green (spec n33 §3.4)
+
+/// A full commit id: 40 lowercase hex characters (the only kind PM records).
+pub(super) fn is_sha(text: &str) -> bool {
+    text.len() == 40 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Refuse an empty env, like [`diff`]: every call here must be hardened.
+fn hardened(env: &[(String, String)]) -> Result<(), OperationError> {
+    if env.is_empty() {
+        Err(OperationError::new("INVALID_ARGUMENT", "this git call needs the hardened git env", false))
+    } else {
+        Ok(())
+    }
+}
+
+/// The commit `refs/heads/<branch>` points to on `remote` (`git ls-remote --heads`), or `None` when
+/// the remote has no such branch. Only the exact ref name counts. A read error is an error, so the
+/// caller fails closed.
+pub fn remote_branch_sha(
+    dir: &Path,
+    remote: &str,
+    branch: &str,
+    env: &[(String, String)],
+) -> Result<Option<String>, OperationError> {
+    hardened(env)?;
+    check_name(remote)?;
+    check_name(branch)?;
+    let wanted = format!("refs/heads/{branch}");
+    let listed = run(dir, &["ls-remote", "--heads", remote, &wanted], env)?;
+    Ok(listed.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let sha = parts.next()?;
+        (parts.next()? == wanted).then(|| sha.to_ascii_lowercase())
+    }))
+}
+
+/// The commit `HEAD` points to, as 40 lowercase hex characters (`git rev-parse HEAD`).
+pub fn head_sha(dir: &Path, env: &[(String, String)]) -> Result<String, OperationError> {
+    hardened(env)?;
+    let sha = run(dir, &["rev-parse", "HEAD"], env)?;
+    if is_sha(&sha) {
+        Ok(sha)
+    } else {
+        Err(OperationError::new("GIT_FAILED", "git gave no commit for HEAD", false))
+    }
+}
+
+/// The branch `HEAD` is on (`symbolic-ref --short`), or `None` on a detached HEAD.
+pub fn current_branch(dir: &Path, env: &[(String, String)]) -> Result<Option<String>, OperationError> {
+    hardened(env)?;
+    let out = git_raw(dir, &["symbolic-ref", "--short", "-q", "HEAD"], &refs(env))?;
+    if out.ok {
+        let name = out.stdout.trim();
+        return Ok((!name.is_empty()).then(|| name.to_string()));
+    }
+    if out.stderr.trim().is_empty() {
+        Ok(None) // exit 1 with no message: detached HEAD
+    } else {
+        Err(OperationError::new("GIT_FAILED", format!("git symbolic-ref failed: {}", out.stderr.trim()), false))
+    }
+}
+
+/// Whether commit `a` is an ancestor of commit `b` (`merge-base --is-ancestor`). Both must be
+/// full commit ids. A commit git does not know is an error, not `false`.
+pub fn is_ancestor(dir: &Path, a: &str, b: &str, env: &[(String, String)]) -> Result<bool, OperationError> {
+    hardened(env)?;
+    if !is_sha(a) || !is_sha(b) {
+        return Err(OperationError::new("INVALID_ARGUMENT", "is_ancestor needs two full commit ids", false));
+    }
+    let out = git_raw(dir, &["merge-base", "--is-ancestor", a, b], &refs(env))?;
+    if out.ok {
+        Ok(true)
+    } else if out.stderr.trim().is_empty() {
+        Ok(false)
+    } else {
+        Err(OperationError::new("GIT_FAILED", format!("git merge-base failed: {}", out.stderr.trim()), false))
+    }
+}
+
+/// The files that differ between `base` and `HEAD`, as `(status, path)` with status `A`, `M`, `D`,
+/// `T` ... (`diff --name-status -z`, no renames). `base` is a commit or a plain ref name.
+pub fn name_status(dir: &Path, base: &str, env: &[(String, String)]) -> Result<Vec<(String, String)>, OperationError> {
+    hardened(env)?;
+    check_name(base)?;
+    let range = format!("{base}..HEAD");
+    let raw = diff(dir, &["--name-status", "-z", &range], env)?;
+    let mut fields = raw.split('\0').filter(|field| !field.is_empty());
+    let mut out = Vec::new();
+    while let (Some(status), Some(path)) = (fields.next(), fields.next()) {
+        out.push((status.to_string(), path.to_string()));
+    }
+    Ok(out)
+}

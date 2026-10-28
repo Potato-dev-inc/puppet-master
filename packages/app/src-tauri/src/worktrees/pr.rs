@@ -380,6 +380,45 @@ pub(super) fn push_branch(
     Err(err("PUSH_FAILED", message))
 }
 
+/// Push a fix (new commits) to the copy's own `pm/` branch, after the person said yes (Red to
+/// Green, spec n33 §3.4). It is a plain fast-forward push: the remote branch must still be exactly
+/// `expected_remote` (the commit whose checks failed), or nothing is pushed. Refused: a branch that
+/// [`guard_branch`] refuses, the repo's default branch, and the PR base. `git_env` must be the
+/// hardened env of PM's git calls on the copy. Returns the new head commit.
+pub fn push_update(
+    worktree: &WorktreeRef,
+    base: &str,
+    default_branch: Option<&str>,
+    expected_remote: &str,
+    env: &ToolEnv,
+    git_env: &[(String, String)],
+) -> Result<String, OperationError> {
+    guard_branch(worktree, base)?;
+    if default_branch.is_some_and(|d| d.eq_ignore_ascii_case(&worktree.branch)) {
+        return Err(err(
+            "PR_BRANCH_REFUSED",
+            format!("Puppet Master never pushes the repository's default branch ({}).", worktree.branch),
+        ));
+    }
+    if !super::harden::is_sha(expected_remote) {
+        return Err(err("INVALID_ARGUMENT", "the failing commit must be a full commit id"));
+    }
+    let dir = Path::new(&worktree.path);
+    let remote = remote_name(dir);
+    let on_remote = super::harden::remote_branch_sha(dir, &remote, &worktree.branch, git_env)?;
+    if on_remote.as_deref() != Some(expected_remote) {
+        return Err(err(
+            "CI_FIX_REMOTE_MOVED",
+            format!(
+                "Someone changed {} on GitHub after the failed checks, so nothing was pushed. Look at the branch first.",
+                worktree.branch
+            ),
+        ));
+    }
+    push_branch(worktree, env, git_env)?;
+    super::harden::head_sha(dir, git_env)
+}
+
 /// Push the branch and open (or update) the pull request. The caller has already made sure the
 /// agent is idle and committed its loose edits.
 pub fn create(
