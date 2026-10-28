@@ -171,6 +171,7 @@ pub fn run() {
         .manage(AppState::new())
         .manage(commands::SessionChatState::default())
         .manage(clip::store::ClipState::default())
+        .manage(commands::ChatImportState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_panes,
             commands::session_chat_open,
@@ -180,6 +181,14 @@ pub fn run() {
             commands::chat_index_status,
             commands::chat_index_set_enabled,
             commands::chat_index_clear,
+            commands::chat_import_state,
+            commands::chat_import_look,
+            commands::chat_import_start,
+            commands::chat_import_cancel,
+            commands::chat_import_dismiss,
+            commands::chat_import_clear,
+            commands::chat_import_open,
+            commands::chat_import_resume_plan,
             commands::chat_export_html,
             commands::chat_export_markdown,
             commands::chat_export_save,
