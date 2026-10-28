@@ -1,0 +1,39 @@
+{
+  "name": "old-widget-kit",
+  "description": "Made-up fixture package for tests",
+  "dist-tags": {
+    "latest": "2.0.0",
+    "legacy": "1.0.0"
+  },
+  "time": {
+    "created": "2014-05-02T10:00:00.000Z",
+    "modified": "2019-01-01T00:00:00.000Z",
+    "unpublished": {
+      "name": "old-widget-kit",
+      "time": "2019-01-01T00:00:00.000Z",
+      "versions": []
+    },
+    "1.0.0": "2014-05-02T10:00:00.000Z",
+    "2.0.0": "2018-03-03T12:00:00.000Z"
+  },
+  "maintainers": [
+    {
+      "name": "sample-two"
+    },
+    {
+      "name": "sample-three"
+    }
+  ],
+  "versions": {
+    "1.0.0": {
+      "name": "old-widget-kit",
+      "version": "1.0.0"
+    },
+    "2.0.0": {
+      "name": "old-widget-kit",
+      "version": "2.0.0",
+      "deprecated": "no longer maintained, use another package",
+      "scripts": {}
+    }
+  }
+}

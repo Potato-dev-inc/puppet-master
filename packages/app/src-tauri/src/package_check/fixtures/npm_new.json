@@ -1,0 +1,34 @@
+{
+  "_id": "zinc-helper-tool",
+  "name": "zinc-helper-tool",
+  "description": "Made-up fixture package for tests",
+  "dist-tags": {
+    "latest": "1.0.0"
+  },
+  "time": {
+    "created": "2026-10-20T09:00:00.000Z",
+    "modified": "2026-10-20T09:05:00.000Z",
+    "1.0.0": "2026-10-20T09:05:00.000Z"
+  },
+  "maintainers": [
+    {
+      "name": "sample-one"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://example.test/sample-one/zinc-helper-tool.git"
+  },
+  "versions": {
+    "1.0.0": {
+      "name": "zinc-helper-tool",
+      "version": "1.0.0",
+      "scripts": {
+        "postinstall": "node setup.js"
+      },
+      "dist": {
+        "tarball": "https://registry.npmjs.org/zinc-helper-tool/-/zinc-helper-tool-1.0.0.tgz"
+      }
+    }
+  }
+}
