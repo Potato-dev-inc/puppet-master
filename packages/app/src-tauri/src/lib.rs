@@ -36,6 +36,7 @@ mod mcp_status;
 mod missions;
 mod mobile_pairing;
 mod mobile_tunnel;
+mod night_shift;
 mod tunnel_config;
 mod one_brain;
 mod companion;

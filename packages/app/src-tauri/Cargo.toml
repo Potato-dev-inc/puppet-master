@@ -93,6 +93,8 @@ keyring = { version = "3.6", features = ["windows-native"] }
 # `controller()` types match (`cargo tree -d` shows one webview2-com).
 webview2-com = "0.39"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell"] }
+# Night Shift keep-awake (`night_shift/power.rs`): SetThreadExecutionState. 0.52 is already in Cargo.lock.
+windows-sys = { version = "0.52", features = ["Win32_System_Power"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", features = ["apple-native"] }
