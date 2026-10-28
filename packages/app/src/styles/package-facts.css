@@ -1,0 +1,133 @@
+/* Package check block on the approval card. Monochrome: the look-alike marker is a filled glyph and a
+   heavier weight, never a colour. Rows are one line each at a fixed height, so the card never reflows
+   when the registry's answer lands. */
+.cockpit .ck-pc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-pc--bar {
+  font-size: 11px;
+}
+.cockpit .ck-pc-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.cockpit .ck-pc-title {
+  font-weight: 600;
+  color: var(--label-2);
+}
+.cockpit .ck-pc-status {
+  font-size: 11px;
+  color: var(--label-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cockpit .ck-pc-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cockpit .ck-pc-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  min-width: 0;
+}
+.cockpit .ck-pc-glyph {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  color: var(--label);
+}
+.cockpit .ck-pc-glyph--none {
+  width: 9px;
+}
+.cockpit .ck-pc-name {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--label);
+}
+.cockpit .ck-pc-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-pc-row[data-look] .ck-pc-summary {
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-pc-row[data-state='failed'] .ck-pc-summary,
+.cockpit .ck-pc-row[data-state='not_found'] .ck-pc-summary {
+  color: var(--label-3);
+}
+.cockpit .ck-pc-more {
+  margin: 0;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-pc-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.cockpit .ck-pc-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.cockpit .ck-pc-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.cockpit .ck-pc-reg {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-pc-detail ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cockpit .ck-pc-detail li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--label-2);
+}
+.cockpit .ck-pc-detail li .ck-pc-glyph {
+  flex: none;
+  align-self: center;
+}
+.cockpit .ck-pc-foot {
+  margin: 0;
+  font-size: 11px;
+  color: var(--label-3);
+}
