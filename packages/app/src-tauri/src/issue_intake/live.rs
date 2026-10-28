@@ -109,6 +109,8 @@ pub trait Io: Send + Sync {
 
     // Cards.
     fn ask(&self, new: NewQuestion) -> Result<String, String>;
+    /// Like `ask`, under an id the caller already stored in a run record.
+    fn ask_as(&self, new: NewQuestion, id: &str) -> Result<String, String>;
     fn question(&self, id: &str) -> Option<Question>;
     fn dismiss(&self, id: &str);
 }
@@ -317,6 +319,10 @@ impl Io for LiveIo {
 
     fn ask(&self, new: NewQuestion) -> Result<String, String> {
         crate::questions::store().create(new, crate::questions::now_ms()).map(|question| question.id).map_err(|error| plain(error.message))
+    }
+
+    fn ask_as(&self, new: NewQuestion, id: &str) -> Result<String, String> {
+        crate::questions::store().create_as(new, Some(id), crate::questions::now_ms()).map(|question| question.id).map_err(|error| plain(error.message))
     }
 
     fn question(&self, id: &str) -> Option<Question> {

@@ -251,10 +251,13 @@ impl<I: Io + 'static> Engine<I> {
         run.forced_ask = filter::forced_reasons(&repo, &me, &self.io.store().config(), &run.issue, &self.io.store().runs());
         run.agent = repo.agent.clone();
         run.agent_label = self.io.agent_label(&repo.agent.agent_type);
-        let id = self.raise_start_card(run).ok_or_else(|| err("TOO_MANY_QUESTIONS", "There are too many open cards. Answer some first."))?;
-        run.started_at_ms = None;
-        run.state = RunState::Asking { question_id: id };
-        self.put(run);
+        let old_start = run.started_at_ms.take();
+        let (saved, raised) = self.store_then_ask(run, true);
+        if !saved || !raised {
+            run.started_at_ms = old_start;
+            self.put(run);
+            return Err(err("TOO_MANY_QUESTIONS", "There are too many open cards. Answer some first."));
+        }
         Ok(())
     }
 
