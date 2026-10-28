@@ -36,6 +36,8 @@ pub struct Inputs {
     pub limits: Vec<LimitFact>,
     /// The day the limit log began; `None` when there is no log yet.
     pub limits_since_ms: Option<u64>,
+    /// Operation records that could not be read (skipped, so their turns are not counted).
+    pub unreadable_records: usize,
 }
 
 fn info<Tz: TimeZone>(ym: YearMonth, tz: &Tz) -> MonthInfo {
@@ -80,6 +82,10 @@ pub fn build<Tz: TimeZone>(inputs: &Inputs, selected: Option<YearMonth>, now_ms:
     if unknown_files > 0 {
         notes.push(format!("{} had no file information, so they add no files.", plural(unknown_files as usize, "turn", "turns")));
     }
+    if inputs.unreadable_records > 0 {
+        let left_out = if inputs.unreadable_records == 1 { "Its turns are not counted." } else { "Their turns are not counted." };
+        notes.push(format!("{} could not be read. {left_out}", plural(inputs.unreadable_records, "record", "records")));
+    }
     notes.push("Tokens are not counted. Only usage an agent reports itself would show here.".to_string());
 
     PlansReport {
@@ -123,9 +129,12 @@ fn live_inputs(now: u64) -> Inputs {
     projects.retain(|p| !p.trim().is_empty() && seen.insert(crate::project_path::comparable_project_path(std::path::Path::new(p))));
 
     let mut ops = Vec::new();
+    let mut unreadable_records = 0;
     for project in &projects {
-        if let Ok(found) = crate::operations::list_operations(project) {
+        // One bad record skips only that record; the rest of the project still counts.
+        if let Ok((found, skipped)) = crate::operations::list_operations_lenient(project) {
             ops.extend(found.iter().filter_map(merge::OpTurn::of));
+            unreadable_records += skipped;
         }
         summaries.extend(crate::turn_summary::store::read_project(&PathBuf::from(project)));
     }
@@ -135,5 +144,10 @@ fn live_inputs(now: u64) -> Inputs {
 
     let entries = limit_log::read(&limit_log::default_path());
     let limited_now = |pane: &str| crate::handoff::is_parked(pane);
-    Inputs { turns, limits: limit_log::hits(&entries, now, &limited_now), limits_since_ms: limit_log::counting_since(&entries) }
+    Inputs {
+        turns,
+        limits: limit_log::hits(&entries, now, &limited_now),
+        limits_since_ms: limit_log::counting_since(&entries),
+        unreadable_records,
+    }
 }

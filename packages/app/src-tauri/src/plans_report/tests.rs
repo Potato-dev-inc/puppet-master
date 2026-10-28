@@ -206,6 +206,7 @@ fn the_report_lists_months_says_since_when_limits_count_and_flags_what_it_cannot
         ],
         limits: vec![limit("alpha", None, at(2026, 10, 20, 9, 0), None)],
         limits_since_ms: Some(since),
+        ..Inputs::default()
     };
     let now = at(2026, 10, 28, 12, 0);
 
@@ -330,10 +331,23 @@ fn the_report_has_no_folder_pane_or_chat_text() {
         turns: merge(&ops, &sums, &|_| None),
         limits: vec![limit("alpha", Some("acct-work"), t, Some(t + HOUR))],
         limits_since_ms: Some(t),
+        ..Inputs::default()
     };
     let json = serde_json::to_string(&report(&inputs, None, t + HOUR)).unwrap();
     for secret in ["pane-secret", "C:\\\\Users", "a.ts", "pane", "path", "cwd", "prompt", "sentence"] {
         assert!(!json.contains(secret), "{secret} leaked into {json}");
     }
     assert!(json.contains("\"agentLabel\":\"Alpha Code\"") && json.contains("\"accountLabel\":\"Work\""));
+}
+
+#[test]
+fn unreadable_records_get_a_note_and_none_means_no_note() {
+    let t = at(2026, 10, 3, 9, 0);
+    let note = |n: usize| {
+        let inputs = Inputs { unreadable_records: n, ..Inputs::default() };
+        report(&inputs, None, t).notes.into_iter().find(|l| l.contains("could not be read"))
+    };
+    assert_eq!(note(0), None);
+    assert_eq!(note(1).as_deref(), Some("1 record could not be read. Its turns are not counted."));
+    assert_eq!(note(3).as_deref(), Some("3 records could not be read. Their turns are not counted."));
 }
