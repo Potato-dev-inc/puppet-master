@@ -105,6 +105,12 @@ pub const ID_STOP_ALL: &str = "stop-all";
 pub const PREFIX_MODE: &str = "mode:";
 pub const PREFIX_NEW: &str = "new:";
 pub const PREFIX_PANE: &str = "pane:";
+/// Focus Time ids: `focus:25`, `focus:45`, `focus:90`, `focus:end`, `focus:more` (SPEC n33 3.6 (4)).
+pub const PREFIX_FOCUS: &str = "focus:";
+/// The lengths a Focus submenu offers (minutes).
+pub const FOCUS_PRESETS: [u32; 3] = [25, 45, 90];
+/// How much `Add 15 minutes` adds to a running Focus (minutes).
+pub const FOCUS_EXTEND_MIN: u32 = 15;
 
 /// What a clicked menu id means.
 #[derive(Debug, PartialEq, Eq)]
@@ -116,6 +122,9 @@ pub enum Command {
     SetMode(UiMode),
     NewPane(String),
     FocusPane(String),
+    FocusStart(u32),
+    FocusEnd,
+    FocusExtend,
 }
 
 pub fn parse_command(id: &str) -> Option<Command> {
@@ -124,11 +133,21 @@ pub fn parse_command(id: &str) -> Option<Command> {
         ID_QUIT => Some(Command::Quit),
         ID_COCKPIT => Some(Command::Cockpit),
         ID_STOP_ALL => Some(Command::StopAll),
+        _ if id.starts_with(PREFIX_FOCUS) => parse_focus(&id[PREFIX_FOCUS.len()..]),
         _ if id.starts_with(PREFIX_MODE) => UiMode::parse(&id[PREFIX_MODE.len()..]).map(Command::SetMode),
         _ => id
             .strip_prefix(PREFIX_NEW)
             .map(|a| Command::NewPane(a.to_string()))
             .or_else(|| id.strip_prefix(PREFIX_PANE).map(|p| Command::FocusPane(p.to_string()))),
+    }
+}
+
+/// The part of a `focus:` id after the prefix. Only the listed lengths, `end` and `more` are ids.
+fn parse_focus(rest: &str) -> Option<Command> {
+    match rest {
+        "end" => Some(Command::FocusEnd),
+        "more" => Some(Command::FocusExtend),
+        _ => FOCUS_PRESETS.into_iter().find(|m| m.to_string() == rest).map(Command::FocusStart),
     }
 }
 
@@ -205,6 +224,38 @@ pub fn mode_items(mode: UiMode) -> Vec<Item> {
         .into_iter()
         .map(|(m, label)| Item::Check { id: format!("{PREFIX_MODE}{}", m.as_str()), label: label.into(), checked: m == mode })
         .collect()
+}
+
+/// "Focus" submenu: the three lengths. While Focus is on (`left_min` minutes left) it also offers
+/// `End Focus (31 min left)` and `Add 15 minutes`, after a separator.
+pub fn focus_items(left_min: Option<u32>) -> Vec<Item> {
+    let mut items: Vec<Item> = FOCUS_PRESETS
+        .into_iter()
+        .map(|m| Item::Action { id: format!("{PREFIX_FOCUS}{m}"), label: format!("{m} minutes"), enabled: true })
+        .collect();
+    if let Some(left) = left_min {
+        items.push(Item::Separator);
+        items.push(Item::Action {
+            id: format!("{PREFIX_FOCUS}end"),
+            label: format!("End Focus ({left} min left)"),
+            enabled: true,
+        });
+        items.push(Item::Action {
+            id: format!("{PREFIX_FOCUS}more"),
+            label: format!("Add {FOCUS_EXTEND_MIN} minutes"),
+            enabled: true,
+        });
+    }
+    items
+}
+
+/// The tooltip while Focus is on: `Puppet Master · Focus 31 min left · 1 needs you`. Focus comes first; the
+/// usual parts of `base` (the blocking count included) follow unchanged. `None` returns `base` as it is.
+pub fn summary_line_with_focus(base: String, left_min: Option<u32>) -> String {
+    let Some(left) = left_min else { return base };
+    let head = format!("{TOOLTIP_NAME} \u{b7} ");
+    let rest = base.strip_prefix(head.as_str()).unwrap_or(base.as_str());
+    format!("{head}Focus {left} min left \u{b7} {rest}")
 }
 
 /// `pane://spawn-stage` payload. `stage` is claiming | spawning | attached | ready | failed.
@@ -607,6 +658,8 @@ mod runtime {
                     }
                 });
             }
+            // Focus Time items are not in the menu yet (FT-9 wires the engine and the submenu), so none is clicked.
+            Some(Command::FocusStart(_) | Command::FocusEnd | Command::FocusExtend) => {}
             None => {}
         }
     }
@@ -856,5 +909,80 @@ mod tests {
         assert_eq!(throttle(Some(almost), false), Throttle::Later(REFRESH_EVERY - almost));
         // A deferred run is already waiting: a further call adds nothing, it will read the newest state.
         assert_eq!(throttle(Some(almost), true), Throttle::Skip);
+    }
+
+    #[test]
+    fn focus_ids_parse_to_the_commands_the_menu_offers() {
+        let menu: Vec<String> = focus_items(Some(31))
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Action { id, .. } => Some(id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(menu, ["focus:25", "focus:45", "focus:90", "focus:end", "focus:more"]);
+        let commands: Vec<Command> = menu.iter().map(|id| parse_command(id).expect("a menu id parses")).collect();
+        assert_eq!(
+            commands,
+            vec![
+                Command::FocusStart(25),
+                Command::FocusStart(45),
+                Command::FocusStart(90),
+                Command::FocusEnd,
+                Command::FocusExtend,
+            ]
+        );
+    }
+
+    #[test]
+    fn bad_focus_ids_parse_to_nothing() {
+        let bad = ["focus:", "focus", "focus:30", "focus:025", "focus:25 ", "focus:Start", "focus:-45", "focus:end2", "Focus:25"];
+        for id in bad {
+            assert_eq!(parse_command(id), None, "{id} must not parse");
+        }
+    }
+
+    #[test]
+    fn focus_submenu_offers_three_lengths_when_off() {
+        assert_eq!(
+            focus_items(None),
+            vec![
+                Item::Action { id: "focus:25".into(), label: "25 minutes".into(), enabled: true },
+                Item::Action { id: "focus:45".into(), label: "45 minutes".into(), enabled: true },
+                Item::Action { id: "focus:90".into(), label: "90 minutes".into(), enabled: true },
+            ]
+        );
+    }
+
+    #[test]
+    fn focus_submenu_adds_end_and_add_time_after_a_separator_while_on() {
+        let items = focus_items(Some(31));
+        assert_eq!(items.len(), 6);
+        assert_eq!(&items[..3], &focus_items(None)[..]);
+        assert_eq!(items[3], Item::Separator);
+        assert_eq!(items[4], Item::Action { id: "focus:end".into(), label: "End Focus (31 min left)".into(), enabled: true });
+        assert_eq!(items[5], Item::Action { id: "focus:more".into(), label: "Add 15 minutes".into(), enabled: true });
+    }
+
+    #[test]
+    fn tooltip_without_focus_is_the_usual_summary() {
+        let base = summary_line(&["error"], &[], 2);
+        assert_eq!(summary_line_with_focus(base.clone(), None), base);
+    }
+
+    #[test]
+    fn tooltip_with_focus_puts_focus_first_and_keeps_the_blocking_count() {
+        assert_eq!(
+            summary_line_with_focus(summary_line(&[], &[], 1), Some(31)),
+            "Puppet Master \u{b7} Focus 31 min left \u{b7} 1 needs you"
+        );
+        assert_eq!(
+            summary_line_with_focus(summary_line(&["waiting_input", "error", "running"], &[job(&[8765])], 2), Some(45)),
+            "Puppet Master \u{b7} Focus 45 min left \u{b7} 2 need you \u{b7} 1 error \u{b7} 1 working \u{b7} 1 server running"
+        );
+        assert_eq!(
+            summary_line_with_focus(summary_line(&[], &[], 0), Some(25)),
+            "Puppet Master \u{b7} Focus 25 min left \u{b7} nothing running"
+        );
     }
 }
