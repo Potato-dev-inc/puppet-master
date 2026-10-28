@@ -27,4 +27,4 @@ pub use opening::Opening;
 pub use model::{cut, ChatItem, SessionFormat, TurnOutcome};
 pub use source::{plain_path, LaunchFacts, Located, PaneFacts, SessionSource};
 pub use screen::{read_pane, ScreenRead};
-pub use watch::{Hold, PaneLookup, Sink, Watchers};
+pub use watch::{Hold, ItemObserver, PaneLookup, Sink, Watchers};

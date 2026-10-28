@@ -85,6 +85,7 @@ mod tunnel_auth_tests;
 #[cfg(test)]
 mod device_caps_tests;
 mod session_context;
+mod chat_index;
 mod session_chat;
 mod secrets;
 mod settings_store;
@@ -163,6 +164,7 @@ pub fn run() {
             commands::list_panes,
             commands::session_chat_open,
             commands::session_chat_close,
+            commands::chat_search,
             commands::pane_message_send,
             commands::pane_message_cancel,
             commands::pane_messages_list,

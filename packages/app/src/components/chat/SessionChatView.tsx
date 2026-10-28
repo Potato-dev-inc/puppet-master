@@ -3,7 +3,8 @@
 // when the agent has a plan, a thin line marks a notice, and a turn ends with how long it worked. The view mode
 // (Summary, Normal, Verbose) is in the header. The agent's text is Markdown when it comes from the session file;
 // text read off the terminal is shown as it is.
-import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { clearChatJump, turnWithItem, type ChatJump } from '../../lib/chatJump';
 import type { ChatSource, ChatTurn, SessionChatState, TurnStep } from '../../lib/sessionChatModel';
 import '../../styles/cockpit-chat.css';
 import { ActivityLine } from './ActivityLine';
@@ -53,7 +54,12 @@ export interface SessionChatViewProps {
   headerExtra?: ReactNode;
   /** Something laid over the chat, inside it (the side question box). */
   overlay?: ReactNode;
+  /** A search result asked for this message: the chat scrolls to it once it is there. */
+  jump?: ChatJump | null;
 }
+
+/** How long a jump waits for its message to load before it is dropped. */
+const JUMP_WAIT_MS = 10_000;
 
 const SUMMARY_NOTE = 'Summary: your messages, final answers and activity lines.';
 
@@ -82,7 +88,7 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
   // A turn with no end yet is still running: its rows without a result are live.
   const live = turn.end === null;
   return (
-    <section className="space-y-1.5 ck-chat-turn">
+    <section className="space-y-1.5 ck-chat-turn" data-turn-id={turn.id}>
       {turn.user && (
         <div className="flex justify-end">
           <div className="max-w-[85%] whitespace-pre-wrap break-words rounded bg-pm-raised px-2 py-1 text-pm-text ck-chat-bubble">
@@ -112,7 +118,7 @@ function TurnView({ turn, fromScreen, markdown, mode }: { turn: ChatTurn; fromSc
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, overlay }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, overlay, jump }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
   const markdown = source === 'file' || source === 'api';
@@ -138,6 +144,28 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Scroll to the message a search result opened and wash it for a moment. A message that never comes (the chat
+  // does not hold it any more) is dropped after a while, and so is one that is not in a chat that has loaded.
+  useEffect(() => {
+    if (!jump) return;
+    const turn = turnWithItem(turns, jump.itemId);
+    const el = turn ? [...(scrollRef.current?.querySelectorAll<HTMLElement>('[data-turn-id]') ?? [])].find((node) => node.dataset.turnId === turn.id) : undefined;
+    if (el) {
+      atBottom.current = false;
+      el.scrollIntoView({ block: 'center' });
+      el.classList.add('is-found');
+      setTimeout(() => el.classList.remove('is-found'), 2000);
+      clearChatJump(jump);
+      return;
+    }
+    if (state === 'unavailable') {
+      clearChatJump(jump);
+      return;
+    }
+    const giveUp = setTimeout(() => clearChatJump(jump), JUMP_WAIT_MS);
+    return () => clearTimeout(giveUp);
+  }, [jump, turns, state]);
 
   const onScroll = () => {
     const el = scrollRef.current;

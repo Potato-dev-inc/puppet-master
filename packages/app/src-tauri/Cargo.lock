@@ -3902,6 +3902,7 @@ dependencies = [
  "portable-pty",
  "rand 0.8.6",
  "regex",
+ "rusqlite",
  "ruzstd",
  "semver",
  "serde",

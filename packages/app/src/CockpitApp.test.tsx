@@ -158,7 +158,10 @@ vi.mock('./components/cockpit/SpawnView', async () => {
   const { createElement: h } = await import('react');
   return { SpawnView: () => h('div', null, 'SPAWN VIEW') };
 });
-vi.mock('./components/cockpit/Palette', () => ({ Palette: () => null }));
+vi.mock('./components/cockpit/Palette', async () => {
+  const { createElement: h } = await import('react');
+  return { Palette: ({ initialMode }: { initialMode?: string }) => h('div', { 'data-testid': 'palette', 'data-mode': initialMode }) };
+});
 vi.mock('./components/cockpit/UndoSheet', () => ({ UndoSheet: () => null }));
 vi.mock('./components/cockpit/PanicSheet', () => ({ PanicSheet: () => null }));
 
@@ -383,5 +386,33 @@ describe('Settings in the cockpit', () => {
     // Effects flush when act ends; the link opens on the next tick.
     await act(async () => new Promise((r) => setTimeout(r, 20)));
     expect(settingsTab()).toBe('bridge');
+  });
+});
+
+describe('CockpitApp palette shortcuts', () => {
+  const press = (init: KeyboardEventInit) => act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })));
+  const palette = () => host.querySelector<HTMLElement>('[data-testid="palette"]');
+
+  it('Ctrl+K opens the commands and a second Ctrl+K closes them', () => {
+    expect(palette()).toBeNull();
+    press({ key: 'k', ctrlKey: true });
+    expect(palette()?.dataset.mode).toBe('commands');
+    press({ key: 'k', ctrlKey: true });
+    expect(palette()).toBeNull();
+  });
+
+  it('Ctrl+Shift+F opens the palette in Search all chats, also when it is open on the commands', () => {
+    press({ key: 'F', ctrlKey: true, shiftKey: true });
+    expect(palette()?.dataset.mode).toBe('chats');
+    press({ key: 'k', ctrlKey: true });
+    press({ key: 'k', ctrlKey: true });
+    press({ key: 'f', metaKey: true, shiftKey: true });
+    expect(palette()?.dataset.mode).toBe('chats');
+  });
+
+  it('Ctrl+F and Ctrl+Alt+Shift+F do nothing', () => {
+    press({ key: 'f', ctrlKey: true });
+    press({ key: 'f', ctrlKey: true, shiftKey: true, altKey: true });
+    expect(palette()).toBeNull();
   });
 });
