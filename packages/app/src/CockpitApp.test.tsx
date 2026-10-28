@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CockpitApp from './CockpitApp';
 import { requestGoLive, type LiveStatus } from './lib/live-room';
 import { requestBringChats, requestImportedChat } from './lib/chatImport';
+import { runStoreCheck } from './lib/agentStoreCheck';
 
 // Mutable per-test input for the digest (away) path.
 const away = vi.hoisted(() => ({ digest: null as null | object }));
@@ -26,6 +27,8 @@ const live = vi.hoisted(() => ({
 }));
 // The Bring my old chats sheets: the pane start the (mocked) registry does.
 const imp = vi.hoisted(() => ({ spawnPane: (async () => 'p2') as (a: unknown) => Promise<string> }));
+// The runner the Store page was given (the mocked StoreHost records it).
+const store = vi.hoisted(() => ({ runCheck: undefined as unknown }));
 // Rust's "show Settings in this window" event (cockpit://settings).
 const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
 
@@ -184,10 +187,12 @@ vi.mock('./components/cockpit/AgentScores', async () => {
 });
 vi.mock('./components/store/StoreHost', async () => {
   const { createElement: h } = await import('react');
-  type Props = { onBack: () => void; onOpenAgent: (id: string) => void };
+  type Props = { onBack: () => void; onOpenAgent: (id: string) => void; runCheck?: unknown };
   return {
-    StoreHost: ({ onBack, onOpenAgent }: Props) =>
-      h('div', null, 'STORE VIEW', h('button', { type: 'button', onClick: onBack }, 'Store back'), h('button', { type: 'button', onClick: () => onOpenAgent('qwen') }, 'Store open qwen')),
+    StoreHost: ({ onBack, onOpenAgent, runCheck }: Props) => {
+      store.runCheck = runCheck;
+      return h('div', null, 'STORE VIEW', h('button', { type: 'button', onClick: onBack }, 'Store back'), h('button', { type: 'button', onClick: () => onOpenAgent('qwen') }, 'Store open qwen'));
+    },
   };
 });
 // The split view's own rendering is tested in SplitView.test.tsx; here only its wiring from CockpitApp.
@@ -470,6 +475,11 @@ describe('CockpitApp Agent Store wiring', () => {
     clickButton('More agents…');
     clickButton('Inbox');
     expect(mainText()).toContain('INBOX VIEW');
+  });
+
+  it('the Store page gets the real "Check it works" runner', () => {
+    clickButton('More agents…');
+    expect(store.runCheck).toBe(runStoreCheck);
   });
 
   it('Individual mode never shows the store', () => {

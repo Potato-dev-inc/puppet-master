@@ -1,6 +1,7 @@
 // "Check it works" glue (AS-20): the stand-in writer, the catalog reading, and the whole run over a fake wizard api.
 import { describe, expect, it, vi } from 'vitest';
-import { expectsFrom, firstBinaryName, makeStoreAsk, NO_DRAFTER_MESSAGE, plain, runStoreCheck, type StoreCheckDeps, type StoreCheckSource } from './agentStoreCheck';
+import { invoke } from '@tauri-apps/api/core';
+import { expectsFrom, firstBinaryName, makeStoreAsk, NO_DRAFTER_MESSAGE, plain, realDeps, runStoreCheck, type StoreCheckDeps, type StoreCheckSource } from './agentStoreCheck';
 import { buildClassifierPrompt, buildMenuPrompt, type AutoTimings, type Clock } from './agentWizardAuto';
 import {
   extractDraft,
@@ -13,6 +14,9 @@ import {
   type WizardApi,
 } from './agentWizard';
 import type { CaptureFacts } from './agentWizardPrompt';
+
+// The real dependencies call Tauri; the tests in the last block check the command names and their arguments only.
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 const F = '`'.repeat(3);
 const TOML = 'schema_version = 1\n\n[agent]\nid = "nimbus"\nlabel = "Nimbus"\n\n[binary]\nnames = ["nimbus", "nimbus-cli"]\nversion_args = ["--version"]\n\n[tui]\nargv = []\n';
@@ -380,5 +384,32 @@ describe('runStoreCheck', () => {
     expect((await t.run(abort.signal)).status).toBe('stopped');
     expect(api.start).not.toHaveBeenCalled();
     expect(t.recordCheck).not.toHaveBeenCalled();
+  });
+});
+
+// ---- the real dependencies: the commands the app calls ------------------------------------------------------------
+
+describe('the app wiring (real dependencies)', () => {
+  it('reads the entry with agent_store_check_source and { id }, and returns what it sends', async () => {
+    const payload = { definition: null, fixtures: [{ name: 'tui_idle.txt', text: 'x' }] };
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce(payload);
+    expect(await realDeps.source('qwen')).toEqual(payload);
+    expect(invoke).toHaveBeenCalledWith('agent_store_check_source', { id: 'qwen' });
+  });
+
+  it('a run with the default source reads the entry first, and a built-in entry stops before any start', async () => {
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce({ definition: null, fixtures: [] });
+    const result = await runStoreCheck('qwen', new AbortController().signal, () => undefined);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith('agent_store_check_source', { id: 'qwen' });
+    expect(result).toEqual({ status: 'stopped', message: 'This agent has no definition that can be checked.' });
+  });
+
+  it('records the numbers with agent_store_record_check and the argument names of agent-store.ts', async () => {
+    vi.mocked(invoke).mockClear();
+    await realDeps.recordCheck('qwen', 7, 7, '0.26.2');
+    expect(invoke).toHaveBeenCalledWith('agent_store_record_check', { id: 'qwen', passed: 7, total: 7, version: '0.26.2' });
   });
 });

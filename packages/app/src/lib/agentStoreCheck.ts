@@ -94,7 +94,8 @@ export interface StoreCheckDeps {
   clock?: Clock;
 }
 
-const realDeps: StoreCheckDeps = {
+/** The dependencies the app uses: the real wizard, the `agent_store_check_source` and `agent_store_record_check` commands. */
+export const realDeps: StoreCheckDeps = {
   wizard: tauriWizardApi,
   // Added with the other `agent_store_*` commands (AS-17): `{ definition: string | null, fixtures: [{ name, text }] }`.
   source: (id) => invoke<StoreCheckSource>('agent_store_check_source', { id }),

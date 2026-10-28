@@ -131,6 +131,18 @@ describe('StoreHost', () => {
     expect(inSheet('Check it works')).toBeUndefined();
   });
 
+  it('a runner still gives no "Check it works" button to an agent that is not ready', async () => {
+    const runCheck = vi.fn<RunStoreCheck>(async () => ({ status: 'done', passed: 7, total: 7, version: '0.26.2' }));
+    const api = fakeApi();
+    api.detail = vi.fn(async () => ({ ...detail(), state: 'available' as const, installed_version: null }));
+    await mount({ api, runCheck });
+    await click(button('Open Qwen Code'));
+    await flush();
+    expect(sheet()).not.toBeNull();
+    expect(inSheet('Check it works')).toBeUndefined();
+    expect(runCheck).not.toHaveBeenCalled();
+  });
+
   it('with a runner, "Check it works" opens the Check sheet for that agent, and Close returns to the grid', async () => {
     const runCheck = vi.fn<RunStoreCheck>(async () => ({ status: 'done', passed: 7, total: 7, version: '0.26.2' }));
     const { api } = await mount({ runCheck });

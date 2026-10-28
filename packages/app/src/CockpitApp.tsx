@@ -21,6 +21,7 @@ import { PlansMonth } from './components/cockpit/PlansMonth';
 import { MorningPage } from './components/cockpit/night/MorningPage';
 import { AgentScores } from './components/cockpit/AgentScores';
 import { StoreHost } from './components/store/StoreHost';
+import { runStoreCheck } from './lib/agentStoreCheck';
 import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
@@ -361,7 +362,7 @@ export default function CockpitApp() {
             onOpenStore={openStore}
           />
         ) : view === 'store' ? (
-          <StoreHost onOpenAgent={(id) => void c.newAgent(id)} onBack={closeOverlay} />
+          <StoreHost onOpenAgent={(id) => void c.newAgent(id)} onBack={closeOverlay} runCheck={runStoreCheck} />
         ) : view === 'memory' ? (
           <ProjectMemory
             // A pane in a separate copy belongs to the project the copy came from, not to the copy's folder.
