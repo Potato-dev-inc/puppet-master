@@ -3933,6 +3933,7 @@ dependencies = [
  "web-push-native",
  "webview2-com",
  "windows",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

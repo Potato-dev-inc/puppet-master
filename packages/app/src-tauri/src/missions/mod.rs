@@ -71,6 +71,8 @@ pub struct StartRequest {
     pub undo_on: bool,
     pub started_by: Starter,
     pub idempotency_key: Option<String>,
+    /// Night Shift: the mission is quiet (no cards, pushes or sounds while it runs).
+    pub quiet: bool,
 }
 
 impl StartRequest {
@@ -92,6 +94,7 @@ impl StartRequest {
             undo_on: true,
             started_by: Starter::Desktop,
             idempotency_key: None,
+            quiet: false,
         }
     }
 }
@@ -223,6 +226,7 @@ pub fn start_with(req: StartRequest, io: Arc<dyn RoundIo>) -> Result<Mission, Op
         outside_paths: Vec::new(),
         events: Vec::new(),
         started_by: req.started_by,
+        quiet: req.quiet,
         tests_accepted: None,
         idempotency_key: req.idempotency_key,
         created_at_ms: now,
@@ -245,6 +249,8 @@ pub fn start_with(req: StartRequest, io: Arc<dyn RoundIo>) -> Result<Mission, Op
     let who = match &mission.started_by {
         Starter::Desktop => crate::audit::Who::Desktop,
         Starter::Agent { session, .. } => crate::audit::Who::Agent(session.clone().unwrap_or_default()),
+        // A Night Shift run is started by the person (from the Tonight sheet), not by an agent.
+        Starter::Night { .. } => crate::audit::Who::Desktop,
     };
     crate::audit::record(
         crate::audit::Kind::MissionStarted,
@@ -270,6 +276,13 @@ fn live() -> Arc<dyn RoundIo> {
 
 pub fn start(req: StartRequest) -> Result<Mission, OperationError> {
     start_with(req, live())
+}
+
+/// Whether the mission behind this budget/mission handle is quiet (Night Shift). A handle that is
+/// not a mission, or a record that can't be read, is not quiet.
+pub fn is_quiet(project: &str, handle: &str) -> bool {
+    let id = handle.strip_prefix(HANDLE_PREFIX).unwrap_or(handle);
+    store::load(project, id).is_ok_and(|m| m.quiet)
 }
 
 /// The mission behind an id or a `mission-<id>` handle.
