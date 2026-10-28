@@ -694,9 +694,6 @@ export default function PwaApp() {
           onPointerDownCapture={activePane && activeView === 'terminal' ? onAgentPointerDown : undefined}
           onPointerUpCapture={activePane && activeView === 'terminal' ? onAgentPointerUp : undefined}
         >
-          {bridge && active === ALL_TAB && nightApi && (
-            <NightSummary api={nightApi} canControl={canControl} refreshKey={resyncKey} />
-          )}
           {bridge && active === ALL_TAB && (
             <AgentsOverview
               bridge={bridge}
@@ -710,6 +707,7 @@ export default function PwaApp() {
               attention={attention}
               canAnswer={canAnswer}
               onRefreshAttention={refreshAttentionNow}
+              night={nightApi ? <NightSummary api={nightApi} canControl={canControl} refreshKey={resyncKey} /> : undefined}
             />
           )}
           {activeView === 'terminal' && dockedCard}

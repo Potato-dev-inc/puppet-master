@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NightTaskView, NightView } from '../../lib/night';
-import { NightSummary, bridgeNightApi, firstChars, ROW_TITLE_CHARS, type NightPhoneApi } from './NightSummary';
+import { NightSummary, bridgeNightApi, firstChars, ROW_TITLE_CHARS, TASK_ROWS_FIRST, type NightPhoneApi } from './NightSummary';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -143,6 +143,38 @@ describe('NightSummary', () => {
     // A task not classified yet shows its state, not an empty line.
     expect(rows()[2].querySelector('.ph-s')?.textContent).toBe('In the queue');
     expect(host.textContent).toContain('Keep and Throw away are on your computer.');
+  });
+
+  it('shows three task rows, then "and N more" that shows them all and folds back', async () => {
+    const five = [1, 2, 3, 4, 5].map((n) => task({ id: `nt-0000000${n}`, title: `Task number ${n}` }));
+    expect(TASK_ROWS_FIRST).toBe(3);
+    await mount(fakeApi(night({ tasks: five })));
+    expect(rows()).toHaveLength(TASK_ROWS_FIRST);
+    expect(rows()[2].querySelector('.ph-t')?.textContent).toBe('Task number 3');
+    expect(buttonText('and 2 more')).toBeDefined();
+
+    await click(buttonText('and 2 more'));
+    expect(rows()).toHaveLength(5);
+    expect(rows()[4].querySelector('.ph-t')?.textContent).toBe('Task number 5');
+    expect(buttonText('and 2 more')).toBeUndefined();
+
+    await click(buttonText('Show fewer'));
+    expect(rows()).toHaveLength(TASK_ROWS_FIRST);
+    expect(buttonText('and 2 more')).toBeDefined();
+  });
+
+  it('shows no "more" button for three tasks or fewer', async () => {
+    await mount(fakeApi(night()));
+    expect(rows()).toHaveLength(3);
+    expect(buttons().some((b) => /more$|Show fewer/.test(b.textContent ?? ''))).toBe(false);
+  });
+
+  it('the "more" button sends nothing to the PC', async () => {
+    const api = fakeApi(night({ tasks: [1, 2, 3, 4].map((n) => task({ id: `nt-0000000${n}`, title: `Task ${n}` })) }));
+    await mount(api);
+    await click(buttonText('and 1 more'));
+    expect(api.stopMock).not.toHaveBeenCalled();
+    expect(api.readMock).toHaveBeenCalledTimes(1);
   });
 
   it('cuts a row title to 60 characters with an ellipsis', async () => {
