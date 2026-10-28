@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatComposer } from './ChatComposer';
-import { DRAFT_SAVE_MS, LS_COMPOSER_DRAFTS, readDraft } from '../../lib/composerDraft';
+import { type ComposerDraft, DRAFT_SAVE_MS, LS_COMPOSER_DRAFTS, readDraft } from '../../lib/composerDraft';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -206,5 +206,57 @@ describe('ChatComposer draft', () => {
     leave();
     expect(readDraft('pane-v')).toBe(heard);
     expect(readDraft('pane-v')).not.toContain('more words');
+  });
+});
+
+// The Point and Fix draft ("Edit in Chat") goes into the box once per draft, after a blank line if the box has text.
+describe('ChatComposer Point draft', () => {
+  const point = (text: string, nonce: number): ComposerDraft => ({ paneId: 'pane-a', text, nonce });
+
+  function renderWith(draft: ComposerDraft | null, onSend = vi.fn(async (_text: string) => null as string | null)) {
+    act(() => root.render(<ChatComposer onSend={onSend} blockedReason={null} draftKey="pane-a" draft={draft} />));
+    return onSend;
+  }
+
+  it('an empty box gets the draft, focused, with the cursor at the end', () => {
+    renderWith(point('Change the heading', 1));
+    expect(field().value).toBe('Change the heading');
+    expect(document.activeElement).toBe(field());
+    expect(field().selectionStart).toBe('Change the heading'.length);
+  });
+
+  it('a typed text stays, and the draft goes after a blank line', () => {
+    renderWith(null);
+    type('my notes');
+    renderWith(point('Change the heading', 1));
+    expect(field().value).toBe('my notes\n\nChange the heading');
+  });
+
+  it('the same draft (same nonce) is not put in twice', () => {
+    renderWith(point('Change the heading', 1));
+    type('edited');
+    renderWith(point('Change the heading', 1));
+    expect(field().value).toBe('edited');
+  });
+
+  it('a new draft with the same text is put in again', () => {
+    renderWith(point('Hi', 1));
+    renderWith(point('Hi', 2));
+    expect(field().value).toBe('Hi\n\nHi');
+  });
+
+  it('no draft changes nothing', () => {
+    renderWith(null);
+    type('typed');
+    renderWith(null);
+    expect(field().value).toBe('typed');
+  });
+
+  it('the draft is sent like any message from the box', async () => {
+    const onSend = renderWith(point('Change the heading', 1));
+    press('Enter');
+    await flush();
+    expect(onSend).toHaveBeenCalledWith('Change the heading');
+    expect(field().value).toBe('');
   });
 });

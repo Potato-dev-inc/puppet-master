@@ -37,6 +37,25 @@ pub fn clean(raw: &str, max_chars: usize) -> Redacted<String> {
     redact::strict(&truncate_chars(&masked, max_chars))
 }
 
+/// [`clean`] for text that keeps its line breaks (a companion reply, a turn summary, a message built
+/// from several lines). The WHOLE text is redacted first, so a secret that spans lines (a PEM private
+/// key) is masked as one block. Only then is it cut, at `max_chars` with an ellipsis, keeping the lines.
+/// Never split a message into lines before calling this: a piece would hide a secret that crosses the cut.
+pub fn clean_multiline(raw: &str, max_chars: usize) -> Redacted<String> {
+    let masked = masked_text(&sanitize(raw));
+    redact::strict(&cut_keeping_lines(&masked, max_chars))
+}
+
+/// Cut to `max` characters, keeping line breaks, with an ellipsis when cut.
+fn cut_keeping_lines(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut cut: String = text.chars().take(max.saturating_sub(1)).collect();
+    cut.push('…');
+    cut
+}
+
 /// True when cleaning changed the text in a way the person would not see as the same words:
 /// a secret, a path, an e-mail address or a hidden character was removed. Approvals with buttons
 /// are only offered when this is false.
@@ -93,6 +112,25 @@ mod tests {
     fn clean_caps_length_with_ellipsis() {
         let raw = "word ".repeat(400);
         let text = clean(&raw, MAX_OUT_CHARS).into_inner();
+        assert_eq!(text.chars().count(), MAX_OUT_CHARS);
+        assert!(text.ends_with('…'));
+    }
+
+    #[test]
+    fn clean_multiline_keeps_line_breaks_and_masks_a_pem_block_whole() {
+        let raw = "Key:\n-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASC\nZq9kLm2pRt8wXyVbN3cHdEaFgJi4kOl0\n-----END PRIVATE KEY-----\nDone.";
+        let text = clean_multiline(raw, MAX_OUT_CHARS).into_inner();
+        assert!(text.contains('\n'), "line breaks lost: {text:?}");
+        assert!(text.ends_with("Done."), "{text:?}");
+        for body in ["MIIEvgIBADANBgkqhkiG9w0BAQEFAASC", "Zq9kLm2pRt8wXyVbN3cHdEaFgJi4kOl0"] {
+            assert!(!text.contains(body), "key body leaked: {text}");
+        }
+    }
+
+    #[test]
+    fn clean_multiline_caps_length_with_ellipsis() {
+        let raw = format!("{}\n{}", "word ".repeat(300), "x".repeat(50));
+        let text = clean_multiline(&raw, MAX_OUT_CHARS).into_inner();
         assert_eq!(text.chars().count(), MAX_OUT_CHARS);
         assert!(text.ends_with('…'));
     }
