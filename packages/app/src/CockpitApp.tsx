@@ -1,6 +1,6 @@
 // Cockpit window (`index.html?cockpit=1`): one window that orchestrates every agent pane.
 import { useNudgeOnAction } from './lib/desktop-nudge';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AgentDoctor } from './components/cockpit/AgentDoctor';
 import { markSpawned } from './lib/agent-health';
 import { useCockpit } from './hooks/useCockpit';
@@ -28,8 +28,9 @@ import { useFirstRun } from './components/firstrun/useFirstRun';
 import { useSimpleMode } from './lib/simple-mode';
 import { projectOfCwd } from './lib/ship-model';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
-import { homeView, isSplitShortcut, splitAfterSelect, splitFits, splitPartner, splitStillOn, viewAfterSelect, type MainView, type SplitSide } from './components/cockpit/main-view';
-import { SplitView, useWindowWidth } from './components/cockpit/SplitView';
+import { homeView, isMacPlatform, isSplitShortcut, splitAfterSelect, splitFits, splitFocusKey, splitPartner, splitStillOn, SPLIT_DEFAULT_RATIO, viewAfterSelect, type MainView, type SplitSide } from './components/cockpit/main-view';
+import { focusSideComposer, SplitView, useWindowWidth } from './components/cockpit/SplitView';
+import { clearSplitMemory, readSplitMemory, restorableSplit, writeSplitMemory } from './components/cockpit/split-memory';
 import { useCompanions } from './hooks/useCompanions';
 import { tauriCompanionTransport } from './lib/companion';
 import { CompanionPage } from './components/cockpit/companion/CompanionPage';
@@ -72,6 +73,8 @@ export default function CockpitApp() {
   // The split view (main-view.ts): the pane on the right, and which side has focus. The left side is the selected pane.
   const [split, setSplit] = useState<string | null>(null);
   const [side, setSide] = useState<SplitSide>('left');
+  // The left side's share of the room (drag or arrow keys on the divider). Remembered with the split (split-memory.ts).
+  const [ratio, setRatio] = useState(SPLIT_DEFAULT_RATIO);
   const width = useWindowWidth();
   const paneIds = c.registry.paneList.map((p) => p.info.id);
   const splitOn = splitStillOn(split, { selectedId: c.selectedId, width, hasPane: (id) => c.registry.panes.has(id) });
@@ -221,6 +224,49 @@ export default function CockpitApp() {
     return () => window.removeEventListener('keydown', onKey, true);
   });
 
+  // Ctrl+Alt+Left / Right (Cmd+Alt on a Mac) move the focus between the two sides. Only while the split is open:
+  // otherwise the keys go on to the terminal as before.
+  useEffect(() => {
+    if (split === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      const to = splitFocusKey(e, isMacPlatform());
+      if (!to) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSide(to);
+      focusSideComposer(to);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [split]);
+
+  // The split comes back on start when both of its panes still exist (split-memory.ts). The left pane is selected
+  // again too: the app starts with no pane selected. Runs once, when the pane list is first known.
+  const restoredSplit = useRef(false);
+  useEffect(() => {
+    if (!c.registry.initialReady || restoredSplit.current) return;
+    restoredSplit.current = true;
+    const memory = restorableSplit(readSplitMemory(), { width, hasPane: (id) => c.registry.panes.has(id) });
+    if (!memory) return;
+    nav.select(memory.left);
+    setSplit(memory.right);
+    setRatio(memory.ratio);
+    setSide('left');
+  }, [c.registry.initialReady]);
+  // Saves the split while it is on. A split that ends (closed, the inbox picked, its pane gone, a narrow window)
+  // clears the saved one, but only if this window saved one: a start without a restored split leaves storage alone.
+  const savedSplit = useRef(false);
+  useEffect(() => {
+    if (split !== null && c.selectedId !== null) {
+      writeSplitMemory({ left: c.selectedId, right: split, ratio });
+      savedSplit.current = true;
+    } else if (savedSplit.current) {
+      clearSplitMemory();
+      savedSplit.current = false;
+    }
+  }, [split, ratio, c.selectedId]);
+
   const { onClickCapture } = useNudgeOnAction();
   // Mission cards (Labs) count once in the one list, as they do in the Rust snapshot (tray, phone).
   const missionList = useMissions();
@@ -293,7 +339,7 @@ export default function CockpitApp() {
             }}
           />
         ) : view === 'pane' && c.selectedId && splitOn && split ? (
-          <SplitView c={nav} leftId={c.selectedId} rightId={split} focus={side} onFocus={setSide} onClose={toggleSplit} />
+          <SplitView c={nav} leftId={c.selectedId} rightId={split} focus={side} ratio={ratio} onFocus={setSide} onRatio={setRatio} onClose={toggleSplit} />
         ) : view === 'pane' && c.selectedId ? (
           <PaneView c={c} paneId={c.selectedId} key={c.selectedId} />
         ) : (
