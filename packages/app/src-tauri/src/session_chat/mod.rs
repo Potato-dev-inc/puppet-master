@@ -13,7 +13,7 @@ pub mod export;
 pub mod export_md;
 pub mod export_save;
 mod export_style;
-mod export_text;
+pub(crate) mod export_text;
 pub mod home_path;
 pub mod items;
 pub mod model;
