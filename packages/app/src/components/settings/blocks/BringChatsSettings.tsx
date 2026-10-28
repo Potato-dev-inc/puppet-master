@@ -1,7 +1,7 @@
 // Settings > General: "Bring my old chats". Shows how many old chats are in search, a button that opens the Bring
 // panel, and a button that removes them (asks first). Reading this status touches no agent folder.
 import { useEffect, useState } from 'react';
-import { chatImportClear, chatImportState, requestBringChats } from '../../../lib/chatImport';
+import { chatCount, chatImportClear, chatImportState, requestBringChats } from '../../../lib/chatImport';
 import type { SettingsEnv } from '../model';
 import { Btn, SettingRow } from '../settings-ui';
 
@@ -10,7 +10,7 @@ export const BRING_CHATS_REMOVE_BODY = "This removes the old chats Puppet Master
 /** "Not added" for none, otherwise "538 chats" (or "1 chat"). */
 export function bringChatsStatusText(chats: number): string {
   if (chats <= 0) return 'Not added';
-  return `${chats.toLocaleString('en-US')} ${chats === 1 ? 'chat' : 'chats'}`;
+  return chatCount(chats);
 }
 
 function errorText(error: unknown): string {

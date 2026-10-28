@@ -67,6 +67,16 @@ method (with a generic default) to `TuiProfile` instead.
 5. `cargo test --lib tui::` — `conformance.rs` checks the new profile against the shared rules
    (unique id, `AgentType` round-trip, shared launch policy, parsers reject garbage, every
    detected prompt can be answered, an empty screen is never "blocked").
+6. **Old chats (optional)**: if the CLI keeps its past chats in files or a database, return a reader from
+   `session_history()` (the default is `None`: no old chats). Write `tui/foo/history.rs` with a `static` store built from
+   `FileHistory::new(FileHistorySpec { roots, glob, depth, id, cwd_pointer, format, resume, .. })`, or implement
+   `SessionHistory` yourself for a database (see `tui/opencode/history.rs`). List the folders the CLI writes to, built from `{home}`
+   and, when the CLI has one, a variable such as `CLAUDE_CONFIG_DIR` (`extra_roots_env`). Name how a chat is named
+   (`SessionKey::FileStem` or a pointer), and give the resume arguments with `{session}` (for example
+   `["--resume", "{session}"]`), or leave `resume` empty when the CLI has no resume option. Do not read the real home in a
+   test: use `HistoryEnv::fixed` with a fixture folder. `conformance.rs` checks every profile
+   that answers it. Feature page: `docs/features/bring-all-my-chats.md`. A TOML agent does this with `[session_chat.history]`
+   instead (`docs/specs/agent-definitions/DEFINITION-FORMAT.md` 6.1).
 
 ## Submit, composer and startup-gate hooks
 

@@ -182,6 +182,12 @@ describe('BringChatsPanel', () => {
     expect(api.look).not.toHaveBeenCalled();
   });
 
+  it('says one chat in the singular, on the finished line too', async () => {
+    const api = fakeApi({}, state({ progress: { ...IDLE, phase: 'done', chatsDone: 1, chatsTotal: 1 } }));
+    await render(api);
+    expect(text()).toContain('Added 1 chat. Press Ctrl+Shift+F to find anything in them.');
+  });
+
   it('a finished run shows what was added, and Look again returns to the list', async () => {
     const api = fakeApi({}, state({ progress: { ...IDLE, phase: 'done', chatsDone: 538, chatsTotal: 538 } }));
     await render(api);

@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  chatCount,
   chatImportApi,
   chatImportCancel,
   chatImportClear,
@@ -162,6 +163,13 @@ describe('line helpers', () => {
 
   it('foundLine shows the name, the chats, the size and the span', () => {
     expect(foundLine(FOUND, now)).toBe('Claude Code · 412 chats · 38 MB · Mar 2026 to now');
+  });
+
+  it('chatCount uses the singular only for exactly one', () => {
+    expect(chatCount(0)).toBe('0 chats');
+    expect(chatCount(1)).toBe('1 chat');
+    expect(chatCount(2)).toBe('2 chats');
+    expect(chatCount(1538)).toBe('1,538 chats');
   });
 
   it('foundLine says singular, leaves out an unknown span, and names an older end month', () => {

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import type { ChatItem } from '../../lib/sessionChat';
 import { LoopGuardContext, type LoopSignal } from '../../lib/loop-guard';
+import { requestChatTab } from '../../lib/chatTab';
 import { PaneView } from './PaneView';
 
 const invoke = vi.fn(async (cmd: string) => (cmd === 'checkpoints_list' ? { state: 'ok', message: '', items: [] } : null) as unknown);
@@ -105,6 +106,19 @@ describe('pane Chat tab', () => {
     expect(chat).not.toBeNull();
     expect(chat!.textContent).toContain('List the files');
     expect(chat!.textContent).toContain('Two entries.');
+  });
+
+  it('opens on Chat when a continued old chat asked for it before the pane was shown', async () => {
+    requestChatTab('p1');
+    await act(async () => root.render(<PaneView c={cockpit('claude')} paneId="p1" />));
+    await flush();
+    expect(tab('Chat').getAttribute('aria-selected')).toBe('true');
+    // The request was used up: a pane shown later starts on Terminal again.
+    act(() => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(<PaneView c={cockpit('claude')} paneId="p1" />));
+    await flush();
+    expect(tab('Terminal').getAttribute('aria-selected')).toBe('true');
   });
 
   it('falls back to Terminal when the pane becomes a plain shell while Chat is open', async () => {

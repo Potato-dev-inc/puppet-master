@@ -89,9 +89,20 @@ impl ChatIndex {
         self.on.load(Ordering::SeqCst)
     }
 
-    /// The items whose text has every typed word, newest first (none when the index is off).
+    /// The items whose text has every typed word, newest first (none when the index is off). Every row, old chats
+    /// included: only the desktop window may use it. A phone, a tool or a companion uses `search_live`.
     pub fn search(&self, query: &str, limit: usize) -> Result<Answer, String> {
         self.search_filtered(query, limit, &Filters::default())
+    }
+
+    /// Like `search`, over live rows only (what the panes said). Old chats are never in the answer. This is the
+    /// search for every surface that is not the desktop window (the phone's `/chats/search`). None when the index is off.
+    pub fn search_live(&self, query: &str, limit: usize) -> Result<Answer, String> {
+        if !self.enabled() {
+            return Ok(Answer { enabled: false, hits: Vec::new() });
+        }
+        let hits = self.store.lock().search_live(query, limit).map_err(|error| format!("INTERNAL: chat search: {error}"))?;
+        Ok(Answer { enabled: true, hits })
     }
 
     /// Like `search`, with the chips' filters (`Filters`). None when the index is off.

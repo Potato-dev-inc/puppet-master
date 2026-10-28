@@ -207,9 +207,14 @@ function rangeText(oldestMs: number | null, newestMs: number | null, now: number
   return end === start ? start : `${start} to ${end}`;
 }
 
+/** A count with its noun: "1 chat", "412 chats". Every count on the Bring my old chats screens uses it. */
+export function chatCount(count: number): string {
+  return `${count.toLocaleString('en-US')} ${count === 1 ? 'chat' : 'chats'}`;
+}
+
 /** One row of the agent list: "Claude Code · 412 chats · 38 MB · Mar 2026 to now". */
 export function foundLine(found: ImportFound, now: number = Date.now()): string {
-  const chats = `${found.chats.toLocaleString('en-US')} ${found.chats === 1 ? 'chat' : 'chats'}`;
+  const chats = chatCount(found.chats);
   const parts = [found.label, chats, formatBytes(found.bytes)];
   const range = rangeText(found.oldestMs, found.newestMs, now);
   if (range) parts.push(range);

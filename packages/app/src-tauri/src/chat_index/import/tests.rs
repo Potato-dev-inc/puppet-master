@@ -455,3 +455,25 @@ fn the_progress_reporter_sends_phase_changes_at_once_and_other_updates_at_most_f
     assert_eq!(seen.last().map(|p| (p.phase, p.chats_done)), Some((Phase::Done, 1000)), "the end carries the latest numbers");
     assert_eq!(reporter.get().chats_done, 1000);
 }
+
+#[test]
+fn an_imported_chat_is_dated_by_its_own_last_item_and_the_file_time_only_without_one() {
+    use super::plan::ChatDraft;
+    use crate::session_chat::history::HistoryChat;
+
+    let chat = HistoryChat { session: "sess-dated".into(), cwd: None, updated_ms: NOW_MS, bytes: 10, stamp: "1:2".into() };
+    let mut draft = ChatDraft::new("agent-x", &chat);
+    draft.push(&[
+        ChatItem::User { id: "1:0".into(), at: Some("2026-08-14T10:00:00Z".into()), text: "first question".into() },
+        ChatItem::Assistant { id: "2:0".into(), at: Some("2026-08-20T09:30:00Z".into()), text: "last answer".into(), model: None, final_answer: true },
+        ChatItem::Assistant { id: "3:0".into(), at: None, text: "an answer with no time".into(), model: None, final_answer: true },
+    ]);
+    let (row, _) = draft.finish(false, 5);
+    let last = chrono::DateTime::parse_from_rfc3339("2026-08-20T09:30:00Z").unwrap().timestamp_millis();
+    assert_eq!(row.updated_ms, last, "the banner and the search hit show the same day");
+
+    let mut bare = ChatDraft::new("agent-x", &chat);
+    bare.push(&[ChatItem::User { id: "1:0".into(), at: None, text: "no time at all".into() }]);
+    let (bare_row, _) = bare.finish(false, 5);
+    assert_eq!(bare_row.updated_ms, NOW_MS, "a chat with no readable time keeps the file's time");
+}

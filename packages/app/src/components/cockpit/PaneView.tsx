@@ -42,6 +42,7 @@ import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { SaveCrewSheet } from './crews/SaveCrewSheet';
 import { SessionChatPanel } from '../chat/SessionChatPanel';
 import { useChatJump } from '../../lib/chatJump';
+import { clearChatTabRequest, useChatTabRequest } from '../../lib/chatTab';
 import { composerBlock } from '../../lib/paneOutbox';
 import { LiveChip } from './live/LiveChip';
 import { LiveStatusContext } from './live/useLiveRoom';
@@ -166,6 +167,14 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
       }),
     [paneId, chatAllowed],
   );
+
+  // An old chat continued in this new pane asks for the Chat tab (lib/chatTab.ts).
+  const chatTabAsk = useChatTabRequest(paneId);
+  useEffect(() => {
+    if (!chatTabAsk || !chatAllowed) return;
+    setTab('chat');
+    clearChatTabRequest(chatTabAsk);
+  }, [chatTabAsk, chatAllowed]);
 
   useEffect(() => {
     if (tab === 'changes' && !worktree) setTab('terminal');

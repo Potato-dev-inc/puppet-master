@@ -26,6 +26,8 @@ pub const MAX_IMPORTED_ITEMS: usize = 150_000;
 const MAX_IMPORTED_TITLE_CHARS: usize = 120;
 /// Most hits one search returns.
 pub const MAX_HITS: usize = 100;
+/// Tries at a checkpoint that another connection blocks, 50 ms apart, before a removal reports that it did not finish.
+const CHECKPOINT_TRIES: usize = 10;
 /// Words around a match in a snippet.
 const SNIPPET_WORDS: i64 = 14;
 /// Characters of text shown for a hit when the search has filters but no typed words (no match to show).
@@ -95,6 +97,14 @@ pub struct Hit {
     pub marks: Vec<[u32; 2]>,
 }
 
+/// Which rows a search reads. `Everything` is the desktop window's search; `LiveOnly` is the phone's and the
+/// companion's, so an old chat never leaves the desktop through them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    Everything,
+    LiveOnly,
+}
+
 pub struct Store {
     conn: Connection,
     /// Most live items kept.
@@ -123,6 +133,8 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_millis(2000))?;
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
         let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+        // Deleted text is overwritten when its row goes, so it is not left in a free page or in the write-ahead log.
+        let _ = conn.pragma_update(None, "secure_delete", "ON");
         conn.execute_batch(SCHEMA)?;
         migrate(&conn)?;
         Ok(Store { conn, cap, imported_cap: MAX_IMPORTED_ITEMS, path: None })
@@ -154,10 +166,7 @@ impl Store {
     pub fn clear(&mut self) -> rusqlite::Result<()> {
         self.conn.execute("DELETE FROM chat_items", [])?;
         self.conn.execute("DELETE FROM import_chats", [])?;
-        self.conn.execute("VACUUM", [])?;
-        // One row back (frames in the log, frames checkpointed); there is nothing to read in it.
-        let _ = self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
-        Ok(())
+        self.erase_file()
     }
 
     /// Removes only the imported chats (their items and their records), with the same erasing as `clear`. Live items
@@ -165,9 +174,27 @@ impl Store {
     pub fn clear_imported(&mut self) -> rusqlite::Result<()> {
         self.conn.execute("DELETE FROM chat_items WHERE imported = 1", [])?;
         self.conn.execute("DELETE FROM import_chats", [])?;
-        self.conn.execute("VACUUM", [])?;
-        let _ = self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
-        Ok(())
+        self.erase_file()
+    }
+
+    /// Makes the text of deleted rows leave the files. `secure_delete` (set on the connection) already zeroes freed
+    /// cells; VACUUM then rebuilds the database file without its free pages, and the write-ahead log is folded back
+    /// into the file and emptied. A checkpoint that another connection holds back is tried again for a short while;
+    /// when it still cannot empty the log, the error is returned, so the screen says the removal did not finish.
+    fn erase_file(&mut self) -> rusqlite::Result<()> {
+        self.conn.execute_batch("VACUUM")?;
+        for attempt in 0..CHECKPOINT_TRIES {
+            // The first column is 1 when the checkpoint was blocked (busy), 0 when it ran to the end.
+            let busy: i64 = self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
+            if busy == 0 {
+                return Ok(());
+            }
+            if attempt + 1 < CHECKPOINT_TRIES {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+        let busy = rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY);
+        Err(rusqlite::Error::SqliteFailure(busy, Some("the chat index is still in use; the removed text is not gone from its log yet, try again".into())))
     }
 
     /// How many old copies of a damaged index are next to the file (see `aside`).
@@ -324,25 +351,32 @@ impl Store {
         Ok((chats.max(0) as usize, items.max(0) as usize))
     }
 
-    /// The items whose text has every typed word (as a word start), newest first, at most `limit`.
+    /// The items whose text has every typed word (as a word start), newest first, at most `limit`. Every row: live
+    /// and imported. Only the desktop window may use this; a phone, a tool or a companion uses `search_live`.
     pub fn search(&self, typed: &str, limit: usize) -> rusqlite::Result<Vec<Hit>> {
-        self.search_where(typed, limit, None, false, &Filters::default())
+        self.search_where(typed, limit, None, false, &Filters::default(), Reach::Everything)
     }
 
     /// Like `search`, with the filters of the "Search all chats" chips (agent, folder, start time, who spoke). With
     /// filters and no typed words, the newest items that pass the filters are listed (no match to mark).
     pub fn search_filtered(&self, typed: &str, limit: usize, filters: &Filters) -> rusqlite::Result<Vec<Hit>> {
-        self.search_where(typed, limit, None, false, filters)
+        self.search_where(typed, limit, None, false, filters, Reach::Everything)
+    }
+
+    /// Like `search`, but over live rows only (what the panes said). Old chats (imported rows) are never returned.
+    /// This is what the phone's search uses: the spec keeps old chats on the desktop.
+    pub fn search_live(&self, typed: &str, limit: usize) -> rusqlite::Result<Vec<Hit>> {
+        self.search_where(typed, limit, None, false, &Filters::default(), Reach::LiveOnly)
     }
 
     /// Like `search`, but only inside the chats of the panes in `panes`, and only what was said (the person's and
     /// the agent's messages, not the titles of tool calls). No pane given means no hit: an empty list never means
-    /// "everywhere". Imported items have their own pane ids, so they are never found here.
+    /// "everywhere". Live rows only: imported items have their own pane ids and are never returned here either.
     pub fn search_in(&self, typed: &str, limit: usize, panes: &[String]) -> rusqlite::Result<Vec<Hit>> {
         if panes.is_empty() {
             return Ok(Vec::new());
         }
-        self.search_where(typed, limit, Some(panes), true, &Filters::default())
+        self.search_where(typed, limit, Some(panes), true, &Filters::default(), Reach::LiveOnly)
     }
 
     /// The agents and folders the index holds, for the filter menus (sorted, at most `MAX_FACETS` each).
@@ -365,6 +399,7 @@ impl Store {
         panes: Option<&[String]>,
         said_only: bool,
         filters: &Filters,
+        reach: Reach,
     ) -> rusqlite::Result<Vec<Hit>> {
         let expr = match_expr(typed);
         // Nothing typed and no filter: nothing to list (an empty box never lists every chat).
@@ -380,6 +415,9 @@ impl Store {
         }
         if said_only {
             filter.push_str(" AND i.kind IN ('user', 'assistant')");
+        }
+        if reach == Reach::LiveOnly {
+            filter.push_str(" AND i.imported = 0");
         }
         filter.push_str(&clauses(filters, &mut values));
         let limit_at = bind(&mut values, (limit.clamp(1, MAX_HITS) as i64).into());

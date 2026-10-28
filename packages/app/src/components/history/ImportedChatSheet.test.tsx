@@ -94,7 +94,15 @@ describe('ImportedChatSheet', () => {
     expect(host.textContent).toContain('Two entries.');
     expect(host.querySelector('[data-testid="session-chat"]')).not.toBeNull();
     expect(host.querySelector('textarea')).toBeNull();
-    expect(host.querySelector('.history-viewer-banner')?.textContent).toMatch(/^Old Codex chat from 14 Aug( 2026)?\. Read-only\.$/);
+    expect(host.querySelector('.history-viewer-banner')?.textContent).toMatch(/^Old Codex CLI chat from 14 Aug( 2026)?\. Read-only\.$/);
+  });
+
+  it('names the agent by its display name from the registry, never by its id', async () => {
+    const api = fakeApi({ open: vi.fn(async () => ({ meta: { ...META, agent: 'claude' }, items: ITEMS })) });
+    render({ api, request: { agent: 'claude', session: 'sess-0002-efgh', nonce: 2 } });
+    await flush();
+    expect(host.querySelector('.history-viewer-banner')?.textContent).toMatch(/^Old Claude Code chat from 14 Aug( 2026)?\. Read-only\.$/);
+    expect(host.textContent).not.toContain('Old claude chat');
   });
 
   it('shows the plain sentence when the original chat file is gone, and Continue stays off', async () => {

@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use super::{Catalog, Found, Source};
-use crate::chat_index::entry::{entry_of_with, scrub_text, Entry, PaneContext, Strength, MAX_IMPORTED_TEXT_CHARS};
+use crate::chat_index::entry::{entry_of_with, item_time_ms, scrub_text, Entry, PaneContext, Strength, MAX_IMPORTED_TEXT_CHARS};
 use crate::chat_index::imported::{import_pane_id, ImportedChatRow};
 use crate::chat_index::ChatIndex;
 use crate::session_chat::history::{HistoryChat, HistoryEnv, ListLimits};
@@ -53,7 +53,9 @@ pub(super) fn chosen(sources: Vec<Source>, agents: &[String]) -> Vec<Source> {
     sources.into_iter().filter(|source| agents.iter().any(|id| *id == source.id)).collect()
 }
 
-/// `list` of every source in the catalog, summed up. Reads no chat.
+/// `list` of every source in the catalog, summed up. Reads no chat. The dates of the range are the chats' own last
+/// times: a chat already in the index uses the time it was read with, any other chat the file's modified time (the
+/// only time known without reading it).
 pub(super) fn scan(catalog: &dyn Catalog, index: &ChatIndex, env: &HistoryEnv, since_days: Option<u32>, now_ms: i64) -> Vec<Found> {
     let limits = ListLimits { since_ms: since_ms(since_days, now_ms), ..ListLimits::default() };
     catalog
@@ -61,20 +63,23 @@ pub(super) fn scan(catalog: &dyn Catalog, index: &ChatIndex, env: &HistoryEnv, s
         .into_iter()
         .map(|source| {
             let listing = source.history.list(env, &limits);
-            let times = || listing.chats.iter().map(|chat| chat.updated_ms);
-            let already = listing
-                .chats
-                .iter()
-                .filter(|chat| index.imported_stamp(&source.id, &chat.session).ok().flatten().as_deref() == Some(chat.stamp.as_str()))
-                .count();
+            let mut already = 0;
+            let mut times: Vec<i64> = Vec::with_capacity(listing.chats.len());
+            for chat in &listing.chats {
+                let record = index.imported_chat(&source.id, &chat.session).ok().flatten();
+                if record.as_ref().is_some_and(|row| row.stamp == chat.stamp) {
+                    already += 1;
+                }
+                times.push(record.map_or(chat.updated_ms, |row| row.updated_ms));
+            }
             Found {
                 id: source.id.clone(),
                 label: source.label.clone(),
                 from_definition: source.from_definition,
                 chats: listing.chats.len(),
                 bytes: listing.chats.iter().map(|chat| chat.bytes).sum(),
-                oldest_ms: times().min(),
-                newest_ms: times().max(),
+                oldest_ms: times.iter().min().copied(),
+                newest_ms: times.iter().max().copied(),
                 already,
                 too_big: listing.too_big,
                 places: source.history.places(env),
@@ -93,6 +98,8 @@ pub(super) struct ChatDraft {
     pane: String,
     entries: Vec<Entry>,
     seen: HashSet<String>,
+    /// The latest time an item of the chat says it had (`None` until one does).
+    last_item_ms: Option<i64>,
 }
 
 impl ChatDraft {
@@ -105,11 +112,12 @@ impl ChatDraft {
             pane: import_pane_id(agent),
             entries: Vec::new(),
             seen: HashSet::new(),
+            last_item_ms: None,
         }
     }
 
     /// Adds the kept items of a chunk. An item without a time gets the chat's last-update time; an item id seen twice
-    /// is kept once.
+    /// is kept once. The latest time an item says it had becomes the chat's own last-update time (`finish`).
     pub(super) fn push(&mut self, items: &[ChatItem]) {
         for item in items {
             let Some(entry) =
@@ -118,13 +126,18 @@ impl ChatDraft {
                 continue;
             };
             if self.seen.insert(entry.item_id.clone()) {
+                if let Some(at) = item_time_ms(item) {
+                    self.last_item_ms = Some(self.last_item_ms.map_or(at, |last| last.max(at)));
+                }
                 self.entries.push(entry);
             }
         }
     }
 
     /// The record and the rows of the chat. The title is the first user text on one line; the folder is the folder
-    /// name, strict-redacted; the folder path keeps the home as `~` and stays on this PC.
+    /// name, strict-redacted; the folder path keeps the home as `~` and stays on this PC. `updated_ms` is the chat's
+    /// own last item time (the day the banner and the search hit show); the file's modified time only when no item
+    /// has a readable time.
     pub(super) fn finish(self, cut_short: bool, imported_ms: i64) -> (ImportedChatRow, Vec<Entry>) {
         let title = self.entries.iter().find(|entry| entry.kind == "user").map(|entry| one_line(&entry.text, TITLE_CHARS));
         let home = crate::redact::known::context().home.clone();
@@ -135,7 +148,7 @@ impl ChatDraft {
             folder: scrub_text(&self.ctx.folder, Strength::Strict),
             cwd,
             title: title.filter(|title| !title.is_empty()).unwrap_or_else(|| UNTITLED.to_string()),
-            updated_ms: self.chat.updated_ms,
+            updated_ms: self.last_item_ms.unwrap_or(self.chat.updated_ms),
             stamp: self.chat.stamp.clone(),
             items: self.entries.len(),
             cut_short,

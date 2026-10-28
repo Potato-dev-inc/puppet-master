@@ -51,6 +51,7 @@ vi.mock('./components/SettingsPanel', async () => {
 });
 
 import SettingsApp from './SettingsApp';
+import { requestBringChats } from './lib/chatImport';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -113,6 +114,17 @@ describe('Settings window', () => {
     });
     expect(h.close).not.toHaveBeenCalled();
     expect(logged).toHaveBeenCalledWith('open_settings failed', expect.any(Error));
+  });
+
+  it('shows the Bring-chats panel when Settings asks for it (this window has no cockpit)', async () => {
+    await mount();
+    expect(host.querySelector('.bc-panel')).toBeNull();
+    await act(async () => requestBringChats());
+    expect(host.querySelector('[data-testid="bring-chats-standalone"] .bc-panel')).not.toBeNull();
+    await act(async () => {
+      [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Close')!.click();
+    });
+    expect(host.querySelector('.bc-panel')).toBeNull();
   });
 
   it('stops listening when it unmounts', async () => {
