@@ -111,6 +111,8 @@ pub struct MissionView {
     pub test_changes_text: String,
     pub timeline: Vec<Row>,
     pub started_by: String,
+    /// Night Shift mission: no cards or pushes while it runs.
+    pub quiet: bool,
     /// Done review: turns, hand-offs and rollbacks.
     pub work_text: String,
     pub created_at_ms: u64,
@@ -423,7 +425,9 @@ pub fn view(m: &Mission) -> MissionView {
         started_by: match &m.started_by {
             Starter::Desktop => "you".into(),
             Starter::Agent { label, .. } => label.clone(),
+            Starter::Night { .. } => "Night Shift".into(),
         },
+        quiet: m.quiet,
         work_text: work.join(" · "),
         created_at_ms: m.created_at_ms,
         updated_at_ms: m.updated_at_ms,

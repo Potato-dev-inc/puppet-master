@@ -76,6 +76,10 @@ pub fn raise(record: &BudgetRecord, standing: &Standing, reason: Reason) -> Opti
     if reason == Reason::Stopped {
         return None;
     }
+    // A quiet mission (Night Shift) raises no pause card: its night report says what happened.
+    if crate::missions::is_quiet(&record.project, &record.handle) {
+        return None;
+    }
     let now = questions::now_ms();
     if pending_card(&record.project, &record.handle, now) {
         return None;
