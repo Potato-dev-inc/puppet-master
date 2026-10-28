@@ -11,6 +11,9 @@
 }
 
 /* Save: one block per role. */
+.cockpit .ck-sheet--crew .ck-pr-field {
+  margin-top: 6px;
+}
 .cockpit .ck-crew-roles,
 .cockpit .ck-crew-list,
 .cockpit .ck-crew-result {

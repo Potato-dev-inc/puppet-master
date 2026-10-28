@@ -354,3 +354,11 @@ fn a_file_that_cannot_be_read_is_listed_with_its_problem() {
     assert_eq!(listed.len(), 1);
     assert!(listed[0].problem.is_some());
 }
+
+#[test]
+fn a_crew_start_key_asks_the_dispatcher_for_a_pane_of_its_own() {
+    assert!(super::wants_new_pane(&super::start_key("1f", 2)));
+    assert_ne!(super::start_key("1f", 1), super::start_key("1f", 2));
+    assert!(!super::wants_new_pane("mission-1f-2"));
+    assert!(!super::wants_new_pane(""));
+}

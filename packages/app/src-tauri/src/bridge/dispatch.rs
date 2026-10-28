@@ -237,6 +237,8 @@ fn assign_pane(
             && pane.account.as_deref() == operation.worker.account.as_deref()
             // an isolated run gets its own pane in its own worktree, never a shared one
             && operation.worker.worktree.is_none()
+            // a crew role always gets a pane of its own (never a pane the person opened by hand)
+            && !crate::crews::wants_new_pane(&operation.idempotency_key)
             && !panes_used_by_runs.contains(&pane.id)
             && (operation
                 .owner_session_id

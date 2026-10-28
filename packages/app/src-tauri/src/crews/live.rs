@@ -100,7 +100,7 @@ impl Starter for LiveStarter {
             "background": true,
             "keep_pane": true,
             "wait_ms": 0,
-            "idempotency_key": format!("crew-{}-{}", self.run, self.count),
+            "idempotency_key": super::start_key(&self.run, self.count),
         }))
         .map_err(|e| failure("INTERNAL", e.to_string()))?;
         let view = run_agent(request, self.registry.clone(), self.app.clone(), None).map_err(|e| failure(e.code, e.message))?;

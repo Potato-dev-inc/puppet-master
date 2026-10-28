@@ -22,5 +22,19 @@ pub mod validate;
 
 pub use model::{Crew, CrewError, Role, MAX_ROLES, PLACEHOLDER};
 
+/// Idempotency keys of crew starts begin with this. The dispatcher (`bridge/dispatch.rs`) never lands a
+/// run with such a key in a pane that already exists: a crew role always gets a pane of its own, so a
+/// pane the person opened by hand is never handed a task, renamed or linked as a helper.
+pub const KEY_PREFIX: &str = "crew-";
+
+/// The key of the `n`th role start of the crew start `run`.
+pub fn start_key(run: &str, n: usize) -> String {
+    format!("{KEY_PREFIX}{run}-{n}")
+}
+
+pub fn wants_new_pane(idempotency_key: &str) -> bool {
+    idempotency_key.starts_with(KEY_PREFIX)
+}
+
 #[cfg(test)]
 mod tests;
