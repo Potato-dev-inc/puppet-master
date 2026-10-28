@@ -22,6 +22,7 @@ fn clean() -> PushFacts {
         internal_files: vec![],
         git_changed: false,
         remote_branch_exists: false,
+        issue_changed: false,
         run_status: "completed".to_string(),
         turns: 3,
         minutes: 4,
@@ -224,6 +225,24 @@ fn asking_before_each_push_gives_one_sentence_and_is_not_held() {
     let (lines, held) = reasons(&clean(), true);
     assert_eq!(lines, vec!["You asked Puppet Master to check each push first."]);
     assert!(!held);
+}
+
+#[test]
+fn an_issue_that_changed_after_the_yes_is_a_reason_but_not_a_hold() {
+    let mut facts = clean();
+    facts.issue_changed = true;
+    let (lines, held) = reasons(&facts, false);
+    assert_eq!(lines, ["The issue changed after you said yes."]);
+    assert!(!held, "the person may still push");
+    // Asking is on too: both lines, the change first.
+    let (lines, held) = reasons(&facts, true);
+    assert_eq!(lines, ["The issue changed after you said yes.", "You asked Puppet Master to check each push first."]);
+    assert!(!held);
+    // An old saved record without the field reads as not changed.
+    let mut value = serde_json::to_value(clean()).unwrap();
+    value.as_object_mut().unwrap().remove("issue_changed");
+    let old: PushFacts = serde_json::from_value(value).unwrap();
+    assert!(!old.issue_changed);
 }
 
 #[test]

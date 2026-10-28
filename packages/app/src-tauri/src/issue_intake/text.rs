@@ -121,6 +121,14 @@ fn sha8(title: &str, body: &str) -> String {
     digest.iter().take(4).map(|b| format!("{b:02x}")).collect()
 }
 
+/// The `sha8` of an issue as GitHub holds it now (raw title and body), cleaned the way a snapshot is,
+/// so it equals the snapshot's `sha8` while the text has not changed.
+pub fn sha8_of_raw(title: &str, body: &str) -> String {
+    let (title, _, _) = clean_title_counts(title);
+    let (body, _) = clean_body(body);
+    sha8(&title, &body)
+}
+
 /// The snapshot the person saw and the agent gets: the cleaned title and body, the author, who
 /// labeled the issue, the notes and a short hash. The url is GitHub's, or built from the number.
 pub fn snapshot(owner_repo: &str, issue: &ApiIssue, ev: &LabelEvent) -> IssueSnapshot {

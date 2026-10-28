@@ -212,6 +212,7 @@ fn facts() -> super::model::PushFacts {
         internal_files: vec![],
         git_changed: false,
         remote_branch_exists: false,
+        issue_changed: false,
         run_status: "completed".into(),
         turns: 3,
         minutes: 4,
@@ -225,6 +226,18 @@ fn private_folders_are_created_and_empty() {
         assert!(dir.is_dir());
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
     }
+}
+
+#[test]
+fn the_push_block_folder_holds_only_the_refusing_hook() {
+    let store = Store::at(temp_root());
+    let dir = store.push_block_hooks_dir().unwrap();
+    let names: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(names, ["pre-push"]);
+    // Called again after an edit: the hook is right again.
+    std::fs::write(dir.join("pre-push"), "#!/bin/sh\nexit 0\n").unwrap();
+    store.push_block_hooks_dir().unwrap();
+    assert!(std::fs::read_to_string(dir.join("pre-push")).unwrap().contains("exit 1"));
 }
 
 #[test]
