@@ -23,6 +23,8 @@ use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub mod room;
+
 /// Protocol name and version, sent as `x-pm-relay` and returned by `/v1/health`.
 pub const PROTOCOL: &str = "pm-relay/1";
 /// Largest envelope (JSON) a relay accepts.
