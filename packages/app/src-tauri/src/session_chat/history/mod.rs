@@ -7,9 +7,13 @@
 
 mod env;
 mod file;
+mod file_head;
+mod file_walk;
 mod ids;
 mod limits;
 mod open;
+#[cfg(test)]
+mod file_tests;
 #[cfg(test)]
 mod guard;
 #[cfg(test)]
@@ -18,6 +22,7 @@ mod tests;
 use crate::session_chat::ChatItem;
 
 pub use env::HistoryEnv;
+pub use file::{FileHistory, FileHistorySpec, FileMeta, SessionKey};
 pub use ids::{resume_args_from, valid_session_id};
 pub use limits::{ListLimits, ReadLimits};
 

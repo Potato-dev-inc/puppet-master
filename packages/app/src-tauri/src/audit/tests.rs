@@ -222,3 +222,27 @@ fn a_channel_line_is_written_and_the_chain_still_verifies() {
     assert_eq!(report.entries, 7);
     assert_eq!(log.recent(1)[0].kind, "channel.stranger");
 }
+
+#[test]
+fn night_shift_kind_has_a_stable_name() {
+    assert_eq!(Kind::NightShift.as_str(), "night_shift");
+}
+
+#[test]
+fn a_night_shift_line_round_trips_through_the_log_view() {
+    let log = temp_log("night-shift");
+    write_five(&log);
+    let entry = log
+        .append(Kind::NightShift, &Who::Desktop, "Night Shift started 2 tasks", json!({ "tasks": 2 }), T0 + 9)
+        .unwrap();
+    assert_eq!(entry.kind, "night_shift");
+    assert_eq!(entry.who, "desktop");
+    // The log view reads the newest lines back: the kind string must come back unchanged.
+    let recent = log.recent(1);
+    assert_eq!(recent[0].kind, "night_shift");
+    assert_eq!(recent[0].summary, "Night Shift started 2 tasks");
+    assert_eq!(recent[0].detail["tasks"], 2);
+    let report = log.verify();
+    assert!(report.ok, "{report:?}");
+    assert_eq!(report.entries, 6);
+}

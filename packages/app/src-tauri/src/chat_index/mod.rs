@@ -24,8 +24,10 @@ mod store;
 mod tests;
 #[cfg(test)]
 mod filter_tests;
+#[cfg(test)]
+mod import_api_tests;
 
-pub use entry::PaneContext;
+pub use entry::{entry_of_with, PaneContext, Strength};
 pub use feeder::{open_store, Answer, ChatIndex, ContextLookup, Status};
 pub use imported::ImportedChatRow;
 pub use filter::{Facets, Filters, Role};
