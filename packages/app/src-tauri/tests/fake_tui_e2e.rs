@@ -1213,3 +1213,8 @@ mod keep_going;
 
 #[path = "fake_tui_night.rs"]
 mod night;
+
+// ---- Assign an issue: a labeled issue, a guarded copy, a draft PR (fake gh, local bare remote, zero tokens) -----------
+
+#[path = "fake_tui_issue_intake.rs"]
+mod issue_intake;

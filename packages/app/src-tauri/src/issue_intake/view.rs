@@ -136,6 +136,7 @@ mod tests {
                 internal_files: vec![],
                 git_changed: false,
                 remote_branch_exists: false,
+                issue_changed: false,
                 run_status: "completed".into(),
                 turns: 1,
                 minutes: 1,

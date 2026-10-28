@@ -27,6 +27,8 @@ const CI_FILE_NAMES: &[&str] =
 const CI_FOLDERS: &[&str] = &[".github", ".circleci", ".buildkite"];
 const KEY_EXTENSIONS: &[&str] = &[".pem", ".key", ".p12", ".pfx"];
 const INTERNAL_FOLDER: &str = ".puppet-master";
+/// The sentence on the push card when the issue moved on after the person said yes (S10).
+pub const ISSUE_CHANGED: &str = "The issue changed after you said yes.";
 
 /// The folder parts of a path: `\` read as `/`, lower case, no empty parts and no `.` parts.
 fn parts_of(path: &str) -> Vec<String> {
@@ -260,6 +262,9 @@ pub fn reasons(facts: &PushFacts, ask_before_push: bool) -> (Vec<String>, bool) 
     }
     if facts.remote_branch_exists {
         out.push("A branch with this name already exists on GitHub.".to_string());
+    }
+    if facts.issue_changed {
+        out.push(ISSUE_CHANGED.to_string());
     }
     if ask_before_push {
         out.push("You asked Puppet Master to check each push first.".to_string());

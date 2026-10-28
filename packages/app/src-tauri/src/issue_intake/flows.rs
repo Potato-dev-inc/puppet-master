@@ -77,6 +77,20 @@ pub(super) fn parse_open_labeled(json: &str, label: &str) -> Option<(bool, bool)
     Some((open, labeled))
 }
 
+/// True when the issue's own JSON (`gh api repos/{o}/{r}/issues/{n}`) is not what the person said yes to:
+/// closed, the label taken off, or a title or body whose cleaned hash differs from `sha8`. A JSON that
+/// cannot be read, or has no title to compare, says nothing (false): the card is not blamed on a guess.
+pub(super) fn issue_differs(json: &str, label: &str, sha8: &str) -> bool {
+    let Some((open, labeled)) = parse_open_labeled(json, label) else { return false };
+    if !open || !labeled {
+        return true;
+    }
+    let Ok(value) = serde_json::from_str::<Value>(json) else { return false };
+    let Some(title) = value.get("title").and_then(Value::as_str) else { return false };
+    let body = value.get("body").and_then(Value::as_str).unwrap_or("");
+    text::sha8_of_raw(title, body) != sha8
+}
+
 /// The reasons the push card shows, and whether the push is held. A change too big to scan in full
 /// always asks, even when the repo does not.
 pub(super) fn reasons_for(facts: &PushFacts, over_cap: bool, ask_before_push: bool) -> (Vec<String>, bool) {
@@ -228,6 +242,18 @@ impl<I: Io + 'static> Engine<I> {
         self.fail_start(run, ERR_START_FAILED, message);
     }
 
+    /// One GitHub read when the agent is done (S10): is the issue still what the person said yes to?
+    /// A gone issue counts as changed. A read that fails says nothing.
+    fn issue_changed_since_yes(&self, run: &IssueRun, repo: &RepoWatch) -> bool {
+        let path = format!("repos/{}/issues/{}", repo.owner_repo, run.issue.number);
+        let Ok(response) = self.io().gh_api(&path, None) else { return false };
+        match response.status {
+            404 | 410 => true,
+            200 => issue_differs(&response.body, &repo.label, &run.issue.sha8),
+            _ => false,
+        }
+    }
+
     /// One GitHub read before the agent starts: the issue is still open and still has the label.
     fn issue_is_open_and_labeled(&self, repo: &RepoWatch, number: u64) -> Result<(), (&'static str, String)> {
         let path = format!("repos/{}/issues/{number}", repo.owner_repo);
@@ -316,10 +342,11 @@ impl<I: Io + 'static> Engine<I> {
             Ok(env) => env,
             Err(error) => return self.check_failed(&mut run, &error.message, pane_id),
         };
-        let checked = match self.check(&run, &copy, &env, snap.as_ref()) {
+        let mut checked = match self.check(&run, &copy, &env, snap.as_ref()) {
             Ok(checked) => checked,
             Err(error) => return self.check_failed(&mut run, &error.message, pane_id),
         };
+        checked.facts.issue_changed = self.issue_changed_since_yes(&run, &repo);
         if checked.facts.files == 0 {
             let message = pane_id
                 .as_deref()
@@ -384,6 +411,7 @@ impl<I: Io + 'static> Engine<I> {
             internal_files: named(pushcheck::internal_paths(&names)),
             git_changed: run.git_fingerprint.as_deref() != Some(now_fingerprint.as_str()),
             remote_branch_exists,
+            issue_changed: false,
             run_status: snap.map_or_else(|| "unknown".to_string(), |snap| snap.status.clone()),
             turns: snap.map_or(0, |snap| snap.turns),
             minutes: snap.map_or(0, |snap| snap.minutes),

@@ -287,6 +287,10 @@ pub struct PushFacts {
     pub internal_files: Vec<String>,
     pub git_changed: bool,
     pub remote_branch_exists: bool,
+    /// The issue on GitHub is not what the person said yes to (S10): the text changed, it was
+    /// closed, or the label came off. A card is always asked; the push is not held.
+    #[serde(default)]
+    pub issue_changed: bool,
     /// "completed" and so on.
     pub run_status: String,
     pub turns: u32,

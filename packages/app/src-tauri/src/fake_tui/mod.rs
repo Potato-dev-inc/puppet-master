@@ -14,6 +14,7 @@
 
 mod canary_rig;
 mod chat;
+mod issue_intake;
 mod night;
 mod profile;
 mod team;
@@ -22,6 +23,7 @@ mod world;
 
 pub use canary_rig::CanaryRig;
 pub use chat::ChatProbe;
+pub use issue_intake::IssueRig;
 pub use night::NightRig;
 pub use wizard_rig::{Answers, WizardRig};
 pub use team::{leak_check, Person, Remote};
