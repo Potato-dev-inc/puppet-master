@@ -27,6 +27,15 @@ impl ScreenFirstFollower {
         self.on_file
     }
 
+    /// The session file the items come from: set once the chat is on the file, `None` while the screen is shown.
+    pub fn file_now(&self) -> Option<&std::path::Path> {
+        if self.on_file {
+            self.file.file()
+        } else {
+            None
+        }
+    }
+
     /// One look at the pane. `None` when the pane is gone.
     pub fn step(&mut self, panes: &dyn PaneLookup, pane_id: &str, now: Instant, relocate: Duration) -> Option<Change> {
         let facts = panes.facts(pane_id)?;
