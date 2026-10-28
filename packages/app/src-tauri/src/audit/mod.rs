@@ -63,6 +63,8 @@ pub enum Kind {
     MissionTestsAccepted,
     MissionTestsUndone,
     MissionHandedOff,
+    /// Keep going (`crate::handoff::keep_going`): `keep_going.handed_over`.
+    KeepGoing,
 }
 
 impl Kind {
@@ -88,6 +90,7 @@ impl Kind {
             Self::MissionTestsAccepted => "mission.tests_accepted",
             Self::MissionTestsUndone => "mission.tests_undone",
             Self::MissionHandedOff => "mission.handed_off",
+            Self::KeepGoing => "keep_going.handed_over",
         }
     }
 }
