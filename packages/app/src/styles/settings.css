@@ -1007,3 +1007,46 @@
   min-width: 0;
   font-size: 11px;
 }
+
+/* ---------- Telegram (early) setup ---------- */
+.settings .st-tg-warn {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label);
+}
+.settings .st-tg-token {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings .st-tg-token .st-field {
+  flex: 1;
+  min-width: 0;
+}
+.settings .st-tg-pair {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.settings .st-tg-code {
+  font: 600 24px/1.2 var(--font-mono);
+  letter-spacing: 0.12em;
+  color: var(--label);
+}
+.settings .st-tg-ask {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label);
+}
+.settings .st-tg-ask span {
+  color: var(--label-2);
+}
+.settings .st-tg-decide {
+  display: flex;
+  gap: 8px;
+}
