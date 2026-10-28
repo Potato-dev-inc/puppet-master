@@ -60,7 +60,7 @@ mod agent_pack;
 mod point;
 mod channels;
 mod live_room;
-mod night;
+pub(crate) mod night;
 
 pub use agent_install::*;
 pub use agent_wizard::*;

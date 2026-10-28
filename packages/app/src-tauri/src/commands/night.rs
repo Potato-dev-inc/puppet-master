@@ -4,7 +4,7 @@
 //! Every command runs off the UI thread and answers with an `OperationError` on refusal: a code the
 //! sheet can match and one plain sentence to show. The Start checks are in `start.rs`.
 
-mod start;
+pub(crate) mod start;
 
 use std::collections::BTreeMap;
 use std::path::Path;

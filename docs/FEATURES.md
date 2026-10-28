@@ -94,6 +94,20 @@ Full page: [`features/bring-all-my-chats.md`](features/bring-all-my-chats.md).
 | Phone search (`GET /chats/search`) never shows old chats (`search_live`, `Reach::LiveOnly`) | `bridge/routes/chats.rs`, `chat_index/store.rs` | done |
 | First-start card "Read my old chats on this PC" | branch `feat/bc-card` (BC-13), not merged into this branch | **gap** (not in this branch) |
 
+## 1d. Night Shift (Preview)
+
+Full page: [`features/night-shift.md`](features/night-shift.md). Off by default (Settings > General > Labs > Night Shift).
+
+| Feature | Where | Status |
+|---|---|---|
+| Tonight sheet: up to 10 tasks (project, words, agent, the project's declared tests, turns, minutes), the plans to use (one login per company), a stop time, start now or at a time, 1 or 2 at once, keep the computer awake (asked once) | `components/cockpit/night/` (`TonightSheet`, `TestsPopover`, `PlansPicker`), `commands/night.rs` + `commands/night/start.rs` | experimental |
+| The runner: each task is a mission in its own separate copy (or one turn when no tests are declared); one task per plan and per project; no new try in the last 25 minutes; a usage limit waits 3 minutes, then the task goes once to a plan of another company or waits for the reset; a stop time cuts running tasks off and keeps their copies | `night_shift/` (`runner`, `plan`, `io_live`, `checks`) | experimental: runs end to end with fake agents (`tests/fake_tui_night.rs`); no live night with real agents yet |
+| Never answers a trust, permission or sign-in screen and never merges: a gate ends the try as `Needs a look`, the pane stays open; Keep and Throw away are desktop commands only | `night_shift/` (no write path into a pane), `night_shift/review.rs` | experimental (flight-log test: no `gate_answer`) |
+| Sidebar chip: running, waiting, scheduled, needs you, finished; Stop | `components/cockpit/night/NightChip.tsx` | experimental |
+| Morning page: summary line, groups (ready, needs a look, didn't run), per-task detail, Keep (merge into the project's branch), Throw away, Keep all that pass, history of 14 nights, save as a redacted page | `components/cockpit/night/MorningPage.tsx`, `night_shift/review.rs`, `night_shift/page.rs` | experimental |
+| Quiet night and one morning push with counts only (never task text, names or paths); skipped when the Morning page was opened first | `night_shift/quiet.rs`, `push/night.rs` | experimental |
+| Phone: `GET /night` (redacted) and `POST /night/stop` (needs `control`); no Keep or Throw away | `bridge/routes/night.rs` | experimental; the phone card (NS-20) is not in this build yet |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.
