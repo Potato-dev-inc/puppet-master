@@ -357,6 +357,8 @@ impl Notifier {
             }
             // `companion_reply` builds these messages.
             Kind::CompanionReply => (Vec::new(), Vec::new()),
+            // The Night Shift morning push is for the phones only (`push::night`); the chat gets none.
+            Kind::NightShift => (Vec::new(), Vec::new()),
         }
     }
 }

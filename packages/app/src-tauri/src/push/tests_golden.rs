@@ -474,6 +474,22 @@ fn a_pane_prompt_is_never_worded_as_a_companion_reply() {
     assert!(deliveries.iter().all(|d| d.kind == Kind::WaitingInput));
 }
 
+// ---- night shift ---------------------------------------------------------------------------------
+
+/// The morning push as a phone receives it: the counts line for a phone that may watch, and the fixed
+/// sentence for one with "Hide details" on. No task text, project name or path in either.
+#[test]
+fn the_night_shift_morning_push_is_counts_only() {
+    use crate::night_shift::report::{Summary, HIDDEN_PUSH};
+    let hub = hub("night_shift");
+    let summary = Summary { total: 5, done: 4, green: 4, needs_you: 1, didnt_run: 0, no_changes: 0 };
+    let message = super::night::Message::from_summary(&summary);
+    let deliveries = hub.night_deliveries(&message, 1_000);
+    check("night_shift", &payload_for(&deliveries, "dev-a"));
+    check("night_shift_hidden", &payload_for(&deliveries, "dev-h"));
+    assert_eq!(payload_for(&deliveries, "dev-h")["body"], json!(HIDDEN_PUSH));
+}
+
 /// Every golden file is exercised: a stray file means a case was dropped.
 #[test]
 fn no_golden_file_is_orphaned() {
