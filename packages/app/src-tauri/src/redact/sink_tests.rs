@@ -49,6 +49,8 @@ fn a_planted_secret_is_absent_from_every_sink() {
         let mut summary = crate::turn_summary::model::assemble(crate::turn_summary::model::Facts {
             pane_id: "p-grep".into(),
             agent: "Agent".into(),
+            agent_id: None,
+            account: None,
             turn: 1,
             started_at_ms: 1,
             ended_at_ms: 2_000,

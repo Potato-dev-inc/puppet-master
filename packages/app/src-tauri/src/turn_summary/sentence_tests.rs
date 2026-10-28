@@ -7,6 +7,8 @@ fn facts(agent: &str) -> Facts {
     Facts {
         pane_id: "p1".into(),
         agent: agent.into(),
+        agent_id: None,
+        account: None,
         turn: 1,
         started_at_ms: 0,
         ended_at_ms: 90_000,

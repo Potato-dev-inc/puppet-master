@@ -21,6 +21,9 @@ pub struct PaneInfo {
     pub cwd: String,
     /// Display name of the agent ("Claude Code"); the agent id when it has none.
     pub label: String,
+    /// The agent's id (profile id) and the account id its pane runs under.
+    pub agent_id: String,
+    pub account: Option<String>,
     /// Plain shells have no agent turns (their status flips on every command).
     pub has_turns: bool,
 }
@@ -268,6 +271,8 @@ impl Tracker {
         let summary = assemble(Facts {
             pane_id: ended.pane_id.clone(),
             agent: pane.label,
+            agent_id: Some(pane.agent_id).filter(|id| !id.is_empty()),
+            account: pane.account,
             turn: ended.turn,
             started_at_ms: ended.started_at_ms,
             ended_at_ms: ended.ended_at_ms,
