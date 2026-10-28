@@ -105,3 +105,62 @@ describe('makeBridgeClient session routes', () => {
     await expect(bridge.listPanes()).rejects.toThrow(`bridge GET /panes -> 502: ${message}`);
   });
 });
+
+describe('makeBridgeClient focus routes', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const view = { on: false, endsAtMs: null, minutes: 0, heldTotal: 0, waiting: 0, last: null };
+
+  it('reads the redacted Focus view with GET /focus', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => view });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const bridge = makeBridgeClient('http://127.0.0.1:17321');
+    await expect(bridge.focus?.()).resolves.toEqual(view);
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:17321/focus', expect.objectContaining({ method: 'GET' }));
+  });
+
+  it('starts Focus with POST /focus/start and the minutes in the body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...view, on: true, minutes: 25 }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const bridge = makeBridgeClient('http://127.0.0.1:17321');
+    await expect(bridge.focusStart?.(25)).resolves.toMatchObject({ on: true, minutes: 25 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:17321/focus/start',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ minutes: 25 }) }),
+    );
+  });
+
+  it('extends and ends Focus with POST /focus/extend and POST /focus/end', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => view });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const bridge = makeBridgeClient('http://127.0.0.1:17321');
+    await bridge.focusExtend?.();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'http://127.0.0.1:17321/focus/extend',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    await bridge.focusEnd?.();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'http://127.0.0.1:17321/focus/end',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('reports a refused Focus change (for example 403 PERSON_ONLY) as an error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => '{"code":"PERSON_ONLY"}' }),
+    );
+    const bridge = makeBridgeClient('http://127.0.0.1:17321');
+    await expect(bridge.focusStart?.(45)).rejects.toThrow(/POST \/focus\/start -> 403/);
+  });
+});
