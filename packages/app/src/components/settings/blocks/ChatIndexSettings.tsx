@@ -1,7 +1,7 @@
 // Settings > General: the search index of your chats (Ctrl+Shift+F). A switch to keep it or not, what it holds,
 // and a button that clears it. Clearing asks first and never touches the chats themselves.
 import { useEffect, useState } from 'react';
-import { chatIndexClear, chatIndexSetEnabled, chatIndexStatus, indexSizeText, type ChatIndexStatus } from '../../../lib/chatIndex';
+import { chatIndexClear, chatIndexSetEnabled, chatIndexStatus, indexStatusText, type ChatIndexStatus } from '../../../lib/chatIndex';
 import type { SettingsEnv } from '../model';
 import { Btn, SettingRow, SettingToggle } from '../settings-ui';
 
@@ -61,7 +61,7 @@ export function ChatIndexSettings({ env }: { env: SettingsEnv }) {
         checked={enabled}
         onChange={(value) => void toggle(value)}
       />
-      <SettingRow label="Clear search index" description={status ? indexSizeText(status) : 'Loading…'}>
+      <SettingRow label="Clear search index" description={status ? indexStatusText(status) : 'Loading…'}>
         <Btn disabled={busy || !status} onClick={() => void clear()}>
           {busy ? 'Clearing…' : 'Clear search index'}
         </Btn>

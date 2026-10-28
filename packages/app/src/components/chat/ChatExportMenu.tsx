@@ -3,14 +3,14 @@
 // srcdoc, so the page cannot run code or reach anything.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { chatExportHtml, chatExportSave, chatPageFileName } from '../../lib/chatExport';
+import { chatExportHtml, chatExportSave, chatPageFileName, type ExportPage } from '../../lib/chatExport';
 import { IconMore } from '../cockpit/Icons';
 import { Sheet } from '../cockpit/Sheet';
 
 /** What the menu needs from the desktop shell (a fake in tests). */
 export interface ChatExportApi {
-  html: (paneId: string) => Promise<string>;
-  save: (path: string, html: string) => Promise<string>;
+  html: (paneId: string) => Promise<ExportPage>;
+  save: (token: string, path: string) => Promise<string>;
   /** The path the person picked, or null when they cancelled. */
   pickPath: (defaultName: string) => Promise<string | null>;
 }
@@ -80,7 +80,7 @@ export function ChatExportMenu({ paneId, api = tauriChatExportApi }: { paneId: s
 /** The page as the file will hold it, and the save. The preview and the saved file are the same text. */
 export function SavePagePreview({ paneId, api, onClose }: { paneId: string; api: ChatExportApi; onClose: () => void }) {
   const titleId = useId();
-  const [html, setHtml] = useState<string | null>(null);
+  const [page, setPage] = useState<ExportPage | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -89,7 +89,7 @@ export function SavePagePreview({ paneId, api, onClose }: { paneId: string; api:
     let alive = true;
     api
       .html(paneId)
-      .then((text) => alive && setHtml(text))
+      .then((made) => alive && setPage(made))
       .catch((error: unknown) => alive && setLoadError(errorText(error)));
     return () => {
       alive = false;
@@ -97,7 +97,7 @@ export function SavePagePreview({ paneId, api, onClose }: { paneId: string; api:
   }, [api, paneId]);
 
   const save = async () => {
-    if (html === null) return;
+    if (page === null) return;
     setMessage(null);
     let path: string | null;
     try {
@@ -109,8 +109,13 @@ export function SavePagePreview({ paneId, api, onClose }: { paneId: string; api:
     if (!path) return;
     setBusy(true);
     try {
-      const saved = await api.save(path, html);
+      const saved = await api.save(page.token, path);
       setMessage({ text: `Saved to ${saved}. Nothing was sent anywhere.`, error: false });
+      // A token works once. Make the page again so "Save as page…" can save another copy; the preview shows the new page.
+      api
+        .html(paneId)
+        .then(setPage)
+        .catch(() => setPage(null));
     } catch (error) {
       setMessage({ text: `Not saved: ${errorText(error)}`, error: true });
     } finally {
@@ -119,7 +124,7 @@ export function SavePagePreview({ paneId, api, onClose }: { paneId: string; api:
   };
 
   const body: ReactNode =
-    html !== null ? <iframe className="ck-chat-export-frame" title="Chat page preview" sandbox="" srcDoc={html} /> : <p className="ck-sub">{loadError ?? 'Making the page…'}</p>;
+    page !== null ? <iframe className="ck-chat-export-frame" title="Chat page preview" sandbox="" srcDoc={page.html} /> : <p className="ck-sub">{loadError ?? 'Making the page…'}</p>;
 
   return (
     <Sheet labelledBy={titleId} role="dialog" onClose={busy ? undefined : onClose} className="ck-chat-export">
@@ -134,7 +139,7 @@ export function SavePagePreview({ paneId, api, onClose }: { paneId: string; api:
         </p>
       )}
       <div className="ck-sheet-actions">
-        <button type="button" className="ck-btn ck-btn--primary" disabled={html === null || busy} onClick={() => void save()}>
+        <button type="button" className="ck-btn ck-btn--primary" disabled={page === null || busy} onClick={() => void save()}>
           Save as page…
         </button>
         <button type="button" className="ck-btn ck-btn--secondary" disabled={busy} onClick={onClose}>

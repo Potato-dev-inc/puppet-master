@@ -1,10 +1,11 @@
 //! The SQLite file behind the search: one row per kept chat item, an FTS5 index over its text, and the cap.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
+use super::aside;
 use super::entry::Entry;
 use super::query::{marks_of, match_expr, MARK_END, MARK_START};
 
@@ -60,12 +61,16 @@ pub struct Hit {
 pub struct Store {
     conn: Connection,
     cap: usize,
+    /// The index file (`None` for a test database in memory); the old copies of a damaged index sit next to it.
+    path: Option<PathBuf>,
 }
 
 impl Store {
     /// The index file at `path` (made when missing), keeping at most `cap` items.
     pub fn open(path: &Path, cap: usize) -> rusqlite::Result<Store> {
-        Store::init(Connection::open(path)?, cap)
+        let mut store = Store::init(Connection::open(path)?, cap)?;
+        store.path = Some(path.to_path_buf());
+        Ok(store)
     }
 
     #[cfg(test)]
@@ -79,7 +84,7 @@ impl Store {
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
         let _ = conn.pragma_update(None, "synchronous", "NORMAL");
         conn.execute_batch(SCHEMA)?;
-        Ok(Store { conn, cap })
+        Ok(Store { conn, cap, path: None })
     }
 
     #[cfg(test)]
@@ -106,6 +111,16 @@ impl Store {
         Ok(())
     }
 
+    /// How many old copies of a damaged index are next to the file (see `aside`).
+    pub fn old_copies(&self) -> usize {
+        self.path.as_deref().map_or(0, aside::count)
+    }
+
+    /// Removes the old copies of a damaged index next to the file; how many files went.
+    pub fn remove_old_copies(&self) -> usize {
+        self.path.as_deref().map_or(0, aside::remove_all)
+    }
+
     /// `PRAGMA integrity_check` of the open file: "ok" when it is sound.
     #[cfg(test)]
     pub fn integrity(&self) -> rusqlite::Result<String> {
@@ -129,7 +144,8 @@ impl Store {
                  WHERE text IS NOT excluded.text OR agent IS NOT excluded.agent OR folder IS NOT excluded.folder",
             )?;
             for e in entries {
-                put.execute(params![e.pane_id, e.session, e.item_id, e.kind, e.agent, e.folder, e.at_ms, e.text])?;
+                let session = settle_session(&tx, e)?;
+                put.execute(params![e.pane_id, session, e.item_id, e.kind, e.agent, e.folder, e.at_ms, e.text])?;
             }
         }
         tx.execute(
@@ -196,6 +212,38 @@ impl Store {
         })?;
         rows.collect()
     }
+}
+
+/// The session an entry is stored under. An item can reach the index before the pane's session id is known (empty)
+/// and again after it; both are the same item, so they must be one row:
+/// - with a session, the empty-session row of the same pane and item is folded into it (it keeps its time and id);
+/// - without one, the item joins the row it already has under a real session, if any.
+fn settle_session(tx: &rusqlite::Transaction, e: &Entry) -> rusqlite::Result<String> {
+    use rusqlite::OptionalExtension;
+    if e.session.is_empty() {
+        let known: Option<String> = tx
+            .query_row(
+                "SELECT session FROM chat_items WHERE pane_id = ?1 AND item_id = ?2 AND session <> '' ORDER BY id DESC LIMIT 1",
+                params![e.pane_id, e.item_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        return Ok(known.unwrap_or_default());
+    }
+    let taken: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM chat_items WHERE pane_id = ?1 AND item_id = ?2 AND session = ?3)",
+        params![e.pane_id, e.item_id, e.session],
+        |row| row.get(0),
+    )?;
+    if taken {
+        tx.execute("DELETE FROM chat_items WHERE pane_id = ?1 AND item_id = ?2 AND session = ''", params![e.pane_id, e.item_id])?;
+    } else {
+        tx.execute(
+            "UPDATE chat_items SET session = ?3 WHERE pane_id = ?1 AND item_id = ?2 AND session = ''",
+            params![e.pane_id, e.item_id, e.session],
+        )?;
+    }
+    Ok(e.session.clone())
 }
 
 // The marks the SQL passes to snippet() are `char(1)` and `char(2)`.

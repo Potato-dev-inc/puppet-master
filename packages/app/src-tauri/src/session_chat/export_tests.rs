@@ -319,3 +319,45 @@ fn the_page_follows_the_system_colour_scheme() {
     assert!(html.contains("color-scheme:light dark"));
     assert!(html.contains("@media (prefers-color-scheme:dark)"));
 }
+
+/// A private key block made of fake base64 (nothing real).
+fn fake_pem() -> String {
+    let body: String = (0..12).map(|n| format!("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo{n:02}abcdefgh\n")).collect();
+    format!("-----BEGIN RSA PRIVATE KEY-----\n{body}-----END RSA PRIVATE KEY-----\n")
+}
+
+#[test]
+fn a_private_key_in_tool_output_is_masked_on_every_line() {
+    let output = format!("$ cat id_rsa\n{}done\n", fake_pem());
+    let items = vec![ChatItem::ToolResult { id: "r".into(), at: None, call_id: "c".into(), ok: true, output }];
+    let html = render(&items);
+    assert!(!html.contains("QUJDREVG"), "no line of the key body may reach the page");
+    assert!(!html.contains("END RSA PRIVATE KEY"));
+    assert!(html.contains("[REDACTED]"));
+    assert!(html.contains("$ cat id_rsa") && html.contains("done"), "the text around the key stays");
+}
+
+#[test]
+fn a_private_key_in_an_edit_is_masked_on_both_sides() {
+    let mut item = call(1, "Edit", "key.pem");
+    if let ChatItem::ToolCall { detail, .. } = &mut item {
+        detail.input = Some(json!({"old_string": fake_pem(), "new_string": format!("x\n{}", fake_pem())}));
+    }
+    let html = render(&[item]);
+    assert!(!html.contains("QUJDREVG"));
+    assert!(!html.contains("PRIVATE KEY-----"));
+}
+
+#[test]
+fn an_unknown_shape_secret_is_masked_in_the_page() {
+    // 48 opaque characters with no known prefix: only strict mode finds it.
+    let opaque = "Zk3Qp9Lm2Xv7Rt4Wc8Yb1Nd6Hf5Gj0Ks3Ua9Ie2Oo7Ty4Rq";
+    let html = render(&[agent(1, &format!("the value is {opaque}")), ChatItem::ToolResult { id: "r".into(), at: None, call_id: "c".into(), ok: true, output: format!("v={opaque}") }]);
+    assert!(!html.contains(opaque));
+}
+
+#[test]
+fn the_account_name_in_a_path_is_masked_with_no_home_known() {
+    let html = render(&[agent(1, r"see C:\Users\someone\notes.txt and /home/someone/x.rs")]);
+    assert!(!html.contains("someone"));
+}
