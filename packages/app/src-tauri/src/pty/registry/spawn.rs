@@ -205,6 +205,8 @@ pub fn spawn_pane(
     let (idle_after, quiet_idle_after) = (idle_profile.idle_after(), idle_profile.quiet_idle_after());
     // 0 = unknown, 1 = the screen shows work, 2 = it provably does not (see `TuiProfile::busy_marker`).
     let busy_state = Arc::new(std::sync::atomic::AtomicU8::new(0));
+    // The screen shows a startup gate (an update notice, a trust question): the pane is waiting, never idle.
+    let gate_up = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let exited = Arc::new(Mutex::new(false));
 
     let info = PaneInfo {
@@ -253,6 +255,7 @@ pub fn spawn_pane(
         let last_output = last_output.clone();
         let idle_clock = idle_clock.clone();
         let busy_state = busy_state.clone();
+        let gate_up = gate_up.clone();
         let exited = exited.clone();
         thread::Builder::new()
             .name(format!("pty-reader-{pane_id}"))
@@ -317,7 +320,11 @@ pub fn spawn_pane(
                             // The model any look of this pane showed (a banner, a status row while it works) stays
                             // known after the screen moves on.
                             crate::pty::pane_facts::observe_model(&pane_id, &agent_type, &snapshot);
-                            let busy = crate::pty::status::busy_marker(&agent_type, &snapshot);
+                            let gate = crate::pty::status::startup_gate_visible(&agent_type, &snapshot);
+                            gate_up.store(gate, std::sync::atomic::Ordering::Relaxed);
+                            // A gate's screen proves nothing about work: an idle pane stays idle only when the screen
+                            // is provably quiet, and a menu is neither.
+                            let busy = if gate { None } else { crate::pty::status::busy_marker(&agent_type, &snapshot) };
                             busy_state.store(
                                 match busy {
                                     Some(true) => 1,
@@ -341,7 +348,7 @@ pub fn spawn_pane(
                                     *s,
                                     new_status,
                                     busy,
-                                    crate::pty::resize_clock::recently_resized(&pane_id),
+                                    !gate && crate::pty::resize_clock::recently_resized(&pane_id),
                                 );
                                 if *s != new_status {
                                     *s = new_status;
@@ -445,6 +452,7 @@ pub fn spawn_pane(
         let app = app.clone();
         let idle_clock = idle_clock.clone();
         let busy_state = busy_state.clone();
+        let gate_up = gate_up.clone();
         let status = status.clone();
         let exited = exited.clone();
         thread::Builder::new()
@@ -453,6 +461,10 @@ pub fn spawn_pane(
                 thread::sleep(idle::IDLE_POLL);
                 if *exited.lock() {
                     break;
+                }
+                // A startup gate on screen is a pane that waits, not one that rests: it never reads idle.
+                if gate_up.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
                 }
                 let marker = match busy_state.load(std::sync::atomic::Ordering::Relaxed) {
                     1 => Some(true),

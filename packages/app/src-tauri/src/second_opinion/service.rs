@@ -295,8 +295,11 @@ impl Sender for LiveSender {
         crate::agent_runs::send_agent(project, handle, task.to_string(), None, self.registry.clone(), self.app.clone(), opts)
             .map(|_| ())
     }
+    /// Through the pane outbox, like every message for an agent: it types only into a ready input box, closes a
+    /// startup notice with the agent's own keys first and waits behind a question. Raw keys + Enter would answer
+    /// whatever menu is on screen.
     fn pane_input(&self, pane_id: &str, text: &str) -> Result<(), String> {
-        crate::pty::registry_write_input(&self.registry, &self.app, pane_id, text, true, false, None, crate::pty::WriteOrigin::User)
+        crate::pane_outbox::global(&self.registry, &self.app).send(pane_id, text).map(|_| ())
     }
 }
 

@@ -129,6 +129,16 @@ answers in the pane and the card says so. A profile that has an answerable card 
 What happens around a gate, the same for every agent:
 
 - `bridge/dispatch.rs`: dismiss the dismissible ones, then park on whatever is left (`bridge/approvals.rs`).
+- `pane_outbox` (a companion's check-in, a phone or second-opinion message): a dismissible gate is not waited for, the
+  message goes to `agent_runs::delivery::deliver_text`, whose first step is the same gate step (`await_ready`: only the
+  declared keys, then a look). A gate only the user may pass, or a prompt, keeps the message waiting and no key goes in.
+  If a notice ignores its keys the message waits and the keys are not pressed again for 20 s (`Timing::gate_retry`).
+  Every path that types a person's message or a task goes through `deliver_text` / `dispatch_prompt`; raw keys
+  (`write_terminal_input`, `press_key`, the terminal itself) are the person's or an explicit raw call and are not.
+- Pane status (`pty/registry/spawn.rs` reader + idle watcher, mirrored by `replay/pane.rs`): while `startup_gate`
+  reports a gate, the pane never flips to `idle` (and an idle pane a gate draws over leaves `idle`). It reads `running`,
+  not `waiting_input`: a dismissible notice is closed by Puppet Master and must not raise an Inbox card. Gates only
+  the user may pass keep `classify_screen` -> `waiting_input` (the card).
 - `bridge/approvals.rs`: the wait ends when no gate and no prompt is on screen. If the agent exits while a gate
   was showing, the run fails: `WORKSPACE_TRUST_DECLINED` for the trust gate (the user said no), `STARTUP_SCREEN_NOT_COMPLETED`
   for a sign-in or setup screen. Neither is retried and neither falls back to a headless run in a folder the user just refused.
