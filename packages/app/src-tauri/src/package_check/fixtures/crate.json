@@ -1,0 +1,78 @@
+{
+  "crate": {
+    "id": "pm-demo-crate",
+    "name": "pm-demo-crate",
+    "created_at": "2019-06-02T08:15:30.123456+00:00",
+    "updated_at": "2026-01-20T12:00:00.000000+00:00",
+    "downloads": 52000,
+    "recent_downloads": 26000,
+    "max_version": "1.4.0",
+    "max_stable_version": "1.4.0",
+    "newest_version": "1.4.0",
+    "description": "Made-up demo crate for tests.",
+    "homepage": null,
+    "documentation": null,
+    "repository": "https://github.com/example-user/pm-demo-crate",
+    "exact_match": true
+  },
+  "versions": [
+    {
+      "id": 1001,
+      "crate": "pm-demo-crate",
+      "num": "1.4.0",
+      "created_at": "2026-01-20T12:00:00.000000+00:00",
+      "updated_at": "2026-01-20T12:00:00.000000+00:00",
+      "downloads": 120,
+      "yanked": false,
+      "license": "MIT",
+      "published_by": {
+        "id": 4242,
+        "login": "made-up-publisher",
+        "name": "Made Up Person",
+        "avatar": "https://example.invalid/avatar.png",
+        "url": "https://example.invalid/profiles/made-up-publisher"
+      }
+    },
+    {
+      "id": 1002,
+      "crate": "pm-demo-crate",
+      "num": "1.3.1",
+      "created_at": "2025-03-01T09:00:00.000000+00:00",
+      "updated_at": "2025-03-02T09:00:00.000000+00:00",
+      "downloads": 800,
+      "yanked": true,
+      "license": "MIT",
+      "published_by": {
+        "id": 4242,
+        "login": "made-up-publisher",
+        "name": "Made Up Person",
+        "avatar": "https://example.invalid/avatar.png",
+        "url": "https://example.invalid/profiles/made-up-publisher"
+      }
+    },
+    {
+      "id": 1003,
+      "crate": "pm-demo-crate",
+      "num": "1.3.0",
+      "created_at": "2024-01-10T09:00:00.000000+00:00",
+      "updated_at": "2024-01-10T09:00:00.000000+00:00",
+      "downloads": 4000,
+      "yanked": false,
+      "license": "MIT",
+      "published_by": null
+    },
+    {
+      "id": 1004,
+      "crate": "pm-demo-crate",
+      "num": "1.0.0",
+      "created_at": "2019-06-02T08:15:30.123456+00:00",
+      "updated_at": "2019-06-02T08:15:30.123456+00:00",
+      "downloads": 9000,
+      "yanked": false,
+      "license": "MIT",
+      "published_by": null
+    }
+  ],
+  "keywords": [],
+  "categories": []
+}
