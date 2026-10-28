@@ -63,6 +63,8 @@ struct FakeState {
     pr_result: Result<PrRef, OperationError>,
     audits: Vec<(String, String, String)>,
     changed: u32,
+    /// For every card asked: was the run record already stored as `Asking` on that card's id?
+    stored_before_card: Vec<bool>,
 }
 
 struct Fake {
@@ -123,6 +125,7 @@ impl Fx {
             }),
             audits: Vec::new(),
             changed: 0,
+            stored_before_card: Vec::new(),
         };
         Fx(Arc::new(Fake {
             store: Store::at(root),
@@ -373,6 +376,11 @@ impl Io for Fx {
     fn ask(&self, new: NewQuestion) -> Result<String, String> {
         self.0.q.create(new, self.now_ms()).map(|q| q.id).map_err(|e| e.message)
     }
+    fn ask_as(&self, new: NewQuestion, id: &str) -> Result<String, String> {
+        let stored = self.0.store.by_question(id).is_some();
+        self.0.s.lock().stored_before_card.push(stored);
+        self.0.q.create_as(new, Some(id), self.now_ms()).map(|q| q.id).map_err(|e| e.message)
+    }
     fn question(&self, id: &str) -> Option<Question> {
         self.0.q.get(id, self.now_ms())
     }
@@ -496,6 +504,23 @@ fn nothing_happens_while_the_switch_is_off_or_gh_is_not_ready() {
     engine.tick();
     assert!(runs(&fx).is_empty() && fx.pending().is_empty());
     assert!(fx.0.s.lock().api_log.iter().all(|(path, _)| !path.starts_with("repos/")), "no repo is polled while gh is signed out");
+}
+
+/// The record must exist, as `Asking` on the card's id, when the card appears (a fast answer finds its run).
+#[test]
+fn the_run_record_is_stored_before_the_start_card_is_raised() {
+    let (fx, engine) = world(true, true);
+    fx.label(42, "someone", "you", "Click the button.");
+    engine.tick();
+    assert_eq!(fx.0.s.lock().stored_before_card, [true], "the card was raised before its run was stored");
+    let card = fx.only_card();
+    assert!(matches!(&the_run(&fx).state, RunState::Asking { question_id } if *question_id == card.id));
+    // The same holds when the person asks again after a no.
+    fx.answer(&engine, &card.id, CHOICE_NOT_NOW, "desktop");
+    let run_id = the_run(&fx).id;
+    engine.act(&run_id, "ask_again", "desktop").expect("ask again");
+    assert_eq!(fx.0.s.lock().stored_before_card, [true, true]);
+    assert_eq!(state_tag(&the_run(&fx)), "asking");
 }
 
 #[test]

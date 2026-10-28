@@ -38,6 +38,19 @@ fn create_records_the_question_with_defaults() {
 }
 
 #[test]
+fn create_keeps_a_chosen_uuid_and_refuses_a_bad_or_used_one() {
+    let store = QuestionStore::new();
+    let chosen = uuid::Uuid::new_v4().to_string();
+    let q = store.create_as(NewQuestion { question: "q".into(), ..Default::default() }, Some(&chosen), 0).unwrap();
+    assert_eq!(q.id, chosen);
+    assert!(store.get(&chosen, 0).is_some());
+    let again = store.create_as(NewQuestion { question: "q".into(), ..Default::default() }, Some(&chosen), 0);
+    assert_eq!(again.unwrap_err().code, "INVALID_ARGUMENT");
+    let bad = store.create_as(NewQuestion { question: "q".into(), ..Default::default() }, Some("not-a-uuid"), 0);
+    assert_eq!(bad.unwrap_err().code, "INVALID_ARGUMENT");
+}
+
+#[test]
 fn create_rejects_bad_input() {
     let store = QuestionStore::new();
     let bad = |new: NewQuestion| store.create(new, 0).unwrap_err().code;

@@ -232,6 +232,12 @@ impl QuestionStore {
     }
 
     pub fn create(&self, new: NewQuestion, now: u64) -> Result<Question, QuestionError> {
+        self.create_as(new, None, now)
+    }
+
+    /// Like `create`, with an id the caller picked (a UUID not in use). For a caller that must store the
+    /// card's id before the card can be seen. `None` picks a fresh id.
+    pub fn create_as(&self, new: NewQuestion, chosen_id: Option<&str>, now: u64) -> Result<Question, QuestionError> {
         let text = trimmed(&new.question);
         if text.is_empty() {
             return Err(QuestionError::new("INVALID_ARGUMENT", "question must not be empty"));
@@ -311,8 +317,20 @@ impl QuestionStore {
                 "too many unanswered questions; wait for the person to answer some",
             ));
         }
+        let id = match chosen_id {
+            None => uuid::Uuid::new_v4().to_string(),
+            Some(chosen) => {
+                let chosen = uuid::Uuid::parse_str(chosen)
+                    .map_err(|_| QuestionError::new("INVALID_ARGUMENT", "id must be a UUID"))?
+                    .to_string();
+                if inner.items.iter().any(|q| q.id == chosen) {
+                    return Err(QuestionError::new("INVALID_ARGUMENT", "that id is already in use"));
+                }
+                chosen
+            }
+        };
         let question = Question {
-            id: uuid::Uuid::new_v4().to_string(),
+            id,
             asker: new.asker,
             agent: new.agent.map(|a| trimmed(&a)).filter(|a| !a.is_empty()),
             pane_id: new.pane_id.map(|p| trimmed(&p)).filter(|p| !p.is_empty()),
