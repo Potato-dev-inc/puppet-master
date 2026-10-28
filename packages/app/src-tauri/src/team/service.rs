@@ -1919,7 +1919,8 @@ fn close_copy_panes(svc: &Service, copy_path: &str) {
         .map(|p| p.id)
         .collect();
     for id in ids {
-        let _ = crate::pty::registry_kill_pane_with_reason(&svc.registry, &id, Some("worktree_closed"));
+        // Waits: the copy is removed right after, and a running shell would hold its folder.
+        let _ = crate::pty::registry_kill_pane_and_wait(&svc.registry, &id, Some("worktree_closed"));
     }
 }
 

@@ -663,7 +663,8 @@ pub fn run() {
                 }
                 bridge::port_file::release_owned(&app_paths::bridge_port_file());
                 if let Some(state) = app_handle.try_state::<AppState>() {
-                    pty::registry_kill_all(&state.registry);
+                    // The process ends right after this: wait for every tree to be stopped.
+                    pty::registry_kill_all_and_wait(&state.registry);
                 }
             }
         });
