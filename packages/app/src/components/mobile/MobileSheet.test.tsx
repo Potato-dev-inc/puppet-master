@@ -70,6 +70,32 @@ describe('phone menu: Stop all agents', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it('opens "Your plans" from the menu', () => {
+    const open = vi.fn();
+    const host = mount(
+      <MenuSheet
+        onClose={() => {}}
+        bridgeUrl="http://x"
+        bridgeReady
+        settings={{} as never}
+        onPatchSettings={() => {}}
+        link={null}
+        echo={null}
+        activeLabel={null}
+        onCloseActive={() => {}}
+        onEditConnection={() => {}}
+        onOpenPlans={open}
+      />,
+    );
+    act(() => button(host, 'Your plans').click());
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no Your plans row when the menu is given no way to open it', () => {
+    const host = mountMenu(() => {});
+    expect(button(host, 'Your plans')).toBeUndefined();
+  });
+
   it('has switches and 44px-class rows, no Tailwind leftovers', () => {
     const host = mountMenu(() => {});
     expect(host.querySelectorAll('input.ph-switch[type="checkbox"]').length).toBeGreaterThanOrEqual(3);
