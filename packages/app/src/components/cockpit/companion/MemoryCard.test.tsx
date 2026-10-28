@@ -98,4 +98,24 @@ describe('MemoryCard', () => {
     await act(async () => button('Keep the change').click());
     expect(transport.calls.find((c) => c.method === 'decideOutsideChange')?.args).toEqual(['mochi', 'memory', 'keep']);
   });
+
+  it('has a Skills tab that lists the skills instead of a file editor', async () => {
+    await render(memory({ skills: [{ slug: 'weekly-report', title: 'Weekly report', chars: 90, unreviewed: false, flagged: null }] }));
+    const tabs = () => host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect([...tabs()].map((t) => t.textContent)).toEqual(['Who it is', 'About you', 'Its notes', 'Skills']);
+    expect(host.querySelector('textarea')).toBeTruthy();
+    act(() => tabs()[3].click());
+    expect(host.querySelector('textarea')).toBeNull();
+    expect(host.querySelector('.ck-skills-row')?.textContent).toContain('Weekly report');
+    expect(host.textContent).toContain('1 / 30 skills');
+    // Back on a file tab the editor and its counter are back.
+    act(() => tabs()[0].click());
+    expect(counter().textContent).toBe('15 / 1,500');
+  });
+
+  it('an older PC that sends no skills shows the empty Skills tab', async () => {
+    await render(memory());
+    act(() => host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[3].click());
+    expect(host.textContent).toContain('No skills yet.');
+  });
 });

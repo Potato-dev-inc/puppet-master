@@ -77,6 +77,15 @@ pub fn approved_path(root: &Path, id: &str, file: MemoryFile) -> CompanionResult
     Ok(companion_dir(root, id)?.join("approved").join(file.file_name()))
 }
 
+/// `<root>/companions/<id>/approved/skills/<slug>.md`: the last copy of a skill the person approved or saved.
+/// A slug that is not `[a-z0-9-]` is refused, so no path can escape.
+pub fn approved_skill_path(root: &Path, id: &str, slug: &str) -> CompanionResult<PathBuf> {
+    if !valid_id(slug) {
+        return Err(CompanionError::new("COMPANION_SKILL_NOT_FOUND", "No skill has that name."));
+    }
+    Ok(companion_dir(root, id)?.join("approved").join("skills").join(format!("{slug}.md")))
+}
+
 /// Every saved companion, in file order. A missing file is an empty list.
 pub fn load(root: &Path) -> CompanionResult<Vec<CompanionProfile>> {
     let path = companions_path(root);

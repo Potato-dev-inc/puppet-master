@@ -355,7 +355,9 @@ impl Service {
         let texts = memory::snapshot(&self.root, &profile.id, home).map_err(|e| e.to_string())?;
         let instruction_files = self.host.instruction_files(&profile.agent_type);
         let rules = brief::Rules { share_today: profile.share_today, recall: self.host.recall_on() };
-        let text = brief::compose_rules(&profile.name, &texts, rules);
+        // Titles and paths of the approved skills only, never the bodies. A skills folder that cannot be read just lists none.
+        let skills = super::skills::brief_lines(&self.root, &profile.id, home).unwrap_or_default();
+        let text = brief::compose_full(&profile.name, &texts, rules, &skills);
         brief::write(home, &text, &instruction_files).map_err(|e| e.to_string())?;
         Ok(instruction_files)
     }

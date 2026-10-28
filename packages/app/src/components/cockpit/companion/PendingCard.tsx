@@ -2,6 +2,7 @@
 // Flags never block: a link or an instruction-like line shows a small tag and still waits for the person.
 import { useState } from 'react';
 import type { CompanionTransport, MemoryView, PendingDecision, PendingItem } from '../../../lib/companion';
+import { SkillProposalRow } from './SkillProposalRow';
 
 export function PendingCard({
   companionId,
@@ -32,27 +33,62 @@ export function PendingCard({
     }
   };
 
+  // Approve on a skill: as proposed (`edit` missing) or with the person's own title and steps.
+  const approveSkill = async (item: PendingItem, edit?: { title: string; body: string }) => {
+    setBusyId(item.id);
+    setError(null);
+    try {
+      onChanged(
+        edit ? await transport.approveSkill(companionId, item.id, edit) : await transport.decidePending(companionId, item.id, 'keep'),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save that.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <section className="ck-companion-card" aria-labelledby="ck-companion-pending-title">
       <h2 className="ck-companion-card-title" id="ck-companion-pending-title">
         {name} wants to remember
       </h2>
       <ul className="ck-companion-list">
-        {items.map((item) => (
-          <li className="ck-companion-pending" key={item.id}>
-            <p className="ck-companion-pending-text">{item.text}</p>
-            {item.targetLine && <p className="ck-sub ck-companion-pending-target">Removes: {item.targetLine}</p>}
-            {item.flagged && <span className="ck-memory-tag">{item.flagged}</span>}
-            <span className="ck-companion-pending-actions">
-              <button type="button" className="ck-btn ck-btn--sm ck-btn--secondary" onClick={() => void decide(item, 'keep')} disabled={busyId !== null}>
-                Keep
-              </button>
-              <button type="button" className="ck-btn ck-btn--sm ck-btn--plain" onClick={() => void decide(item, 'drop')} disabled={busyId !== null}>
-                Don't keep
-              </button>
-            </span>
-          </li>
-        ))}
+        {items.map((item) =>
+          item.kind === 'skill' ? (
+            <SkillProposalRow
+              key={item.id}
+              item={item}
+              disabled={busyId !== null}
+              onApprove={(it, edit) => void approveSkill(it, edit)}
+              onReject={(it) => void decide(it, 'drop')}
+            />
+          ) : (
+            <li className="ck-companion-pending" key={item.id}>
+              <p className="ck-companion-pending-text">{item.text}</p>
+              {item.targetLine && <p className="ck-sub ck-companion-pending-target">Removes: {item.targetLine}</p>}
+              {item.flagged && <span className="ck-memory-tag">{item.flagged}</span>}
+              <span className="ck-companion-pending-actions">
+                <button
+                  type="button"
+                  className="ck-btn ck-btn--sm ck-btn--secondary"
+                  onClick={() => void decide(item, 'keep')}
+                  disabled={busyId !== null}
+                >
+                  Keep
+                </button>
+                <button
+                  type="button"
+                  className="ck-btn ck-btn--sm ck-btn--plain"
+                  onClick={() => void decide(item, 'drop')}
+                  disabled={busyId !== null}
+                >
+                  Don't keep
+                </button>
+              </span>
+            </li>
+          ),
+        )}
       </ul>
       {error && (
         <p className="ck-memory-msg ck-memory-err" role="alert">

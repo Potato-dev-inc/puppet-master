@@ -79,4 +79,14 @@ describe('CompanionPending', () => {
     expect(buttons().every((b) => b.disabled)).toBe(true);
     expect(buttonText('Keep')).toBeDefined();
   });
+
+  it('shows a proposed skill by title only, with no buttons, even when this phone may answer', () => {
+    const skill: PendingItem = { id: 'sk1', kind: 'skill', text: 'Weekly report', flagged: 'Has a link', targetLine: null };
+    mount({ list: [skill], canAnswer: true });
+    expect(host.textContent).toContain('New skill');
+    expect(host.textContent).toContain('Weekly report');
+    expect(host.textContent).toContain('Has a link');
+    expect(host.textContent).toContain('Look at it on the computer to approve it.');
+    expect(buttons()).toHaveLength(0);
+  });
 });

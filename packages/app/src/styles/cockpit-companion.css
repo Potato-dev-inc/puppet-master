@@ -216,6 +216,72 @@
   display: flex;
   gap: 6px;
 }
+/* Skills: a proposal in "wants to remember", and the Skills tab of "What {name} knows". */
+.cockpit .ck-skill-kind {
+  font-size: 11px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--label-3);
+}
+.cockpit .ck-skill-title {
+  font-weight: 600;
+}
+.cockpit .ck-skill-body {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 150px;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  font: 12px/1.45 var(--font-mono);
+  color: var(--label-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--fill);
+  border-radius: 6px;
+}
+.cockpit .ck-skill-title-input {
+  width: 100%;
+}
+.cockpit .ck-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-skills-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.cockpit .ck-skills-open {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  font: inherit;
+  text-align: left;
+  color: var(--label);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.cockpit .ck-skills-open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: 4px;
+}
+.cockpit .ck-skills-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12.5px;
+}
+.cockpit .ck-skills-empty {
+  margin: 0;
+}
 .cockpit .ck-companion-checkin {
   display: flex;
   flex-direction: column;

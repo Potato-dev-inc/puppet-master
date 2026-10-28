@@ -12,6 +12,10 @@ pub const MEMORY_CAP: usize = 2_200;
 pub const PENDING_LINE_CAP: usize = 300;
 pub const FEED_TEXT_CAP: usize = 200;
 pub const MAX_CHECKINS: usize = 8;
+/// A skill file (title line and body) holds at most this many characters. Counted in characters like the memory caps.
+pub const SKILL_CAP: usize = 4_096;
+pub const MAX_SKILLS: usize = 30;
+pub const SKILL_TITLE_CAP: usize = 60;
 pub const MIN_EVERY_MINUTES: u32 = 30;
 pub const MAX_SCHEDULED_SENDS_PER_DAY: u32 = 24;
 pub const NAME_CAP: usize = 24;
@@ -254,6 +258,8 @@ pub enum PendingKind {
     Note,
     User,
     Forget,
+    /// A proposed skill: `- skill: <title>` and an indented body. Never kept on its own (`memory::auto_keep_ids`).
+    Skill,
 }
 
 impl PendingKind {
@@ -262,6 +268,7 @@ impl PendingKind {
             PendingKind::Note => "note",
             PendingKind::User => "user",
             PendingKind::Forget => "forget",
+            PendingKind::Skill => "skill",
         }
     }
 }
@@ -272,8 +279,11 @@ pub struct PendingItem {
     /// First 12 hex characters of sha256(kind + text).
     pub id: String,
     pub kind: PendingKind,
-    /// Redacted, at most `PENDING_LINE_CAP` chars.
+    /// Redacted, at most `PENDING_LINE_CAP` chars. For a skill: its title (at most `SKILL_TITLE_CAP`).
     pub text: String,
+    /// A skill's body, redacted. None for every other kind, and None on the phone (it only reads titles).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
     /// "Has a link" | "Sounds like an instruction" | None. Flags never block.
     pub flagged: Option<String>,
     /// For `forget`: the line it would remove (None = no match).
