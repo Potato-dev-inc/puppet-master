@@ -1,0 +1,155 @@
+/* Branch from here: the sheet a chat turn's Branch button or a History row opens (components/cockpit/BranchSheet.tsx).
+   Grayscale tokens only. Dense, like the Keep going sheet. */
+.cockpit .ck-sheet.ck-branch-sheet {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.cockpit .ck-branch-point {
+  margin: 0;
+  color: var(--label-2);
+}
+.cockpit .ck-branch-label {
+  margin-top: 8px;
+  color: var(--label-3);
+  font-size: 11px;
+}
+.cockpit .ck-branch-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin-top: 8px;
+  padding: 2px;
+  border: 1px solid var(--sep);
+  border-radius: 7px;
+  background: var(--fill);
+}
+.cockpit .ck-branch-seg-btn {
+  height: 26px;
+  border-radius: 5px;
+  color: var(--label-2);
+  font-size: 12.5px;
+  transition: background 160ms var(--ease), color 160ms var(--ease);
+}
+.cockpit .ck-branch-seg-btn[aria-pressed='true'] {
+  background: var(--fill-active);
+  color: var(--label);
+}
+.cockpit .ck-branch-seg-btn:disabled {
+  color: var(--label-3);
+}
+.cockpit .ck-branch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+.cockpit .ck-branch-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--label);
+  cursor: pointer;
+}
+.cockpit .ck-branch-row:hover {
+  background: var(--fill);
+}
+.cockpit .ck-branch-row.is-off {
+  color: var(--label-3);
+  cursor: default;
+}
+.cockpit .ck-branch-row.is-off:hover {
+  background: none;
+}
+.cockpit .ck-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-branch-state {
+  font-size: 11.5px;
+  color: var(--label-2);
+  text-align: right;
+}
+.cockpit .ck-branch-row.is-off .ck-branch-state {
+  color: var(--label-3);
+}
+.cockpit .ck-branch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.cockpit .ck-branch-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: vertical;
+}
+.cockpit .ck-branch-input::placeholder {
+  color: var(--label-3);
+}
+.cockpit .ck-branch-input:focus-visible {
+  outline: 2px solid var(--label-3);
+  outline-offset: 1px;
+}
+.cockpit .ck-branch-input:disabled {
+  color: var(--label-3);
+}
+.cockpit .ck-branch-count {
+  align-self: flex-end;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-branch-count.is-over {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-branch-disclosure {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-branch-disclosure:hover {
+  color: var(--label);
+  text-decoration: underline;
+}
+.cockpit .ck-branch-brief-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.cockpit .ck-branch-brief {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cockpit .ck-branch-copy {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+}
