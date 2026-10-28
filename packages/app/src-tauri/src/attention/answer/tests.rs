@@ -429,6 +429,25 @@ fn a_chat_answer_is_refused_for_an_issue_card_but_the_phone_and_the_pc_may_answe
 }
 
 #[test]
+fn a_chat_answer_is_refused_for_a_ci_card_but_the_phone_and_the_pc_may_answer_it() {
+    // A CI card (`ci_fix`, `ci_push`) is person-only like an issue card: a chat channel never answers it.
+    for kind in ["ci_fix", "ci_push"] {
+        let env = fresh();
+        env.items.lock().push(question_item(Kind::Question, "c1"));
+        env.question_kinds.lock().insert("c1".into(), kind.into());
+        let request = Request { choice: Some("fix".into()), ..Request::default() };
+        let from_chat = answer(&env, &chat(), "q-c1", &request);
+        assert_eq!((from_chat.0, from_chat.1["error"].as_str()), (403, Some("not_from_chat")), "{kind}");
+        assert_eq!(from_chat.1["hint"], "Decide this in Puppet Master on the PC or on a paired phone.", "{kind}");
+        assert_eq!(env.writes(), 0, "{kind}");
+        assert!(env.audits.lock().is_empty(), "{kind}: nothing was answered, so no audit line");
+        *env.question_result.lock() = Some(QuestionResult::Answered { label: Some("Ask Codex to fix".into()) });
+        let from_card = answer(&env, &all(), "q-c1", &request);
+        assert_eq!(outcome(&from_card), "answered", "{kind}");
+    }
+}
+
+#[test]
 fn a_chat_answer_is_allowed_for_an_agents_own_question_with_no_card_kind() {
     let env = fresh();
     env.items.lock().push(question_item(Kind::Question, "q2"));

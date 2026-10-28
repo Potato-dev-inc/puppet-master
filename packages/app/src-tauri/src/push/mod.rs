@@ -434,6 +434,11 @@ fn classify_question(question: &crate::questions::Question, label: String) -> (K
         // issue text) never reaches a lock screen.
         return (Kind::Question, "GitHub issue".to_string(), Some(question.question.chars().take(60).collect()));
     }
+    if matches!(question.kind.as_deref(), Some(k) if k == crate::questions::CI_KIND_FIX || k == crate::questions::CI_KIND_PUSH) {
+        // A CI card (`ci_fix`) is worded the same way: its title line only, never its context (the check names
+        // and the log notes stay off the lock screen).
+        return (Kind::Question, "GitHub CI".to_string(), Some(question.question.chars().take(60).collect()));
+    }
     (Kind::Question, label, None)
 }
 

@@ -25,10 +25,14 @@ pub const MAX_BUDGET_TIMEOUT_S: u64 = 24 * 3600;
 /// Kinds of the cards about a GitHub issue (`issue_intake`): start work on an issue, open a draft PR.
 pub const ISSUE_KIND_START: &str = "issue_start";
 pub const ISSUE_KIND_PUSH: &str = "issue_push";
+/// Kinds of the cards about a failed CI check on a PR Puppet Master opened (`ci_fix`): ask to fix it, ask to push
+/// the fix. Only the person answers them (see `PERSON_ONLY_KINDS`).
+pub const CI_KIND_FIX: &str = "ci_fix";
+pub const CI_KIND_PUSH: &str = "ci_push";
 /// Cards only the person can answer: never an agent, never a companion, never a chat channel. A plain
 /// loopback request may not answer or dismiss them (`routes.rs`), and a chat answer is refused in
 /// `attention::answer`. Answered from the desktop window (Tauri command) or a paired phone only.
-pub const PERSON_ONLY_KINDS: &[&str] = &["budget", ISSUE_KIND_START, ISSUE_KIND_PUSH];
+pub const PERSON_ONLY_KINDS: &[&str] = &["budget", ISSUE_KIND_START, ISSUE_KIND_PUSH, CI_KIND_FIX, CI_KIND_PUSH];
 /// A usage-limit card (raised by Puppet Master, never through `ask_user`) outlives an hour: a limit
 /// can last a working day.
 pub const MAX_LIMIT_TIMEOUT_S: u64 = 24 * 3600;
