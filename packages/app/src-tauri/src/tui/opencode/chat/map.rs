@@ -24,7 +24,7 @@ const SUMMARY_CHARS: usize = 200;
 const ERROR_CHARS: usize = 300;
 
 /// The items of a conversation. `window` gives a model's context window (provider id, model id).
-pub(super) fn map_messages(messages: &[Value], window: &dyn Fn(&str, &str) -> Option<u64>) -> Vec<ChatItem> {
+pub(crate) fn map_messages(messages: &[Value], window: &dyn Fn(&str, &str) -> Option<u64>) -> Vec<ChatItem> {
     let mut out = Vec::new();
     // When each user message was sent: the length of a turn is counted from there.
     let mut sent: Vec<(&str, u64)> = Vec::new();

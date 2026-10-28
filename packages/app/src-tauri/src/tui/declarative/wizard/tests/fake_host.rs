@@ -441,6 +441,11 @@ pub fn quick_limits() -> Limits {
 }
 
 /// Wait (polling, up to `secs`) until `check` returns Some.
+/// How long a test waits for the test pane to exist. The visible test first makes a git project (three `git`
+/// processes), which can take many seconds on a loaded CI runner, so the wait is long. It only bounds a wait that is
+/// meant to succeed.
+pub const PANE_WAIT_SECS: u64 = 60;
+
 pub fn wait_for<T>(secs: u64, mut check: impl FnMut() -> Option<T>) -> Option<T> {
     let deadline = std::time::Instant::now() + Duration::from_secs(secs);
     loop {
@@ -514,7 +519,7 @@ pub fn run_visible_test(
     let run = std::thread::spawn(move || {
         crate::tui::declarative::wizard::api::handle(&w, "visibletest", &serde_json::json!({"session": i, "confirm": true, "plan": p}))
     });
-    wait_for(10, || (host.spawned().len() > before).then_some(())).expect("the test pane is started");
+    wait_for(PANE_WAIT_SECS, || (host.spawned().len() > before).then_some(())).expect("the test pane is started");
     host.set_screen(screens::IDLE);
     run.join().unwrap()
 }

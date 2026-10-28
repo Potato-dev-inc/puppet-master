@@ -1,0 +1,27 @@
+/* The Assign-an-issue cards (components/cockpit/IssueCard.tsx). They are InboxCards (inbox-card.css); this is
+   only what they add: the muted context lines and the read-only box with the text the agent gets. Monochrome. */
+
+.cockpit .ib-issue-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ib-issue-notes li {
+  overflow-wrap: anywhere;
+}
+
+.cockpit .ib-issue-text {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label-2);
+  font: 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

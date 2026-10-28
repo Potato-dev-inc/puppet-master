@@ -68,7 +68,7 @@ fn run(name: &str, home: bool, place: impl Fn(&Path) -> PathBuf + Send + Sync + 
     let thread = std::thread::spawn(move || {
         crate::tui::declarative::wizard::api::handle(&w, "visibletest", &json!({"session": i, "confirm": true, "plan": plan}))
     });
-    wait_for(10, || (host.spawned().len() > before).then_some(())).expect("the test pane is started");
+    wait_for(super::fake_host::PANE_WAIT_SECS, || (host.spawned().len() > before).then_some(())).expect("the test pane is started");
     host.set_screen(screens::IDLE);
     let visible = thread.join().unwrap().unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(visible["ok"], true, "{}\n{}", visible["text"], visible["checks"]);

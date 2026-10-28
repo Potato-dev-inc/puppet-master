@@ -16,6 +16,18 @@ export function sourceLine(p: PickView): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
+/**
+ * The "To:" name of a pane: the agent label, then the pane title after a dot. The title is left out when it
+ * says the same thing as the label (e.g. "Claude Code · Claude Code" shows as "Claude Code").
+ * The comparison ignores case and the spaces at the ends.
+ */
+export function targetLabel(t: Pick<Target, 'agentLabel' | 'title'>): string {
+  const label = t.agentLabel.trim();
+  const title = (t.title ?? '').trim();
+  if (!title || title.toLowerCase() === label.toLowerCase()) return label;
+  return `${label} · ${title}`;
+}
+
 /** Same-folder panes first, then the rest. Empty groups are left out. Keeps the order the backend sent. */
 export function groupTargets(ts: Target[]): { label: string; items: Target[] }[] {
   const same = ts.filter((t) => t.sameFolder);

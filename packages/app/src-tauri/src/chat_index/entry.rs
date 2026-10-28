@@ -74,6 +74,18 @@ pub fn entry_of(pane_id: &str, ctx: &PaneContext, item: &ChatItem, now_ms: i64) 
     entry_of_with(pane_id, ctx, item, now_ms, Strength::Secrets, false, MAX_TEXT_CHARS)
 }
 
+/// Cleans one string at a given strength: the redaction first (`Strict` also masks email addresses), then the home
+/// folder becomes `~`, then the snippet marks are removed. The one function every kept string goes through (item
+/// text, folder label; the importer's labels too), so no path can skip it.
+pub fn scrub_text(raw: &str, strength: Strength) -> String {
+    let redact_ctx = crate::redact::known::context();
+    let redacted = match strength {
+        Strength::Secrets => crate::redact::text_with(raw, &redact_ctx).into_inner(),
+        Strength::Strict => crate::redact::rules::mask_emails(crate::redact::strict_with(raw, &redact_ctx).as_str()),
+    };
+    clean(&home_to_tilde(&redacted, redact_ctx.home.as_deref()))
+}
+
 /// The row for one item at a given strength. Every string (text, folder) goes through the redaction first, then the
 /// home folder becomes `~`, then the text is cut to `max_chars` (tool titles to their own, shorter limit).
 /// `Strict` also masks email addresses. Imported rows are built with `imported = true`.
@@ -92,15 +104,7 @@ pub fn entry_of_with(
         ChatItem::ToolCall { at, name, summary, .. } => ("tool", at, format!("{name} {summary}"), MAX_TITLE_CHARS.min(max_chars)),
         _ => return None,
     };
-    let redact_ctx = crate::redact::known::context();
-    let home = redact_ctx.home.as_deref();
-    let scrub = |raw: &str| -> String {
-        let redacted = match strength {
-            Strength::Secrets => crate::redact::text_with(raw, &redact_ctx).into_inner(),
-            Strength::Strict => crate::redact::rules::mask_emails(crate::redact::strict_with(raw, &redact_ctx).as_str()),
-        };
-        clean(&home_to_tilde(&redacted, home))
-    };
+    let scrub = |raw: &str| scrub_text(raw, strength);
     let text = cut_to(scrub(raw.trim()).trim(), limit);
     if text.is_empty() {
         return None;

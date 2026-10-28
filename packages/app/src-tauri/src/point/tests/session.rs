@@ -252,6 +252,56 @@ fn the_state_json_uses_camel_case_names() {
     assert!(json["picks"][0].get("noShotReason").is_some());
 }
 
+#[test]
+fn a_new_session_gets_a_new_id_and_a_second_pick_keeps_it() {
+    let mut session = Session::new();
+    assert_eq!(session.state_with(0, vec![], None, &no_thumb).session, None);
+    let first = pick(&mut session, false);
+    session.add_pick(first, 1_000);
+    let id = session.state_with(1_000, vec![], None, &no_thumb).session;
+    assert!(id.is_some(), "a pick starts a session");
+    let second = pick(&mut session, false);
+    session.add_pick(second, 2_000);
+    assert_eq!(session.state_with(2_000, vec![], None, &no_thumb).session, id, "the same session keeps its id");
+
+    session.discard_keep_files();
+    assert_eq!(session.state_with(3_000, vec![], None, &no_thumb).session, None, "a discarded session is over");
+    let third = pick(&mut session, false);
+    session.add_pick(third, 4_000);
+    let next = session.state_with(4_000, vec![], None, &no_thumb).session;
+    assert!(next.is_some() && next != id, "a new session has a new id");
+}
+
+#[test]
+fn expiry_means_no_session_and_the_next_pick_starts_a_new_one() {
+    let mut session = Session::new();
+    let p = pick(&mut session, false);
+    session.add_pick(p, 0);
+    let old = session.state_with(1, vec![], None, &no_thumb).session;
+    let late = SESSION_TTL_MS + 1;
+    assert_eq!(session.state_with(late, vec![], None, &no_thumb).session, None, "expired shows no session before the sweep");
+    assert!(session.expire(late).is_some());
+    assert_eq!(session.state_with(late, vec![], None, &no_thumb).session, None);
+    let fresh = pick(&mut session, false);
+    session.add_pick(fresh, late);
+    let new = session.state_with(late, vec![], None, &no_thumb).session;
+    assert!(new.is_some() && new != old, "the pick after expiry is a new session");
+}
+
+#[test]
+fn removing_the_last_pick_keeps_the_session_until_it_expires() {
+    let mut session = Session::new();
+    let p = pick(&mut session, false);
+    session.add_pick(p, 100);
+    let id = session.state_with(100, vec![], None, &no_thumb).session;
+    session.remove("pick-1", 200);
+    assert_eq!(session.state_with(200, vec![], None, &no_thumb).session, id, "no pick left, same session");
+    let q = pick(&mut session, false);
+    session.add_pick(q, 200 + SESSION_TTL_MS + 1);
+    let next = session.state_with(200 + SESSION_TTL_MS + 1, vec![], None, &no_thumb).session;
+    assert!(next.is_some() && next != id, "an idle empty session ends too");
+}
+
 // ---------------------------------------------------------------- S3: no capabilities for previews
 
 fn capability_files() -> Vec<(String, serde_json::Value)> {
