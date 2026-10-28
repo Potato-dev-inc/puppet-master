@@ -23,6 +23,7 @@ import type { CompanionView } from '../../lib/companion';
 import { CompanionRow, MakeCompanionRow } from './companion/CompanionRow';
 import { isCompanionPaneId } from './companion/model';
 import { JobsChip } from './rail/JobsChip';
+import { FocusPill } from './FocusPill';
 
 /** `localhost:5173`: where the preview is, without the scheme. */
 const previewAddress = (p: PreviewUrl): string => p.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -351,6 +352,8 @@ export function Sidebar({
           )}
         </div>
       </div>
+
+      <FocusPill notify={c.notify} />
 
       <nav className="ck-side-scroll">
         {companions &&
