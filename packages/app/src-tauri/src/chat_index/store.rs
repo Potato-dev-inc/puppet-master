@@ -2,11 +2,13 @@
 
 use std::path::{Path, PathBuf};
 
+use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
 use super::aside;
 use super::entry::Entry;
+use super::filter::{bind, clauses, Facets, Filters, MAX_FACETS};
 use super::query::{marks_of, match_expr, MARK_END, MARK_START};
 
 /// Most items kept; past this the oldest go.
@@ -15,6 +17,8 @@ pub const MAX_ITEMS: usize = 50_000;
 pub const MAX_HITS: usize = 100;
 /// Words around a match in a snippet.
 const SNIPPET_WORDS: i64 = 14;
+/// Characters of text shown for a hit when the search has filters but no typed words (no match to show).
+const PREVIEW_CHARS: i64 = 200;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS chat_items (
@@ -159,7 +163,13 @@ impl Store {
 
     /// The items whose text has every typed word (as a word start), newest first, at most `limit`.
     pub fn search(&self, typed: &str, limit: usize) -> rusqlite::Result<Vec<Hit>> {
-        self.search_where(typed, limit, None, false)
+        self.search_where(typed, limit, None, false, &Filters::default())
+    }
+
+    /// Like `search`, with the filters of the "Search all chats" chips (agent, folder, start time, who spoke). With
+    /// filters and no typed words, the newest items that pass the filters are listed (no match to mark).
+    pub fn search_filtered(&self, typed: &str, limit: usize, filters: &Filters) -> rusqlite::Result<Vec<Hit>> {
+        self.search_where(typed, limit, None, false, filters)
     }
 
     /// Like `search`, but only inside the chats of the panes in `panes`, and only what was said (the person's and
@@ -169,32 +179,73 @@ impl Store {
         if panes.is_empty() {
             return Ok(Vec::new());
         }
-        self.search_where(typed, limit, Some(panes), true)
+        self.search_where(typed, limit, Some(panes), true, &Filters::default())
     }
 
-    fn search_where(&self, typed: &str, limit: usize, panes: Option<&[String]>, said_only: bool) -> rusqlite::Result<Vec<Hit>> {
-        let Some(expr) = match_expr(typed) else { return Ok(Vec::new()) };
-        // ?1 query, ?2 limit, ?3 snippet words, then one placeholder per pane.
+    /// The agents and folders the index holds, for the filter menus (sorted, at most `MAX_FACETS` each).
+    pub fn facets(&self) -> rusqlite::Result<Facets> {
+        let list = |sql: &str| -> rusqlite::Result<Vec<String>> {
+            let mut stmt = self.conn.prepare(sql)?;
+            let rows = stmt.query_map(params![MAX_FACETS as i64], |row| row.get::<_, String>(0))?;
+            rows.collect()
+        };
+        Ok(Facets {
+            agents: list("SELECT DISTINCT agent FROM chat_items WHERE agent <> '' ORDER BY agent LIMIT ?1")?,
+            folders: list("SELECT DISTINCT folder FROM chat_items WHERE folder <> '' ORDER BY folder COLLATE NOCASE LIMIT ?1")?,
+        })
+    }
+
+    fn search_where(
+        &self,
+        typed: &str,
+        limit: usize,
+        panes: Option<&[String]>,
+        said_only: bool,
+        filters: &Filters,
+    ) -> rusqlite::Result<Vec<Hit>> {
+        let expr = match_expr(typed);
+        // Nothing typed and no filter: nothing to list (an empty box never lists every chat).
+        if expr.is_none() && filters.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Every value is a bound parameter (`?N`); `bind` numbers them in the order they are added.
+        let mut values: Vec<Value> = Vec::new();
         let mut filter = String::new();
         if let Some(panes) = panes {
-            let marks: Vec<String> = (0..panes.len()).map(|n| format!("?{}", n + 4)).collect();
+            let marks: Vec<String> = panes.iter().map(|pane| bind(&mut values, pane.clone().into())).collect();
             filter.push_str(&format!(" AND i.pane_id IN ({})", marks.join(", ")));
         }
         if said_only {
             filter.push_str(" AND i.kind IN ('user', 'assistant')");
         }
-        let sql = format!(
-            "SELECT i.pane_id, i.session, i.item_id, i.kind, i.agent, i.folder, i.at_ms,
-                    snippet(chat_fts, 0, char(1), char(2), '…', ?3)
-             FROM chat_fts JOIN chat_items i ON i.id = chat_fts.rowid
-             WHERE chat_fts MATCH ?1{filter}
-             ORDER BY i.at_ms DESC, i.id DESC
-             LIMIT ?2"
-        );
+        filter.push_str(&clauses(filters, &mut values));
+        let limit_at = bind(&mut values, (limit.clamp(1, MAX_HITS) as i64).into());
+        let sql = match expr {
+            Some(expr) => {
+                let query_at = bind(&mut values, expr.into());
+                let words_at = bind(&mut values, SNIPPET_WORDS.into());
+                format!(
+                    "SELECT i.pane_id, i.session, i.item_id, i.kind, i.agent, i.folder, i.at_ms,
+                            snippet(chat_fts, 0, char(1), char(2), '…', {words_at})
+                     FROM chat_fts JOIN chat_items i ON i.id = chat_fts.rowid
+                     WHERE chat_fts MATCH {query_at}{filter}
+                     ORDER BY i.at_ms DESC, i.id DESC
+                     LIMIT {limit_at}"
+                )
+            }
+            None => {
+                let preview_at = bind(&mut values, PREVIEW_CHARS.into());
+                format!(
+                    "SELECT i.pane_id, i.session, i.item_id, i.kind, i.agent, i.folder, i.at_ms,
+                            CASE WHEN length(i.text) > {preview_at} THEN substr(i.text, 1, {preview_at}) || '…' ELSE i.text END
+                     FROM chat_items i
+                     WHERE 1 = 1{filter}
+                     ORDER BY i.at_ms DESC, i.id DESC
+                     LIMIT {limit_at}"
+                )
+            }
+        };
         let mut stmt = self.conn.prepare(&sql)?;
-        let mut values: Vec<rusqlite::types::Value> =
-            vec![expr.into(), (limit.clamp(1, MAX_HITS) as i64).into(), SNIPPET_WORDS.into()];
-        values.extend(panes.unwrap_or(&[]).iter().map(|pane| rusqlite::types::Value::from(pane.clone())));
         let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| {
             let marked: String = row.get(7)?;
             let (snippet, marks) = marks_of(&marked);

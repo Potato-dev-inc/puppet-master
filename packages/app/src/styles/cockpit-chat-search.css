@@ -69,3 +69,70 @@
 .cockpit .ck-palette-mode-note {
   margin-left: auto;
 }
+
+/* The filter chips under the box (Agent, Folder, When, Who) and their menus. */
+.cockpit .ck-chat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-chat-chip-wrap {
+  position: relative;
+}
+.cockpit .ck-chat-chip {
+  padding: 3px 9px;
+  border: 1px solid var(--sep);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 11px;
+  color: var(--label-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cockpit .ck-chat-chip:hover,
+.cockpit .ck-chat-chip[aria-expanded="true"] {
+  background: var(--fill-active);
+  color: var(--label);
+}
+.cockpit .ck-chat-chip.is-on {
+  color: var(--label);
+  border-color: var(--label-3);
+}
+.cockpit .ck-chat-chip-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 2;
+  min-width: 170px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg-float);
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  box-shadow: var(--float-shadow);
+}
+.cockpit .ck-chat-chip-choice {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  color: var(--label-2);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cockpit .ck-chat-chip-choice:hover,
+.cockpit .ck-chat-chip-choice.is-picked {
+  background: var(--fill-active);
+  color: var(--label);
+}
