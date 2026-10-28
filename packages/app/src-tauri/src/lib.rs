@@ -63,6 +63,7 @@ mod first_run;
 mod plain_mode;
 mod plans_report;
 mod prompt_risk;
+mod package_check;
 pub mod questions;
 mod push;
 pub mod redact;

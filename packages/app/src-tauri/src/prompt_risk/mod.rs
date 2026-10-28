@@ -10,6 +10,7 @@
 mod command;
 mod paths;
 mod rules;
+pub mod packages;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
