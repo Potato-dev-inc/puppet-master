@@ -5,6 +5,7 @@
 //! part (the subject lists and the tests) stays in `conformance.rs`.
 
 use super::*;
+use crate::session_chat::history::{HistoryEnv, ListLimits};
 use std::time::Duration;
 
 pub type Rule = fn(&dyn TuiProfile) -> Result<(), String>;
@@ -20,7 +21,47 @@ pub const ALL: &[(&str, Rule)] = &[
     ("submit_and_startup_declarations_are_sane", submit_and_startup_declarations_are_sane),
     ("blank_screen_is_unknown", blank_screen_is_unknown),
     ("session_chat_reads_noise_quietly", session_chat_reads_noise_quietly),
+    ("session_history_conforms", session_history_conforms),
 ];
+
+/// A UUID-shaped session id, the kind every agent's chat file names are made of.
+const OLD_CHAT_ID: &str = "3f2a9c10-7b4e-4d21-9a6c-1e5f0b7d8a01";
+
+/// Old chats (`session_history()`, BC-21), checked with fixed inputs that touch no folder:
+/// - `resume_args` of a UUID-shaped id is `None`, or holds the id as exactly one element, and no element has a
+///   shell character (the argv may end up in `cmd /C` or a PowerShell string);
+/// - `places()` of an empty environment (no home, no variables) is empty;
+/// - `list()` of an empty environment finds no chat.
+pub fn session_history_conforms(profile: &dyn TuiProfile) -> Result<(), String> {
+    let Some(store) = profile.session_history() else {
+        return Ok(());
+    };
+    let id = profile.id();
+    let empty = HistoryEnv::isolated();
+    let listing = store.list(&empty, &ListLimits::default());
+    if !listing.chats.is_empty() {
+        return Err(format!("{id}: list() found {} chat(s) with no home folder and no variables", listing.chats.len()));
+    }
+    let places = store.places(&empty);
+    if !places.is_empty() {
+        return Err(format!("{id}: places() shows {} folder(s) with no home folder and no variables", places.len()));
+    }
+    if let Some(args) = store.resume_args(OLD_CHAT_ID) {
+        let copies = args.iter().filter(|arg| arg.as_str() == OLD_CHAT_ID).count();
+        if copies != 1 {
+            return Err(format!("{id}: resume_args has the session id {copies} time(s), not once"));
+        }
+        if let Some(arg) = args.iter().find(|arg| arg.chars().any(is_shell_meta)) {
+            return Err(format!("{id}: resume_args has a shell character in the element {arg:?}"));
+        }
+    }
+    Ok(())
+}
+
+/// What a shell or `cmd` reads as syntax, and white space (an argument with a space splits in a command string).
+fn is_shell_meta(c: char) -> bool {
+    c.is_whitespace() || c.is_control() || "&|;<>()$`\\\"'*?[]{}!^%#~".contains(c)
+}
 
 /// A profile that names a session file format must read lines that are not chat (noise, half-written lines,
 /// other JSON) as no items, and must not panic on any of them. Reads no file.

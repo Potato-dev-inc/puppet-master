@@ -2,6 +2,9 @@
 //! added to the registry; a failure here means the profile contradicts itself or the registry.
 
 use super::*;
+use crate::session_chat::{
+    ChatItem, HistoryChat, HistoryEnv, ListLimits, Listing, ReadError, ReadLimits, ReadOutcome, SessionHistory,
+};
 use std::collections::HashSet;
 
 /// The rules live in `conformance_rules.rs` (compiled in every build, the wizard uses them); the
@@ -256,4 +259,112 @@ fn opencode_fixture_replays_scoped_looks_like_menu() {
     assert!(looks_like_menu(menu, "opencode_native"));
     assert!(!looks_like_menu(menu, "claude"));
     assert!(!looks_like_menu("just some output", "opencode"));
+}
+
+/// Old chats (BC-21): every store a registered profile answers, code or TOML, keeps its resume argv and its
+/// empty-environment answers safe. A new agent gets this check by being registered or by its definition.
+#[test]
+fn old_chat_stores_conform() {
+    check_all("session_history_conforms", rules::session_history_conforms);
+}
+
+/// The rule is not vacuous: the three built-in agents answer `session_history()` and pass it.
+#[test]
+fn the_built_in_old_chat_stores_pass_the_rule() {
+    for id in ["claude", "codex", "opencode"] {
+        let profile = profile_for(id);
+        assert_eq!(profile.id(), id);
+        assert!(profile.session_history().is_some(), "{id}: answers session_history()");
+        rules::session_history_conforms(&*profile).unwrap_or_else(|e| panic!("{e}"));
+    }
+}
+
+/// A made-up agent whose old-chat store is built from a resume template and a fixed answer for `places()` and
+/// `list()`. Only the parts the rule reads are real.
+struct OldChatsFake {
+    store: &'static dyn SessionHistory,
+}
+
+struct FakeStore {
+    template: Vec<String>,
+    places: Vec<String>,
+    listed: usize,
+}
+
+impl SessionHistory for FakeStore {
+    fn list(&self, _env: &HistoryEnv, _limits: &ListLimits) -> Listing {
+        let chat = HistoryChat {
+            session: "fake-chat-1".to_string(),
+            cwd: None,
+            updated_ms: 0,
+            bytes: 0,
+            stamp: "0:0".to_string(),
+        };
+        Listing { chats: vec![chat; self.listed], ..Default::default() }
+    }
+
+    fn read(
+        &self,
+        _env: &HistoryEnv,
+        _session: &str,
+        _limits: &ReadLimits,
+        _sink: &mut dyn FnMut(Vec<ChatItem>) -> bool,
+    ) -> Result<ReadOutcome, ReadError> {
+        Err(ReadError::Missing)
+    }
+
+    fn resume_args(&self, session: &str) -> Option<Vec<String>> {
+        crate::session_chat::history::resume_args_from(&self.template, session)
+    }
+
+    fn places(&self, _env: &crate::session_chat::HistoryEnv) -> Vec<String> {
+        self.places.clone()
+    }
+}
+
+impl TuiProfile for OldChatsFake {
+    fn id(&self) -> &'static str {
+        "fake_old_chats"
+    }
+    fn features(&self) -> Features {
+        Features::CLI
+    }
+    fn session_history(&self) -> Option<&'static dyn crate::session_chat::SessionHistory> {
+        Some(self.store)
+    }
+}
+
+fn fake_agent(template: &[&str], places: &[&str], listed: usize) -> OldChatsFake {
+    let store = FakeStore {
+        template: template.iter().map(|arg| arg.to_string()).collect(),
+        places: places.iter().map(|place| place.to_string()).collect(),
+        listed,
+    };
+    OldChatsFake { store: Box::leak(Box::new(store)) }
+}
+
+/// The rule passes a fake that resumes with the id once, or has no resume option, and fails each way a store can
+/// break it: a shell character in the argv, the id twice, a folder with no home, a chat with no home.
+#[test]
+fn the_old_chat_rule_fails_a_bad_fake_profile() {
+    let ok = fake_agent(&["--resume", "{session}"], &[], 0);
+    assert_eq!(rules::session_history_conforms(&ok), Ok(()));
+    let no_resume = fake_agent(&["--no-resume-option"], &[], 0);
+    assert_eq!(rules::session_history_conforms(&no_resume), Ok(()), "None is allowed");
+
+    let shell = fake_agent(&["--resume", "{session}", "--x;rm"], &[], 0);
+    let error = rules::session_history_conforms(&shell).unwrap_err();
+    assert!(error.contains("shell character"), "{error}");
+
+    let twice = fake_agent(&["{session}", "--again", "{session}"], &[], 0);
+    let error = rules::session_history_conforms(&twice).unwrap_err();
+    assert!(error.contains("2 time(s)"), "{error}");
+
+    let folder = fake_agent(&["--resume", "{session}"], &["~/.fake/chats"], 0);
+    let error = rules::session_history_conforms(&folder).unwrap_err();
+    assert!(error.contains("places()"), "{error}");
+
+    let chat = fake_agent(&["--resume", "{session}"], &[], 1);
+    let error = rules::session_history_conforms(&chat).unwrap_err();
+    assert!(error.contains("list()"), "{error}");
 }
