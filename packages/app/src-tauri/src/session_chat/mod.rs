@@ -34,6 +34,6 @@ pub use history::{HistoryChat, HistoryEnv, Listing, ListLimits, ReadError, ReadL
 pub use home_path::home_to_tilde;
 pub use opening::Opening;
 pub use model::{cut, ChatItem, SessionFormat, TurnOutcome};
-pub use source::{plain_path, LaunchFacts, Located, PaneFacts, SessionSource};
+pub use source::{plain_path, LaunchFacts, LinuxFacts, Located, PaneFacts, SessionSource};
 pub use screen::{read_pane, ScreenRead};
 pub use watch::{Hold, ItemObserver, PaneLookup, Sink, Watchers};

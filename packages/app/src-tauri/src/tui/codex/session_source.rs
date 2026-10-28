@@ -140,6 +140,7 @@ mod tests {
             provider_session_id: id.map(str::to_string),
             home: None,
             launch: Default::default(),
+            linux: None,
         }
     }
 

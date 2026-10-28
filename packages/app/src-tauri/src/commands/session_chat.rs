@@ -149,6 +149,7 @@ impl PaneLookup for RegistryPanes {
             home: account
                 .and_then(|id| crate::accounts::Store::default_location().get(id))
                 .map(|account| PathBuf::from(account.home)),
+            linux: None,
         })
     }
 

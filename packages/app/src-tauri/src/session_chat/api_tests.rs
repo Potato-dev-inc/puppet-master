@@ -62,7 +62,7 @@ impl Pane {
 impl PaneLookup for Pane {
     fn facts(&self, _pane_id: &str) -> Option<PaneFacts> {
         (!self.gone.load(Ordering::SeqCst))
-            .then(|| PaneFacts { cwd: PathBuf::from(r"C:\Users\you\proj"), started_at: SystemTime::now(), provider_session_id: None, home: None, launch: Default::default() })
+            .then(|| PaneFacts { cwd: PathBuf::from(r"C:\Users\you\proj"), started_at: SystemTime::now(), provider_session_id: None, home: None, launch: Default::default(), linux: None })
     }
 
     fn api(&self, _pane_id: &str) -> Option<ApiEndpoint> {
