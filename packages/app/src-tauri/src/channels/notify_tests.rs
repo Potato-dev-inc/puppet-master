@@ -647,6 +647,24 @@ fn no_secret_or_personal_path_reaches_the_chat() {
 }
 
 #[test]
+fn an_offered_note_becomes_a_send_that_remembers_its_target() {
+    use crate::channels::engine::Effect;
+    let mut world = World::new();
+    let n = Notifier::default();
+    let c = candidate(Kind::TrustGate, None, None);
+    let note = n.offer(&c, None, &cfg(), world.links(), 1).expect("sent");
+    let (text, remember) = (text_of(&note), note.remember.clone());
+    match note.into_effect() {
+        Effect::Send { out, reply_to, remember: kept } => {
+            assert_eq!(out.text.as_str(), text);
+            assert_eq!(reply_to, None);
+            assert_eq!(kept, remember);
+        }
+        other => panic!("expected a send, got {other:?}"),
+    }
+}
+
+#[test]
 fn the_open_in_app_sentence_matches_the_policy_wording() {
     let refusal = answerable(Item::Approval, Some(Level::High));
     assert_eq!(refusal, Answerable::Never(OPEN_TO_ANSWER));

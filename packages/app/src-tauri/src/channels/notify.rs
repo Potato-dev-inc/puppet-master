@@ -46,6 +46,15 @@ pub struct Note {
     pub remember: Option<Target>,
 }
 
+impl Note {
+    /// The send the poller performs: to the paired chat, linked to `remember` once Telegram gives the
+    /// message an id. TODO(TG-12): the engine has no notify entry point yet; the live wiring (hub events
+    /// to `Notifier::offer`) pushes this effect into the poller's `Running::outbox`.
+    pub fn into_effect(self) -> crate::channels::engine::Effect {
+        crate::channels::engine::Effect::Send { out: self.out, reply_to: None, remember: self.remember }
+    }
+}
+
 /// What the notifier reads and changes outside itself: the windows and message links, the button
 /// grants, and the outbound bucket the engine shares (20 messages a minute in all).
 pub struct Links<'a> {
