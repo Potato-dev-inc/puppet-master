@@ -18,7 +18,7 @@ mod entry;
 mod feeder;
 mod imported;
 mod filter;
-// Used by the Tauri commands (BC-19); until they land nothing outside the tests calls it.
+// The allow stays: `DEFAULT_SINCE_DAYS`, `EMIT_EVERY` and `Phase::is_finished` are used only by the importer's tests.
 #[allow(dead_code, unused_imports)]
 pub mod import;
 mod query;

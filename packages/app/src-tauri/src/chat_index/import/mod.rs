@@ -27,8 +27,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use super::ChatIndex;
-use crate::session_chat::history::{HistoryEnv, SessionHistory};
+use super::{ChatIndex, ImportedChatRow};
+use crate::session_chat::history::{
+    open_chat, resume_plan as plan_resume, valid_session_id, HistoryEnv, OpenedChat, ResumePlan, SessionHistory,
+};
 
 pub use plan::RegistryCatalog;
 pub use prefs::{ImportPrefs, DEFAULT_SINCE_DAYS};
@@ -45,6 +47,12 @@ pub const PROGRESS_EVENT: &str = "chat-import-progress";
 pub const YIELD_EVERY_CHUNK: Duration = Duration::from_millis(2);
 /// The message of a run that stopped because chat search was turned off.
 pub const MESSAGE_INDEX_OFF: &str = "Chat search was turned off";
+/// Error codes of the open and resume calls: the agent is not one whose old chats can be read, or the session id is
+/// not a valid one (it may go on a command line, so it is checked before anything else).
+pub const UNKNOWN_AGENT: &str = "UNKNOWN_AGENT";
+pub const INVALID_SESSION: &str = "INVALID_SESSION";
+/// The chat has no row in the index (never imported, or removed since).
+const NOT_IN_INDEX: &str = "This chat is not in the search index.";
 
 /// The agents whose old chats can be read.
 pub trait Catalog: Send + Sync {
@@ -100,6 +108,20 @@ pub struct Importer {
     catalog: Arc<dyn Catalog>,
     index: Arc<ChatIndex>,
     shared: Arc<Shared>,
+}
+
+/// The source with this agent id. `UNKNOWN_AGENT` when the catalog has no reader for it.
+pub fn source_named<'a>(sources: &'a [Source], agent: &str) -> Result<&'a Source, String> {
+    sources.iter().find(|source| source.id == agent).ok_or_else(|| UNKNOWN_AGENT.to_string())
+}
+
+/// `Ok` for a session id that may be used as a file name or on a command line (`valid_session_id`).
+pub fn check_session(session: &str) -> Result<(), String> {
+    if valid_session_id(session) {
+        Ok(())
+    } else {
+        Err(INVALID_SESSION.to_string())
+    }
 }
 
 pub(super) fn now_ms() -> i64 {
@@ -173,5 +195,30 @@ impl Importer {
     /// Where the import is now (`idle` before the first one; the end state stays until the next `start`).
     pub fn progress(&self) -> Progress {
         self.shared.reporter.get()
+    }
+
+    /// Opens one imported chat read-only (`open_chat`). The index row is looked up by agent and session, then the
+    /// agent's own file is read again by session id. Errors: `UNKNOWN_AGENT`, `INVALID_SESSION`, or a plain sentence
+    /// when the chat is not in the index or its file is gone.
+    pub fn open(&self, env: &HistoryEnv, agent: &str, session: &str) -> Result<OpenedChat, String> {
+        let sources = self.catalog.sources();
+        let source = source_named(&sources, agent)?;
+        check_session(session)?;
+        let row = self.imported_row(agent, session)?;
+        open_chat(source.history, env, &row, session)
+    }
+
+    /// The plan to continue an imported chat in a new pane (`resume_plan`). Same errors as `open`; a chat that cannot
+    /// be continued (no resume option, folder unknown or gone) is `ok = false` with a plain reason instead.
+    pub fn resume_plan(&self, env: &HistoryEnv, agent: &str, session: &str) -> Result<ResumePlan, String> {
+        let sources = self.catalog.sources();
+        let source = source_named(&sources, agent)?;
+        check_session(session)?;
+        let row = self.imported_row(agent, session)?;
+        Ok(plan_resume(source.history.resume_args(session), &row, env.home(), agent))
+    }
+
+    fn imported_row(&self, agent: &str, session: &str) -> Result<ImportedChatRow, String> {
+        self.index.imported_chat(agent, session)?.ok_or_else(|| NOT_IN_INDEX.to_string())
     }
 }
