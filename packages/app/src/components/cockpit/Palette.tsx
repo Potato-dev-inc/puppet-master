@@ -5,8 +5,11 @@ import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { requestChatJump } from '../../lib/chatJump';
 import type { ChatHit } from '../../lib/chatSearch';
 import { useChatSearch } from '../../hooks/useChatSearch';
+import { useChatFacets } from '../../hooks/useChatFacets';
+import { dropShortcut, hasChatFilters, mergeChatFilters, parseChatQuery, type ChatFilters } from '../../lib/chatFilters';
 import '../../styles/cockpit-chat-search.css';
 import { ChatHitDetail, ChatHitRows, SEARCH_CHATS_HINT, SEARCH_CHATS_TITLE } from './ChatHits';
+import { ChatFilterChips, type ChipKey } from './ChatFilterChips';
 import { T as WELCOME } from '../firstrun/copy';
 import { DotSpinner } from './DotSpinner';
 import { IconChart, IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSearch, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
@@ -77,7 +80,17 @@ export function Palette({
   // A hit whose pane is gone, shown read-only.
   const [closedHit, setClosedHit] = useState<ChatHit | null>(null);
   const listing = useAgentRegistry();
-  const chats = useChatSearch(query, mode === 'chats');
+  // The chips (picked here) and the typed shortcuts (`agent:`, `in:`, `from:`) make one set of filters.
+  const [chips, setChips] = useState<ChatFilters>({});
+  const facets = useChatFacets(mode === 'chats');
+  const parsed = useMemo(() => parseChatQuery(query, facets), [query, facets]);
+  const filters = useMemo(() => mergeChatFilters(chips, parsed.typed), [chips, parsed]);
+  const chats = useChatSearch(parsed.text, filters, mode === 'chats');
+  // A chip picked for a filter takes over from a typed shortcut for it (the shortcut leaves the box).
+  const pickChip = (key: ChipKey, value: string | undefined) => {
+    setChips((now) => ({ ...now, [key]: value }) as ChatFilters);
+    if (key !== 'when') setQuery((now) => dropShortcut(now, key));
+  };
   const listRef = useRef<HTMLDivElement>(null);
 
   const missionsOn = useMissionsEnabled();
@@ -299,7 +312,7 @@ export function Palette({
   );
 
   const count = mode === 'chats' ? chats.hits.length : filtered.length;
-  useEffect(() => setIndex(0), [query, mode]);
+  useEffect(() => setIndex(0), [query, mode, filters]);
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [index, filtered, chats.hits]);
@@ -359,7 +372,7 @@ export function Palette({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={mode === 'chats' ? 'Search what was said in any chat' : 'Switch pane, start an agent, run an action'}
+          placeholder={mode === 'chats' ? 'Search what was said · agent:, in:, from:' : 'Switch pane, start an agent, run an action'}
           aria-label={mode === 'chats' ? SEARCH_CHATS_TITLE : 'Search commands'}
           role="combobox"
           aria-expanded="true"
@@ -371,6 +384,9 @@ export function Palette({
             <span className="ck-palette-mode-note">Chats you have opened</span>
           </div>
         )}
+        {mode === 'chats' && !closedHit && (
+          <ChatFilterChips filters={filters} facets={facets} agentName={(id) => agentLabel(listing, id)} onPick={pickChip} />
+        )}
         {closedHit && (
           <ChatHitDetail hit={closedHit} agentName={agentLabel(listing, closedHit.agent)} now={Date.now()} onBack={() => setClosedHit(null)} />
         )}
@@ -379,7 +395,7 @@ export function Palette({
             <>
               {chats.hits.length === 0 && (
                 <p className="ck-sub ck-pad">
-                  {!query.trim()
+                  {!query.trim() && !hasChatFilters(filters)
                     ? 'Type to search every chat you have opened.'
                     : chats.state === 'searching'
                       ? 'Searching…'

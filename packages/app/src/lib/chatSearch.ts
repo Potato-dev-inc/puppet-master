@@ -31,9 +31,32 @@ export interface ChatSearchAnswer {
   hits: ChatHit[];
 }
 
-export async function searchChats(query: string, limit = CHAT_SEARCH_LIMIT): Promise<ChatSearchAnswer> {
+/** The filters the backend takes (`chat_index::Filters`). Only the ones set are sent. */
+export interface ChatSearchFilters {
+  /** The agent id. */
+  agent?: string;
+  /** The folder name. */
+  folder?: string;
+  /** Only items at or after this time (ms since the epoch). */
+  sinceMs?: number;
+  /** Who spoke: the person, the agent or a tool call. */
+  role?: 'you' | 'agent' | 'tool';
+}
+
+/** The agents and folders in the index, for the filter menus. */
+export interface ChatSearchFacets {
+  agents: string[];
+  folders: string[];
+}
+
+export async function searchChats(query: string, limit = CHAT_SEARCH_LIMIT, filters?: ChatSearchFilters): Promise<ChatSearchAnswer> {
   if (!isTauri()) return { enabled: true, hits: [] };
-  return invoke<ChatSearchAnswer>('chat_search', { query, limit });
+  return invoke<ChatSearchAnswer>('chat_search', { query, limit, filters });
+}
+
+export async function chatSearchFacets(): Promise<ChatSearchFacets> {
+  if (!isTauri()) return { agents: [], folders: [] };
+  return invoke<ChatSearchFacets>('chat_search_facets');
 }
 
 export interface SnippetPart {

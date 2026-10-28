@@ -172,6 +172,7 @@ pub fn run() {
             commands::session_chat_open,
             commands::session_chat_close,
             commands::chat_search,
+            commands::chat_search_facets,
             commands::chat_index_status,
             commands::chat_index_set_enabled,
             commands::chat_index_clear,
