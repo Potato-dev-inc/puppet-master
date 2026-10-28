@@ -9,6 +9,7 @@ import type {
 } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
 import type { PreviewUrl } from './pane-preview';
+import type { PhoneFocus } from './focus';
 import type { AttentionAnswerBody, AttentionAnswerOutcome, AttentionSnapshot } from './attention';
 import type { Question, QuestionAnswer } from './questions';
 import type { PhoneChatReply } from './sessionChatModel';
@@ -315,6 +316,14 @@ export interface BridgeClient {
   listAgentTypes(): Promise<unknown>;
   /** `GET /digest`: what happened since `since` (default: this device's last visit); `seen` stores now as the last visit. */
   digest?(opts?: { since?: number; seen?: boolean }): Promise<import('./cockpit-api').Digest & { empty: boolean; previousSeenMs: number | null }>;
+  /** `GET /focus` (needs `watch`): the redacted Focus view for the phone bar. Absent on old bridges. */
+  focus?(): Promise<PhoneFocus>;
+  /** `POST /focus/start {minutes}` (needs `control`). Refused with 400 `FOCUS_BAD_MINUTES` outside 5..240. */
+  focusStart?(minutes: number): Promise<PhoneFocus>;
+  /** `POST /focus/extend` (needs `control`): +15 minutes while on. */
+  focusExtend?(): Promise<PhoneFocus>;
+  /** `POST /focus/end` (needs `control`): ends Focus now; the summary comes back on `GET /focus` as `last`. */
+  focusEnd?(): Promise<PhoneFocus>;
   /** `GET /team/cards` (needs `watch`): teammates' updates and my queued ones. Absent on old bridges. */
   teamCards?(): Promise<TeamCardsReply>;
   /** The team action routes (`/team/cards/{id}/dismiss|pull|queue`, `/team/jobs/{id}/apply|discard`). */
