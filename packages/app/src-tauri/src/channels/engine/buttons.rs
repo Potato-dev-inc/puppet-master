@@ -131,7 +131,7 @@ impl Engine {
                 misc.confirm_tokens.pop_front();
             }
         }
-        let out = Outgoing { text: render::clean(&question, render::MAX_OUT_CHARS), keyboard: vec![vec![yes_button, cancel_button]] };
+        let out = Outgoing { text: render::clean(&question, render::MAX_OUT_CHARS), keyboard: vec![vec![yes_button, cancel_button]], silent: false };
         vec![Effect::Edit { message_id, out }, Effect::AnswerCallback { id: cb.id.clone(), text: None }]
     }
 
