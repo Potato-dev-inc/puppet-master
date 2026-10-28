@@ -623,7 +623,7 @@ pub fn resize(
     cols: u16,
     rows: u16,
 ) -> Result<bool, String> {
-    let (master, screen, reprints) = {
+    let (master, screen, reprints, old_grid) = {
         let mut reg = registry.lock();
         let pane = reg
             .panes
@@ -633,11 +633,16 @@ pub fn resize(
             return Ok(false);
         }
         let reprints = crate::tui::profile_for(&pane.info.agent_type).reprints_on_resize();
-        (pane.master.clone(), pane.screen.clone(), reprints)
+        (pane.master.clone(), pane.screen.clone(), reprints, (pane.info.cols, pane.info.rows))
     };
+    // The flight recorder gets the new grid BEFORE the PTY changes. ConPTY repaints the screen at
+    // the new size the moment it is resized, and that output can reach the reader thread before
+    // this call returns. Recording the resize afterwards put the repaint in front of its own
+    // resize, so a replay (the Clip It video) drew it on the old grid and garbled it.
+    crate::flight::resized(pane_id, cols, rows);
     // ponytail: ConPTY resize can block; holding PaneRegistry across it
     // freezes list_panes and keyboard input the same way write_all did.
-    master
+    let resized = master
         .lock()
         .resize(PtySize {
             rows,
@@ -645,8 +650,12 @@ pub fn resize(
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|e| format!("resize: {e}"))?;
-    crate::flight::resized(pane_id, cols, rows);
+        .map_err(|e| format!("resize: {e}"));
+    if let Err(e) = resized {
+        // The PTY kept its old grid, so the recording must say so.
+        crate::flight::resized(pane_id, old_grid.0, old_grid.1);
+        return Err(e);
+    }
     // Keep the headless emulator's grid the same shape as the PTY so a later
     // screen reconstruction matches the live geometry.
     {

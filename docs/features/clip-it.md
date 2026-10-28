@@ -4,8 +4,8 @@ Code: `packages/app/src-tauri/src/clip/` (the replay, the privacy wall, the plan
 (three Tauri commands), and in the UI `src/lib/clip*.ts`, `src/lib/mp4Mux.ts` and `src/components/chat/ClipSheet.tsx`.
 The layout of every file is in `docs/REPO_MAP.md` section 3.10.
 
-Status: **experimental**. Unit tests and fakes pass in the suites listed below. No live run has been done yet, and the
-check of the saved MP4 for hidden text (planned in the spec) has not been run.
+Status: **experimental**. Unit tests and fakes pass in the suites listed below. A live check on a real app run was done on
+2026-10-28 (see "Live check" below).
 
 ## What and why
 
@@ -29,15 +29,18 @@ Look at the video before you share it. It shows what the agent printed on the sc
 
 ## What the video looks like
 
-- **Length:** 20 to 28.5 seconds. It is silent (there is no music in this version).
+- **Length:** up to 28.5 seconds (the sheet shows the real length, for example "22.5 s"). It is silent (there is no music in this version).
 - **Size:** 1280 x 720, 30 frames a second. An H.264 MP4 when your system can make one. Otherwise a WebM or MP4 made in
   real time, which takes about 25 seconds.
 - **Title (3 s):** the agent's name and your request.
-- **Replay (4 to 18 s):** the terminal as the agent drew it, sped up. Pauses are cut to 0.4 seconds at most. A badge says
+- **Replay (4 to 18 s):** the terminal as the agent drew it, sped up. The text is drawn as large as the frame allows
+  (it fills the width, never under 12 px; a very tall terminal shows its bottom rows). The replay goes on a little past
+  the end of the turn, while the agent is still drawing its answer. Pauses are cut to 0.4 seconds at most. A badge says
   "Sped up Nx". Up to 4 short captions say what the agent did, in plain words, such as "Read 6 files · Ran 2 commands".
   A failed command adds "· 1 failed".
 - **Result (5 s):** "N files changed", the lines added and removed, up to 6 file names (last names only), and the
-  checks line if the turn had one.
+  checks line if the turn had one. A turn that changed nothing says "No files changed" and the one-line sentence. A turn
+  with nothing to say here (no files fact, no checks, no sentence) has no result scene.
 - **End card (2.5 s):** "Made with Puppet Master".
 - A small "Puppet Master" mark is on every scene.
 
@@ -106,14 +109,34 @@ By hand (not run yet):
 1. In a test folder, start a short agent turn. Ask the agent to print a made-up string with a `sk-` prefix, for example
    `sk-test-` followed by letters. Use a fake value, never a real key.
 2. When the turn ends, press **Make clip**. Watch the preview. The fake string must not show. The sheet should say a line was hidden.
-3. Save the file to a folder in the test folder. Open it in a video player. It should be silent, 20 to 28.5 seconds long,
+3. Save the file to a folder in the test folder. Open it in a video player. It should be silent, at most 28.5 seconds long,
    and show no fake string.
 4. While a second turn is still running, check that the button is not there, and that a clip request is refused.
 
+## Live check (2026-10-28)
+
+One real run in a separate app profile, with two real turns (Claude Code and OpenCode) and a planted fake key, a fake
+e-mail and a home path in the working folder.
+
+What passed: the button only on a finished turn and not on a shell pane; the sheet with progress, preview, length and
+result; the saved MP4 (H.264, 1280 x 720, 30 fps, moov first, no user-data atoms, no tool or encoder tags); a save with a
+wrong extension is refused and nothing is written; no network request except the app's own (blob and data only); after an
+app restart the old turn makes the steps clip; the slower way when the video encoder is missing; the second agent type.
+OCR of the frames of all 4 saved clips (and of the film made from them) for the planted key, e-mail and user name: **0 hits**.
+The saved bytes had none of those words either. The frames show `[REDACTED]`, `<email>` and `config.json` where the
+turn printed the planted values.
+
+Found and fixed after that run: an OpenCode replay that was garbled after a resize (the app now records a resize before
+the PTY applies it, so the repaint that follows is replayed on the right grid), replay text that was too small, a replay
+that stopped before the agent's answer, a "0 files changed" scene, a length label rounded up, and a blank scene in the
+steps clip. These are covered by tests.
+
+Not checked live: a terminal 150 columns wide (only the 133-column note is tested), and the save path guard for `..`
+(the Windows dialog cleans the path first; the Rust guard is covered by tests).
+
 ## Not done yet
 
-- **No live run.** No clip has been made and saved on a real turn for this feature.
-- **No OCR check** of the saved MP4 with a planted fake key and a planted e-mail (planned in the spec).
+- **A live re-check of the fixes above** (the film and the OCR scan were made before them).
 - **No music and no audio.** A music bed needs an audio track, which is not built.
 - **No square or vertical formats, no GIF, no clip of several turns.** These are later steps.
 - **No phone clip.** A phone can not make or send a clip.
