@@ -17,6 +17,8 @@ mod file_tests;
 #[cfg(test)]
 mod guard;
 #[cfg(test)]
+mod open_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::session_chat::ChatItem;
@@ -25,6 +27,7 @@ pub use env::HistoryEnv;
 pub use file::{FileHistory, FileHistorySpec, FileMeta, SessionKey};
 pub use ids::{resume_args_from, valid_session_id};
 pub use limits::{ListLimits, ReadLimits};
+pub use open::{open_chat, resume_plan, ChatMeta, OpenedChat, ResumePlan, VIEW_MAX_ITEMS};
 
 /// One agent's store, read without writing anything.
 pub trait SessionHistory: Send + Sync {
