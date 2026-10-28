@@ -34,6 +34,7 @@ import { firstRunMock, firstRunStore } from './first-run-fixtures';
 import { missionMock } from './mission-fixtures';
 import { keepGoingMock } from './keep-going-fixtures';
 import { nightMock } from './night-fixtures';
+import { whatBrokeItMock } from './what-broke-it-fixtures';
 
 const DOCTOR_ROWS = [
   { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'winget install Anthropic.ClaudeCode', install_fallback: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true, hooks: { state: 'connected', mode: 'shadow', sentence: 'Connected. Claude Code tells Puppet Master when it starts, asks and finishes. Watch only: Puppet Master still decides from the screen.' } },
@@ -73,6 +74,8 @@ export function installTauriMock(scenario: HarnessScenario): void {
       if (keepGoing.handled) return keepGoing.value;
       const night = nightMock(scenario.night, cmd, a);
       if (night.handled) return night.value;
+      const whatBroke = whatBrokeItMock(scenario.whatBroke, cmd, a);
+      if (whatBroke.handled) return whatBroke.value;
       switch (cmd) {
         case 'list_panes':
           return panes;
