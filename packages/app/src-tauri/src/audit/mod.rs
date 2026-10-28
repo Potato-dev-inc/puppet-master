@@ -65,6 +65,17 @@ pub enum Kind {
     MissionHandedOff,
     /// Keep going (`crate::handoff::keep_going`): `keep_going.handed_over`.
     KeepGoing,
+    /// Text your agents (Telegram, `crate::channels`): `channel.paired`, `channel.unpaired`,
+    /// `channel.on`, `channel.off`, `channel.answer`, `channel.message`, `channel.stranger`,
+    /// `channel.error`.
+    ChannelPaired,
+    ChannelUnpaired,
+    ChannelOn,
+    ChannelOff,
+    ChannelAnswer,
+    ChannelMessage,
+    ChannelStranger,
+    ChannelError,
 }
 
 impl Kind {
@@ -91,6 +102,14 @@ impl Kind {
             Self::MissionTestsUndone => "mission.tests_undone",
             Self::MissionHandedOff => "mission.handed_off",
             Self::KeepGoing => "keep_going.handed_over",
+            Self::ChannelPaired => "channel.paired",
+            Self::ChannelUnpaired => "channel.unpaired",
+            Self::ChannelOn => "channel.on",
+            Self::ChannelOff => "channel.off",
+            Self::ChannelAnswer => "channel.answer",
+            Self::ChannelMessage => "channel.message",
+            Self::ChannelStranger => "channel.stranger",
+            Self::ChannelError => "channel.error",
         }
     }
 }
@@ -108,6 +127,9 @@ pub enum Who {
     Local,
     /// A teammate (Team), by the first characters of their member key.
     Teammate(String),
+    /// A message channel (Text your agents), by its short name, for example `telegram`. The name is
+    /// fixed in code, never typed by the other side.
+    Channel(String),
 }
 
 impl Who {
@@ -119,6 +141,7 @@ impl Who {
             Self::Agent(session) => ("agent", Some(session.chars().take(8).collect())),
             Self::Local => ("local", None),
             Self::Teammate(member) => ("teammate", Some(member.chars().take(8).collect())),
+            Self::Channel(name) => ("channel", Some(name.clone())),
         }
     }
 }
