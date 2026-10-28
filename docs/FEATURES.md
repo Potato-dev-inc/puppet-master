@@ -74,6 +74,14 @@ Limits and how to test: the feature pages.
 | Text your agents (Telegram): pair one private chat, see what needs you, answer low-risk questions, send text to agents. Off by default. Telegram's servers can read the message text. | `channels/`, `commands/channels.rs`, `bridge/routes/channels.rs` ([`features/telegram.md`](features/telegram.md)) | **early**: the engine and the commands are in; the Settings block and the phone row are not on any screen yet; not run live with a real bot |
 | Clip It: a 20 to 28 second video of one finished turn, made on the PC. Secrets and folder paths are hidden before drawing. You preview it, then save it to a file you pick. Nothing is uploaded. | `clip/`, `commands/clip.rs`, `lib/clip*.ts`, `components/chat/ClipSheet.tsx` ([`features/clip-it.md`](features/clip-it.md)) | **experimental**: unit tests and fakes only; no live run yet |
 
+## 1c. Scores on your code
+
+Limits and how to test: the feature page.
+
+| Feature | Where | Status |
+|---|---|---|
+| Scores on your code: which agent works best in one project, from this PC's own history. Plain counts per agent and account (turns, ended OK, checks green, merged, undone, per merged change, asked you). Small samples show `-` or "early"; no ranking, no overall score. Undone stays empty until Undo writes the undo log. | `scores/`, `commands/scores.rs`, `components/cockpit/AgentScores.tsx`, `lib/agent-scores.ts` ([`features/agent-scores.md`](features/agent-scores.md)) | **experimental**: unit tests only; no live run yet |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.
