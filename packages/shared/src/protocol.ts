@@ -4,6 +4,18 @@ import { AgentTypeSchema } from './agents.js';
 export const PaneStatusSchema = z.enum(['running', 'waiting_input', 'error', 'idle']);
 export type PaneStatus = z.infer<typeof PaneStatusSchema>;
 
+/** Linux Inside: where a pane runs when it is inside WSL. Absent for a Windows pane. Display and chat facts only. */
+export const PanePlaceSchema = z.object({
+  kind: z.string(),
+  distro: z.string(),
+  cwd: z.string(),
+  mount_root: z.string(),
+  unc_root: z.string(),
+  home_windows: z.string().optional(),
+  warnings: z.array(z.string()).optional(),
+});
+export type PanePlace = z.infer<typeof PanePlaceSchema>;
+
 export const PaneInfoSchema = z.object({
   id: z.string(),
   agent_type: AgentTypeSchema,
@@ -22,6 +34,8 @@ export const PaneInfoSchema = z.object({
   title: z.string().nullable().optional(),
   /** The pane of the agent that started this one over MCP (a helper); absent for a pane nobody's agent started. Display-only. */
   parent_pane_id: z.string().nullable().optional(),
+  /** Linux Inside: the pane runs inside WSL. Absent for a Windows pane. */
+  place: PanePlaceSchema.optional(),
 });
 export type PaneInfo = z.infer<typeof PaneInfoSchema>;
 
