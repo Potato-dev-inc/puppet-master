@@ -30,6 +30,37 @@ pub fn is_answering_route(method: &str, path: &str) -> bool {
     ANSWERING_ROUTES.iter().any(|(m, template)| *m == method && route_matches(template, path))
 }
 
+/// Routes that are not MCP tools but answer or dismiss a card, or put text into a pane, for a caller on this
+/// computer who needs no token: `POST /questions/{id}/answer`, `.../dismiss`, and `POST /panes/{id}/messages`.
+/// They are reached by a plain loopback request (so a companion's shell could `curl` them), and `peer.rs` checks
+/// who is on the other end of the connection. The desktop window does not come through here (Tauri commands).
+pub const LOOPBACK_CARD_ROUTES: &[(&str, &str)] = &[
+    ("POST", "/questions/{id}/answer"),
+    ("POST", "/questions/{id}/dismiss"),
+    ("POST", "/panes/{pane_id}/messages"),
+];
+
+/// Whether this request answers or dismisses a card, or types into a pane, by an MCP tool route or a loopback one.
+/// The loopback handlers also take extra path segments (`/panes/{id}/key/...`), so they are matched by their first
+/// segments, not by the exact route.
+pub fn is_card_route(method: &str, path: &str) -> bool {
+    if is_answering_route(method, path) {
+        return true;
+    }
+    if method != "POST" {
+        return false;
+    }
+    let route = path.split('?').next().unwrap_or(path);
+    let parts: Vec<&str> = route.trim_matches('/').split('/').collect();
+    match parts.as_slice() {
+        ["questions", _, "answer" | "dismiss", ..] => true,
+        ["panes", _, "input" | "key" | "messages", ..] => true,
+        ["panes", _, "opencode", ..] => true,
+        ["agents", "answer", ..] => true,
+        _ => false,
+    }
+}
+
 /// The refusal a companion gets.
 pub fn refusal() -> OperationError {
     OperationError::new(
@@ -124,5 +155,26 @@ mod tests {
             assert!(is_answering_route(tool.method, tool.path), "{name}");
         }
         assert_eq!(ANSWERING_ROUTES.len(), known.len());
+    }
+
+    #[test]
+    fn the_loopback_card_routes_are_known_next_to_the_mcp_ones() {
+        for (method, path) in [
+            ("POST", "/questions/q1/answer"),
+            ("POST", "/questions/q1/dismiss"),
+            ("POST", "/panes/p1/messages"),
+            ("POST", "/agents/answer"),
+            ("POST", "/panes/p1/key"),
+            // Extra path segments reach the same handlers, so they count too.
+            ("POST", "/panes/p1/key/enter"),
+            ("POST", "/panes/p1/input/x"),
+            ("POST", "/panes/p1/opencode/question/reply"),
+            ("POST", "/questions/q1/answer/x"),
+        ] {
+            assert!(is_card_route(method, path), "{method} {path}");
+        }
+        for (method, path) in [("GET", "/questions"), ("POST", "/questions/ask"), ("GET", "/panes/p1/messages"), ("POST", "/agents/run"), ("DELETE", "/panes/p1/messages/m1")] {
+            assert!(!is_card_route(method, path), "{method} {path}");
+        }
     }
 }

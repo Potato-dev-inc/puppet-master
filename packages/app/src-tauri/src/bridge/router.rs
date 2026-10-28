@@ -36,6 +36,7 @@ pub(super) fn route(
     app: &AppHandle,
     headers: &str,
     peer_loopback: bool,
+    peer: Option<crate::companion::peer::Peer>,
 ) -> RouteResult {
     mobile_pairing::authorize_bridge_request(headers, peer_loopback, segments, method)?;
     // Hook Lane: append-only, local-only, its own token (agent_hooks::route); before body parsing.
@@ -104,6 +105,12 @@ pub(super) fn route(
     // permission, question) or type a key into a pane. Those are the person's, always.
     if let Some(session) = session {
         crate::companion::guard::check_session(registry, session, method, &route_path).map_err(operation_http_error)?;
+    }
+    // The same rule for a plain loopback request: a companion's shell can `curl` the routes that answer a card
+    // or type into a pane, with no MCP session. The other end of the connection tells who is calling.
+    if !mobile_pairing::requires_pairing_token(headers, peer_loopback) {
+        crate::companion::peer::check(registry, &crate::companion::peer::SystemTcp, peer, method, &route_path, &request_body)
+            .map_err(operation_http_error)?;
     }
     if let Some(reply) = crate::questions::routes::handle(
         method,

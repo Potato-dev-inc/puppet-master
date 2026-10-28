@@ -31,6 +31,7 @@
 //! - `caller`: is this MCP connection really inside a companion's pane (the process tree, not a header)
 //! - `delegate`: the `delegated` feed line, the helper turn budget, the home-folder rule
 //! - `guard`: the hard rule, a companion never answers a helper's trust, permission or question card
+//! - `peer`: the same rule for a plain loopback request (a shell `curl`): who owns the TCP connection
 //!
 //! Only `live.rs` starts a thread or a process, and nothing here names an agent. A message to the agent
 //! goes through `pane_outbox` only: the companion never types into a pane or answers its dialogs.
@@ -48,6 +49,7 @@ pub mod manage;
 pub mod memory;
 pub mod model;
 pub mod moving;
+pub mod peer;
 pub mod personas;
 pub mod recall;
 pub mod schedule;
