@@ -86,7 +86,7 @@ pub fn window_for(turn: &Turn, summaries: &[TurnSummary]) -> Result<(u64, u64, O
 }
 
 /// The unix time of a chat item in milliseconds. `None` when the item has no time or it does not parse.
-fn item_ms(item: &ChatItem) -> Option<u64> {
+pub(crate) fn item_ms(item: &ChatItem) -> Option<u64> {
     let at = match item {
         ChatItem::User { at, .. }
         | ChatItem::Assistant { at, .. }
