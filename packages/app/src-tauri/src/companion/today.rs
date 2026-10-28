@@ -3,7 +3,8 @@
 //! my agents do today?".
 //!
 //! The person turns it on per companion (`CompanionProfile::share_today`, off by default); when it is
-//! off nothing here runs. A line is `HH:MM · <agent> · <folder name> · <one sentence>`:
+//! off nothing here runs. Turning it off moves `today.md` and `days/` out of the home folder into the
+//! companion's archive (`move_out`), so the agent cannot read them any more. A line is `HH:MM · <agent> · <folder name> · <one sentence>`:
 //!
 //! - the sentence is the turn summary's sentence (made from recorded facts), never raw chat text;
 //! - the folder is a name, never a path;
@@ -29,6 +30,8 @@ use super::service::is_pane_id;
 
 pub const FILE_NAME: &str = "today.md";
 pub const DAYS_DIR: &str = "days";
+/// Under the companion's app-data folder: where the day list goes when the day view is turned off.
+pub const ARCHIVE_DIR: &str = "archive";
 /// A sentence is cut to this many characters.
 pub const SENTENCE_CAP: usize = 200;
 
@@ -72,7 +75,10 @@ pub fn line(turn: &FinishedTurn, offset_secs: i32) -> String {
         name if name.is_empty() => "unknown folder".to_string(),
         name => name,
     };
-    let sentence: String = one_line(&turn.sentence).chars().take(SENTENCE_CAP).collect();
+    // Redact the whole sentence first, then cut: a secret that crosses the cap would otherwise be cut in
+    // half and no longer match its rule (or its known value).
+    let sentence = crate::redact::text(&one_line(&turn.sentence)).into_inner();
+    let sentence: String = sentence.chars().take(SENTENCE_CAP).collect();
     let raw = format!("{time} · {agent} · {folder} · {sentence}");
     crate::redact::text(&raw).into_inner()
 }
@@ -147,6 +153,54 @@ pub fn existing_lines(home: &Path) -> HashSet<String> {
     fs::read_to_string(path(home))
         .map(|text| text.lines().skip(1).filter(|l| !l.trim().is_empty()).map(str::to_string).collect())
         .unwrap_or_default()
+}
+
+/// The folder name (under `archive/`) for what the day view held when it was turned off.
+pub fn archive_name(now_ms: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Utc
+        .timestamp_millis_opt(now_ms)
+        .single()
+        .map(|at| at.format("%Y-%m-%d-%H%M%S").to_string())
+        .unwrap_or_else(|| now_ms.to_string())
+}
+
+/// Moves `today.md` and `days/` out of the home folder into `to` (a new folder under the app data), so
+/// a running agent cannot read them any more. Nothing is deleted: the moved files stay for the person.
+/// Returns true when anything moved. A move across drives copies the file and then removes the original.
+pub fn move_out(home: &Path, to: &Path) -> io::Result<bool> {
+    let file = path(home);
+    let days = home.join(DAYS_DIR);
+    let has_file = file.is_file();
+    let has_days = days.is_dir();
+    if !has_file && !has_days {
+        return Ok(false);
+    }
+    fs::create_dir_all(to)?;
+    if has_file {
+        move_file(&file, &to.join(FILE_NAME))?;
+    }
+    if has_days {
+        let dest = to.join(DAYS_DIR);
+        fs::create_dir_all(&dest)?;
+        for entry in fs::read_dir(&days)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                move_file(&entry.path(), &dest.join(entry.file_name()))?;
+            }
+        }
+        // Only removes the folder when it is empty (a folder of other things stays).
+        let _ = fs::remove_dir(&days);
+    }
+    Ok(true)
+}
+
+fn move_file(from: &Path, to: &Path) -> io::Result<()> {
+    if fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    fs::copy(from, to)?;
+    fs::remove_file(from)
 }
 
 /// Adds lines to the end of `today.md` (which `roll_over` has made).
@@ -231,6 +285,16 @@ mod tests {
         let l = line(&turn("p", &format!("Set the key to {key} in the config.")), 0);
         assert!(!l.contains(&key));
         assert!(!l.contains("Zq9Xv3LmN7pRt2"));
+    }
+
+    #[test]
+    fn a_key_that_crosses_the_cap_is_masked_before_the_cut() {
+        // Built at run time (see `a_key_in_the_sentence_is_masked`). The key starts before character 200.
+        let key = format!("sk-ant-api03-{}", "Zq9Xv3LmN7pRt2YhB5cWd8KfJ4sG6aUe1oIxTn0V");
+        let l = line(&turn("pane-1", &format!("{} {key} done.", "a".repeat(190))), 0);
+        assert!(!l.contains("sk-ant"), "a cut key prefix leaked: {l}");
+        assert!(!l.contains("Zq9Xv3LmN7pRt2"), "{l}");
+        assert!(l.chars().count() <= 60 + SENTENCE_CAP, "{l}");
     }
 
     #[test]

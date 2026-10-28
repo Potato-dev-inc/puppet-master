@@ -13,27 +13,47 @@ pub fn get_operation(
     read(&path_for(project_path, operation_id)?)
 }
 
-/// Read all durable operation records for a project, ordered by creation time.
+/// Read all durable operation records for a project, ordered by creation time. One unreadable record
+/// fails the whole read (see `list_operations_lenient` for the reader that skips it).
 pub fn list_operations(project_path: &str) -> Result<Vec<OperationSnapshot>, OperationError> {
+    read_records(project_path, true).map(|(snapshots, _)| snapshots)
+}
+
+/// Like `list_operations`, but a record that cannot be read is skipped and counted instead of failing
+/// the whole project. Returns the readable records and how many were skipped.
+pub fn list_operations_lenient(project_path: &str) -> Result<(Vec<OperationSnapshot>, usize), OperationError> {
+    read_records(project_path, false)
+}
+
+fn read_records(project_path: &str, strict: bool) -> Result<(Vec<OperationSnapshot>, usize), OperationError> {
     let dir = root(project_path)?;
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), 0)),
         Err(error) => return Err(OperationError::io(error)),
     };
     let mut snapshots = Vec::new();
+    let mut unreadable = 0;
     for entry in entries {
-        let entry = entry.map_err(OperationError::io)?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) if strict => return Err(OperationError::io(error)),
+            Err(_) => {
+                unreadable += 1;
+                continue;
+            }
+        };
         if entry.path().extension().is_some_and(|ext| ext == "json") {
             match read(&entry.path()) {
                 Ok(snapshot) => snapshots.push(snapshot),
                 Err(error) if error.code == "OPERATION_NOT_FOUND" => continue,
-                Err(error) => return Err(error),
+                Err(error) if strict => return Err(error),
+                Err(_) => unreadable += 1,
             }
         }
     }
     snapshots.sort_by_key(|snapshot| (snapshot.created_at_ms, snapshot.turn_index));
-    Ok(snapshots)
+    Ok((snapshots, unreadable))
 }
 
 /// Operations for `project_path` plus every other indexed project. Used when a handle

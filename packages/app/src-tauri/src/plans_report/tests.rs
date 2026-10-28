@@ -206,6 +206,7 @@ fn the_report_lists_months_says_since_when_limits_count_and_flags_what_it_cannot
         ],
         limits: vec![limit("alpha", None, at(2026, 10, 20, 9, 0), None)],
         limits_since_ms: Some(since),
+        ..Inputs::default()
     };
     let now = at(2026, 10, 28, 12, 0);
 
@@ -330,10 +331,39 @@ fn the_report_has_no_folder_pane_or_chat_text() {
         turns: merge(&ops, &sums, &|_| None),
         limits: vec![limit("alpha", Some("acct-work"), t, Some(t + HOUR))],
         limits_since_ms: Some(t),
+        ..Inputs::default()
     };
     let json = serde_json::to_string(&report(&inputs, None, t + HOUR)).unwrap();
     for secret in ["pane-secret", "C:\\\\Users", "a.ts", "pane", "path", "cwd", "prompt", "sentence"] {
         assert!(!json.contains(secret), "{secret} leaked into {json}");
     }
     assert!(json.contains("\"agentLabel\":\"Alpha Code\"") && json.contains("\"accountLabel\":\"Work\""));
+}
+
+#[test]
+fn unreadable_records_get_a_note_and_none_means_no_note() {
+    let t = at(2026, 10, 3, 9, 0);
+    let note = |n: usize| {
+        let inputs = Inputs { unreadable_records: n, ..Inputs::default() };
+        report(&inputs, None, t).notes.into_iter().find(|l| l.contains("could not be read"))
+    };
+    assert_eq!(note(0), None);
+    assert_eq!(note(1).as_deref(), Some("1 record could not be read. Its turns are not counted."));
+    assert_eq!(note(3).as_deref(), Some("3 records could not be read. Their turns are not counted."));
+}
+
+#[test]
+fn the_limit_hits_come_out_in_the_same_order_every_time() {
+    // Two panes start at the same moment and are both still open: the order must not depend on hashing.
+    let t0 = at(2026, 10, 10, 9, 0);
+    let entries = vec![
+        Entry::Start { at_ms: t0, pane: "pane-b".into(), agent: "alpha".into(), account: None, reset_at_ms: None },
+        Entry::Start { at_ms: t0, pane: "pane-a".into(), agent: "alpha".into(), account: None, reset_at_ms: None },
+        Entry::Start { at_ms: t0 - HOUR, pane: "pane-c".into(), agent: "beta".into(), account: None, reset_at_ms: None },
+    ];
+    let first = limit_log::hits(&entries, t0 + HOUR, &|_| true);
+    for _ in 0..20 {
+        assert_eq!(limit_log::hits(&entries, t0 + HOUR, &|_| true), first);
+    }
+    assert_eq!(first.iter().map(|h| h.agent_id.as_str()).collect::<Vec<_>>(), ["beta", "alpha", "alpha"]);
 }

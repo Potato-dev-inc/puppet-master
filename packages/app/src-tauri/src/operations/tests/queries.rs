@@ -123,3 +123,15 @@ fn compact_output_baseline_truncates_on_char_boundary() {
     assert!(compact.starts_with('…'));
     assert!(compact.len() <= 480 + '…'.len_utf8());
 }
+
+#[test]
+fn one_unreadable_record_is_skipped_and_counted_while_the_strict_reader_still_refuses() {
+    let dir = temp();
+    let good = listed_run(&dir, "good-record", "me", OperationStatus::Completed, Some(1));
+    let project = dir.to_string_lossy().into_owned();
+    std::fs::write(root(&project).unwrap().join("broken.json"), "{ not a record").unwrap();
+    let (found, skipped) = list_operations_lenient(&project).unwrap();
+    assert_eq!(skipped, 1, "the bad file is counted");
+    assert!(found.iter().any(|s| s.operation_id == good.operation_id), "the good record still counts");
+    assert!(list_operations(&project).is_err(), "the strict reader is unchanged");
+}

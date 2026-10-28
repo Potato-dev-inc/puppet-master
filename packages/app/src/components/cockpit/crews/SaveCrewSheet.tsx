@@ -1,7 +1,7 @@
 // "Save this team": the pane and the helpers under it, as a crew you can start again in any folder. The draft comes from
 // the live panes (folder -> {folder}, secrets and personal folder names taken out); the person edits names and tasks here
 // before anything is saved.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { crewErrorText, crewsApi, type Crew, type CrewProblem, type CrewsApi } from '../../../lib/crews-api';
 import { Sheet } from '../Sheet';
 import { blockedReason, dropRole, MAX_CREW_NAME, MAX_ROLE_NAME, renameRole, roleLine, setTask } from './model';
@@ -27,6 +27,9 @@ export function SaveCrewSheet({
   const [problems, setProblems] = useState<CrewProblem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** A saved crew has this name: the person chooses Replace or Rename. */
+  const [nameTaken, setNameTaken] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let live = true;
@@ -47,25 +50,35 @@ export function SaveCrewSheet({
     setCrew(next);
     setProblems([]);
     setError(null);
+    setNameTaken(false);
   };
 
   const blocked = crew ? blockedReason(crew) : null;
-  const save = async () => {
+  const save = async (replace = false) => {
     if (!crew || blocked) return;
     setBusy(true);
     setError(null);
     try {
-      const out = await api.save(crew);
+      const out = await api.save(crew, replace);
       if (out.slug) {
         onSaved(crew.name.trim());
         return;
       }
-      setProblems(out.errors);
-      if (out.errors.some((e) => !e.role)) setError(out.errors.filter((e) => !e.role).map((e) => e.message).join(' '));
+      if (out.errors.some((e) => e.code === 'CREW_NAME_TAKEN')) {
+        setNameTaken(true);
+      } else {
+        setProblems(out.errors);
+        if (out.errors.some((e) => !e.role)) setError(out.errors.filter((e) => !e.role).map((e) => e.message).join(' '));
+      }
     } catch (err) {
       setError(crewErrorText(err));
     }
     setBusy(false);
+  };
+
+  const rename = () => {
+    setNameTaken(false);
+    nameRef.current?.focus();
   };
 
   return (
@@ -85,6 +98,7 @@ export function SaveCrewSheet({
           <label className="ck-pr-field">
             <span>Crew name</span>
             <input
+              ref={nameRef}
               className="ck-pr-input"
               value={crew.name}
               maxLength={MAX_CREW_NAME}
@@ -152,14 +166,30 @@ export function SaveCrewSheet({
           {error}
         </p>
       )}
+      {nameTaken && (
+        <p className="ck-changes-error" role="alert" data-testid="crew-name-taken">
+          A crew with this name exists. Replace it?
+        </p>
+      )}
 
       <div className="ck-sheet-actions">
         <button type="button" className="ck-btn ck-btn--secondary" onClick={onClose} disabled={busy} autoFocus>
           Cancel
         </button>
-        <button type="button" className="ck-btn ck-btn--primary" disabled={busy || !crew || !!blocked} onClick={() => void save()}>
-          {busy ? 'Saving…' : 'Save crew'}
-        </button>
+        {nameTaken ? (
+          <>
+            <button type="button" className="ck-btn ck-btn--secondary" onClick={rename} disabled={busy}>
+              Rename
+            </button>
+            <button type="button" className="ck-btn ck-btn--primary" disabled={busy} onClick={() => void save(true)}>
+              {busy ? 'Saving…' : 'Replace'}
+            </button>
+          </>
+        ) : (
+          <button type="button" className="ck-btn ck-btn--primary" disabled={busy || !crew || !!blocked} onClick={() => void save()}>
+            {busy ? 'Saving…' : 'Save crew'}
+          </button>
+        )}
       </div>
     </Sheet>
   );

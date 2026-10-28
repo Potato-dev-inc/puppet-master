@@ -97,12 +97,26 @@ pub struct Reminder {
     pub due_ms: u64,
 }
 
-/// An agent that hit its usage limit, remembered by the agent (not the pane) so that it is still known
-/// after the pane is closed: a companion that moved away from it asks before it moves back.
+/// An agent (and the account it ran under) that hit its usage limit, remembered by the pane that hit it.
+/// It is still known after that pane is closed, so a companion that moved away from it asks before it
+/// moves back. The account matters: a limit on one plan does not block the same agent on another plan.
+/// Each pane keeps its own note: a pane that carries on or closes forgets only its own note.
 struct LimitNote {
     pane_id: String,
+    agent_id: String,
+    account: Option<String>,
     reset_at_ms: Option<u64>,
     since_ms: u64,
+}
+
+impl LimitNote {
+    /// Whether this limit still holds at `now_ms`: until its reset, or an hour after a limit with no reset.
+    fn live_at(&self, now_ms: u64) -> bool {
+        match self.reset_at_ms {
+            Some(reset) => reset > now_ms,
+            None => self.since_ms.saturating_add(card::REMIND_FALLBACK_MS) > now_ms,
+        }
+    }
 }
 
 /// The detection engine: the tracker, the card each pane raised and the reminders people asked for.
@@ -112,7 +126,8 @@ pub struct Engine {
     cards: HashMap<String, CardRef>,
     reminders: Vec<Reminder>,
     reminders_path: Option<PathBuf>,
-    limited_agents: HashMap<String, LimitNote>,
+    /// One note per pane that is at a limit (see `LimitNote`).
+    limited_agents: Vec<LimitNote>,
 }
 
 impl Engine {
@@ -193,22 +208,32 @@ impl Engine {
         }
     }
 
-    /// Whether `agent_id` is known to be at a usage limit at `now_ms`. `Some(reset)`: the limit, with the
-    /// moment it said it ends (`None` = it did not say). It is forgotten at the reset, an hour after a
-    /// limit that gave none, and as soon as a pane of that agent carries on.
-    pub fn agent_limit(&self, agent_id: &str, now_ms: u64) -> Option<Option<u64>> {
-        let note = self.limited_agents.get(agent_id)?;
-        let live = match note.reset_at_ms {
-            Some(reset) => reset > now_ms,
-            None => note.since_ms.saturating_add(card::REMIND_FALLBACK_MS) > now_ms,
-        };
-        live.then_some(note.reset_at_ms)
+    /// Whether `agent_id` under `account` (`None` = its own login) is known to be at a usage limit at
+    /// `now_ms`. `Some(reset)`: the limit, with the latest moment a live limit of it says it ends (`None`
+    /// = none said so). A limit ends at its reset, an hour after a limit that gave none, and when the
+    /// pane that saw it carries on or closes. Other accounts of the same agent are not looked at.
+    pub fn agent_limit(&self, agent_id: &str, account: Option<&str>, now_ms: u64) -> Option<Option<u64>> {
+        let mut found = false;
+        let mut latest: Option<u64> = None;
+        for note in self.limited_agents.iter().filter(|n| n.agent_id == agent_id && n.account.as_deref() == account && n.live_at(now_ms)) {
+            found = true;
+            latest = latest.max(note.reset_at_ms);
+        }
+        found.then_some(latest)
     }
 
     fn fire(&mut self, env: &dyn Env, pane_id: &str, hit: &LimitHit) {
         let Some(ctx) = env.pane(pane_id) else { return };
         let since_ms = env.clock().now_ms().max(0) as u64;
-        self.limited_agents.insert(ctx.agent_id.clone(), LimitNote { pane_id: pane_id.to_string(), reset_at_ms: hit.reset_at_ms, since_ms });
+        // One note per pane: a repeated detection on the same pane replaces its own note only.
+        self.limited_agents.retain(|note| note.pane_id != pane_id && note.live_at(since_ms));
+        self.limited_agents.push(LimitNote {
+            pane_id: pane_id.to_string(),
+            agent_id: ctx.agent_id.clone(),
+            account: ctx.account.clone(),
+            reset_at_ms: hit.reset_at_ms,
+            since_ms,
+        });
         env.mark(
             pane_id,
             &format!("limit:detected {} {} reset={}", hit.rule_id, hit.window.as_deref().unwrap_or("-"), hit.reset_text.as_deref().unwrap_or("-")),
@@ -240,7 +265,7 @@ impl Engine {
         env.mark(pane_id, &format!("limit:cleared {} {why:?}", hit.rule_id));
         env.log_limit(crate::plans_report::limit_log::Entry::End { at_ms: env.clock().now_ms().max(0) as u64, pane: pane_id.to_string() });
         if why != Cleared::Replaced {
-            self.limited_agents.retain(|_, note| note.pane_id != pane_id);
+            self.limited_agents.retain(|note| note.pane_id != pane_id);
         }
         let Some(card) = self.cards.remove(pane_id) else { return };
         let now = env.clock().now_ms().max(0) as u64;
@@ -500,11 +525,12 @@ pub fn is_parked(pane_id: &str) -> bool {
     ENGINE.lock().tracker.parked(pane_id).is_some()
 }
 
-/// Whether the agent is known to be at a usage limit now, with the reset moment when it printed one
-/// (epoch ms). Seen by the detector on any of its panes, kept after that pane is closed.
-pub fn agent_limit(agent_id: &str) -> Option<Option<u64>> {
+/// Whether the agent under `account` (`None` = its own login) is known to be at a usage limit now, with
+/// the reset moment when it printed one (epoch ms). Seen by the detector on any of its panes, kept after
+/// that pane is closed.
+pub fn agent_limit(agent_id: &str, account: Option<&str>) -> Option<Option<u64>> {
     let now = SystemClock.now_ms().max(0) as u64;
-    ENGINE.lock().agent_limit(agent_id, now)
+    ENGINE.lock().agent_limit(agent_id, account, now)
 }
 
 /// The pane's status line while a limit is on screen (waiting at a usage limit, or retrying a

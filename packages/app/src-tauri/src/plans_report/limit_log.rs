@@ -7,7 +7,7 @@
 
 use super::model::LimitFact;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -102,8 +102,9 @@ impl Open {
 ///   Otherwise its end is the agent's reset time once that has passed, else unknown (`None`: it
 ///   counts as a hit and adds no waiting time).
 pub fn hits(entries: &[Entry], now_ms: u64, still_limited: &dyn Fn(&str) -> bool) -> Vec<LimitFact> {
-    let mut done = Vec::new();
-    let mut open: HashMap<String, Open> = HashMap::new();
+    // Keyed by pane in a BTreeMap so the walk over open limits is in the same order every run.
+    let mut done: Vec<(String, LimitFact)> = Vec::new();
+    let mut open: BTreeMap<String, Open> = BTreeMap::new();
     for entry in entries {
         match entry {
             Entry::Begin { .. } => {}
@@ -112,13 +113,13 @@ pub fn hits(entries: &[Entry], now_ms: u64, still_limited: &dyn Fn(&str) -> bool
                 if let Some(old) = open.insert(pane.clone(), next) {
                     // A newer limit with no end between: the old one was over by then.
                     let end = old.capped(*at_ms);
-                    done.push(old.into_fact(Some(end)));
+                    done.push((pane.clone(), old.into_fact(Some(end))));
                 }
             }
             Entry::End { at_ms, pane } => {
                 if let Some(old) = open.remove(pane) {
                     let end = old.capped((*at_ms).max(old.start_ms));
-                    done.push(old.into_fact(Some(end)));
+                    done.push((pane.clone(), old.into_fact(Some(end))));
                 }
             }
         }
@@ -129,8 +130,17 @@ pub fn hits(entries: &[Entry], now_ms: u64, still_limited: &dyn Fn(&str) -> bool
         } else {
             old.reset_at_ms.filter(|reset| *reset > old.start_ms && *reset <= now_ms)
         };
-        done.push(old.into_fact(end));
+        done.push((pane, old.into_fact(end)));
     }
-    done.sort_by_key(|hit| hit.start_ms);
-    done
+    // A total order: start time, then pane id, then end time, agent and account. Two hits can only
+    // be equal in every field that is kept, so the output never depends on the order of the input map.
+    done.sort_by(|(pa, a), (pb, b)| {
+        a.start_ms
+            .cmp(&b.start_ms)
+            .then_with(|| pa.cmp(pb))
+            .then_with(|| a.end_ms.cmp(&b.end_ms))
+            .then_with(|| a.agent_id.cmp(&b.agent_id))
+            .then_with(|| a.account.cmp(&b.account))
+    });
+    done.into_iter().map(|(_, fact)| fact).collect()
 }
