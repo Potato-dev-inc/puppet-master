@@ -1,0 +1,39 @@
+/* Keyboard shortcuts sheet (components/cockpit/ShortcutsSheet.tsx). Grayscale tokens only. */
+.cockpit .ck-sheet--shortcuts {
+  width: 560px;
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+}
+.cockpit .ck-shortcuts-group {
+  display: grid;
+  gap: 2px;
+}
+.cockpit .ck-shortcuts-group .ck-caption {
+  padding-left: 0;
+}
+.cockpit .ck-shortcuts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.cockpit .ck-shortcuts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 28px;
+  color: var(--label-1);
+}
+.cockpit .ck-shortcuts-label {
+  min-width: 0;
+}
+.cockpit .ck-shortcuts-keys {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+.cockpit .ck-shortcuts-keys .ck-kbd {
+  margin-left: 0;
+}

@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanMonth, PlanRow, PlansApi, PlansReport } from '../../lib/plans-report';
+import { plansCsv, plansSummaryText } from '../../lib/plans-copy';
 import { PlansMonth } from './PlansMonth';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -138,6 +139,45 @@ describe('PlansMonth', () => {
     const api: PlansApi = { report: vi.fn().mockRejectedValue(new Error('Open Puppet Master on your computer to see your plans.')) };
     await mount(api);
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('Open Puppet Master');
+  });
+
+  it('copies the plans as CSV and as text, and says Copied for a moment', async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      await mount(fakeApi(FULL));
+      const copyButtons = () => [...host.querySelectorAll<HTMLButtonElement>('.ck-plans-copy button')];
+      const copyCsv = () => copyButtons()[0];
+      const copyText = () => copyButtons()[1];
+      await act(async () => copyCsv().click());
+      expect(writeText).toHaveBeenLastCalledWith(plansCsv(ROWS));
+      expect(copyCsv().textContent).toBe('Copied');
+      await act(async () => copyText().click());
+      expect(writeText).toHaveBeenLastCalledWith(plansSummaryText(ROWS));
+      expect(copyText().textContent).toBe('Copied');
+      await act(async () => vi.advanceTimersByTime(1500));
+      expect(copyCsv().textContent).toBe('Copy as CSV');
+      expect(copyText().textContent).toBe('Copy as text');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says so when the clipboard refuses, and does not say Copied', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) }, configurable: true });
+    await mount(fakeApi(FULL));
+    const copyCsv = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Copy as CSV') as HTMLButtonElement;
+    await act(async () => copyCsv.click());
+    await act(async () => {});
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('Could not copy.');
+    expect(text()).not.toContain('Copied');
+  });
+
+  it('hides the copy buttons for an empty month', async () => {
+    await mount(fakeApi(EMPTY));
+    expect(text()).not.toContain('Copy as CSV');
+    expect(text()).not.toContain('Copy as text');
   });
 
   it('shows no folder, pane id or chat text, and uses no colour class', async () => {

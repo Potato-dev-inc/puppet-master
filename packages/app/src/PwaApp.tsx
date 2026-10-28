@@ -20,6 +20,8 @@ import { LS_BRIDGE_URL, resolveBridgeBaseUrl } from './lib/bridge-url';
 import { fallbackListing, listingFromBody, type AgentRegistryListing, type LaunchEntry } from './lib/agentRegistry';
 import { ALL_TAB, companionTab, isCompanionPane, isCompanionTab, orderPanes, phoneLaunchEntries, tabLabels } from './lib/mobile-agent-tabs';
 import { bridgeCompanionTransport, type CompanionView } from './lib/companion';
+import { bridgePlansApi } from './lib/plans-report';
+import { PhonePlans } from './components/mobile/PhonePlans';
 import { useBridgeCompanions } from './hooks/useBridgeCompanions';
 import { CompanionHome } from './components/mobile/CompanionHome';
 import {
@@ -133,7 +135,7 @@ export default function PwaApp() {
   /** Per agent tab: its terminal (the default) or its read-only chat. Only chats are remembered. */
   const [paneViews, setPaneViews] = useState<Record<string, PaneView>>(readPaneViews);
   const [editingUrl, setEditingUrl] = useState(false);
-  const [sheet, setSheet] = useState<'menu' | 'new' | null>(null);
+  const [sheet, setSheet] = useState<'menu' | 'new' | 'plans' | null>(null);
   const [spawning, setSpawning] = useState(false);
   const [spawnError, setSpawnError] = useState<string | null>(null);
   const [launchEntries, setLaunchEntries] = useState<LaunchEntry[] | null>(null);
@@ -155,6 +157,8 @@ export default function PwaApp() {
   const [companionPush, setCompanionPush] = useState<CompanionView[] | null>(null);
   // The companions: read from the PC every 5 s while visible, and put in at once by a `companion` event.
   const companionTransport = useMemo(() => (bridge ? bridgeCompanionTransport(bridge) : null), [bridge]);
+  // Memoised: the plans sheet refetches when its api changes.
+  const plansTransport = useMemo(() => (bridge ? bridgePlansApi(bridge) : null), [bridge]);
   const companionList = useBridgeCompanions(companionTransport, resyncKey, companionPush);
   const companions = companionList.companions;
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
@@ -780,8 +784,10 @@ export default function PwaApp() {
             setEditingUrl(true);
             setSheet(null);
           }}
+          onOpenPlans={() => setSheet('plans')}
         />
       )}
+      {sheet === 'plans' && plansTransport && <PhonePlans api={plansTransport} onClose={() => setSheet(null)} />}
       {bridge && sheetItem && (
         <CardSheet
           item={sheetItem}

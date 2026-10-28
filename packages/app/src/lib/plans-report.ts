@@ -3,6 +3,8 @@
 // which takes them from the agent registry, so wizard agents read like built-in ones. The page never gets
 // a folder, a pane id or chat text.
 import { invoke } from '@tauri-apps/api/core';
+import type { BridgeClient } from './bridge-types';
+import { bridgeRefusalText } from './paneOutbox-bridge';
 
 export interface PlanFiles {
   /** Turns whose summary told how many files changed. */
@@ -68,6 +70,23 @@ export const plansApi: PlansApi = {
     return invoke<PlansReport>('plans_report', { month: month ?? null });
   },
 };
+
+/**
+ * The phone's copy: the `/plans` bridge route of the PC (read only, the same report). An old PC without the route
+ * gets a plain sentence; a refused call reads as the PC's own sentence.
+ */
+export function bridgePlansApi(bridge: BridgeClient): PlansApi {
+  return {
+    report: async (month) => {
+      if (!bridge.plansReport) throw new Error('This PC is too old to show your plans on the phone.');
+      try {
+        return await bridge.plansReport(month);
+      } catch (error) {
+        throw new Error(bridgeRefusalText(error, 'Could not load your plans.'));
+      }
+    },
+  };
+}
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
