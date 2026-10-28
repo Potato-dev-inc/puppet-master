@@ -101,6 +101,7 @@ Limits and how to test: the feature page.
 | Feature | Where | Status |
 |---|---|---|
 | Scores on your code: which agent works best in one project, from this PC's own history. Plain counts per agent and account (turns, ended OK, checks green, merged, undone, per merged change, asked you). Small samples show `-` or "early"; no ranking, no overall score. Undone stays empty until Undo writes the undo log. | `scores/`, `commands/scores.rs`, `components/cockpit/AgentScores.tsx`, `lib/agent-scores.ts` ([`features/agent-scores.md`](features/agent-scores.md)) | **experimental**: unit tests only; no live run yet |
+| Pick for me: the first row of the "+" menu suggests one agent for this project, from your own Scores (last 90 days), and says why in one plain sentence. Says "too early" and uses your usual agent when there is little history. Nothing starts until you press Start; nothing you type is read or sent; nothing is stored. | `scores/pick/`, `commands/scores.rs` (`pick_agent`), `components/cockpit/NewAgentMenu.tsx`, `lib/pick-for-me.ts` ([`features/pick-for-me.md`](features/pick-for-me.md)) | **experimental**: unit tests only; no live run yet; desktop app only |
 
 ## 1e. Night Shift (Preview)
 
