@@ -29,6 +29,9 @@ pub struct PointState {
     pub targets: Vec<Target>,
     pub default_target: Option<String>,
     pub notice: Option<String>,
+    /// Id of the live session. It changes each time a new session starts; None when no session is live.
+    /// The box clears its text when the id changes, and when it is None (no session).
+    pub session: Option<u64>,
 }
 
 /// One pick as the Point box shows it.
@@ -69,6 +72,10 @@ pub struct Session {
     seq: u32,
     /// Time of the last pick or removal. 0 while the session has no picks.
     active_ms: u64,
+    /// Id of the live session, None when no session is live. Every new session takes the next number.
+    session_id: Option<u64>,
+    /// How many sessions have started (the last id handed out).
+    sessions_started: u64,
     /// Thumbnails by pick id, filled the first time the state is built.
     thumbs: HashMap<String, Option<String>>,
 }
@@ -96,9 +103,10 @@ impl Session {
         self.picks.iter().find(|p| p.id == id)
     }
 
-    /// True when the picks have been waiting longer than `SESSION_TTL_MS`.
+    /// True when a live session has been idle longer than `SESSION_TTL_MS`. A session whose last pick was
+    /// removed counts the same way.
     pub fn is_expired(&self, now_ms: u64) -> bool {
-        !self.picks.is_empty() && now_ms.saturating_sub(self.active_ms) > SESSION_TTL_MS
+        self.session_id.is_some() && now_ms.saturating_sub(self.active_ms) > SESSION_TTL_MS
     }
 
     /// Ends an expired session. `Some(shots)` when picks were dropped (delete those files).
@@ -111,6 +119,11 @@ impl Session {
         let mut added = Added::default();
         if let Some(shots) = self.expire(now_ms) {
             added.dropped_shots = shots;
+        }
+        // The first pick of a session starts a new one: the box sees a new id and starts empty.
+        if self.session_id.is_none() {
+            self.sessions_started += 1;
+            self.session_id = Some(self.sessions_started);
         }
         // A new pick clears the last note: a refused link or a replaced pick is old news.
         self.notice = None;
@@ -150,6 +163,7 @@ impl Session {
         self.notice = None;
         self.blocked_url = None;
         self.active_ms = 0;
+        self.session_id = None;
     }
 
     /// Notes that the preview refused a link. Only http and https links can be opened in the
@@ -199,7 +213,8 @@ impl Session {
                 picks.push(view_of(pick, thumb));
             }
         }
-        PointState { picks, targets, default_target, notice: if expired { None } else { self.notice.clone() } }
+        let session = if expired { None } else { self.session_id };
+        PointState { picks, targets, default_target, notice: if expired { None } else { self.notice.clone() }, session }
     }
 }
 

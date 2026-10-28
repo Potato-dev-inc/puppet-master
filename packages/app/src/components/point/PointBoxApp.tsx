@@ -1,6 +1,6 @@
 // Root of the Point box window (its own window, label `pointbox`, route `index.html?pointbox=1`).
 // Holds the state and makes the calls; the box itself is PointBox.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import '../../styles/point-box.css';
 import { pointApi, type PointState } from '../../lib/point-api';
 import { PointBox } from './PointBox';
@@ -30,10 +30,24 @@ export function PointBoxApp({ api = pointApi }: { api?: PointApi }): JSX.Element
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  /** Keep the chosen pane while it still exists; otherwise take the backend's default. */
+  // The session id of the last state (undefined before the first one). See apply.
+  const sessionRef = useRef<number | null | undefined>(undefined);
+
+  /**
+   * Keep the chosen pane while it still exists; otherwise take the backend's default. A different session id
+   * (a new session started, or the last one ended) means a new box: the text and the notes are cleared.
+   * The same id keeps them, so an Esc-hidden box still has its text when the person picks again.
+   */
   const apply = useCallback((next: PointState) => {
     setState(next);
     setTarget((cur) => (cur && next.targets.some((t) => t.paneId === cur) ? cur : next.defaultTarget ?? null));
+    const id = next.session ?? null;
+    if (sessionRef.current !== undefined && sessionRef.current !== id) {
+      setRequest('');
+      setError(null);
+      setInfo(null);
+    }
+    sessionRef.current = id;
   }, []);
 
   const load = useCallback(() => {

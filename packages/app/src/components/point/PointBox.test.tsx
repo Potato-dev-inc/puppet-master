@@ -32,7 +32,7 @@ const TARGETS: Target[] = [
   { paneId: 'p3', agentLabel: 'Agent C', title: 'proto', sameFolder: false, canSend: false, reason: 'Agent C takes no typed messages yet.' },
 ];
 
-const STATE: PointState = { picks: [PICK], targets: TARGETS, defaultTarget: 'p1', notice: null };
+const STATE: PointState = { picks: [PICK], targets: TARGETS, defaultTarget: 'p1', notice: null, session: 1 };
 
 function props(over: Partial<PointBoxProps> = {}): PointBoxProps {
   return {
@@ -261,7 +261,7 @@ describe('PointBoxApp', () => {
     let onStateCb: ((s: PointState) => void) | null = null;
     let shell: PointState = STATE;
     const ended = async () => {
-      shell = { ...shell, picks: [] };
+      shell = { ...shell, picks: [], session: null };
     };
     return {
       state: vi.fn(async () => shell),
@@ -406,6 +406,50 @@ describe('PointBoxApp', () => {
     act(() => api.push({ ...STATE, picks: [{ ...PICK, id: 'pick-8' }] }));
     await flush();
     expect(host.querySelector('.point-box-pick')).not.toBeNull();
+    expect(area().value).toBe('');
+  });
+
+  it('a new session id clears the text and the notes, and shows only the new picks', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    act(() => api.push({ ...STATE, notice: 'Blocked a link to example.com. The preview only shows your app.' }));
+    typeInto(area(), 'Make it green');
+    expect(host.querySelector('.point-box-notice')).not.toBeNull();
+    act(() => api.push({ ...STATE, session: 2, notice: null, picks: [{ ...PICK, id: 'pick-7' }] }));
+    await flush();
+    expect(area().value).toBe('');
+    expect(host.querySelector('.point-box-notice')).toBeNull();
+    expect(host.querySelectorAll('.point-box-pick')).toHaveLength(1);
+  });
+
+  it('the same session id keeps the text when another element is added', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    act(() => api.push({ ...STATE, picks: [PICK, { ...PICK, id: 'pick-2' }] }));
+    await flush();
+    expect(area().value).toBe('Make it green');
+    expect(host.querySelectorAll('.point-box-pick')).toHaveLength(2);
+  });
+
+  it('a state with no session clears the text', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    act(() => api.push({ ...STATE, picks: [], session: null }));
+    await flush();
+    expect(area().value).toBe('');
+  });
+
+  it('Esc hides the box, the session later expires, and the next pick opens with an empty box', async () => {
+    const api = fakeApi();
+    await renderApp(api);
+    typeInto(area(), 'Make it green');
+    keydown(area(), 'Escape');
+    await flush();
+    expect(api.hide).toHaveBeenCalledTimes(1);
+    act(() => api.push({ ...STATE, session: 3, picks: [{ ...PICK, id: 'pick-8' }] }));
+    await flush();
     expect(area().value).toBe('');
   });
 
