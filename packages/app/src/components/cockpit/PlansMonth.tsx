@@ -13,16 +13,21 @@ import {
   type PlansApi,
   type PlansReport,
 } from '../../lib/plans-report';
+import { NO_TURNS_TEXT, plansCsv, plansSummaryText } from '../../lib/plans-copy';
 import '../../styles/cockpit-plans.css';
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+type CopyKind = 'csv' | 'text';
+
 export function PlansMonth({ api = plansApi, onClose }: { api?: PlansApi; onClose: () => void }) {
   const [month, setMonth] = useState<string | undefined>(undefined);
   const [report, setReport] = useState<PlansReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<CopyKind | null>(null);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -38,6 +43,24 @@ export function PlansMonth({ api = plansApi, onClose }: { api?: PlansApi; onClos
       live = false;
     };
   }, [api, month]);
+
+  // "Copied" goes away after 1.5 s.
+  useEffect(() => {
+    if (copied === null) return;
+    const t = window.setTimeout(() => setCopied(null), 1500);
+    return () => window.clearTimeout(t);
+  }, [copied]);
+
+  async function copy(kind: CopyKind, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyFailed(false);
+      setCopied(kind);
+    } catch {
+      setCopied(null);
+      setCopyFailed(true);
+    }
+  }
 
   const months = report?.months ?? [];
   const here = report?.month.id ?? '';
@@ -58,39 +81,57 @@ export function PlansMonth({ api = plansApi, onClose }: { api?: PlansApi; onClos
         </button>
       </header>
 
-      <div className="ck-plans-months" role="group" aria-label="Month">
-        <button
-          type="button"
-          className="ck-icon-btn"
-          aria-label="Earlier month"
-          disabled={older === null}
-          onClick={() => older && setMonth(older)}
-        >
-          {'‹'}
-        </button>
-        <select
-          className="ck-plans-select"
-          aria-label="Month"
-          value={here}
-          disabled={report === null}
-          onChange={(e) => setMonth(e.target.value)}
-        >
-          {report === null && <option value="">Loading</option>}
-          {months.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="ck-icon-btn"
-          aria-label="Later month"
-          disabled={newer === null}
-          onClick={() => newer && setMonth(newer)}
-        >
-          {'›'}
-        </button>
+      <div className="ck-plans-bar">
+        <div className="ck-plans-months" role="group" aria-label="Month">
+          <button
+            type="button"
+            className="ck-icon-btn"
+            aria-label="Earlier month"
+            disabled={older === null}
+            onClick={() => older && setMonth(older)}
+          >
+            {'‹'}
+          </button>
+          <select
+            className="ck-plans-select"
+            aria-label="Month"
+            value={here}
+            disabled={report === null}
+            onChange={(e) => setMonth(e.target.value)}
+          >
+            {report === null && <option value="">Loading</option>}
+            {months.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="ck-icon-btn"
+            aria-label="Later month"
+            disabled={newer === null}
+            onClick={() => newer && setMonth(newer)}
+          >
+            {'›'}
+          </button>
+        </div>
+
+        {report !== null && report.rows.length > 0 && (
+          <div className="ck-plans-copy" role="group" aria-label="Copy">
+            <button type="button" className="ck-btn ck-btn--plain" onClick={() => copy('csv', plansCsv(report.rows))}>
+              {copied === 'csv' ? 'Copied' : 'Copy as CSV'}
+            </button>
+            <button type="button" className="ck-btn ck-btn--plain" onClick={() => copy('text', plansSummaryText(report.rows))}>
+              {copied === 'text' ? 'Copied' : 'Copy as text'}
+            </button>
+            {copyFailed && (
+              <span className="ck-plans-copy-note" role="status">
+                Could not copy.
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -99,7 +140,7 @@ export function PlansMonth({ api = plansApi, onClose }: { api?: PlansApi; onClos
         </p>
       )}
 
-      {report !== null && report.rows.length === 0 && <p className="ck-plans-empty">No turns this month yet.</p>}
+      {report !== null && report.rows.length === 0 && <p className="ck-plans-empty">{NO_TURNS_TEXT}</p>}
 
       {report !== null && report.rows.length > 0 && (
         <div className="ck-plans-scroll">
