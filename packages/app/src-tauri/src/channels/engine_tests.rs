@@ -848,6 +848,52 @@ fn what_agents_say_in_listings_is_cleaned() {
     assert!(text.contains("<email>"), "{text}");
 }
 
+const PEM_BODY: [&str; 2] = ["MIIEvgIBADANBgkqhkiG9w0BAQEFAASC", "Zq9kLm2pRt8wXyVbN3cHdEaFgJi4kOl0"];
+
+fn pem_key() -> String {
+    format!("-----BEGIN PRIVATE KEY-----\n{}\n{}\n-----END PRIVATE KEY-----", PEM_BODY[0], PEM_BODY[1])
+}
+
+/// No line of the key's body reaches any effect: not in a text, a button or a toast.
+fn assert_no_key_body(effects: &[Effect]) {
+    for text in texts(effects) {
+        for body in PEM_BODY {
+            assert!(!text.contains(body), "a key body line was sent: {text:?}");
+        }
+    }
+}
+
+#[test]
+fn a_multi_line_key_in_a_pane_name_is_masked_as_one_block() {
+    let (e, h) = (engine(), FakeHost::new());
+    h.pane("pane-1", &format!("deploy\n{}\nnotes", pem_key()), "Codex", "working");
+    let effects = run(&e, &h, vec![say_to_bot("/panes")]);
+    assert_no_key_body(&effects);
+    let text = sent(&effects).remove(0);
+    assert!(text.contains("Codex"), "the rest of the reply is still there: {text}");
+}
+
+#[test]
+fn a_multi_line_key_in_a_card_title_is_masked_as_one_block() {
+    let (e, h) = (engine(), FakeHost::new());
+    let mut item = card(ItemKind::Error, &format!("failed:\n{}", pem_key()));
+    item.pane.as_mut().unwrap().heading = "auth refactor".into();
+    h.add_item(item);
+    let effects = run(&e, &h, vec![say_to_bot("/status")]);
+    assert_no_key_body(&effects);
+    assert!(sent(&effects).remove(0).starts_with("1 needs you"));
+}
+
+#[test]
+fn lines_are_cut_after_the_cleaning_and_the_whole_stays_under_the_cap() {
+    let lines: Vec<String> = (0..30).map(|i| format!("{i} {}", "long name ".repeat(40))).collect();
+    let out = lines_out(&lines);
+    let text = out.text.as_str();
+    assert!(text.chars().count() <= MAX_OUT_CHARS);
+    assert!(text.lines().all(|l| l.chars().count() <= LINE_CHARS), "{text}");
+    assert!(text.lines().count() > 1);
+}
+
 #[test]
 fn a_long_listing_stays_under_the_message_cap() {
     let (e, h) = (engine(), FakeHost::new());

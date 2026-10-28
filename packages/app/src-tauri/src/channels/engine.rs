@@ -12,7 +12,7 @@
 //! 6. Button taps (`engine/buttons.rs`) are looked up in `Grants` (single use, short lived); the
 //!    button data itself means nothing.
 //!
-//! Everything sent out goes through `render::clean` (or `render::plain`). The engine never answers
+//! Everything sent out goes through `render::clean`, `render::clean_multiline` or `render::plain`. The engine never answers
 //! a trust gate, a consent card, a budget or limit, or an approval above low risk: `policy` says no
 //! here, and `attention::answer` says no again for `Via::Telegram`.
 
@@ -28,8 +28,8 @@ use super::render::{self, Outgoing, MAX_OUT_CHARS};
 use super::telegram::api::{InMessage, Update, UpdateKind, WireButton, WireMessage};
 use crate::attention::model::{Lane, State};
 use crate::audit::Kind as AuditKind;
-use crate::push::triggers::sanitize;
-use crate::redact::{self, Part, Redacted};
+use crate::push::triggers::{sanitize, truncate_chars};
+use crate::redact::{self, Redacted};
 use parking_lot::Mutex;
 use serde_json::json;
 use std::collections::VecDeque;
@@ -50,8 +50,10 @@ pub const STRANGER_WARN: u32 = 50;
 pub(super) const STATUS_LINES: usize = 8;
 /// `/panes` lists at most this many panes.
 pub const MAX_PANES_LISTED: usize = 20;
-/// One line of a multi-line reply is cut to this many characters.
+/// One line of a multi-line reply is cut to this many characters (after the whole reply is cleaned).
 const LINE_CHARS: usize = 220;
+/// The most characters of a reply that are cleaned at once, before the lines are cut (more than any reply holds).
+const WHOLE_CHARS: usize = 20_000;
 
 pub const NOT_ALLOWED: &str = "Telegram is not allowed to do that. Change it in Puppet Master on your PC.";
 const TOO_MANY: &str = "Too many messages. Wait a minute.";
@@ -278,28 +280,25 @@ pub(super) fn say(text: &str) -> Effect {
     Effect::Send { out: render::plain(text), reply_to: None, remember: None }
 }
 
-/// A reply of several lines. Each line is cleaned on its own (`render::clean` joins a text into one
-/// line), the lines are joined with line breaks, and the whole stays under the message cap.
+/// A reply of several lines. The WHOLE text is cleaned first (`render::clean_multiline`), so a secret that
+/// spans lines, such as a PEM private key in a pane name or a card title, is masked as one block. Only then
+/// is each line cut to `LINE_CHARS`, and lines are dropped from the end when the whole is over the message cap.
+/// Never clean the lines one by one: a piece of a key would not be seen as a key.
 pub(super) fn lines_out(lines: &[String]) -> Outgoing {
-    let mut parts: Vec<Redacted<String>> = Vec::new();
+    let whole = render::clean_multiline(&lines.join("\n"), WHOLE_CHARS);
+    let mut kept: Vec<String> = Vec::new();
     let mut used = 0usize;
-    for line in lines {
-        let cleaned = render::clean(line, LINE_CHARS);
-        let len = cleaned.as_str().chars().count() + 1;
+    for line in whole.as_str().split('\n') {
+        let line = truncate_chars(line, LINE_CHARS);
+        let len = line.chars().count() + 1;
         if used + len > MAX_OUT_CHARS {
             break;
         }
         used += len;
-        parts.push(cleaned);
+        kept.push(line);
     }
-    let mut pieces: Vec<Part<'_>> = Vec::new();
-    for (i, part) in parts.iter().enumerate() {
-        if i > 0 {
-            pieces.push(Part::Lit("\n"));
-        }
-        pieces.push(Part::Red(part));
-    }
-    Outgoing { text: redact::compose(&pieces), keyboard: Vec::new() }
+    // Already clean; `strict` again changes nothing and gives back the `Redacted` type.
+    Outgoing { text: redact::strict(&kept.join("\n")), keyboard: Vec::new() }
 }
 
 pub(super) fn say_lines(lines: &[String]) -> Effect {
