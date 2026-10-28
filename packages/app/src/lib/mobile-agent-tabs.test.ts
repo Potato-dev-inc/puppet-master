@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PaneInfo } from '@puppet-master/shared';
 import type { AgentDescriptor } from './agentRegistry';
-import { ago, orderPanes, phoneLaunchEntries, previewLines, projectName, statusMeta, tabLabels } from './mobile-agent-tabs';
+import { ago, orderPanes, phoneLaunchEntries, previewLines, projectName, statusMeta, tabLabels, tabOfPane } from './mobile-agent-tabs';
 
 function pane(id: string, agent_type: string, created_at: number): PaneInfo {
   return { id, agent_type, created_at, pid: 1, status: 'idle', last_output_at: null, cwd: 'C:\\w\\proj', cols: 80, rows: 24 };
@@ -107,5 +107,10 @@ describe('mobile agent tabs', () => {
       ['kiro', 'Headless only'],
       ['codex', 'Not installed'],
     ]);
+  });
+
+  it('shows a pane on its own tab, and a companion pane on the companion tab', () => {
+    expect(tabOfPane('p1')).toBe('p1');
+    expect(tabOfPane('companion-mochi')).toBe('companion:mochi');
   });
 });

@@ -208,6 +208,11 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     pairMe: () => call('GET', '/pair/me'),
     paneChat: (paneId, since) =>
       call('GET', `/panes/${encodeURIComponent(paneId)}/chat${since === undefined ? '' : `?since=${since}`}`),
+    searchChats: (query, limit) => {
+      const params = new URLSearchParams({ q: query });
+      if (limit != null) params.set('limit', String(limit));
+      return call('GET', `/chats/search?${params.toString()}`);
+    },
     sendPaneMessage: async (paneId, text) =>
       (await call<{ message: OutboxMessage }>('POST', `/panes/${encodeURIComponent(paneId)}/messages`, { text })).message,
     cancelPaneMessage: async (paneId, messageId) =>

@@ -17,8 +17,8 @@ import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-setti
 import { ngrokRequestHeaders } from './lib/bridge-ngrok';
 import { mergeBridgeHeaders } from './lib/mobile-pairing-auth';
 import { LS_BRIDGE_URL, resolveBridgeBaseUrl } from './lib/bridge-url';
-import { fallbackListing, listingFromBody, type AgentRegistryListing, type LaunchEntry } from './lib/agentRegistry';
-import { ALL_TAB, companionTab, isCompanionPane, isCompanionTab, orderPanes, phoneLaunchEntries, tabLabels } from './lib/mobile-agent-tabs';
+import { agentLabel, fallbackListing, listingFromBody, type AgentRegistryListing, type LaunchEntry } from './lib/agentRegistry';
+import { ALL_TAB, companionTab, isCompanionPane, isCompanionTab, orderPanes, phoneLaunchEntries, tabLabels, tabOfPane } from './lib/mobile-agent-tabs';
 import { bridgeCompanionTransport, type CompanionView } from './lib/companion';
 import { useBridgeCompanions } from './hooks/useBridgeCompanions';
 import { CompanionHome } from './components/mobile/CompanionHome';
@@ -35,6 +35,7 @@ import type { LoopSignalInfo } from './lib/bridge-types';
 import './styles/phone.css';
 import type { PreviewUrl } from './lib/pane-preview';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
+import { PhoneSearch } from './components/mobile/PhoneSearch';
 import { DockedCard } from './components/mobile/DockedCard';
 import { helpersAskingFor } from './lib/helper-questions';
 import { CardSheet } from './components/mobile/CardSheet';
@@ -134,6 +135,8 @@ export default function PwaApp() {
   const [paneViews, setPaneViews] = useState<Record<string, PaneView>>(readPaneViews);
   const [editingUrl, setEditingUrl] = useState(false);
   const [sheet, setSheet] = useState<'menu' | 'new' | null>(null);
+  /** "Search all chats" is open (full screen, over the tabs; nothing under it unmounts). */
+  const [searchOpen, setSearchOpen] = useState(false);
   const [spawning, setSpawning] = useState(false);
   const [spawnError, setSpawnError] = useState<string | null>(null);
   const [launchEntries, setLaunchEntries] = useState<LaunchEntry[] | null>(null);
@@ -669,6 +672,7 @@ export default function PwaApp() {
           bridgeReady={bridgeReady}
           onSelect={selectTab}
           onNew={openNewAgentSheet}
+          onSearch={() => setSearchOpen(true)}
           onMenu={() => setSheet('menu')}
           needsYou={attention ? blockingCount(attention) : undefined}
           companions={companions}
@@ -749,6 +753,19 @@ export default function PwaApp() {
           )}
         </main>
       </div>
+      {searchOpen && bridge && (
+        <PhoneSearch
+          bridge={bridge}
+          panes={panes}
+          agentName={(id) => agentLabel(agentListing, id)}
+          onOpenChat={(paneId) => {
+            setSearchOpen(false);
+            setPaneViews((cur) => ({ ...cur, [paneId]: 'chat' }));
+            selectTab(tabOfPane(paneId));
+          }}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
       {sheet === 'new' && (
         <NewAgentSheet
           entries={launchEntries}

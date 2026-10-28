@@ -12,6 +12,7 @@ import type { PreviewUrl } from './pane-preview';
 import type { AttentionAnswerBody, AttentionAnswerOutcome, AttentionSnapshot } from './attention';
 import type { Question, QuestionAnswer } from './questions';
 import type { PhoneChatReply } from './sessionChatModel';
+import type { ChatSearchAnswer } from './chatSearch';
 import type { OutboxMessage } from './paneOutbox';
 import type { CompanionView, FeedItem, MemoryView, PendingDecision } from './companion';
 
@@ -411,6 +412,11 @@ export interface BridgeClient {
    * answer) only what changed. Absent on clients that are not a phone.
    */
   paneChat?(paneId: string, since?: number): Promise<PhoneChatReply>;
+  /**
+   * `GET /chats/search?q=&limit=`: the search across every chat (needs `watch`). `enabled` is false when the person
+   * turned the index off on the PC. Absent on old PCs and clients that are not a phone.
+   */
+  searchChats?(query: string, limit?: number): Promise<ChatSearchAnswer>;
   /** What this phone may do (`GET /pair/me`). Absent on clients that are not a phone. */
   pairMe?(): Promise<{ local: boolean; device_id?: string; caps: string[] }>;
   /**

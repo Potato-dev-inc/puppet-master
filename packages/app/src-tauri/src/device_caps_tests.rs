@@ -133,6 +133,7 @@ const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/panes/p1/buffer?lines=50", "watch"),
     ("GET", "/panes/p1/chat", "watch"),
     ("GET", "/panes/p1/chat?since=5", "watch"),
+    ("GET", "/chats/search?q=license&limit=5", "watch"),
     ("GET", "/agents/h1/transcript", "watch"),
     ("GET", "/operations/op1", "watch"),
     ("GET", "/events/recent", "watch"),
@@ -208,6 +209,15 @@ fn every_route_class_against_every_cap() {
         }
     }
     println!("{}", table.join("\n"));
+}
+
+#[test]
+fn the_chat_search_is_refused_without_a_paired_token() {
+    // The phone's search of every chat reads what was said: no token, no answer (401), through the PWA proxy.
+    let (status, _, body) = send(rig().pwa, &request("GET", "/bridge/chats/search?q=license", &[]));
+    assert_eq!(status, 401, "{body}");
+    let (status, _, body) = send(rig().pwa, &request("GET", "/bridge/chats/search?q=license", &["Authorization: Bearer not-a-token"]));
+    assert_eq!(status, 401, "{body}");
 }
 
 #[test]

@@ -158,6 +158,8 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
 
         // A pane's chat (what the agent said and did) is pane text like a screen: it needs `watch`.
         ("GET", ["panes", _, "chat"]) => Need::Cap(Watch),
+        // The search across every chat (`bridge/routes/chats.rs`): it reads what was said, like a pane's chat.
+        ("GET", ["chats", "search"]) => Need::Cap(Watch),
 
         ("GET", ["questions"]) => Need::AnyOf(Watch, Answer),
         // The attention list (what needs the person): sentences, not terminal bytes.
@@ -424,6 +426,15 @@ data: {\"v\":1,\"companions\":[]}
         assert!(Caps::none().with(Cap::Watch, true).satisfies(route_need("GET", &["panes", "p1", "chat"])));
         // Nothing else under a pane named chat opens up: the route is one exact path.
         assert_eq!(route_need("POST", &["panes", "p1", "chat"]), Need::Cap(Cap::Control));
+    }
+
+    #[test]
+    fn the_chat_search_needs_watch_and_nothing_else_reads_it() {
+        assert_eq!(route_need("GET", &["chats", "search"]), Need::Cap(Cap::Watch));
+        assert!(!Caps::watch_and_answer().with(Cap::Watch, false).satisfies(route_need("GET", &["chats", "search"])));
+        assert!(Caps::none().with(Cap::Watch, true).satisfies(route_need("GET", &["chats", "search"])));
+        // Only the one GET is a read: a write under the same path is an action.
+        assert_eq!(route_need("POST", &["chats", "search"]), Need::Cap(Cap::Control));
     }
 
     #[test]
