@@ -20,6 +20,7 @@ mod bridge;
 mod budgets;
 mod canary;
 mod checkpoints;
+mod clip;
 mod commands;
 mod context_pack;
 mod event_log;
