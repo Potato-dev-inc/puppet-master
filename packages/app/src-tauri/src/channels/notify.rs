@@ -21,7 +21,7 @@ use crate::channels::grants::{GrantAction, Grants, ANSWER_TTL_MS};
 use crate::channels::policy::{answerable, Answerable};
 use crate::channels::rate::Bucket;
 use crate::channels::refs::{Refs, Target};
-use crate::channels::render::{self, button, clean, Button, Outgoing, MAX_OUT_CHARS};
+use crate::channels::render::{self, button, clean_multiline, Button, Outgoing, MAX_OUT_CHARS};
 use crate::mobile_pairing::Cap;
 use crate::push::hub::{Candidate, ItemRef};
 use crate::push::triggers::{
@@ -29,7 +29,7 @@ use crate::push::triggers::{
     RATE_LIMIT_MS,
 };
 use crate::questions::{Question, MAX_CHOICES};
-use crate::redact::{self, Redacted};
+use crate::redact::Redacted;
 use parking_lot::Mutex;
 
 /// The question text the chat shows (spec 3.3).
@@ -458,26 +458,17 @@ fn refusal(kind: Kind) -> Option<&'static str> {
     }
 }
 
-/// Joins the lines of a message. Each line goes through `render::clean` (secrets, paths, e-mail
-/// addresses, control and bidi characters). `clean` flattens line breaks, so the text is split on
-/// them first: every piece is cleaned on its own, joined back with a line break, and the whole is
-/// cut to the cap.
+/// Joins the lines of a message with line breaks, then cleans the WHOLE text once
+/// (`render::clean_multiline`: redaction, e-mail masking, control and bidi characters, then the cap).
+/// Redacting line by line would miss a secret that spans lines, such as a PEM private key.
 fn compose(lines: &[String]) -> Redacted<String> {
     let joined = lines
         .iter()
-        .flat_map(|line| line.split('\n'))
-        .map(|line| clean(line, MAX_OUT_CHARS).into_inner())
         .filter(|line| !line.is_empty())
+        .map(String::as_str)
         .collect::<Vec<_>>()
         .join("\n");
-    let capped = if joined.chars().count() <= MAX_OUT_CHARS {
-        joined
-    } else {
-        let mut cut: String = joined.chars().take(MAX_OUT_CHARS - 1).collect();
-        cut.push('…');
-        cut
-    };
-    redact::strict(&capped)
+    clean_multiline(&joined, MAX_OUT_CHARS)
 }
 
 #[cfg(test)]

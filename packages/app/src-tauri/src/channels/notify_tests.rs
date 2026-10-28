@@ -851,3 +851,62 @@ fn a_window_does_not_last_for_an_hour() {
         .companion_reply("c1", "Mochi", "late", &cfg(), world.links(), HOUR_MS)
         .is_none());
 }
+
+/// Body lines of a PEM private key. None may reach the chat, even though the key spans lines.
+const PEM_BODY: [&str; 2] = [
+    "MIIEvgIBADANBgkqhkiG9w0BAQEFAASC",
+    "Zq9kLm2pRt8wXyVbN3cHdEaFgJi4kOl0",
+];
+
+fn pem_text() -> String {
+    format!(
+        "Here is the key:\n-----BEGIN PRIVATE KEY-----\n{}\n{}\n-----END PRIVATE KEY-----\nDone.",
+        PEM_BODY[0], PEM_BODY[1]
+    )
+}
+
+fn assert_no_key_body(text: &str) {
+    for line in PEM_BODY {
+        assert!(!text.contains(line), "key body line leaked: {text}");
+    }
+    assert!(
+        !text.contains("BEGIN PRIVATE KEY"),
+        "key header leaked: {text}"
+    );
+}
+
+#[test]
+fn a_pem_key_in_a_companion_reply_leaks_no_body_line() {
+    let mut world = World::new();
+    let n = Notifier::default();
+    world.refs.open_window(&Target::Companion("c1".into()), 0);
+    let note = n
+        .companion_reply("c1", "Mochi", &pem_text(), &cfg(), world.links(), 1)
+        .expect("in window");
+    let text = text_of(&note);
+    assert_no_key_body(&text);
+    assert!(
+        text.contains("Done."),
+        "the line after the key is kept: {text}"
+    );
+    assert!(text.contains('\n'), "line breaks are kept: {text}");
+}
+
+#[test]
+fn a_pem_key_in_a_turn_summary_leaks_no_body_line() {
+    let mut world = World::new();
+    let n = Notifier::default();
+    world.refs.open_window(&Target::Pane("pane-1".into()), 0);
+    let note = n
+        .turn_finished(
+            "pane-1",
+            "Claude Code",
+            Some("auth refactor"),
+            &pem_text(),
+            &cfg(),
+            world.links(),
+            1,
+        )
+        .expect("in window");
+    assert_no_key_body(&text_of(&note));
+}
