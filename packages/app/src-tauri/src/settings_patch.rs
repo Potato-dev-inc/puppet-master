@@ -179,6 +179,8 @@ pub fn apply(app: &AppHandle, patch: &Value) -> Result<Value, String> {
             })
         },
         |public| {
+            // The search index's switch follows the saved value (only the desktop settings window can change it).
+            crate::chat_index::apply_setting(public);
             crate::settings_store::mirror_public_patch(app, public);
         },
         |event, payload| {

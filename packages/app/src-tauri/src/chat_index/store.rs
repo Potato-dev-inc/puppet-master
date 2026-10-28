@@ -87,6 +87,31 @@ impl Store {
         self.conn.query_row("SELECT COUNT(*) FROM chat_items", [], |row| row.get::<_, i64>(0)).map(|n| n as usize)
     }
 
+    /// The items kept and the bytes the file takes (its pages; the free ones, left by a clear, are not counted).
+    pub fn usage(&self) -> rusqlite::Result<(usize, u64)> {
+        let items: i64 = self.conn.query_row("SELECT COUNT(*) FROM chat_items", [], |row| row.get(0))?;
+        let pages: i64 = self.conn.pragma_query_value(None, "page_count", |row| row.get(0))?;
+        let page_size: i64 = self.conn.pragma_query_value(None, "page_size", |row| row.get(0))?;
+        Ok((items.max(0) as usize, pages.max(0) as u64 * page_size.max(0) as u64))
+    }
+
+    /// Removes every item and its text from the file: the rows and the text index go (DELETE), the free pages are
+    /// cut (VACUUM), and the write-ahead log is folded back and emptied, so no deleted text stays in either file.
+    /// The index stays a valid, empty index.
+    pub fn clear(&mut self) -> rusqlite::Result<()> {
+        self.conn.execute("DELETE FROM chat_items", [])?;
+        self.conn.execute("VACUUM", [])?;
+        // One row back (frames in the log, frames checkpointed); there is nothing to read in it.
+        let _ = self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+        Ok(())
+    }
+
+    /// `PRAGMA integrity_check` of the open file: "ok" when it is sound.
+    #[cfg(test)]
+    pub fn integrity(&self) -> rusqlite::Result<String> {
+        self.conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))
+    }
+
     /// Adds the entries; one already there (same pane, session and item) gets its text and labels replaced and keeps
     /// its time. Then the oldest items past the cap go.
     pub fn insert(&mut self, entries: &[Entry]) -> rusqlite::Result<()> {

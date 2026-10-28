@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -6,6 +7,7 @@ use super::query::{marks_of, match_expr};
 use super::store::Store;
 use super::*;
 use crate::session_chat::{ChatItem, ItemObserver, ToolDetail};
+use serde_json::json;
 
 fn user(id: &str, at: Option<&str>, text: &str) -> ChatItem {
     ChatItem::User { id: id.into(), at: at.map(String::from), text: text.into() }
@@ -195,12 +197,12 @@ fn items_handed_to_the_index_are_redacted_labelled_and_found() {
         ],
     );
     wait_for("the writer", || index.count() == 2);
-    let hits = index.search("license", 10).unwrap();
+    let hits = index.search_hits("license", 10).unwrap();
     assert_eq!(hits.len(), 2);
     assert!(hits.iter().all(|h| h.pane_id == "pane-7" && h.folder == "shop" && h.agent == "agent-x" && h.session == "sess-1"));
     assert!(hits.iter().all(|h| !h.snippet.contains("FakeFake")), "{hits:?}");
-    assert!(index.search("FakeFake", 10).unwrap().is_empty());
-    assert!(index.search("OUTPUTONLYWORD", 10).unwrap().is_empty());
+    assert!(index.search_hits("FakeFake", 10).unwrap().is_empty());
+    assert!(index.search_hits("OUTPUTONLYWORD", 10).unwrap().is_empty());
 }
 
 #[test]
@@ -216,7 +218,7 @@ fn a_batch_after_its_pane_closed_keeps_the_labels_seen_before() {
     wait_for("the first", || index.count() == 1);
     index.observe("p", &[user("2:0", None, "later words")]);
     wait_for("the second", || index.count() == 2);
-    assert!(index.search("words", 10).unwrap().iter().all(|h| h.folder == "shop"));
+    assert!(index.search_hits("words", 10).unwrap().iter().all(|h| h.folder == "shop"));
 }
 
 #[test]
@@ -230,4 +232,83 @@ fn a_damaged_file_is_moved_aside_and_a_new_index_is_made() {
     assert_eq!(store.search("hello", 5).unwrap().len(), 1);
     let aside = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).any(|e| e.file_name().to_string_lossy().contains(".bad-"));
     assert!(aside, "the damaged file stays next to the new one");
+}
+
+#[test]
+fn off_nothing_is_copied_or_written() {
+    let on = Arc::new(AtomicBool::new(false));
+    let index = ChatIndex::start_switched(Store::open_memory(1000).unwrap(), Arc::new(Fixed(ctx())), on.clone());
+    index.observe("pane-1", &[user("1:0", None, "the first secret plan")]);
+    on.store(true, Ordering::SeqCst);
+    index.observe("pane-1", &[user("2:0", None, "the second plan")]);
+    // The writer handles batches in the order they were sent: the first one, if it had been sent, is written too.
+    wait_for("the writer", || index.count() == 1);
+    assert!(index.search_hits("secret", 10).unwrap().is_empty());
+    assert_eq!(index.search_hits("second", 10).unwrap().len(), 1);
+}
+
+#[test]
+fn off_search_says_it_is_off_with_no_hits_and_on_again_finds_them() {
+    let on = Arc::new(AtomicBool::new(true));
+    let index = ChatIndex::start_switched(Store::open_memory(1000).unwrap(), Arc::new(Fixed(ctx())), on.clone());
+    index.observe("pane-1", &[assistant("2:0", None, "The license check lives in checks.rs")]);
+    wait_for("the writer", || index.count() == 1);
+    assert!(index.search("license", 10).unwrap().enabled);
+    on.store(false, Ordering::SeqCst);
+    assert_eq!(index.search("license", 10).unwrap(), Answer { enabled: false, hits: Vec::new() });
+    assert!(!index.status().unwrap().enabled);
+    // Turning it off keeps what is there.
+    assert_eq!(index.status().unwrap().items, 1);
+    on.store(true, Ordering::SeqCst);
+    assert_eq!(index.search("license", 10).unwrap().hits.len(), 1);
+}
+
+#[test]
+fn clear_empties_the_index_and_the_file_stays_valid() {
+    let dir = std::env::temp_dir().join(format!("pm-chat-index-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(FILE_NAME);
+    let index = ChatIndex::start(open_store(&path, 1000).unwrap(), Arc::new(Fixed(ctx())));
+    index.observe(
+        "pane-1",
+        &[assistant("2:0", None, "marker ZEBRAMARKER7731 and more words"), user("3:0", None, "a second line")],
+    );
+    wait_for("the writer", || index.count() == 2);
+    let before = index.status().unwrap();
+    assert_eq!((before.items, before.enabled), (2, true));
+    assert!(before.bytes > 0);
+    // The text is in the write-ahead log until a clear (so the check below can see it going).
+    let needle: &[u8] = b"ZEBRAMARKER7731";
+    let wal_before = std::fs::read(dir.join(format!("{FILE_NAME}-wal"))).unwrap_or_default();
+    assert!(wal_before.windows(needle.len()).any(|w| w == needle));
+
+    index.clear().unwrap();
+    let after = index.status().unwrap();
+    assert_eq!(after.items, 0);
+    assert!(after.enabled, "clearing does not turn the index off");
+    assert!(index.search_hits("ZEBRAMARKER7731", 10).unwrap().is_empty());
+    // The saved text is gone from the file and from its write-ahead log.
+    for file in [path.clone(), dir.join(format!("{FILE_NAME}-wal"))] {
+        let bytes = std::fs::read(&file).unwrap_or_default();
+        assert!(!bytes.windows(needle.len()).any(|w| w == needle), "{file:?} still has the text");
+    }
+    // Still a valid index: it passes its own check and takes new items.
+    let check = rusqlite::Connection::open(&path).unwrap();
+    let verdict: String = check.query_row("PRAGMA integrity_check", [], |row| row.get(0)).unwrap();
+    assert_eq!(verdict, "ok");
+    drop(check);
+    index.observe("pane-1", &[user("4:0", None, "after the clear")]);
+    wait_for("a new item", || index.count() == 1);
+    assert_eq!(index.search_hits("clear", 10).unwrap().len(), 1);
+}
+
+#[test]
+fn the_saved_setting_turns_the_switch_off_and_on() {
+    apply_setting(&json!({ "chat_index_enabled": false }));
+    assert!(!enabled());
+    // A settings object without the key changes nothing.
+    apply_setting(&json!({ "checkpoints_enabled": true }));
+    assert!(!enabled());
+    apply_setting(&json!({ "chat_index_enabled": true }));
+    assert!(enabled());
 }

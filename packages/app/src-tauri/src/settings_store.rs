@@ -129,6 +129,8 @@ pub fn load_saved_public_settings(app: &AppHandle) {
     if let Some(state) = app.try_state::<AppState>() {
         *state.public_settings.lock() = merged.clone();
     }
+    // The search index's switch is not in the public mirror (desktop-only setting): read it from the file.
+    crate::chat_index::apply_setting(file.get("settings").unwrap_or(&Value::Null));
     crate::bridge::push_settings_sse(&merged);
     crate::agent_hooks::apply_settings(&merged);
 }

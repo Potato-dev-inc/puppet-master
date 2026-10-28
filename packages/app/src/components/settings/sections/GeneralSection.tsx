@@ -12,6 +12,7 @@ import { tauri, type AppInstallInfo, type CoordinationStorageInfo } from '../../
 import { budgetRows } from './BudgetRows';
 import { AmbientSettings } from '../blocks/AmbientSettings';
 import { AskBarSettingsBlock } from '../blocks/AskBarSettings';
+import { ChatIndexSettings } from '../blocks/ChatIndexSettings';
 import { DiagnosticFile } from '../blocks/DiagnosticFile';
 import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
 import { SharedMemoryToggle } from '../blocks/SharedMemoryToggle';
@@ -372,6 +373,14 @@ export const generalRows: RowDef[] = [
     keywords: 'coordination storage tasks locks events pane events log directory folder refresh',
     group: 'Storage',
     render: (env) => <StorageInfo env={env} />,
+  },
+  {
+    id: 'chat-search-index',
+    label: 'Search index of my chats',
+    hint: 'Keeps redacted text of your chats so Ctrl+Shift+F can find it. It stays on this computer. Clear it any time; your chats are not touched.',
+    keywords: 'keep keeps clear search index chats find ctrl shift f palette history privacy forget saved text',
+    group: 'Storage',
+    render: (env) => <ChatIndexSettings env={env} />,
   },
   {
     id: 'missions',
