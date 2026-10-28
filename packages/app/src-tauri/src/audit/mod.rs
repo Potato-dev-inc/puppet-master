@@ -81,6 +81,8 @@ pub enum Kind {
     IssueIntake,
     /// Night Shift (`crate::night_shift`): one kind for the night's own lines (start, task, stop).
     NightShift,
+    /// Branch from here (`crate::branch_from`): `branch.started`.
+    Branch,
 }
 
 impl Kind {
@@ -117,6 +119,7 @@ impl Kind {
             Self::ChannelError => "channel.error",
             Self::IssueIntake => "issue.intake",
             Self::NightShift => "night_shift",
+            Self::Branch => "branch.started",
         }
     }
 }
