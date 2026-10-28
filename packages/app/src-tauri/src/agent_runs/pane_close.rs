@@ -35,6 +35,11 @@ pub fn release_pristine_worktree(snapshot: &OperationSnapshot) -> bool {
     let Some(worktree) = snapshot.worker.worktree.as_ref().filter(|worktree| worktree.closed.is_none()) else {
         return false;
     };
+    // A run handed over to another agent (Keep going): the new agent works in this copy now, so its
+    // copy is never discarded when the old pane closes.
+    if snapshot.error.as_ref().is_some_and(|error| error.code == crate::operations::HANDED_OFF) {
+        return false;
+    }
     // A run that joined a copy someone else made (a mission's agents share one) never discards
     // it: the copy's owner decides.
     if !snapshot.agent_run_id.is_empty() && !worktree.handle.is_empty() && worktree.handle != snapshot.agent_run_id {
@@ -468,6 +473,32 @@ mod tests {
         crate::pty::registry_kill_pane(&registry, "work-pane").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(500));
         assert!(std::path::Path::new(&worktree.path).join("new.txt").is_file());
+    }
+
+    /// Keep going: a run handed over to another agent is cancelled with `HANDED_OFF`. Its copy is
+    /// empty (the old agent never changed it), but the new agent now works in it: closing the old pane
+    /// must not discard it. The control run (no hand-over) with the same empty copy is discarded.
+    #[test]
+    fn a_pristine_copy_of_a_handed_off_run_is_kept_when_its_pane_closes() {
+        let (project, worktree) = git_repo_with_worktree("handle");
+        let mut snapshot = snapshot_with_pane(&project, "hand-pane", true, true);
+        snapshot.worker.worktree = Some(worktree.clone());
+        snapshot.status = OperationStatus::Cancelled;
+        snapshot.error = Some(crate::operations::OperationError::new(
+            crate::operations::HANDED_OFF,
+            "this task moved to another agent at a usage limit",
+            false,
+        ));
+        assert!(!release_pristine_worktree(&snapshot), "a handed-off copy is never discarded");
+        assert!(std::path::Path::new(&worktree.path).exists());
+        assert!(branch_exists(&project, &worktree.branch));
+
+        let (project, worktree) = git_repo_with_worktree("handle");
+        let mut control = snapshot_with_pane(&project, "plain-pane", true, true);
+        control.worker.worktree = Some(worktree.clone());
+        control.status = OperationStatus::Cancelled;
+        assert!(release_pristine_worktree(&control), "the same empty copy goes without a hand-over");
+        assert!(!std::path::Path::new(&worktree.path).exists());
     }
 
     #[test]

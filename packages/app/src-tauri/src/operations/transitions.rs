@@ -306,6 +306,59 @@ pub fn mark_operation_stopped_at_limit(
     Ok(op)
 }
 
+/// The error code of a run whose work moved to another agent at a usage limit (Keep going,
+/// `crate::handoff::keep_going`). The old run is cancelled, its pane is kept, and a follow-up on its
+/// handle is refused with this code.
+pub const HANDED_OFF: &str = "HANDED_OFF";
+
+/// Hand a run over: any non-terminal run ends as `cancelled` with error `HANDED_OFF` (not
+/// recoverable), stage `handed_off`, and its pane KEPT. Nothing is pressed in the pane. The
+/// terminal state is written here, before the old agent is stopped, so the stop cannot race into
+/// `AGENT_EXITED`. A run that is already terminal is left as it is.
+pub fn mark_operation_handed_off(
+    project: &str,
+    id: &str,
+    context: Value,
+) -> Result<OperationSnapshot, OperationError> {
+    let _serial = update_lock();
+    let mut op = get_operation(project, id)?;
+    if op.status.terminal() {
+        return Ok(op);
+    }
+    op.status = OperationStatus::Cancelled;
+    op.stage = Some("handed_off".into());
+    let mut error = OperationError::new(
+        HANDED_OFF,
+        "this task moved to another agent at a usage limit",
+        false,
+    );
+    error.context = context;
+    op.error = Some(error);
+    op.keep_pane = true;
+    op.required_action = None;
+    op.finished_at_ms = Some(now_ms());
+    bump(&mut op)?;
+    Ok(op)
+}
+
+/// Add where the work went (`{handle, agent_type}`) to a handed-off run's error context, as
+/// `context.continued_by`. A no-op for any run that did not end as `HANDED_OFF`.
+pub fn set_handed_off_to(project: &str, id: &str, continued_by: Value) -> Result<OperationSnapshot, OperationError> {
+    let _serial = update_lock();
+    let mut op = get_operation(project, id)?;
+    let Some(error) = op.error.as_mut().filter(|error| error.code == HANDED_OFF) else {
+        return Ok(op);
+    };
+    if !error.context.is_object() {
+        error.context = Value::Object(serde_json::Map::new());
+    }
+    if let Some(context) = error.context.as_object_mut() {
+        context.insert("continued_by".into(), continued_by);
+    }
+    bump(&mut op)?;
+    Ok(op)
+}
+
 /// Record an idle TUI as settled while leaving task completion explicitly unverified.
 pub fn mark_operation_settled_unverified(
     project: &str,
