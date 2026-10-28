@@ -606,6 +606,7 @@ struct TestEnv {
     present: Cell<bool>,
     published: RefCell<Vec<OperationSnapshot>>,
     marks: RefCell<Vec<String>>,
+    limit_log: RefCell<Vec<crate::plans_report::limit_log::Entry>>,
 }
 
 impl TestEnv {
@@ -619,6 +620,7 @@ impl TestEnv {
             present: Cell::new(true),
             published: RefCell::new(Vec::new()),
             marks: RefCell::new(Vec::new()),
+            limit_log: RefCell::new(Vec::new()),
         }
     }
 
@@ -640,6 +642,7 @@ impl Env for TestEnv {
         self.present.get().then(|| PaneCtx {
             agent_id: "claude".into(),
             agent_label: "Claude Code".into(),
+            account: Some("acct-work".into()),
             project: self.project.to_string_lossy().into_owned(),
             status: self.status.borrow().clone(),
         })
@@ -655,6 +658,9 @@ impl Env for TestEnv {
     }
     fn mark(&self, _pane_id: &str, text: &str) {
         self.marks.borrow_mut().push(text.to_string());
+    }
+    fn log_limit(&self, entry: crate::plans_report::limit_log::Entry) {
+        self.limit_log.borrow_mut().push(entry);
     }
 }
 
@@ -792,6 +798,48 @@ fn a_limit_in_a_pane_without_a_run_still_raises_a_card_but_has_nothing_to_stop()
     assert!(!card.limit.as_ref().unwrap().has_run);
     assert_eq!(card.choices[1].label, "Dismiss");
     assert!(env.published.borrow().is_empty(), "no run, nothing published");
+}
+
+#[test]
+fn an_agent_stays_known_as_limited_after_its_pane_is_gone_until_the_reset() {
+    let env = TestEnv::new();
+    let mut engine = Engine::default();
+    assert_eq!(engine.agent_limit("claude", env.now()), None, "nothing seen yet");
+    hit_the_limit(&env, &mut engine, &claude_screen("usage_session_window"));
+    let reset = engine.agent_limit("claude", env.now()).expect("limited").expect("it printed a reset time");
+    assert_eq!(when_iso(reset as i64, env.clock()), "2026-10-15T17:00");
+    assert_eq!(engine.agent_limit("other", env.now()), None, "only that agent");
+
+    // The pane is closed (a companion moved away from it): the tracker forgets the pane, the agent stays known.
+    engine.tick(&env, &|_| false);
+    assert!(engine.agent_limit("claude", env.now()).is_some());
+
+    // At the reset it is not limited any more.
+    assert_eq!(engine.agent_limit("claude", reset), None);
+}
+
+#[test]
+fn an_agent_is_not_limited_any_more_once_a_pane_of_it_carries_on() {
+    let env = TestEnv::new();
+    let mut engine = Engine::default();
+    hit_the_limit(&env, &mut engine, &claude_screen("usage_session_window"));
+    assert!(engine.agent_limit("claude", env.now()).is_some());
+    // The limit text is gone from the screen: the agent works again.
+    let claude = profile_for("claude");
+    env.advance(1_000);
+    engine.observe(&env, PANE, claude.as_ref(), "> hello
+");
+    engine.tick(&env, &alive);
+    assert_eq!(engine.agent_limit("claude", env.now()), None);
+}
+
+#[test]
+fn a_limit_that_prints_no_reset_is_remembered_for_an_hour() {
+    let env = TestEnv::new();
+    let mut engine = Engine::default();
+    hit_the_limit(&env, &mut engine, &claude_screen("usage_opus_no_reset"));
+    assert_eq!(engine.agent_limit("claude", env.now()), Some(None));
+    assert_eq!(engine.agent_limit("claude", env.now() + card::REMIND_FALLBACK_MS + 1), None);
 }
 
 #[test]
@@ -1306,4 +1354,30 @@ fn the_live_turn_end_entry_point_parks_where_the_mid_turn_one_only_waits() {
     assert_eq!(observe_pane_at_turn_end(&quoting, "claude", &claude_screen("neg_reply_quotes_limit")), Standing::Clear);
     // An agent without limit rules is never held.
     assert_eq!(observe_pane_at_turn_end(&format!("turn-end-{}", uuid::Uuid::new_v4()), "shell", &limit), Standing::Clear);
+}
+
+#[test]
+fn a_limit_is_logged_with_its_agent_and_account_and_logged_again_when_it_is_over() {
+    use crate::plans_report::limit_log::Entry;
+    let env = TestEnv::new();
+    let mut engine = Engine::default();
+    running_run(&env);
+    hit_the_limit(&env, &mut engine, &claude_screen("usage_session_window"));
+    let logged = env.limit_log.borrow().clone();
+    match &logged[..] {
+        [Entry::Start { pane, agent, account, reset_at_ms, .. }] => {
+            assert_eq!(pane, PANE);
+            assert_eq!(agent, "claude");
+            assert_eq!(account.as_deref(), Some("acct-work"));
+            assert!(reset_at_ms.is_some(), "the printed reset time is kept");
+        }
+        other => panic!("one start line expected, got {other:?}"),
+    }
+
+    // The turn resumes: the limit is over.
+    env.advance(60_000);
+    let claude = profile_for("claude");
+    let _ = engine.observe(&env, PANE, claude.as_ref(), "");
+    let logged = env.limit_log.borrow().clone();
+    assert!(matches!(logged.last(), Some(Entry::End { pane, .. }) if pane == PANE), "{logged:?}");
 }

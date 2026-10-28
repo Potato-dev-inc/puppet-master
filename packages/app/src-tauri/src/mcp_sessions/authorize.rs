@@ -318,7 +318,7 @@ fn managed_pane_close_denied(pane_id: &str) -> OperationError {
     error
 }
 
-pub(super) fn route_matches(template: &str, path: &str) -> bool {
+pub fn route_matches(template: &str, path: &str) -> bool {
     let expected: Vec<_> = template.trim_matches('/').split('/').collect();
     let actual: Vec<_> = path.trim_matches('/').split('/').collect();
     expected.len() == actual.len()

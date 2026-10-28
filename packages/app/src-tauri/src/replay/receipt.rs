@@ -57,7 +57,7 @@ impl Env for SimEnv {
         self.now_ms.load(Ordering::SeqCst)
     }
     fn pane(&self, _pane_id: &str) -> Option<PaneInfo> {
-        Some(PaneInfo { cwd: self.cwd.to_string_lossy().into_owned(), label: "Claude Code".into(), has_turns: true })
+        Some(PaneInfo { cwd: self.cwd.to_string_lossy().into_owned(), label: "Claude Code".into(), agent_id: "claude".into(), account: None, has_turns: true })
     }
     fn files(&self, _pane_id: &str, _started_at_ms: u64) -> Option<FileStats> {
         self.files.lock().clone()

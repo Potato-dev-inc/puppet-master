@@ -175,6 +175,8 @@ impl Service {
         for i in 0..inner.profiles.len() {
             if !inner.profiles[i].archived {
                 self.tick_one(&mut inner, i, now);
+                // After the step, so "free" is judged on the state of this very tick.
+                self.move_step(&mut inner, i, now);
             }
         }
         self.publish_if_changed(&mut inner, now);
@@ -346,13 +348,14 @@ impl Service {
         Ok(())
     }
 
-    /// Writes the brief into the agent's instruction file (the `today.md` rule only when it is on).
+    /// Writes the brief into the agent's instruction file (the `today.md` rule only when it is on, the `companion_recall` rule only while the search index is on).
     /// Returns the agent's instruction files.
     pub(super) fn write_brief(&self, profile: &CompanionProfile) -> Result<Vec<crate::tui::InstructionFile>, String> {
         let home = Path::new(&profile.folder);
         let texts = memory::snapshot(&self.root, &profile.id, home).map_err(|e| e.to_string())?;
         let instruction_files = self.host.instruction_files(&profile.agent_type);
-        let text = brief::compose_with(&profile.name, &texts, profile.share_today);
+        let rules = brief::Rules { share_today: profile.share_today, recall: self.host.recall_on() };
+        let text = brief::compose_rules(&profile.name, &texts, rules);
         brief::write(home, &text, &instruction_files).map_err(|e| e.to_string())?;
         Ok(instruction_files)
     }
@@ -558,6 +561,7 @@ impl Service {
     pub(super) fn view_of(&self, inner: &Inner, i: usize, now: i64) -> CompanionView {
         let profile = &inner.profiles[i];
         let offset = self.host.offset_secs();
+        let previous_label = profile.previous_agent.as_ref().map(|p| self.host.agent_label(&p.agent_type));
         let live = match inner.slots.get(&profile.id) {
             Some(slot) => view::Live {
                 state: slot.state,
@@ -568,6 +572,12 @@ impl Service {
                 next_checkin: schedule::next(now, offset, &profile.checkins, &slot.runtime.last_runs),
                 restarts: slot.keeper.restarts() as u32,
                 agent_label: slot.agent_label.clone(),
+                previous_agent_label: previous_label,
+                queued_move: slot.runtime.pending_move.as_ref().map(|m| super::model::QueuedMove {
+                    agent_type: m.agent_type.clone(),
+                    agent_label: self.host.agent_label(&m.agent_type),
+                    until_ms: m.until_ms,
+                }),
             },
             None => view::Live {
                 state: CompanionState::Sleeping,
@@ -578,6 +588,8 @@ impl Service {
                 next_checkin: None::<NextCheckIn>,
                 restarts: 0,
                 agent_label: profile.agent_type.clone(),
+                previous_agent_label: previous_label,
+                queued_move: None,
             },
         };
         view::build(profile, &live)

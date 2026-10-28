@@ -147,8 +147,14 @@ describe('CompanionPage', () => {
     expect(host.querySelector('.ck-companion-rail')?.textContent).toContain('Claude Code');
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Hide details"]')!.click());
     expect(host.querySelector('.ck-companion-rail')).toBeNull();
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Show details"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Show details"]')!.click());
     expect(host.querySelector('.ck-companion-rail')).not.toBeNull();
+  });
+
+  it('the Setup card has the agent picker; a move that waits is said under the state line too', async () => {
+    await render(view({ state: 'working', stateLine: 'Working…', queuedMove: { agentType: 'codex', agentLabel: 'Codex', untilMs: null } }));
+    expect(host.querySelector('.ck-companion-rail select[aria-label="Agent"]')).not.toBeNull();
+    expect(host.querySelector('.ck-companion-head')?.textContent).toContain('Moves when Mochi is free');
   });
 
   it('the name is renamed in place and saved on leaving the field', async () => {

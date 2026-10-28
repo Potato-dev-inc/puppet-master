@@ -210,3 +210,35 @@ fn the_tools_are_listed_in_all_mode_and_callable_by_name_in_agent_mode_only() {
         assert!(ensure_tool_mode(name).is_err(), "{name} is not callable in shell mode");
     }
 }
+
+// ---- companion_recall (the same mock bridge) ----
+
+#[test]
+fn companion_recall_is_one_request_with_the_arguments_untouched_and_the_apps_refusal_reaches_the_agent() {
+    let refusal = json!({ "code": "COMPANION_ONLY", "error": "Only a companion.", "message": "Only a companion.", "recoverable": false, "context": {} });
+    let _run = start(vec![(200, json!({ "enabled": true, "results": [] })), (403, refusal)]);
+    let args = json!({ "query": "green tea", "limit": 3 });
+    let ok = call_tool(json!({ "name": "companion_recall", "arguments": args.clone() })).unwrap();
+    assert_eq!(ok["structuredContent"]["enabled"], true);
+    let sent = log().last().cloned().unwrap();
+    assert_eq!((sent.path.as_str(), sent.body.clone()), ("/companion/recall", args));
+    assert_eq!(sent.session.as_deref(), Some("shim-team-test-session"));
+    // From a pane that is not a companion's, the app says no and the agent reads the code.
+    let error = error_of(call_tool(json!({ "name": "companion_recall", "arguments": { "query": "tea" } })));
+    assert_eq!(error["code"], "COMPANION_ONLY");
+}
+
+#[test]
+fn companion_recall_is_listed_only_for_an_agent_started_in_a_companion_pane() {
+    let _run = start(vec![]);
+    let names = |pane: Option<&str>| -> Vec<String> {
+        stdio::mcp_tools_for_pane(pane.map(str::to_string)).iter().map(|t| t["name"].as_str().unwrap().to_string()).collect()
+    };
+    assert!(names(Some("companion-mochi")).contains(&"companion_recall".to_string()));
+    assert!(!names(Some("5f3c-ordinary-pane")).contains(&"companion_recall".to_string()));
+    assert!(!names(None).contains(&"companion_recall".to_string()));
+    // Added once, never doubled, next to the usual agent tools.
+    let listed = names(Some("companion-mochi"));
+    assert_eq!(listed.iter().filter(|n| *n == "companion_recall").count(), 1);
+    assert!(listed.contains(&"run_agent".to_string()));
+}

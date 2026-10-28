@@ -9,7 +9,7 @@ import '../../styles/cockpit-chat-search.css';
 import { ChatHitDetail, ChatHitRows, SEARCH_CHATS_HINT, SEARCH_CHATS_TITLE } from './ChatHits';
 import { T as WELCOME } from '../firstrun/copy';
 import { DotSpinner } from './DotSpinner';
-import { IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSearch, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
+import { IconChart, IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSearch, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 import { settingsShortcuts } from './palette-shortcuts';
 import { useMissionsEnabled } from '../../lib/missions';
@@ -41,8 +41,10 @@ export function Palette({
   onOpenDoctor,
   onStopAll,
   onOpenMemory,
+  onOpenPlans,
   onUndoLastTurn,
   onOpenWelcome,
+  onStartCrew,
   companions,
   onOpenCompanion,
   onNewCompanion,
@@ -54,10 +56,13 @@ export function Palette({
   onOpenDoctor?: () => void;
   onStopAll?: () => void;
   onOpenMemory?: () => void;
+  onOpenPlans?: () => void;
   /** Opens the restore confirmation for the pane's last turn (never restores by itself). */
   onUndoLastTurn?: (paneId: string) => void;
   /** Shows the first-run welcome again. */
   onOpenWelcome?: () => void;
+  /** Opens "Start crew": pick a saved team of agents and a folder. */
+  onStartCrew?: () => void;
   /** The companions (null: no companion backend). Each one gets an "Open {name}" row. */
   companions?: CompanionView[] | null;
   onOpenCompanion?: (id: string) => void;
@@ -204,6 +209,17 @@ export function Palette({
         run: onOpenWelcome,
       });
     }
+    if (onStartCrew) {
+      out.push({
+        id: 'act:start-crew',
+        group: 'Actions',
+        title: 'Start crew…',
+        desc: 'Start a saved team of agents in a folder',
+        keywords: 'crew team helpers saved template',
+        icon: <IconLayers />,
+        run: onStartCrew,
+      });
+    }
     if (onOpenMemory) {
       out.push({
         id: 'act:memory',
@@ -213,6 +229,17 @@ export function Palette({
         keywords: 'project memory copies setup',
         icon: <IconNote />,
         run: onOpenMemory,
+      });
+    }
+    if (onOpenPlans) {
+      out.push({
+        id: 'act:plans',
+        group: 'Actions',
+        title: 'Your plans',
+        desc: 'What each plan did this month: turns, time, files and limits',
+        keywords: 'plans month usage limit subscription account turns time',
+        icon: <IconChart />,
+        run: onOpenPlans,
       });
     }
     out.push(...settingsShortcuts(c, { missionsOn, projectPath: c.selectedId ? (c.registry.panes.get(c.selectedId)?.info?.cwd ?? null) : null }));
@@ -249,7 +276,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn, onOpenWelcome, missionsOn, companions, onOpenCompanion, onNewCompanion]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onUndoLastTurn, onOpenWelcome, onStartCrew, missionsOn, companions, onOpenCompanion, onNewCompanion]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

@@ -5,6 +5,7 @@ pub(super) fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String
         ("GET", ["health"]) => Some("bridge_health".to_string()),
         ("GET", ["agent-contexts"]) => Some("list_agent_contexts".to_string()),
         ("POST", ["questions", "ask"]) => Some("ask_user".to_string()),
+        ("POST", ["companion", "recall"]) => Some("companion_recall".to_string()),
         ("POST", ["team", "agent", "roster"]) => Some("team_roster".to_string()),
         ("POST", ["team", "agent", "events"]) => Some("team_events".to_string()),
         ("POST", ["team", "agent", "wait"]) => Some("team_wait".to_string()),

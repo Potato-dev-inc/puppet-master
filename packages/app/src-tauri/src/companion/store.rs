@@ -45,6 +45,18 @@ pub struct Runtime {
     pub last_runs: BTreeMap<String, i64>,
     pub sent_today: SentToday,
     pub last_nap_ms: Option<i64>,
+    /// A move that waits until the companion is free (`moving.rs`).
+    pub pending_move: Option<PendingMove>,
+}
+
+/// A move to another agent that has not run yet: the person asked while the companion was busy, or the
+/// time of a timed move came.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingMove {
+    pub agent_type: String,
+    /// When this move ends (a timed move); `None` = it stays.
+    pub until_ms: Option<i64>,
 }
 
 /// `<root>/companions.json`.
@@ -185,8 +197,11 @@ mod tests {
             share_today: false,
             nap_at: Some(HhMm { h: 4, m: 0 }),
             checkins: vec![],
+            previous_agent: None,
+            until_ms: None,
             created_ms: 1,
             archived: false,
+            pane_ids: Vec::new(),
         }
     }
 

@@ -17,6 +17,7 @@ import { panesSharingFolder } from './components/cockpit/history-model';
 import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SettingsView } from './components/cockpit/SettingsView';
+import { PlansMonth } from './components/cockpit/PlansMonth';
 import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
@@ -32,7 +33,10 @@ import { SplitView, useWindowWidth } from './components/cockpit/SplitView';
 import { useCompanions } from './hooks/useCompanions';
 import { tauriCompanionTransport } from './lib/companion';
 import { CompanionPage } from './components/cockpit/companion/CompanionPage';
+import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './components/cockpit/companion/model';
 import { CompanionSetupSheet } from './components/cockpit/companion/CompanionSetupSheet';
+import { StartCrewSheet } from './components/cockpit/crews/StartCrewSheet';
+import { agentLabel, useAgentRegistry } from './lib/agentRegistry';
 import './styles/cockpit.css';
 
 export type { MainView } from './components/cockpit/main-view';
@@ -47,9 +51,18 @@ export default function CockpitApp() {
   // A new selection or spawn state (a pane closing, an agent starting, a digest opening a pane)
   // returns to the resting view. Done while rendering, so no frame shows a stale view.
   const [seen, setSeen] = useState({ spawn: c.spawn, selectedId: c.selectedId });
+  const [companionId, setCompanionId] = useState<string | null>(null);
   if (seen.spawn !== c.spawn || seen.selectedId !== c.selectedId) {
     setSeen({ spawn: c.spawn, selectedId: c.selectedId });
-    setView(homeView(c.spawn !== null, c.selectedId));
+    // A companion's pane closes and starts again by itself (a move, a restart, a nap). Whoever was looking at it
+    // lands back on the companion's page, not on the Inbox.
+    const lostCompanionPane = c.spawn === null && c.selectedId === null && seen.selectedId !== null && isCompanionPaneId(seen.selectedId);
+    if (lostCompanionPane) {
+      setCompanionId(seen.selectedId!.slice(COMPANION_PANE_PREFIX.length));
+      setView('companion');
+    } else {
+      setView(homeView(c.spawn !== null, c.selectedId));
+    }
   }
   // The split view (main-view.ts): the pane on the right, and which side has focus. The left side is the selected pane.
   const [split, setSplit] = useState<string | null>(null);
@@ -68,8 +81,10 @@ export default function CockpitApp() {
   // Companions (SPEC section 8): the sidebar rows, the page that opens from one, and the setup sheet. Without a
   // companion backend the list is null and the palette and sidebar show no companion entries.
   const companions = useCompanions();
-  const [companionId, setCompanionId] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  // "Start crew…" (crews): pick a saved team and a folder.
+  const [crewOpen, setCrewOpen] = useState(false);
+  const agentListing = useAgentRegistry();
   const companion = companions.companions?.find((x) => x.id === companionId) ?? null;
   const openCompanion = (id: string) => {
     setCompanionId(id);
@@ -207,6 +222,7 @@ export default function CockpitApp() {
         }}
         onOpenDoctor={() => setView('doctor')}
         onOpenMemory={() => setView('memory')}
+        onOpenPlans={() => setView('plans')}
         companions={companions.companions}
         openCompanionId={view === 'companion' ? companionId : null}
         onOpenCompanion={openCompanion}
@@ -235,6 +251,8 @@ export default function CockpitApp() {
             project={c.selectedId ? projectOfCwd(c.registry.panes.get(c.selectedId)?.info.cwd)?.path : undefined}
             onClose={closeOverlay}
           />
+        ) : view === 'plans' ? (
+          <PlansMonth onClose={closeOverlay} />
         ) : view === 'settings' ? (
           <SettingsView key={settings.viewKey} {...settings.viewProps} />
         ) : view === 'spawn' && c.spawn ? (
@@ -264,6 +282,10 @@ export default function CockpitApp() {
             onSetUp={welcomeSetUp}
             companions={companions.companions}
             onRestartCompanion={(id) => tauriCompanionTransport.restart(id).finally(companions.refresh)}
+            companionTransport={{
+              agents: () => tauriCompanionTransport.agents(),
+              update: (id, patch) => tauriCompanionTransport.update(id, patch).finally(companions.refresh),
+            }}
           />
         )}
         {away.digest && c.mode !== 'individual' && (
@@ -291,11 +313,20 @@ export default function CockpitApp() {
           onOpenDoctor={() => setView('doctor')}
           onStopAll={stopAll}
           onOpenMemory={() => setView('memory')}
+          onOpenPlans={() => setView('plans')}
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}
+          onStartCrew={() => setCrewOpen(true)}
           companions={companions.companions}
           onOpenCompanion={openCompanion}
           onNewCompanion={companions.companions ? () => setSetupOpen(true) : undefined}
+        />
+      )}
+      {crewOpen && (
+        <StartCrewSheet
+          defaultFolder={c.selectedId ? (c.registry.panes.get(c.selectedId)?.info.cwd ?? null) : null}
+          agentName={(id) => agentLabel(agentListing, id)}
+          onClose={() => setCrewOpen(false)}
         />
       )}
       {setupOpen && (

@@ -23,6 +23,8 @@ pub(super) struct Request {
     pub headers_raw: String,
     pub body: Vec<u8>,
     pub peer_loopback: bool,
+    /// Both ends of the connection, for the checks that need to know which process is calling.
+    pub peer: Option<crate::companion::peer::Peer>,
 }
 
 /// Read one request off the socket. `Ok(None)` means the peer closed without sending anything.
@@ -91,6 +93,10 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Result<Option<Request>, St
         headers_raw,
         body,
         peer_loopback,
+        peer: stream
+            .peer_addr()
+            .and_then(|remote| stream.local_addr().map(|local| crate::companion::peer::Peer { local, remote }))
+            .ok(),
     }))
 }
 
@@ -194,6 +200,7 @@ pub(super) fn handle_connection(
         headers_raw,
         body,
         peer_loopback,
+        peer,
     } = req;
     let (method, target, body) = (method.as_str(), target.as_str(), body.as_slice());
 
@@ -290,6 +297,7 @@ pub(super) fn handle_connection(
         &app,
         &headers_raw,
         peer_loopback,
+        peer,
     );
     if let Some(tool) = bridge_tool {
         let (status, ok) = match &result {

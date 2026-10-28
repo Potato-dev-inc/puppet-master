@@ -1,6 +1,7 @@
 //! Maps a `tools/call` name to the family module that owns its bridge request.
 
 mod agents;
+mod companion;
 mod coordination;
 mod opencode;
 mod operations;
@@ -25,5 +26,6 @@ pub(super) fn dispatch(
         .or_else(|| operations::dispatch(name, args, cancel_rx))
         .or_else(|| opencode::dispatch(name, args, cancel_rx))
         .or_else(|| team::dispatch(name, args, cancel_rx))
+        .or_else(|| companion::dispatch(name, args, cancel_rx))
         .unwrap_or_else(|| Err(format!("unknown tool: {name}")))
 }

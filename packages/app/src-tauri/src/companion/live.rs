@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 
-use super::host::{Blocking, FinishedTurn, Host, Reply, SpawnSpec};
+use super::host::{AgentLimit, Blocking, FinishedTurn, Host, RecallAnswer, RecallHit, Reply, SpawnSpec};
 use super::keeper::Pane;
 use super::model::CompanionView;
 use super::service::Service;
@@ -249,6 +249,33 @@ impl Host for LiveHost {
         }
     }
 
+    fn recall_on(&self) -> bool {
+        crate::chat_index::enabled()
+    }
+
+    fn recall(&self, panes: &[String], query: &str, limit: usize) -> RecallAnswer {
+        let off = RecallAnswer { enabled: false, hits: Vec::new() };
+        if !crate::chat_index::enabled() {
+            return off;
+        }
+        let Some(chat) = self.app.try_state::<SessionChatState>() else { return off };
+        let Some(index) = chat.index(&self.registry) else { return off };
+        match index.search_in(query, limit, panes) {
+            Ok(answer) => RecallAnswer {
+                enabled: answer.enabled,
+                hits: answer
+                    .hits
+                    .into_iter()
+                    .map(|hit| RecallHit { at_ms: hit.at_ms, kind: hit.kind, snippet: hit.snippet })
+                    .collect(),
+            },
+            Err(error) => {
+                tracing::warn!(%error, "companion recall: search failed");
+                RecallAnswer { enabled: true, hits: Vec::new() }
+            }
+        }
+    }
+
     fn raise_stopped(&self, companion_id: &str, name: &str) {
         attention::raise(Raised {
             key: format!("companion:{companion_id}"),
@@ -276,6 +303,10 @@ impl Host for LiveHost {
 
     fn instruction_files(&self, agent_type: &str) -> Vec<InstructionFile> {
         crate::tui::profile_for(agent_type).instruction_files()
+    }
+
+    fn agent_limit(&self, agent_type: &str) -> Option<AgentLimit> {
+        crate::handoff::agent_limit(agent_type).map(|reset| AgentLimit { reset_at_ms: reset.and_then(|r| i64::try_from(r).ok()) })
     }
 
     fn publish(&self, views: &[CompanionView]) {

@@ -86,9 +86,48 @@ pub struct CompanionProfile {
     pub nap_at: Option<HhMm>,
     #[serde(default)]
     pub checkins: Vec<CheckIn>,
+    /// Where it was before a move (`moving.rs`): the agent it goes back to, with the args and account it
+    /// had there. Set whenever it was moved; cleared when it is back.
+    #[serde(default)]
+    pub previous_agent: Option<PreviousAgent>,
+    /// When a timed move ends and it goes back to `previous_agent` (epoch ms). `None` = it stays.
+    #[serde(default)]
+    pub until_ms: Option<i64>,
     pub created_ms: i64,
     #[serde(default)]
     pub archived: bool,
+    /// Every pane id this companion's chats were kept under, current and past (`companion-<id>` always, plus any
+    /// older one saved here). `companion_recall` searches these and nothing else.
+    #[serde(default)]
+    pub pane_ids: Vec<String>,
+}
+
+impl CompanionProfile {
+    /// The pane ids whose chats belong to this companion: its own `companion-<id>` and every one saved in
+    /// `pane_ids` (once each). A saved id counts only when it is `companion-<id>` or `companion-<id>-...`: a damaged
+    /// file can never point recall at another companion's chats or at an agent pane.
+    pub fn chat_panes(&self) -> Vec<String> {
+        let own = super::service::pane_id_of(&self.id);
+        let own_prefix = format!("{own}-");
+        let mut panes = vec![own];
+        for pane in &self.pane_ids {
+            if pane.starts_with(&own_prefix) && !panes.contains(pane) {
+                panes.push(pane.clone());
+            }
+        }
+        panes
+    }
+}
+
+/// The agent a companion left when it moved, with the settings that belong to that agent.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviousAgent {
+    pub agent_type: String,
+    #[serde(default)]
+    pub launch_args: Vec<String>,
+    #[serde(default)]
+    pub account: Option<String>,
 }
 
 /// Local time of day, 0..=23 and 0..=59.
@@ -175,6 +214,23 @@ pub struct CompanionView {
     pub push_replies: bool,
     /// Whether the companion sees the day's turns (`CompanionProfile::share_today`).
     pub share_today: bool,
+    /// The display name of the agent it moved from (`CompanionProfile::previous_agent`).
+    pub previous_agent_label: Option<String>,
+    /// The id of that agent, so the picker can offer "Move back".
+    pub previous_agent: Option<String>,
+    /// When a timed move ends (epoch ms).
+    pub until_ms: Option<i64>,
+    /// A move that waits until the companion is free.
+    pub queued_move: Option<QueuedMove>,
+}
+
+/// A move that is waiting for the companion to be free ("Moves when Mochi is free").
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedMove {
+    pub agent_type: String,
+    pub agent_label: String,
+    pub until_ms: Option<i64>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -236,6 +292,9 @@ pub enum FeedKind {
     Restarted,
     NeedsYou,
     Memory,
+    Moved,
+    /// The companion started a helper agent ('Mochi started a Codex helper in demo-a').
+    Delegated,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

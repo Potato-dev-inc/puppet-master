@@ -20,22 +20,38 @@
 //! - `host`: what the service needs from the app (`Host` trait); `live` implements it over the real
 //!   registry, outbox, attention list and session chat, and runs the thread `companion-keeper`
 //! - `service`: the tick over every companion; `manage`: create, edit, wake, sleep, memory, check-ins
+//! - `moving`: move a companion to another agent and back (never while it is busy)
 //! - `today`: `today.md`, the day's turns of the person's other agents (opt-in per companion)
 //! - `view`: `CompanionView` for the desktop (with the folder) and the phone (without)
+//!
+//! The foreman side (it finds what was said, it hires helpers):
+//!
+//! - `recall`: `companion_recall`, a search of the companion's own past chats (`memory/pending.md` stays
+//!   the only way to remember: there is no second memory path)
+//! - `caller`: is this MCP connection really inside a companion's pane (the process tree, not a header)
+//! - `delegate`: the `delegated` feed line, the helper turn budget, the home-folder rule
+//! - `guard`: the hard rule, a companion never answers a helper's trust, permission or question card
+//! - `peer`: the same rule for a plain loopback request (a shell `curl`): who owns the TCP connection
 //!
 //! Only `live.rs` starts a thread or a process, and nothing here names an agent. A message to the agent
 //! goes through `pane_outbox` only: the companion never types into a pane or answers its dialogs.
 
 pub mod agents;
 pub mod brief;
+pub mod caller;
+pub mod delegate;
 pub mod files;
+pub mod guard;
 pub mod host;
 pub mod keeper;
 pub mod live;
 pub mod manage;
 pub mod memory;
 pub mod model;
+pub mod moving;
+pub mod peer;
 pub mod personas;
+pub mod recall;
 pub mod schedule;
 pub mod service;
 pub mod store;
@@ -44,6 +60,10 @@ pub mod view;
 
 pub use service::Service;
 
+#[cfg(test)]
+mod foreman_tests;
+#[cfg(test)]
+mod move_tests;
 #[cfg(test)]
 mod service_tests;
 #[cfg(test)]

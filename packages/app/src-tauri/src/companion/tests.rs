@@ -44,8 +44,11 @@ fn fixture() -> Fixture {
         share_today: false,
         nap_at: Some(HhMm { h: 4, m: 0 }),
         checkins: vec![],
+        previous_agent: None,
+        until_ms: None,
         created_ms: 1,
         archived: false,
+        pane_ids: Vec::new(),
     };
     files::ensure_home(&root, &profile).unwrap();
     Fixture { root, home, profile }

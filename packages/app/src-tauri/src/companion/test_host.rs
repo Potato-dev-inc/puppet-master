@@ -10,7 +10,7 @@ use chrono::TimeZone;
 use parking_lot::Mutex;
 use serde_json::json;
 
-use super::host::{Blocking, FinishedTurn, Host, Reply, SpawnSpec};
+use super::host::{AgentLimit, Blocking, FinishedTurn, Host, RecallAnswer, RecallHit, Reply, SpawnSpec};
 use super::keeper::{Pane, Status};
 use super::manage::Draft;
 use super::model::CompanionView;
@@ -43,10 +43,20 @@ pub struct FakeHost {
     pub spawn_error: Mutex<Option<String>>,
     pub send_error: Mutex<Option<String>>,
     pub files: Mutex<Vec<InstructionFile>>,
+    /// Instruction files of one agent (id), when it differs from `files`.
+    pub files_of: Mutex<HashMap<String, Vec<InstructionFile>>>,
     /// `reply_pushed` calls: (companion id, name, text, enabled).
     pub pushed: Mutex<Vec<(String, String, String, bool)>>,
     /// The turns `finished_turns` lists (the turn summaries).
     pub turns: Mutex<Vec<FinishedTurn>>,
+    /// Agents at a usage limit: id -> when it ends.
+    pub limits: Mutex<HashMap<String, Option<i64>>>,
+    /// Agents `agent_ok` refuses (by id), besides the single `agent_error` for all.
+    pub refused: Mutex<Vec<String>>,
+    /// The chat search index: on or off, what it holds (pane, hit), and the pane lists it was asked about.
+    pub recall_enabled: AtomicBool,
+    pub recall_hits: Mutex<Vec<(String, RecallHit)>>,
+    pub recall_asked: Mutex<Vec<Vec<String>>>,
 }
 
 impl FakeHost {
@@ -72,9 +82,19 @@ impl FakeHost {
             spawn_error: Mutex::new(None),
             send_error: Mutex::new(None),
             files: Mutex::new(Vec::new()),
+            files_of: Mutex::new(HashMap::new()),
             pushed: Mutex::new(Vec::new()),
             turns: Mutex::new(Vec::new()),
+            limits: Mutex::new(HashMap::new()),
+            refused: Mutex::new(Vec::new()),
+            recall_enabled: AtomicBool::new(false),
+            recall_hits: Mutex::new(Vec::new()),
+            recall_asked: Mutex::new(Vec::new()),
         })
+    }
+
+    pub fn now(&self) -> i64 {
+        self.now.load(Ordering::SeqCst)
     }
 
     pub fn advance_ms(&self, ms: i64) {
@@ -171,6 +191,23 @@ impl Host for FakeHost {
         self.released.lock().push(pane_id.to_string());
     }
 
+    fn recall_on(&self) -> bool {
+        self.recall_enabled.load(Ordering::SeqCst)
+    }
+
+    /// Like the real index: only the chats of the panes asked for, newest first, at most `limit`.
+    fn recall(&self, panes: &[String], _query: &str, limit: usize) -> RecallAnswer {
+        self.recall_asked.lock().push(panes.to_vec());
+        if !self.recall_enabled.load(Ordering::SeqCst) {
+            return RecallAnswer { enabled: false, hits: Vec::new() };
+        }
+        let mut hits: Vec<RecallHit> =
+            self.recall_hits.lock().iter().filter(|(pane, _)| panes.contains(pane)).map(|(_, hit)| hit.clone()).collect();
+        hits.sort_by_key(|hit| std::cmp::Reverse(hit.at_ms));
+        hits.truncate(limit);
+        RecallAnswer { enabled: true, hits }
+    }
+
     fn raise_stopped(&self, companion_id: &str, _name: &str) {
         self.raised.lock().push(companion_id.to_string());
     }
@@ -179,7 +216,10 @@ impl Host for FakeHost {
         self.cleared.lock().push(companion_id.to_string());
     }
 
-    fn agent_ok(&self, _agent_type: &str, _folder: &str) -> Result<(), String> {
+    fn agent_ok(&self, agent_type: &str, _folder: &str) -> Result<(), String> {
+        if self.refused.lock().iter().any(|id| id == agent_type) {
+            return Err("This agent is not installed on this computer.".to_string());
+        }
         match self.agent_error.lock().clone() {
             Some(reason) => Err(reason),
             None => Ok(()),
@@ -190,8 +230,15 @@ impl Host for FakeHost {
         format!("Agent {agent_type}")
     }
 
-    fn instruction_files(&self, _agent_type: &str) -> Vec<InstructionFile> {
+    fn instruction_files(&self, agent_type: &str) -> Vec<InstructionFile> {
+        if let Some(own) = self.files_of.lock().get(agent_type) {
+            return own.clone();
+        }
         self.files.lock().clone()
+    }
+
+    fn agent_limit(&self, agent_type: &str) -> Option<AgentLimit> {
+        self.limits.lock().get(agent_type).map(|reset_at_ms| AgentLimit { reset_at_ms: *reset_at_ms })
     }
 
     fn publish(&self, views: &[CompanionView]) {

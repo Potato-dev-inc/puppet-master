@@ -65,6 +65,8 @@ pub fn limit_gate(profile: &dyn TuiProfile, screen: &str) -> Option<StartupGate>
 pub struct PaneCtx {
     pub agent_id: String,
     pub agent_label: String,
+    /// The account (id) the pane runs under; `None` = the agent's own login.
+    pub account: Option<String>,
     pub project: String,
     pub status: String,
 }
@@ -77,6 +79,8 @@ pub trait Env {
     fn publish(&self, snapshot: &OperationSnapshot);
     /// A flight-recorder decision marker.
     fn mark(&self, pane_id: &str, text: &str);
+    /// A line for the usage-limit log behind "Your plans" (`crate::plans_report`). Default: none.
+    fn log_limit(&self, _entry: crate::plans_report::limit_log::Entry) {}
 }
 
 struct CardRef {
@@ -93,6 +97,14 @@ pub struct Reminder {
     pub due_ms: u64,
 }
 
+/// An agent that hit its usage limit, remembered by the agent (not the pane) so that it is still known
+/// after the pane is closed: a companion that moved away from it asks before it moves back.
+struct LimitNote {
+    pane_id: String,
+    reset_at_ms: Option<u64>,
+    since_ms: u64,
+}
+
 /// The detection engine: the tracker, the card each pane raised and the reminders people asked for.
 #[derive(Default)]
 pub struct Engine {
@@ -100,6 +112,7 @@ pub struct Engine {
     cards: HashMap<String, CardRef>,
     reminders: Vec<Reminder>,
     reminders_path: Option<PathBuf>,
+    limited_agents: HashMap<String, LimitNote>,
 }
 
 impl Engine {
@@ -180,12 +193,33 @@ impl Engine {
         }
     }
 
+    /// Whether `agent_id` is known to be at a usage limit at `now_ms`. `Some(reset)`: the limit, with the
+    /// moment it said it ends (`None` = it did not say). It is forgotten at the reset, an hour after a
+    /// limit that gave none, and as soon as a pane of that agent carries on.
+    pub fn agent_limit(&self, agent_id: &str, now_ms: u64) -> Option<Option<u64>> {
+        let note = self.limited_agents.get(agent_id)?;
+        let live = match note.reset_at_ms {
+            Some(reset) => reset > now_ms,
+            None => note.since_ms.saturating_add(card::REMIND_FALLBACK_MS) > now_ms,
+        };
+        live.then_some(note.reset_at_ms)
+    }
+
     fn fire(&mut self, env: &dyn Env, pane_id: &str, hit: &LimitHit) {
         let Some(ctx) = env.pane(pane_id) else { return };
+        let since_ms = env.clock().now_ms().max(0) as u64;
+        self.limited_agents.insert(ctx.agent_id.clone(), LimitNote { pane_id: pane_id.to_string(), reset_at_ms: hit.reset_at_ms, since_ms });
         env.mark(
             pane_id,
             &format!("limit:detected {} {} reset={}", hit.rule_id, hit.window.as_deref().unwrap_or("-"), hit.reset_text.as_deref().unwrap_or("-")),
         );
+        env.log_limit(crate::plans_report::limit_log::Entry::Start {
+            at_ms: env.clock().now_ms().max(0) as u64,
+            pane: pane_id.to_string(),
+            agent: ctx.agent_id.clone(),
+            account: ctx.account.clone(),
+            reset_at_ms: hit.reset_at_ms,
+        });
         let run = crate::operations::active_operation_for_pane(&ctx.project, pane_id).ok().flatten();
         let mut operation_id = None;
         if let Some(run) = &run {
@@ -204,6 +238,10 @@ impl Engine {
 
     fn clear(&mut self, env: &dyn Env, pane_id: &str, hit: &LimitHit, why: Cleared) {
         env.mark(pane_id, &format!("limit:cleared {} {why:?}", hit.rule_id));
+        env.log_limit(crate::plans_report::limit_log::Entry::End { at_ms: env.clock().now_ms().max(0) as u64, pane: pane_id.to_string() });
+        if why != Cleared::Replaced {
+            self.limited_agents.retain(|_, note| note.pane_id != pane_id);
+        }
         let Some(card) = self.cards.remove(pane_id) else { return };
         let now = env.clock().now_ms().max(0) as u64;
         // The card goes away with the limit. (Dismissing an answered card is a no-op.)
@@ -359,7 +397,7 @@ impl Env for LiveEnv {
             .find(|d| d.id == info.agent_type)
             .map(|d| d.label)
             .unwrap_or_else(|| info.agent_type.clone());
-        Some(PaneCtx { agent_id: info.agent_type, agent_label, project, status: info.status })
+        Some(PaneCtx { agent_id: info.agent_type, agent_label, account: info.account, project, status: info.status })
     }
 
     fn questions(&self) -> &QuestionStore {
@@ -383,6 +421,16 @@ impl Env for LiveEnv {
 
     fn mark(&self, pane_id: &str, text: &str) {
         crate::flight::mark(pane_id, text);
+    }
+
+    fn log_limit(&self, entry: crate::plans_report::limit_log::Entry) {
+        // Unit tests never write to the real app-data folder.
+        #[cfg(not(test))]
+        {
+            let _ = crate::plans_report::limit_log::append(&crate::plans_report::limit_log::default_path(), &entry);
+        }
+        #[cfg(test)]
+        let _ = entry;
     }
 }
 
@@ -417,6 +465,15 @@ pub fn observe_pane_at_turn_end(pane_id: &str, agent_type: &str, screen: &str) -
 
 /// Once a second, from the pane-activity ticker.
 pub fn tick(alive: &dyn Fn(&str) -> bool) {
+    #[cfg(not(test))]
+    {
+        // The usage-limit log begins with the first tick, so "Your plans" can say since when it counts.
+        static BEGUN: std::sync::Once = std::sync::Once::new();
+        BEGUN.call_once(|| {
+            let now = SystemClock.now_ms().max(0) as u64;
+            crate::plans_report::limit_log::ensure_begun(&crate::plans_report::limit_log::default_path(), now);
+        });
+    }
     let changed = ENGINE.lock().tick(&LiveEnv, alive);
     for pane_id in changed {
         crate::pane_activity::invalidate(&pane_id);
@@ -435,6 +492,19 @@ pub fn on_resolved(question: &Question) {
 /// as idle and un-parking it.
 pub fn active_limit_action(pane_id: &str) -> Option<Value> {
     ENGINE.lock().parked_action(&LiveEnv, pane_id)
+}
+
+/// A limit is on this pane's screen right now and has been acted on (for "Your plans": a limit with no
+/// recorded end that is still on a live pane lasts until now).
+pub fn is_parked(pane_id: &str) -> bool {
+    ENGINE.lock().tracker.parked(pane_id).is_some()
+}
+
+/// Whether the agent is known to be at a usage limit now, with the reset moment when it printed one
+/// (epoch ms). Seen by the detector on any of its panes, kept after that pane is closed.
+pub fn agent_limit(agent_id: &str) -> Option<Option<u64>> {
+    let now = SystemClock.now_ms().max(0) as u64;
+    ENGINE.lock().agent_limit(agent_id, now)
 }
 
 /// The pane's status line while a limit is on screen (waiting at a usage limit, or retrying a
