@@ -18,6 +18,7 @@ import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SettingsView } from './components/cockpit/SettingsView';
 import { PlansMonth } from './components/cockpit/PlansMonth';
+import { MorningPage } from './components/cockpit/night/MorningPage';
 import { AgentScores } from './components/cockpit/AgentScores';
 import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
@@ -42,6 +43,9 @@ import { ShortcutsSheet } from './components/cockpit/ShortcutsSheet';
 import { isTypingTarget } from './components/cockpit/rail/useRailLayout';
 import { agentLabel, useAgentRegistry } from './lib/agentRegistry';
 import './styles/cockpit.css';
+import './styles/night.css';
+import './styles/night-morning.css';
+import './styles/night-chip.css';
 
 export type { MainView } from './components/cockpit/main-view';
 
@@ -291,6 +295,7 @@ export default function CockpitApp() {
         onOpenDoctor={() => setView('doctor')}
         onOpenMemory={() => setView('memory')}
         onOpenPlans={() => setView('plans')}
+        onOpenMorning={() => setView('morning')}
         onOpenScores={() => setView('scores')}
         companions={companions.companions}
         openCompanionId={view === 'companion' ? companionId : null}
@@ -322,6 +327,8 @@ export default function CockpitApp() {
           />
         ) : view === 'plans' ? (
           <PlansMonth onClose={closeOverlay} />
+        ) : view === 'morning' ? (
+          <MorningPage onClose={closeOverlay} onOpenPane={(id) => nav.select(id)} />
         ) : view === 'scores' ? (
           <AgentScores
             // Same project rule as Project memory: a pane in a separate copy belongs to the project the copy came from.
@@ -389,6 +396,7 @@ export default function CockpitApp() {
           onStopAll={stopAll}
           onOpenMemory={() => setView('memory')}
           onOpenPlans={() => setView('plans')}
+          onOpenMorning={() => setView('morning')}
           onOpenScores={() => setView('scores')}
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}

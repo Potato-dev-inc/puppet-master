@@ -41,6 +41,8 @@ interface Props {
   ship?: ShipApi;
   /** "Start a mission…" (Preview, Labs). Without it the item is not drawn. */
   onStartMission?: () => void;
+  /** "Tonight…" (Night Shift, Labs). Without it the item is not drawn. */
+  onTonight?: () => void;
 }
 
 type Step = 'agents' | 'projects' | 'git';
@@ -66,6 +68,7 @@ export function NewAgentMenu({
   onIsolated,
   ship = shipApi,
   onStartMission,
+  onTonight,
 }: Props) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [picking, setPicking] = useState<LaunchEntry | null>(null);
@@ -349,14 +352,18 @@ export function NewAgentMenu({
           )}
         </>
       )}
+      {(onStartMission || onTonight) && <div className="ck-menu-sep" />}
       {onStartMission && (
-        <>
-          <div className="ck-menu-sep" />
-          <button type="button" role="menuitem" className="ck-menu-item" onClick={onStartMission}>
-            <span>Start a mission…</span>
-            <span className="ck-menu-hint">Preview</span>
-          </button>
-        </>
+        <button type="button" role="menuitem" className="ck-menu-item" onClick={onStartMission}>
+          <span>Start a mission…</span>
+          <span className="ck-menu-hint">Preview</span>
+        </button>
+      )}
+      {onTonight && (
+        <button type="button" role="menuitem" className="ck-menu-item" onClick={onTonight}>
+          <span>Tonight…</span>
+          <span className="ck-menu-hint">Night Shift</span>
+        </button>
       )}
     </>
   );

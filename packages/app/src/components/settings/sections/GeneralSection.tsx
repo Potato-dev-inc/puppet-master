@@ -407,6 +407,22 @@ export const generalRows: RowDef[] = [
       />
     ),
   },
+  {
+    id: 'night-shift',
+    label: 'Night Shift',
+    hint: 'Plan tasks for tonight. Agents work on them in separate copies while you sleep, and you keep or throw away each one in the morning.',
+    keywords: 'night shift tonight overnight morning sleep labs tasks backup agents',
+    group: 'Labs',
+    labs: { name: 'Night Shift', about: 'Agents work through your tasks overnight, in separate copies.' },
+    render: (env) => (
+      <SettingToggle
+        label="Night Shift"
+        description="Plan tasks for tonight from the + menu. Agents work on them in separate copies while you sleep, with your tests as the check. Nothing merges until you press Keep in the morning."
+        checked={env.settings.night_shift_enabled ?? false}
+        onChange={(value) => void env.patch({ night_shift_enabled: value })}
+      />
+    ),
+  },
   { id: 'team', label: 'Team', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', labs: { name: 'Team', about: 'Tell teammates when your agent pushes, and see when theirs does.' }, render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'version', label: 'Version', hint: 'Check for updates and download the installer.', keywords: 'app version update release download install', group: 'About', render: (env) => <VersionRow env={env} /> },
   { id: 'whats-new', label: WHATS_NEW_LABEL, hint: 'The short version of what changed, with a link to each place.', keywords: 'release notes changelog new features changes version update 0.2.0', group: 'About', render: (env) => <WhatsNew env={env} /> },

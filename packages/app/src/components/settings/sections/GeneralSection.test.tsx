@@ -138,6 +138,13 @@ describe('General: each control saves a partial patch', () => {
     expect(m.env.patches.at(-1)).toEqual({ checkpoints_keep: 500 });
   });
 
+  it('Night Shift (Labs) is off by default and saves only {night_shift_enabled}', async () => {
+    await mount();
+    expect(switchFor('Night Shift')!.getAttribute('aria-checked')).toBe('false');
+    await click(switchFor('Night Shift'));
+    expect(m.env.patches).toEqual([{ night_shift_enabled: true }]);
+  });
+
   it('Away digest minutes clamps on blur', async () => {
     await mount();
     const away = byLabel<HTMLInputElement>(m.host, 'Away digest after (minutes)')!;

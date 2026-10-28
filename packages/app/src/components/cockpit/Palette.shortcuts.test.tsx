@@ -9,6 +9,7 @@ import { resolveSettingsTarget } from '../../lib/settings-target';
 import { Palette } from './Palette';
 import { settingsShortcuts } from './palette-shortcuts';
 import { onOpenStartMission } from '../../lib/missions';
+import { onOpenTonight } from '../../lib/night-host';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -122,6 +123,28 @@ describe('palette commands for features that hide', () => {
     on.find((e) => e.title === 'Start a mission…')!.run();
     off();
     expect(heard).toEqual(['C:\work\shop']);
+  });
+
+  it('Night Shift: no commands while the Labs switch is off; with it on, "plan tonight" asks the sidebar and "Morning" opens the page', () => {
+    const c = cockpit();
+    const off = settingsShortcuts(c, { nightOn: false, onOpenMorning: vi.fn() });
+    expect(off.some((e) => /night shift|morning/i.test(e.title))).toBe(false);
+    const morning = vi.fn();
+    const on = settingsShortcuts(c, { nightOn: true, onOpenMorning: morning });
+    const heard = vi.fn();
+    const stop = onOpenTonight(heard);
+    on.find((e) => e.title === 'Night Shift: plan tonight')!.run();
+    stop();
+    expect(heard).toHaveBeenCalledTimes(1);
+    on.find((e) => e.title === 'Morning')!.run();
+    expect(morning).toHaveBeenCalledTimes(1);
+    expect(new Set(on.map((e) => e.id)).size).toBe(on.length);
+  });
+
+  it('the palette lists no Night Shift command while the Labs switch is off', () => {
+    act(() => root.render(<Palette c={cockpit()} onClose={vi.fn()} onOpenMorning={vi.fn()} />));
+    expect(rowFor('Night Shift: plan tonight')).toBeUndefined();
+    expect(rowFor('Morning')).toBeUndefined();
   });
 
   it('"Switch to Simple mode" turns the setting on', () => {
