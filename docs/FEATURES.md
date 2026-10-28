@@ -116,6 +116,12 @@ Full page: [`features/night-shift.md`](features/night-shift.md). Off by default 
 | Quiet night and one morning push with counts only (never task text, names or paths); skipped when the Morning page was opened first | `night_shift/quiet.rs`, `push/night.rs` | experimental |
 | Phone card: the redacted summary and one row per task from `GET /night`; Stop (needs `control`, asks once more) through `POST /night/stop`; no Keep or Throw away | `bridge/routes/night.rs`, `components/mobile/NightSummary.tsx` | experimental |
 
+## 1f. Labs (off by default; Settings > Labs)
+
+| Feature | Where | Status |
+|---|---|---|
+| Assign an issue: a GitHub label from you or someone on your list starts an agent in a separate copy, after you say yes. The agent cannot push. Puppet Master opens a draft PR (`gh`, your own sign-in) and never merges. Held runs and risky changes always ask. ([`features/assign-an-issue.md`](features/assign-an-issue.md)) | `issue_intake/`, `commands/issue_intake.rs`, `pty/env_guard.rs`, `worktrees/harden.rs`, `components/settings/blocks/AssignIssueSettings.tsx`, `components/cockpit/IssueCard.tsx` | **experimental**: unit tests with a fake GitHub and a fake world; no run against real GitHub yet |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.

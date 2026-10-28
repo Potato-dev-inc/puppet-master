@@ -499,6 +499,48 @@ when no tests are declared. Gates are never answered; nothing merges except on t
 
 Tests: `cargo test --lib night`; `cargo test --features dev-fake-tui --test fake_tui_e2e night -- --test-threads=1`.
 
+### 3.12 Assign an issue (`issue_intake/`, `pty/env_guard.rs`, `worktrees/harden.rs`)
+
+A labeled GitHub issue starts an agent run in a separate copy after you say yes. The agent cannot push. After it finishes,
+Puppet Master opens a draft pull request, and never merges. Feature page: `docs/features/assign-an-issue.md`. Spec: n32.
+Generic code never names an agent: agent labels come from `crews::live::label_of`. Tauri commands only: no bridge route,
+no SSE event, no MCP tool.
+
+| File | What |
+|---|---|
+| `issue_intake/mod.rs` | the module map and the invariants (below) |
+| `issue_intake/model.rs` | `Config`, `RepoWatch` (settings), `IssueRun` and `RunState` (state tags), `IssueSnapshot`, `PushFacts`, id validators, caps, the `ISSUE_*` error codes |
+| `issue_intake/store.rs` | `<app data>/issue-intake/`: `config.json`, `runs.json` (500 runs at most), `empty-hooks/`, `gh-empty/`; `clean_config` (save checks); one write lock; a bad id finds nothing |
+| `issue_intake/github.rs` | reads the `gh api` answers: issues (pull requests skipped), the newest label event (`labeled` or `unlabeled`), collaborator permission, login; builds the paths |
+| `issue_intake/filter.rs` | who may trigger (`trigger`), new label events and the baseline (`candidate`), forced-ask reasons, runs per 24 h, `next_queued` (parallel cap, pause, day cap) |
+| `issue_intake/text.rs` | cleans title and body (`clean_body`), the issue file (one `context_pack::fence`), the task (no issue text in it), the card texts, the PR title and body (strict redaction, e-mails masked, home folder as `~`, closing keywords reworded) |
+| `issue_intake/pushcheck.rs` | the push check: CI files, secret-looking names and lines, home-path lines, `.puppet-master/` files, more than 100 files, the 256 KiB patch cap, the git fingerprint, `reasons` (card sentences and `held`) |
+| `issue_intake/engine.rs` | the 15 s watch loop (`tick`, `poll_repo`, `look_at_issue`, `consider`), card raising, one job per run (`Claim`), `resume` after a restart |
+| `issue_intake/answers.rs` | what a resolved card does (`apply_card_answer`: only question ids stored in a run), the queue (`drive_queue`), the Settings buttons (`act`), `view` |
+| `issue_intake/flows.rs` | B start, C finish and check, D push as a draft, E throw away; all work through `Io` |
+| `issue_intake/live.rs` | the `Io` trait and `LiveIo` (real `gh`, git, `run_agent`, question store, audit); `start`, `on_resolved`, `act`, `view`, `poll_now` |
+| `issue_intake/view.rs` | the Settings view: GitHub state, one row per repo, the last 20 runs (no issue body) |
+| `issue_intake/*_tests.rs`, `fixtures/` | unit tests (fake `Io`, virtual clock; real git in `pushcheck_git_tests.rs`); recorded `gh` answers and issue text |
+| `pty/env_guard.rs` | the `no_push` guard. `GH_CONFIG_DIR` points at an empty folder; `https://`, `git@` and `ssh://` push URLs are rewritten to a helper that does not exist; `credential.helper` is reset; `GIT_TERMINAL_PROMPT=0`. Removes `GH_*`, `GITHUB_*`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_PAT` and a list of cloud and registry tokens. Keeps `*_API_KEY` |
+| `pty/guard_launch.rs` | turns a guard name into the env; an unknown name refuses the launch. Used by the pane spawn (`pty/registry/spawn.rs`) and the headless launch (`agent_runs/headless/process.rs`) |
+| `worktrees/harden.rs` | Puppet Master's own git calls on a copy: `git_env` (`core.hooksPath` = empty folder, `core.fsmonitor=false`, via `GIT_CONFIG_COUNT`), `with_filters_off`, `config_snapshot` (config list and hook files, sha256), `remote_has_branch` (`ls-remote`), `diff` (`--no-textconv --no-ext-diff`; an empty env is refused) |
+| `commands/issue_intake.rs` | Tauri commands `issue_intake_view`, `_save` (origin, agent and baseline checks; a refused save writes nothing), `_check_folder`, `_act`, `_poll_now` |
+| UI: `components/settings/blocks/AssignIssueSettings.tsx`, `AddRepoSheet.tsx`, `components/cockpit/IssueCard.tsx` (+ `styles/issue-card.css`), `lib/issue-intake.ts`, `lib/questions.ts` (`isIssueStart`, `isIssuePush`) | the Labs block, the repo sheet, the Inbox card (issue text as plain text only), the typed client |
+
+**Invariants S1-S8** (SPEC n32 section 4; each one is tested where it is built). **S1**: the issue text is data. It only goes into
+`.puppet-master/issue-<n>.md` inside one JSON fence, after hidden comments and invisible characters are removed and the body
+is cut at 16 KiB; the prompt has no issue text. **S2**: only you, a listed login, or (when switched on) a write-access
+collaborator can start a run; the labeler comes from GitHub's label events, and any read error refuses. **S3**: an explicit
+repo allow-list; the folder's origin must match the repo at save, at start and before the push. **S4**: a guarded pane gets no
+GitHub or package token and no `gh` login (`no_push`). **S5**: the agent cannot push (rewritten push URLs, `gh` signed out),
+and nothing in `issue_intake/` writes to a pane, so no trust, permission or login prompt is answered. **S6**: Puppet Master
+pushes only `pm/...` branches, with an explicit refspec, never forced, as a draft, after the push check; it never merges and
+redacts the PR text. **S7**: Puppet Master's own git calls on a copy use the hardened env; a fingerprint of the repo's local
+git config and hook files is taken at start and compared before the card and again before the push; any change holds the run.
+**S8**: `issue_start` and `issue_push` are person-only kinds (`questions/routes.rs`: a plain loopback answer gets 403
+`ISSUE_NEEDS_PERSON`), the engine acts only on question ids stored in a run, and no bridge route or MCP tool exists for intake.
+(The comments in `issue_intake/mod.rs` use other numbers for some of these; the numbers here follow the spec.)
+
 ---
 
 ## 4. "Where do I change X?"
