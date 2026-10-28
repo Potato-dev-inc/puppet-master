@@ -6,6 +6,7 @@ mod accounts;
 mod attention;
 pub(super) mod definitions;
 pub(super) mod health;
+mod channels;
 mod chat;
 mod companion_mcp;
 mod checkpoints;
@@ -74,6 +75,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| mcp::handle_agents(cx))
         .or_else(|| pairing::handle(cx))
         .or_else(|| push::handle(cx))
+        .or_else(|| channels::handle(cx))
         .or_else(|| workspace::handle(cx))
         .or_else(|| operations::handle(cx))
         .or_else(|| tasks::handle(cx))

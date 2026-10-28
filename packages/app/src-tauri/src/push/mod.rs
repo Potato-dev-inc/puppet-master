@@ -138,11 +138,17 @@ pub fn flush_outbox(hub: &Arc<PushHub>) {
         .spawn(move || send_deliveries(&hub, deliveries));
 }
 
+/// No phone is subscribed AND the chat (Telegram) is not listening: only then is a notification not worth
+/// building. A person with Telegram on and no phone paired still hears about what needs them.
+fn nobody_to_tell(ctx: &Ctx) -> bool {
+    !ctx.hub.has_subscribers() && !crate::channels::listening()
+}
+
 /// Hook for `push_pane_status_sse`. Cheap when nobody subscribed.
 pub fn notify_pane_status(pane_id: &str, status: &str) {
     let Some(ctx) = CTX.get() else { return };
     let Some(kind) = ctx.hub.note_pane_status(pane_id, status) else { return };
-    if !ctx.hub.has_subscribers() {
+    if nobody_to_tell(ctx) {
         return;
     }
     let pane_id = pane_id.to_string();
@@ -251,7 +257,7 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
     if !ctx.hub.gate().lock().first_sight_of_operation(&snapshot.operation_id, status) {
         return;
     }
-    if !ctx.hub.has_subscribers() {
+    if nobody_to_tell(ctx) {
         return;
     }
     let heading = snapshot.pane_id.as_deref().and_then(|id| pane_heading(&ctx.registry, id));
@@ -276,6 +282,8 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
 /// `push_replies`. The decision is made here (cheap); the sending runs on a thread of its own, so the
 /// keeper never waits on the network.
 pub fn notify_companion_reply(companion_id: &str, name: &str, text: &str, enabled: bool) {
+    // The chat (Telegram) decides for itself, by its own conversation window; it ignores `enabled`.
+    crate::channels::companion_reply(companion_id, name, text);
     let Some(ctx) = CTX.get() else { return };
     if !enabled || !ctx.hub.has_subscribers() {
         return;
@@ -335,7 +343,7 @@ pub fn notify_question(question: &crate::questions::Question) {
     #[cfg(test)]
     NOTIFIED_QUESTIONS.lock().push(question.id.clone());
     let Some(ctx) = CTX.get() else { return };
-    if !ctx.hub.has_subscribers() {
+    if nobody_to_tell(ctx) {
         return;
     }
     // The registry's label is trusted; the agent-supplied one is only a fallback (and sanitised).
@@ -396,6 +404,11 @@ fn classify_question(question: &crate::questions::Question, label: String) -> (K
 }
 
 fn dispatch(ctx: &Ctx, candidate: Candidate) {
+    // The chat gets its own look first: a person with Telegram and no subscribed phone still hears it.
+    crate::channels::offer(&candidate);
+    if !ctx.hub.has_subscribers() {
+        return;
+    }
     let (verdict, deliveries) = ctx.hub.plan(&candidate, now_ms());
     if verdict == Verdict::RateLimited {
         // Held, not dropped: it goes out when the window ends, if it is still true (`release_held`).
@@ -504,6 +517,54 @@ pub fn send_deliveries(hub: &PushHub, deliveries: Vec<hub::Delivery>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A hub with nobody subscribed, in its own folder.
+    fn empty_hub(tag: &str) -> Arc<PushHub> {
+        let dir = std::env::temp_dir().join(format!("pm-push-{tag}-{}", std::process::id()));
+        let vapid = vapid::VapidKeys::load_or_create(&dir.join("v.json")).unwrap();
+        let store = store::SubscriptionStore::load(dir.join("s.json"), vapid.public_key_b64url());
+        Arc::new(PushHub::new(vapid, store, Box::new(PairingDirectory)))
+    }
+
+    /// Spec gap: with Telegram on and no phone subscribed, notifications used to stop at the
+    /// `has_subscribers` return. The chat gets its look first, and the hook no longer gives up early.
+    #[test]
+    fn telegram_still_hears_about_it_when_no_phone_is_subscribed() {
+        use crate::channels::fake_bot::{rig, wait_for};
+        use crate::channels::test_host::FakeHost;
+        let r = rig(FakeHost::new()).with_token();
+        assert!(crate::channels::install_for_test(r.rt.clone()), "only this test installs the global chat runtime");
+        let ctx = Ctx { hub: empty_hub("no-phone"), registry: Arc::new(Mutex::new(PaneRegistry::default())) };
+        assert!(!ctx.hub.has_subscribers());
+        assert!(nobody_to_tell(&ctx), "nobody is listening yet: the old early return still applies");
+
+        r.rt.apply();
+        wait_for("the chat to listen", || crate::channels::listening());
+        assert!(!nobody_to_tell(&ctx), "the chat is listening, so the hooks go on");
+        dispatch(
+            &ctx,
+            Candidate {
+                kind: Kind::Error,
+                key: "p1".into(),
+                pane_id: Some("p1".into()),
+                agent_label: "Codex".into(),
+                heading: Some("auth refactor".into()),
+                prompt: None,
+                item: None,
+                detail: None,
+            },
+        );
+        wait_for("the Telegram message", || !r.bot.texts().is_empty());
+        assert!(r.bot.texts()[0].contains("auth refactor"));
+
+        // A companion reply reaches the chat through the same hook (inside a window, here none: silent).
+        notify_companion_reply("mochi", "Mochi", "hello", true);
+        std::thread::sleep(Duration::from_millis(30));
+        assert_eq!(r.bot.texts().len(), 1, "no conversation window, no companion reply");
+
+        r.rt.stop();
+        assert!(nobody_to_tell(&ctx), "switched off again: back to the early return");
+    }
 
     #[test]
     fn revoking_a_paired_device_drops_its_push_subscription() {

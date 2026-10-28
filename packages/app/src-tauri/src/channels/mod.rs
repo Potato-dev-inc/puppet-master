@@ -16,6 +16,11 @@
 //! - `notify`: decides what goes out to the chat (needs-you cards, replies, run ends).
 //! - `host_live`: the real `Host`, wired to the app's registry, attention and outbox.
 //! - `telegram`: the Telegram Bot API client and the long-poll thread.
+//! - `runtime`: owns the engine, notifier and poller; starts and stops the poller as the settings say.
+//! - `setup`: the person's actions (token, code, yes/no, on/off, options, disconnect) and the phone's off switch.
+//! - `feed`: what the app tells the chat (candidates, companion replies, the 5 s tick).
+//! - `status`: the `TelegramStatus` the Settings page shows.
+//! - `live`: builds the real runtime at start-up (`start`) and the global hooks `push` calls.
 //! - `test_host`: a fake `Host` for tests only.
 pub mod config;
 pub mod token;
@@ -31,5 +36,15 @@ pub mod engine;
 pub mod notify;
 pub mod host_live;
 pub mod telegram;
+pub mod runtime;
+pub mod setup;
+pub mod feed;
+pub mod status;
+mod live;
+pub use live::{companion_reply, current, listening, offer, start};
+#[cfg(test)]
+pub use live::install_for_test;
 #[cfg(test)]
 pub mod test_host;
+#[cfg(test)]
+pub mod fake_bot;
