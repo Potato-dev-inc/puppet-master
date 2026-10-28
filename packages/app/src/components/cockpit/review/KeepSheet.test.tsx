@@ -169,6 +169,15 @@ describe('KeepSheet', () => {
     expect(host.querySelector('h2')?.textContent).toBe('Push as a draft pull request?');
   });
 
+  it('says it is checking the push until the push check has loaded, never "no warnings"', async () => {
+    const item: ReviewItem = { ...ITEM, keep: { kind: 'issue_push', label: 'Push as draft…', into: null, why: null } };
+    await render(<KeepSheet item={item} extra={null} api={{ keep: vi.fn() }} onDone={vi.fn()} onCancel={vi.fn()} />);
+    expect(body().textContent).toContain('Checking the push.');
+    expect(body().textContent).not.toContain('no push warnings');
+    await render(<KeepSheet item={item} extra={[]} api={{ keep: vi.fn() }} onDone={vi.fn()} onCancel={vi.fn()} />);
+    expect(body().textContent).toContain('Puppet Master found no push warnings.');
+  });
+
   it('Cancel closes without calling Keep', async () => {
     const keep = vi.fn(async () => ACT);
     const onCancel = vi.fn();

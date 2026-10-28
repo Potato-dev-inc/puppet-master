@@ -310,7 +310,7 @@ export function ReviewDetail({ item, api = reviewDeskApi, onOpenPane, onKeep, on
       {sheet === 'keep' && (
         <KeepSheet
           item={item}
-          extra={extra}
+          extra={detail ? detail.extra : null}
           api={api}
           onCancel={() => setSheet(null)}
           onDone={(act) => {

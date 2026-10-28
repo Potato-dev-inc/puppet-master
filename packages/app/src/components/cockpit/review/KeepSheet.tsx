@@ -12,8 +12,8 @@ export type ReviewKeepApi = Pick<typeof reviewDeskApi, 'keep'>;
 
 export interface KeepSheetProps {
   item: ReviewItem;
-  /** Issue runs: the push-check reasons (the detail's `extra`). */
-  extra?: string[];
+  /** Issue runs: the push-check reasons (the detail's `extra`). `null` = not loaded yet. */
+  extra?: string[] | null;
   api?: ReviewKeepApi;
   /** Keep worked. The parent closes the sheet and refreshes the list. */
   onDone: (act: ReviewAct) => void;
@@ -81,7 +81,9 @@ export function KeepSheet({ item, extra = [], api = reviewDeskApi, onDone, onCan
           {copy.title}
         </h2>
         {issue ? (
-          extra.length > 0 ? (
+          extra === null ? (
+            <p className="ck-sub">Checking the push.</p>
+          ) : extra.length > 0 ? (
             <ul className="ck-rd-sheet-list">
               {extra.map((line, i) => (
                 <li key={i}>{line}</li>
