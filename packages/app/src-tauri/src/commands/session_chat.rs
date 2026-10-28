@@ -5,7 +5,7 @@
 
 use super::AppState;
 use crate::pty::PaneRegistry;
-use crate::chat_index::{ChatIndex, ContextLookup, Hit, PaneContext};
+use crate::chat_index::{Answer, ChatIndex, ContextLookup, PaneContext};
 use crate::session_chat::{ApiEndpoint, ChatItem, ItemObserver, Opening, PaneFacts, PaneLookup, ScreenRead, Sink, Watchers};
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
@@ -172,10 +172,11 @@ impl ContextLookup for RegistryPanes {
 }
 
 /// Search across every chat that was read: the items whose text has all the typed words, newest first, with a
-/// snippet and the ranges to highlight. Empty when nothing was typed or the index is off.
+/// snippet and the ranges to highlight. `enabled` is false when the person turned the index off (then no hits).
+/// Empty when nothing was typed.
 #[tauri::command]
-pub async fn chat_search(state: State<'_, AppState>, chat: State<'_, SessionChatState>, query: String, limit: Option<usize>) -> Result<Vec<Hit>, String> {
-    let Some(index) = chat.index(&state.registry) else { return Ok(Vec::new()) };
+pub async fn chat_search(state: State<'_, AppState>, chat: State<'_, SessionChatState>, query: String, limit: Option<usize>) -> Result<Answer, String> {
+    let Some(index) = chat.index(&state.registry) else { return Ok(Answer { enabled: crate::chat_index::enabled(), hits: Vec::new() }) };
     tauri::async_runtime::spawn_blocking(move || index.search(&query, limit.unwrap_or(30)))
         .await
         .map_err(|e| format!("INTERNAL: {e}"))?

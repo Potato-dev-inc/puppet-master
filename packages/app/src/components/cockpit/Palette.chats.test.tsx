@@ -42,6 +42,10 @@ function hit(extra: Partial<ChatHit> = {}): ChatHit {
   };
 }
 
+function answer(hits: ChatHit[], enabled = true): chatSearch.ChatSearchAnswer {
+  return { enabled, hits };
+}
+
 function cockpit(extra: Partial<CockpitApi> = {}): CockpitApi {
   const info = { id: 'p1', agent_type: 'codex', status: 'idle', cwd: 'C:\\work\\shop', title: null };
   return {
@@ -103,7 +107,7 @@ function open(c: CockpitApi, onClose = vi.fn()) {
 
 describe('Palette: Search all chats', () => {
   it('opens in chat search, asks for nothing until something is typed, and says what it searches', () => {
-    const search = vi.spyOn(chatSearch, 'searchChats').mockResolvedValue([]);
+    const search = vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([]));
     open(cockpit());
     expect(input().getAttribute('aria-label')).toBe('Search all chats');
     expect(host.textContent).toContain('Type to search every chat you have opened.');
@@ -111,7 +115,7 @@ describe('Palette: Search all chats', () => {
   });
 
   it('lists hits with who spoke, the marked words, the agent, the folder and when', async () => {
-    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue([hit(), hit({ itemId: '10:0', kind: 'user', snippet: 'move it', marks: [[0, 4]], atMs: Date.now() - 3 * 86_400_000 })]);
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([hit(), hit({ itemId: '10:0', kind: 'user', snippet: 'move it', marks: [[0, 4]], atMs: Date.now() - 3 * 86_400_000 })]));
     open(cockpit());
     type('deploy');
     await settle();
@@ -125,7 +129,7 @@ describe('Palette: Search all chats', () => {
   });
 
   it('says No matches when nothing was found', async () => {
-    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue([]);
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([]));
     open(cockpit());
     type('zebra');
     await settle();
@@ -133,7 +137,7 @@ describe('Palette: Search all chats', () => {
   });
 
   it('Enter opens the pane and asks its chat to scroll to the message', async () => {
-    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue([hit()]);
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([hit()]));
     const c = cockpit();
     const onClose = open(c);
     type('deploy');
@@ -146,7 +150,7 @@ describe('Palette: Search all chats', () => {
   });
 
   it('arrow keys move the choice', async () => {
-    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue([hit(), hit({ paneId: 'p1', itemId: '60:0' })]);
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([hit(), hit({ paneId: 'p1', itemId: '60:0' })]));
     const c = cockpit();
     open(c);
     type('deploy');
@@ -158,7 +162,7 @@ describe('Palette: Search all chats', () => {
   });
 
   it('a hit whose pane is gone opens a read-only card, not a pane', async () => {
-    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue([hit({ paneId: 'gone' })]);
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([hit({ paneId: 'gone' })]));
     const c = cockpit();
     const onClose = open(c);
     type('deploy');
@@ -177,7 +181,7 @@ describe('Palette: Search all chats', () => {
   });
 
   it('the commands list has a "Search all chats" row that switches over without closing', () => {
-    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue([]);
+    vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([]));
     const onClose = vi.fn();
     act(() => root.render(<Palette c={cockpit()} onClose={onClose} />));
     const row = options().find((r) => r.querySelector('.ck-palette-title')?.textContent === 'Search all chats')!;
@@ -199,5 +203,16 @@ describe('Palette: Search all chats', () => {
     type('deploy');
     await settle();
     expect(host.textContent).toContain('Search is not available right now.');
+  });
+
+  it('says search is off, and where to turn it on, when the person turned the index off', async () => {
+    const search = vi.spyOn(chatSearch, 'searchChats').mockResolvedValue(answer([], false));
+    open(cockpit());
+    type('deploy');
+    await settle();
+    expect(search).toHaveBeenCalled();
+    expect(host.textContent).toContain('Search is off — turn it on in Settings');
+    expect(host.textContent).not.toContain('No matches');
+    expect(options()).toHaveLength(0);
   });
 });

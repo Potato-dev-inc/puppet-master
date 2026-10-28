@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { searchChats, type ChatHit } from '../lib/chatSearch';
 
-export type ChatSearchState = 'idle' | 'searching' | 'done' | 'failed';
+/** `off`: the person turned the search index off (Settings > General). */
+export type ChatSearchState = 'idle' | 'searching' | 'done' | 'failed' | 'off';
 
 export interface ChatSearch {
   hits: ChatHit[];
@@ -25,7 +26,7 @@ export function useChatSearch(query: string, enabled: boolean): ChatSearch {
     setResult((prev) => ({ hits: prev.hits, state: 'searching' }));
     const timer = setTimeout(() => {
       searchChats(typed)
-        .then((hits) => live && setResult({ hits, state: 'done' }))
+        .then((answer) => live && setResult(answer.enabled ? { hits: answer.hits, state: 'done' } : { hits: [], state: 'off' }))
         .catch(() => live && setResult({ hits: [], state: 'failed' }));
     }, DEBOUNCE_MS);
     return () => {
