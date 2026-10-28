@@ -34,6 +34,17 @@ impl FakeAgent {
     }
 }
 
+/// The script this agent plays: `script.<id>.toml` beside the shared script when a test wrote one for it
+/// (a night with both fakes needs two layouts at once), else the shared one.
+fn own_script(shared: &std::path::Path, id: &str) -> PathBuf {
+    let own = shared.with_file_name(format!("script.{id}.toml"));
+    if own.is_file() {
+        own
+    } else {
+        shared.to_path_buf()
+    }
+}
+
 fn ps_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "''"))
 }
@@ -99,6 +110,7 @@ impl TuiProfile for FakeAgent {
     fn spawn_command(&self, request: &SpawnRequest) -> Option<LaunchSpec> {
         let mut invocation = format!("& {}", ps_quote(&self.exe.to_string_lossy()));
         if let Some(script) = self.script.lock().as_ref() {
+            let script = own_script(script, self.id);
             invocation.push_str(&format!(" --script {}", ps_quote(&script.to_string_lossy())));
         }
         Some(LaunchSpec::new(

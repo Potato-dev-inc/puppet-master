@@ -474,6 +474,31 @@ encodes the MP4. Tauri commands only: no bridge route, no SSE event, no MCP tool
 Tests: `clip/store_tests.rs`, `clip/guard_tests.rs`, unit tests in each file; `lib/clip*.test.ts`, `lib/mp4Mux.test.ts`,
 `components/chat/ClipSheet.test.tsx`, `clipSheet.sources.test.ts` (greps the clip files for network calls).
 
+### 3.11 Night Shift (`night_shift/`)
+
+A list of up to 10 tasks that runs while the person sleeps, then a Morning page with Keep and Throw away (feature page
+`docs/features/night-shift.md`). A task is a mission (`Starter::Night`, quiet) in a separate copy, or one `run_agent` turn
+when no tests are declared. Gates are never answered; nothing merges except on the person's Keep. Labs key `night_shift_enabled`.
+
+| File | What |
+|---|---|
+| `night_shift/model.rs` | the run record (`NightRun`, `Task`, `Attempt`, `Outcome`, `Review`, `Event`), ids (`ns-` + 12 hex, `nt-` + 8 hex), every limit as a constant |
+| `night_shift/store.rs` | private files under `<app data>/night-shift/`: `run.json`, `history/`, `settings.json`, `projects.json` |
+| `night_shift/checks.rs` | the tests the person declared per project (argv only, no shell); `suggestions` only offers what `missions::detect` found |
+| `night_shift/plan.rs` | pure scheduler (`next_starts`, `free_slots`, `time_left_ok`) and the usage-limit decision (`limit_action`) |
+| `night_shift/runner.rs` | the supervisor thread `night-shift` (one `step` per 5 s) driven through `NightIo`; hard stop, person stop, limits, gates, finish; `resume()` at app start |
+| `night_shift/io.rs`, `io_live.rs`, `io_start.rs`, `io_facts.rs` | the `NightIo` trait (no method types into a pane), the live adapter (`missions::start`, `run_agent`, limit memory, copies; `LiveIo::with_skew` is the one clock seam), the start requests and plan candidates, the facts `classify` reads |
+| `night_shift/classify.rs`, `report.rs` | results and the exact words; the morning summary line and push body (counts only) |
+| `night_shift/review.rs` | Keep (`worktrees::service::merge`, conflict aborted, copy kept) and Throw away (`discard`); called only by the desktop commands |
+| `night_shift/view.rs`, `page.rs` | the redacted views for the UI and the phone; the saved HTML page |
+| `night_shift/power.rs`, `quiet.rs` | keep-awake guard (Windows, macOS, Linux; released at finish, stop and exit); the quiet set that `push/`, `missions/cards.rs` and `budgets/` check |
+| `commands/night.rs`, `commands/night/start.rs` | the `night_*` Tauri commands and everything Start checks (`start::build` is pure) |
+| `bridge/routes/night.rs`, `push/night.rs` | `GET /night`, `POST /night/stop` (read and stop only; MCP sessions refused); the one push kind |
+| UI: `components/cockpit/night/`, `lib/night.ts`, `lib/night-host.ts`, `styles/night*.css`, `dev/night-fixtures.ts`, `components/mobile/NightSummary.tsx` | Tonight sheet, chip, Morning page, the phone card, hooks, harness scenarios; wired in `CockpitApp.tsx`, `Sidebar.tsx`, `NewAgentMenu.tsx`, `Palette.tsx`, `GeneralSection.tsx` |
+| End to end: `tests/fake_tui_night.rs`, `fake_tui/night.rs` (`NightRig`), `Session::script_for` | a night on `fake_claude` + `fake_codex` with a clock the test moves; included from `tests/fake_tui_e2e.rs` |
+
+Tests: `cargo test --lib night`; `cargo test --features dev-fake-tui --test fake_tui_e2e night -- --test-threads=1`.
+
 ---
 
 ## 4. "Where do I change X?"

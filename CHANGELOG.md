@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Night Shift (Preview, off by default: Settings > General > Labs): write up to 10 tasks in Tonight, pick the plans and a stop
+  time, and Puppet Master works through them while you sleep, each in its own separate copy, checking your declared tests
+  after every turn. It never answers a trust, permission or sign-in screen, never merges anything, and sends one push in the
+  morning with counts only. The Morning page shows what each task did; Keep merges a copy, Throw away deletes it. Tested end to
+  end with fake agents (green tasks, a usage limit that moves to the other plan, a trust screen left alone, a stop time that cuts
+  a task off, Keep, Throw away and a conflict); no live night with real agents yet. See `docs/features/night-shift.md`.
+
 - Bring my old chats: an opt-in way to add the chats you had in Claude Code, Codex, OpenCode and any agent with a
   `[session_chat.history]` table to Ctrl+Shift+F search. Nothing is read until you press "Find my chats"; the chats stay on
   this PC, are redacted before they are saved, and "Remove imported chats" deletes them. Phone search can still show them

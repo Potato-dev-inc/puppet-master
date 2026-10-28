@@ -7,6 +7,7 @@
 //! `missions::stop` or `agent_runs::cancel_agent`, by handle. Nothing here types into a pane.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -34,6 +35,9 @@ pub struct LiveIo {
     store: Store,
     /// When a waiting state (limit, question) was first seen, by attempt: the clock for "parked 3 min".
     seen: Mutex<HashMap<String, u64>>,
+    /// Milliseconds added to the clock. Always 0 in the app; the end-to-end tests move it forward to
+    /// cross a stop time or a limit grace without waiting (the one seam for time).
+    skew_ms: Arc<AtomicU64>,
 }
 
 /// A live adapter for `run_id`, ready to hand to `runner::spawn`.
@@ -43,7 +47,12 @@ pub fn live(run_id: &str) -> Arc<dyn NightIo> {
 
 impl LiveIo {
     pub fn new(run_id: &str) -> LiveIo {
-        LiveIo { run_id: run_id.to_string(), store: Store::live(), seen: Mutex::new(HashMap::new()) }
+        LiveIo::with_skew(run_id, Arc::new(AtomicU64::new(0)))
+    }
+
+    /// An adapter whose clock runs `skew_ms` ahead of the computer's (the tests move `skew_ms`).
+    pub fn with_skew(run_id: &str, skew_ms: Arc<AtomicU64>) -> LiveIo {
+        LiveIo { run_id: run_id.to_string(), store: Store::live(), seen: Mutex::new(HashMap::new()), skew_ms }
     }
 
     /// How long `tag` has been seen waiting. The first sight starts the clock; any other state clears it.
@@ -176,7 +185,7 @@ fn no_app() -> OperationError {
 
 impl NightIo for LiveIo {
     fn now_ms(&self) -> u64 {
-        crate::missions::store::now_ms()
+        crate::missions::store::now_ms() + self.skew_ms.load(Ordering::Relaxed)
     }
 
     fn utc_offset_min(&self) -> i32 {
@@ -324,9 +333,10 @@ impl NightIo for LiveIo {
         let run_id = run.id.clone();
         let at_ms = run.finished_ms.unwrap_or(run.stop_at_ms).max(run.stop_at_ms);
         let store = self.store.clone();
+        let skew = self.skew_ms.clone();
         let spawned = std::thread::Builder::new().name("night-push".into()).spawn(move || {
             // Held until the stop time, so the person is not woken because the queue finished early.
-            while crate::missions::store::now_ms() < at_ms {
+            while crate::missions::store::now_ms() + skew.load(Ordering::Relaxed) < at_ms {
                 std::thread::sleep(std::time::Duration::from_secs(5));
             }
             let Some(latest) = store.load().filter(|r| r.id == run_id) else { return };

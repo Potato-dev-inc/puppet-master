@@ -883,3 +883,33 @@ impl Session {
             .map(|entry| entry.exists && entry.worktree.closed.is_none())
     }
 }
+
+/// Night Shift (SPEC n32 NS-21): a night driven by the real runner, with two fake agents that each play their
+/// own script, and a clock the test moves.
+impl Session {
+    /// Write the script the next pane of agent type `agent_id` (`fake_claude`, `fake_codex`) plays, and log what
+    /// that fake sees to `aux/events.<agent_id>.jsonl`. Another agent keeps its own script. A script written
+    /// again (after the first pane started) is played by the panes that start later; a log is never cleared.
+    pub fn script_for(&self, agent_id: &str, toml: &str) {
+        let log = self.aux.join(format!("events.{agent_id}.jsonl"));
+        let text = format!("log = '{}'
+{toml}", log.display());
+        std::fs::write(self.aux.join(format!("script.{agent_id}.toml")), text).expect("write the agent's script");
+        // The shared script's place: a pane of an agent with no script of its own falls back to it.
+        let shared = self.aux.join("script.toml");
+        let mut current = self.world.script.lock();
+        if current.is_none() {
+            *current = Some(shared);
+        }
+    }
+
+    /// What the fake of `agent_id` logged (`script_for`'s log), oldest first.
+    pub fn events_for(&self, agent_id: &str) -> Vec<Value> {
+        self.events_of(&format!("events.{agent_id}.jsonl"))
+    }
+
+    /// The night rig for this session's project.
+    pub fn night(&self) -> super::NightRig {
+        super::NightRig::new(self.world.registry.clone(), self.project.clone())
+    }
+}
