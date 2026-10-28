@@ -117,3 +117,15 @@ fn leases_run_out_and_plain_holders_do_not() {
     holders.add(Hold::lease("phone", Duration::from_secs(60)), now + Duration::from_secs(50));
     assert!(!holders.none_left(now + Duration::from_secs(100)), "a renewed lease lasts from the renewal");
 }
+
+#[test]
+fn a_delta_names_the_file_its_items_were_read_from() {
+    let mut items = Items::new();
+    assert_eq!(items.since(None, 10).file, None);
+    items.set_file(Some(std::path::PathBuf::from("/sessions/a.jsonl")));
+    items.push(user("1", "one"));
+    assert_eq!(items.since(None, 10).file.as_deref(), Some(std::path::Path::new("/sessions/a.jsonl")));
+    items.clear();
+    items.set_file(Some(std::path::PathBuf::from("/sessions/b.jsonl")));
+    assert_eq!(items.since(Some(1), 10).file.as_deref(), Some(std::path::Path::new("/sessions/b.jsonl")));
+}
