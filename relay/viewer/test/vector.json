@@ -1,0 +1,13 @@
+{
+  "placeholder": true,
+  "note": "LR-4 placeholder. LR-3 replaces nonce and ct with the sealed frame and sets placeholder to false; the vector test then runs.",
+  "keyB64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+  "room": "aaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "seq": 1,
+  "kind": "delta",
+  "nonce": "",
+  "ct": "",
+  "plaintext": {
+    "v": 1
+  }
+}
