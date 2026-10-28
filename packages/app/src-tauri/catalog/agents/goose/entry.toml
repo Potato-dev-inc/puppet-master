@@ -1,0 +1,28 @@
+schema_version = 1
+
+[store]
+id = "goose"
+tagline = "Open source AI agent for developers, from the goose project."
+tier = "starter"
+builtin = false
+categories = ["general", "open_source"]
+status = "active"
+replaced_by = ""
+ambiguous_name = false
+first_listed = "2026-10-28"
+
+[vendor]
+name = "goose project"
+homepage = "https://goose-docs.ai/"
+license = "Apache-2.0"
+license_kind = "open_source"
+
+[sign_in]
+kind = "either"
+summary = "Sign-in steps are not confirmed yet. Open goose and follow its own setup screens."
+
+[checked]
+date = "2026-10-28"
+version = "not recorded"
+how = "vendor_docs"
+windows_tested = false

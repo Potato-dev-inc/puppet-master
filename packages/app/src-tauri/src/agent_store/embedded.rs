@@ -3,9 +3,17 @@
 
 #[rustfmt::skip]
 pub static FILES: &[(&str, &str)] = &[
+    ("agents/aider/definition.toml", include_str!("../../catalog/agents/aider/definition.toml")),
+    ("agents/aider/entry.toml", include_str!("../../catalog/agents/aider/entry.toml")),
     ("agents/claude/entry.toml", include_str!("../../catalog/agents/claude/entry.toml")),
     ("agents/codex/entry.toml", include_str!("../../catalog/agents/codex/entry.toml")),
+    ("agents/copilot/definition.toml", include_str!("../../catalog/agents/copilot/definition.toml")),
+    ("agents/copilot/entry.toml", include_str!("../../catalog/agents/copilot/entry.toml")),
     ("agents/cursor_agent/entry.toml", include_str!("../../catalog/agents/cursor_agent/entry.toml")),
+    ("agents/droid/definition.toml", include_str!("../../catalog/agents/droid/definition.toml")),
+    ("agents/droid/entry.toml", include_str!("../../catalog/agents/droid/entry.toml")),
+    ("agents/goose/definition.toml", include_str!("../../catalog/agents/goose/definition.toml")),
+    ("agents/goose/entry.toml", include_str!("../../catalog/agents/goose/entry.toml")),
     ("agents/kilo/definition.toml", include_str!("../../catalog/agents/kilo/definition.toml")),
     ("agents/kilo/entry.toml", include_str!("../../catalog/agents/kilo/entry.toml")),
     ("agents/kilo/fixtures/headless_error.expect.toml", include_str!("../../catalog/agents/kilo/fixtures/headless_error.expect.toml")),

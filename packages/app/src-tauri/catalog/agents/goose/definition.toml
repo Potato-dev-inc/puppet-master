@@ -1,0 +1,14 @@
+# goose, generic. https://goose-docs.ai/ gives the license and the GitHub repository
+# (https://github.com/aaif-goose/goose). It shows only a macOS and Linux CLI command and a desktop
+# app for Windows, so there is no [install.windows]: the Store only adds a program already on this PC.
+schema_version = 1
+
+[agent]
+id = "goose"
+label = "goose"
+kind = "generic"
+experimental = true
+description = "The goose AI agent. It runs in a visible pane and chat is read from the screen."
+
+[binary]
+names = ["goose"]

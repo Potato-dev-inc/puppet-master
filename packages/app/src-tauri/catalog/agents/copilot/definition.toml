@@ -1,0 +1,21 @@
+# GitHub Copilot CLI, generic. The install methods (winget GitHub.Copilot, npm @github/copilot) are
+# listed on https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli, which also says
+# Windows needs PowerShell 6 or higher. That requirement is not checked yet.
+schema_version = 1
+
+[agent]
+id = "copilot"
+label = "GitHub Copilot"
+kind = "generic"
+experimental = true
+description = "GitHub Copilot CLI. It runs in a visible pane and chat is read from the screen."
+
+[binary]
+names = ["copilot"]
+
+[install.windows]
+source = "https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli"
+order = ["winget", "npm"]
+winget = "GitHub.Copilot"
+npm = "@github/copilot"
+note = "The vendor says Windows needs PowerShell 6 or higher. Check it on this PC before you rely on it."
