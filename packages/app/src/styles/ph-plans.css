@@ -1,0 +1,91 @@
+/* "Your plans" on the phone (components/mobile/PhonePlans.tsx). Built on the phone tokens (phone.css): grayscale only,
+   every tap target at least 44 px, and it fits a 375 px width. */
+
+.ph-plans {
+  padding: 4px 16px 24px;
+}
+
+.ph-plans-months {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ph-plans-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill-hover);
+  color: var(--label);
+  font: 500 24px/1 var(--font-ui);
+}
+.ph-plans-icon:active {
+  background: var(--fill-active);
+}
+.ph-plans-icon:disabled {
+  opacity: 0.35;
+}
+.ph-plans-month {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  text-align: center;
+  font: 600 16px/1.2 var(--font-ui);
+  color: var(--label);
+}
+
+.ph-plans-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ph-plans-card {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+.ph-plans-name {
+  margin: 0;
+  font: 600 15px/1.3 var(--font-ui);
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.ph-plans-stats,
+.ph-plans-line {
+  margin: 3px 0 0;
+  font: 400 14px/1.35 var(--font-ui);
+  color: var(--label-2);
+}
+.ph-plans-line--quiet {
+  color: var(--label-3);
+}
+
+.ph-plans-total {
+  margin: 12px 0 0;
+  font: 500 14px/1.35 var(--font-ui);
+  color: var(--label-2);
+}
+.ph-plans-empty {
+  margin: 28px 0 0;
+  text-align: center;
+  font: 400 15px/1.35 var(--font-ui);
+  color: var(--label-2);
+}
+.ph-plans-notes {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  font: 400 13px/1.35 var(--font-ui);
+  color: var(--label-3);
+}
+.ph-plans-notes li + li {
+  margin-top: 4px;
+}
