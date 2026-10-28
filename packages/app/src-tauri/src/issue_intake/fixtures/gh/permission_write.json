@@ -1,0 +1,10 @@
+{
+  "permission": "write",
+  "role_name": "write",
+  "user": {
+    "login": "helper",
+    "id": 10003,
+    "type": "User",
+    "site_admin": false
+  }
+}

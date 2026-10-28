@@ -55,3 +55,5 @@ packages/app/src-tauri/src/tui/*/fixtures/history/**/*.db binary
 packages/app/src-tauri/src/handoff/keep_going/fixtures/*.txt text eol=lf
 # Text Your Agents golden messages (TG-9) are compared byte for byte: keep them LF on every checkout.
 packages/app/src-tauri/src/channels/golden/*.txt text eol=lf
+# Assign-an-issue fixtures are parsed as JSON; keep them LF on every checkout.
+packages/app/src-tauri/src/issue_intake/fixtures/gh/*.json text eol=lf

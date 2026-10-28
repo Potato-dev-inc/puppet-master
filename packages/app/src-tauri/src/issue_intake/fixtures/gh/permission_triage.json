@@ -1,0 +1,10 @@
+{
+  "permission": "read",
+  "role_name": "triage",
+  "user": {
+    "login": "someone",
+    "id": 10002,
+    "type": "User",
+    "site_admin": false
+  }
+}
