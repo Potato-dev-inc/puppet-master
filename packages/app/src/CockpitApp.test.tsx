@@ -441,6 +441,23 @@ describe('CockpitApp palette shortcuts', () => {
     press({ key: 'f', ctrlKey: true, shiftKey: true, altKey: true });
     expect(palette()).toBeNull();
   });
+
+  it('? and Ctrl+/ open the keyboard shortcuts sheet, and typing ? in a text box does not', () => {
+    const sheet = () => host.querySelector<HTMLElement>('.ck-sheet--shortcuts');
+    expect(sheet()).toBeNull();
+    press({ key: '?' });
+    expect(sheet()).not.toBeNull();
+    act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    expect(sheet()).toBeNull();
+    press({ key: '/', ctrlKey: true });
+    expect(sheet()).not.toBeNull();
+    act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    act(() => void field.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true, cancelable: true })));
+    expect(sheet()).toBeNull();
+    field.remove();
+  });
 });
 
 describe('CockpitApp split view wiring', () => {

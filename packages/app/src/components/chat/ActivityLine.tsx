@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import type { ToolStep } from '../../lib/sessionChatModel';
 import { DotSpinner } from '../cockpit/DotSpinner';
-import { activitySpanMs, activitySummary, runningLabel } from './chatActivity';
+import '../../styles/cockpit-chat-activity.css';
+import { activitySpanMs, activitySummary, activitySummaryParts, runningLabel, type SummaryPart } from './chatActivity';
 import { formatDuration } from './chatFormat';
 import { ToolRow } from './ToolRow';
 
@@ -16,13 +17,34 @@ export interface ActivityLineProps {
   verbose: boolean;
 }
 
+/** The summary's groups as text, with each "(N failed)" in a stronger style, then the time when there is one. */
+function SummaryText({ parts, time }: { parts: SummaryPart[]; time: string | null }) {
+  return (
+    <>
+      {parts.map((part, i) => (
+        <span key={i}>
+          {i > 0 && ' · '}
+          {part.text}
+          {part.failed !== null && (
+            <span className="ck-chat-activity-failed">
+              {' '}
+              {part.failed}
+            </span>
+          )}
+        </span>
+      ))}
+      {time !== null && ` · ${time}`}
+    </>
+  );
+}
+
 export function ActivityLine({ steps, live, fromScreen, verbose }: ActivityLineProps) {
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? verbose;
   const running = live ? runningLabel(steps) : null;
   const summary = activitySummary(steps);
   const span = live ? null : activitySpanMs(steps);
-  const text = running !== null ? `Working · ${running}` : span !== null ? `${summary} · ${formatDuration(span)}` : summary;
+  const parts = activitySummaryParts(steps);
   return (
     <div className="ck-chat-activity-wrap">
       <button
@@ -34,7 +56,9 @@ export function ActivityLine({ steps, live, fromScreen, verbose }: ActivityLineP
         data-live={running !== null || undefined}
       >
         {running !== null && <DotSpinner status="running" size={3} label="Working" className="shrink-0" />}
-        <span className="min-w-0 flex-1 truncate text-[12px] ck-chat-activity-text">{text}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] ck-chat-activity-text">
+          {running !== null ? `Working · ${running}` : <SummaryText parts={parts} time={span !== null ? formatDuration(span) : null} />}
+        </span>
         <span aria-hidden="true" className={`shrink-0 text-[10px] ck-chat-chevron${open ? ' ck-chat-chevron--open' : ''}`} />
       </button>
       {open && (
