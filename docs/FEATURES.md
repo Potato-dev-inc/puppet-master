@@ -47,6 +47,24 @@ Rows marked **obsolete** describe the legacy main-window UI: still in the tree, 
 | Crews (team templates): "Save this team" in the session rail's Helpers card turns a pane and its helpers into a crew (agent per role, first task with the folder as `{folder}`, redacted; edited in a sheet), saved as `<app data>/crews/<slug>.toml`; "Start crew…" in the palette starts a crew in a folder, lead first, each helper under its parent's pane, stopping at the first failure; any registered agent, wizard-added ones included; trust and permission questions of started panes are never answered | `crews/`, `commands/crews.rs`; UI `components/cockpit/crews/`, `lib/crews-api.ts` | experimental |
 | Home dashboard with an Agents overview card | UI `components/HomeDashboard.tsx`, `AgentsOverviewCard.tsx` | **obsolete** (Overview unreachable) |
 
+## 1a. Point and Fix (preview, pick, send)
+
+Point and Fix lets you see your app inside Puppet Master, point at the part that is wrong, and say what should change. The message goes to the agent you choose. Where it lives: `point/` (Rust, see [`REPO_MAP.md`](REPO_MAP.md) 3.8), the Point box window (`components/point/`), and the preview windows (`preview-*`, no Tauri access for the page).
+
+**Status: being built.** The design is in the feature spec; the pieces land on separate branches (`feat/point-*`) and are not on `main` yet. Nothing in this table is verified live until the live check in [`TEST-PLAN.md`](TEST-PLAN.md) section 2.8 is done.
+
+| Feature | Where | Status |
+|---|---|---|
+| Open a dev server that the pane printed (Preview chip, a job's port chip, or the palette) in its own window; only `localhost`, `127.0.0.1` and `[::1]`; never Puppet Master's own ports | `point/origin.rs`, `commands/point.rs` (`point_open_preview`), `pane_preview.rs`, `pane_jobs/` | being built |
+| Point (Alt+P): hover shows the element name, click picks it; selector, text, styles, component and source file when the dev build shows them (React, Svelte, Vue, Astro, data attributes) | `point/picker.js`, `point/pick.rs`, `point/source.rs` | being built |
+| Screenshot of the picked element, cropped natively; saved in `<project>/.puppet-master/shots/` (git-excluded, newest 50 kept) | `point/capture.rs`, `point/shot.rs` | being built; **Windows only** in v1 (macOS and Linux get the text facts with no picture) |
+| Point box: a cropped picture, "What should change?", up to 3 picks, Enter sends, Esc hides | `point/box_window.rs`, `components/point/PointBox*.tsx` | being built |
+| Send to any agent pane through the pane outbox (waits until the agent is free; refused when the outbox refuses); the image is passed as a file path | `point/message.rs`, `point/target.rs`, `pane_outbox/` | being built |
+| Edit in Chat (text goes into that pane's Chat composer as a draft) and Copy (for protocol panes and panes an agent run controls) | `point/session.rs`, `lib/composerDraft.ts`, `ChatComposer.tsx` | being built |
+| Blocked links: any link or new window that leaves the local app is stopped, with a notice; **Open in browser** only on your click | `point/origin.rs` (`nav`), `point/window.rs` | being built |
+| Privacy: the page never gets Tauri access; form values and password text are never read; page text goes through redaction; the page's words are marked as data in the message | `point/picker.js`, `point/pick.rs`, `point/message.rs`, `capabilities/default.json` | being built (tests pin each rule) |
+| Not in v1: before/after strip, phone Point, image input per agent profile, source maps, preview inside the cockpit, macOS/Linux screenshots | spec section 3.9 | planned (v2) |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.

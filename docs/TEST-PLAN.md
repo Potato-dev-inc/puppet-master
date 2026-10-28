@@ -25,6 +25,12 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | Read-only parity | `node scripts/pm-regression/readonly-check.mjs` | claude and kilo PASS; the control (a write) is detected |
 | Window monitor | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-window-monitor.ps1` | exit 0, `OK: no Puppet Master window on the primary monitor` |
 | Perf (optional) | `node scripts/perf-latency.mjs` then `perf-summarize.mjs` | see `docs/perf/latency-baseline.md` |
+| Rust: Point and Fix | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib point::` | all pass (new; the count is recorded when the feature lands). Suites under `point/tests/`: `origin` (every refusal: LAN, public, `file:`, `javascript:`, userinfo `http://evil@localhost`, `localhost.evil.com`, IDN, `0x7f.1`, trailing dot; own ports 17321..17399, 1420, the dev port, the CDP port; navigation rules), `pick` (caps, fragment dropped, token in query redacted, foreign origin refused, NaN and negative rects clamped, `how` unknown rejected), `source` (each accepted form; `..` escape and outside-root files dropped), `message` (golden text for 1, 2 and 3 picks, no-shot reasons, length under 8000), `shot` (crop size at dpr 1.5 and 2, outline pixels, prune keeps the newest N), `target` (opener first, shells dropped, protocol and run-controlled panes greyed with the outbox sentence), `session` (max 3 picks, TTL, discard, drafts), `capabilities` (no capability matches `preview-*`, no `remote` key, `pointbox` present) |
+| Rust: send path | `cargo test --lib point::` (the `point_send` case) and `cargo test --lib pane_outbox::` | `point_send` makes exactly one `Outbox::send` call through a fake host and writes nothing else; outbox tests unchanged |
+| Rust: full (when `Cargo.toml` or `lib.rs` changed) | `cargo test --lib` (same dir/env) | all pass, 0 failed |
+| App: Point and Fix UI | `cd packages/app; npx vitest run src/point-picker.test.ts src/lib/point-api.test.ts src/components/point src/components/chat/ChatComposer.draft.test.tsx src/main.pointbox.test.ts src/components/cockpit/PaneView.point.test.tsx src/components/cockpit/rail/background.point.test.tsx src/components/cockpit/Palette.point.test.tsx` | all pass. `point-picker` loads the real `picker.js` in jsdom: origin guard (frame or other origin defines nothing), selector unique and short, hashed classes dropped, input values never read, password gives no text, React / Svelte / Vue / Angular stubs, ArrowUp/ArrowDown, Esc disarms, click does not reach the page's own listener, `take()` returns once. `PointBox`: picks render, missing thumb tile, Enter sends with the chosen target, Shift+Enter is a new line, Esc hides, greyed target cannot send, a refused send keeps the text, 3 picks disable "Point another", blocked-link notice |
+| Type check | `npx tsc -p tsconfig.json --noEmit` (in `packages/app`) | no errors |
+| Personal paths | `node scripts/check-no-personal-paths.mjs` (repo root) | no findings |
 
 `cargo test` needs `packages/app/dist` (run `npx vite build` in `packages/app` once). After any change to `tool_registry/`, the shim or bridge code it
 depends on, rebuild the dist MCP exe with a separate `CARGO_TARGET_DIR` and rename-swap (REPO_MAP section 6).
@@ -98,6 +104,21 @@ Setup: open `http://localhost:1420/?pwa=1` at phone size, or pair a phone in Set
 - **PC window.** While a phone has the tab open the pop-out shows "Sized for your phone" (`viewer_held` in `GET /panes`); it shows the agent normally again when the phone leaves the tab.
 - **Legacy.** `?pwa=legacy` still loads the old orchestrator UI.
 - **Headless iPhone check.** Chrome headless over CDP with an iPhone user agent, touch and a fake `visualViewport` whose height drops by the keyboard height: run the steps above and read pane sizes from `/panes`, prompt lines from `.xterm-rows`, and whether the focused input element survives the resize.
+
+### 2.8 Point and Fix (live check, spec section 6)
+Setup: dev app running on its own profile (never the founder's app). A small test app in a test folder, `index.html` with an `<h1>`, a card grid, a `button[data-testid=buy]`, a password input, a link to `https://example.com`, and a React-like element whose `_debugSource` points at `src/Card.jsx:12` (with that real file). Serve it from a shell pane with `python -m http.server 5199` (or `npx --yes http-server -p 5199`), so the Preview chip shows `http://localhost:5199`. Use one tiny agent turn at most, in the test folder only.
+
+1. Click the Preview chip on the shell pane. Expect a preview window beside the cockpit, on the same monitor.
+2. In the preview, `window.__TAURI_INTERNALS__?.invoke('pane_previews')` fails or is missing, and the preview's `localStorage` has no Puppet Master keys.
+3. Click the example.com link. Expect no navigation and a notice in the box or window: "Blocked a link to example.com. The preview only shows your app."
+4. Press Alt+P, move over the button, click it. Expect an outline and a label `button[data-testid=buy]`, then the Point box next to the element with a thumbnail and `Card · src/Card.jsx:12`. The PNG is in `<test folder>/.puppet-master/shots/` and `git status` in the test folder does not list `.puppet-master/` (if it is a repo).
+5. Pick the password input. Expect no typed value anywhere in the box, and the Copy text has no value in it.
+6. **One real agent turn.** Open an agent pane in the test folder. Pick the `<h1>`, write `change this heading text to "Hello Point"`, choose that agent under To:, press Enter. Expect the message to show as a pending bubble in the Chat tab, then to send when the agent is free. The message names the element, selector, component, page and the screenshot path. After the turn the file has the new text, and the preview shows it after a reload. If the agent shows a trust, permission or login question, stop, take a screenshot and report it. Do not answer it.
+7. **Second agent, no real turn.** A fake or wizard-added agent pane receives the same message through the outbox (state `sent`). This shows the path works for any agent.
+8. Click Edit in Chat. Expect the cockpit to select that pane, open its Chat tab, and put the text in the composer. Nothing is sent.
+9. Close the preview window. Expect a log line that the pull loop stopped, and no WebView2 process left for the preview data folder after 10 s.
+
+Expected: each step matches what it says, and the message contains no typed password value and no Puppet Master key. Screenshots are Windows only in v1.
 
 ## 3. Known flaky tests (collected from the progress log and T37 evidence)
 - `tui::descriptor::descriptor_builds_all_nine` - global registry race (fixed by `registry::test_serial()`; tests that swap/count the global registry must take it).
