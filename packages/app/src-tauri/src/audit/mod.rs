@@ -81,6 +81,8 @@ pub enum Kind {
     IssueIntake,
     /// Night Shift (`crate::night_shift`): one kind for the night's own lines (start, task, stop).
     NightShift,
+    /// Focus (`crate::attention::focus`): one kind for its lines (start, change, end). Counts only.
+    Focus,
 }
 
 impl Kind {
@@ -117,6 +119,7 @@ impl Kind {
             Self::ChannelError => "channel.error",
             Self::IssueIntake => "issue.intake",
             Self::NightShift => "night_shift",
+            Self::Focus => "focus",
         }
     }
 }
