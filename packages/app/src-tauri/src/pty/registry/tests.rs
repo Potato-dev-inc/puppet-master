@@ -363,3 +363,76 @@ fn powershell_host_inherits_the_launch_env() {
     apply_launch_env(&mut cmd, &env_pairs(&[("PM_ENV_PS", "ps-host-4410")]), &[]);
     assert!(run_in_pty(cmd).contains("VAL=ps-host-4410"));
 }
+
+/// WSL-11 golden test: a Windows pane's JSON is byte-identical to before the `place` field existed,
+/// because `place` is left out when it is `None`. The text lists the fields in struct order.
+#[test]
+fn windows_pane_json_is_unchanged_by_place_field() {
+    let info = PaneInfo {
+        id: "pane-1".into(),
+        agent_type: "claude".into(),
+        pid: 42,
+        status: "running".into(),
+        created_at: 1,
+        last_output_at: Some(2),
+        cwd: r"C:\Users\you\work\shop".into(),
+        cols: 120,
+        rows: 30,
+        viewer_held: false,
+        reprints_on_resize: false,
+        account: None,
+        account_label: None,
+        title: None,
+        parent_pane_id: None,
+        place: None,
+    };
+    assert_eq!(
+        serde_json::to_string(&info).unwrap(),
+        r#"{"id":"pane-1","agent_type":"claude","pid":42,"status":"running","created_at":1,"last_output_at":2,"cwd":"C:\\Users\\you\\work\\shop","cols":120,"rows":30,"viewer_held":false,"reprints_on_resize":false,"account":null,"account_label":null}"#
+    );
+}
+
+/// JSON written before WSL-11 (no `place` key) still reads, as a Windows pane.
+#[test]
+fn pane_json_without_place_key_reads_as_windows_pane() {
+    let old = r#"{"id":"pane-1","agent_type":"claude","pid":42,"status":"running","created_at":1,"last_output_at":2,"cwd":"C:\\Users\\you\\work\\shop","cols":120,"rows":30,"account":null,"account_label":null}"#;
+    let info: PaneInfo = serde_json::from_str(old).unwrap();
+    assert!(info.place.is_none());
+}
+
+/// A Linux pane carries its `place` as an object (snake_case keys, like the rest of PaneInfo).
+#[test]
+fn linux_pane_json_carries_place() {
+    let mut info = PaneInfo {
+        id: "pane-2".into(),
+        agent_type: "claude".into(),
+        pid: 7,
+        status: "running".into(),
+        created_at: 1,
+        last_output_at: None,
+        cwd: r"D:\work\shop".into(),
+        cols: 120,
+        rows: 30,
+        viewer_held: false,
+        reprints_on_resize: false,
+        account: None,
+        account_label: None,
+        title: None,
+        parent_pane_id: None,
+        place: None,
+    };
+    info.place = Some(crate::wsl::model::PanePlace {
+        kind: "linux".into(),
+        distro: "Ubuntu-Test".into(),
+        cwd: "/mnt/d/work/shop".into(),
+        mount_root: "/mnt/".into(),
+        unc_root: r"\wsl.localhost\Ubuntu-Test".into(),
+        home_windows: String::new(),
+        warnings: vec![],
+    });
+    let json: serde_json::Value = serde_json::to_value(&info).unwrap();
+    assert_eq!(json["place"]["kind"], "linux");
+    assert_eq!(json["place"]["distro"], "Ubuntu-Test");
+    assert_eq!(json["place"]["cwd"], "/mnt/d/work/shop");
+    assert!(json["place"].get("warnings").is_none());
+}
