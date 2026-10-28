@@ -232,6 +232,9 @@ steps = [
     });
     let (code, reply) = session.answer_from_phone(&item_a, right.clone());
     assert_eq!((code, reply["outcome"].as_str()), (200, Some("answered")), "{reply}");
+    // The answer was taken; the fake logs the key when it gets to it (late, on a starved machine). Wait for that one
+    // key, then count: a second one would show up as a count of 2.
+    session.until(120, || (events_named(&session, "approval_answer").len() >= 1).then_some(()));
     assert_eq!(events_named(&session, "approval_answer").len(), 1, "one key so far: {:#?}", session.events());
 
     // A moves on: its screen now asks the second question.
@@ -269,5 +272,6 @@ steps = [
         let (code, reply) = session.answer_from_phone(card["id"].as_str().unwrap(), body);
         assert_eq!((code, reply["outcome"].as_str()), (200, Some("answered")), "{pane}: {reply}");
     }
+    session.until(120, || (events_named(&session, "approval_answer").len() >= 3).then_some(()));
     assert_eq!(events_named(&session, "approval_answer").len(), 3, "A's first, A's second, B's first: {:#?}", session.events());
 }
