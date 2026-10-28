@@ -10,7 +10,8 @@
 //!
 //! Layout: `model` (types), `store` (records on disk), `accounting` (what has been used),
 //! `admit` (a new run's budget and the helper rules), `gate` (the pause), `card` (the Inbox
-//! card), `adjust` (add / stop), `view` (the header chip), `errors`.
+//! card), `adjust` (add / stop), `view` (the header chip), `errors`, `pane_usage` (turns and busy
+//! time per helper pane, rolled up through `parent_pane_id`).
 //!
 //! Escalating a helper's questions to its parent first (roadmap T3, P2) is not built here.
 
@@ -21,6 +22,7 @@ mod card;
 mod errors;
 mod gate;
 mod model;
+mod pane_usage;
 mod store;
 mod view;
 #[cfg(test)]
@@ -33,6 +35,7 @@ pub use admit::{admit, discard, validate};
 pub use card::{on_answered, Outcome, KIND as CARD_KIND};
 pub use gate::{check_next_turn, turn_ended};
 pub use model::{Asked, Defaults, PARENT_ENV};
+pub use pane_usage::{usage_of_pane, PaneUsage};
 pub use store::get as record_of;
 pub use view::view;
 
