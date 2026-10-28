@@ -38,6 +38,7 @@ export const LAYOUT: Partial<Record<SectionId, LayoutGroup[]>> = {
     { group: 'Undo and memory', rows: ['checkpoints', 'checkpoints-keep', 'shared-memory'] },
     { group: 'When you are away', rows: ['away-minutes'] },
     { group: LABS_GROUP, rows: [LABS_INDEX_ID, '@labs'] },
+    { group: 'Live Room', rows: ['live-room'] },
     { group: 'Storage', rows: ['storage', 'chat-search-index', 'bring-old-chats'] },
     { group: 'About', rows: ['version', 'whats-new', 'settings-file', 'diagnostic-file'] },
     { group: 'Uninstall', rows: ['uninstall'] },

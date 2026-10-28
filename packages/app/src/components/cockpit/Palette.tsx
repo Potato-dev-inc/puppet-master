@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { previewLabel } from '../../lib/pane-preview';
 import { pointApi } from '../../lib/point-api';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { requestChatJump } from '../../lib/chatJump';
 import { requestBringChats, requestImportedChat } from '../../lib/chatImport';
+import { liveRoomApi, requestGoLive } from '../../lib/live-room';
+import { LiveStatusContext } from './live/useLiveRoom';
 import type { ChatHit } from '../../lib/chatSearch';
 import { useChatSearch } from '../../hooks/useChatSearch';
 import { useChatFacets } from '../../hooks/useChatFacets';
@@ -96,6 +98,9 @@ export function Palette({
   const listRef = useRef<HTMLDivElement>(null);
 
   const missionsOn = useMissionsEnabled();
+  // The Live Room status the cockpit shares (undefined: no Live Room host, so no Live Room rows).
+  const liveStatus = useContext(LiveStatusContext);
+  const liveOn = liveStatus?.live === true;
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     const multiLogin = multiLoginAgents(c.registry.paneList.map((p) => p.info));
@@ -216,6 +221,28 @@ export function Palette({
       icon: <IconNote />,
       run: requestBringChats,
     });
+    // Live Room: Start while there is no room, Stop only while one runs. The toast after a stop comes from the cockpit.
+    if (liveOn) {
+      out.push({
+        id: 'act:stop-live',
+        group: 'Actions',
+        title: 'Stop Live Room',
+        desc: 'Ends the room now. The link stops working.',
+        keywords: 'live room share stream stop end',
+        icon: <IconStop />,
+        run: () => void liveRoomApi.stop().catch((e: unknown) => c.notify(e instanceof Error ? e.message : 'Could not stop the Live Room')),
+      });
+    } else if (liveStatus !== undefined) {
+      out.push({
+        id: 'act:start-live',
+        group: 'Actions',
+        title: 'Start Live Room…',
+        desc: 'Let people with a link watch a chat. Secrets and folders stay hidden.',
+        keywords: 'live room share stream watch broadcast go live',
+        icon: <IconGlobe />,
+        run: () => requestGoLive(c.selectedId),
+      });
+    }
     if (onStopAll) {
       out.push({
         id: 'act:stop-all',
@@ -325,7 +352,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, companions, onOpenCompanion, onNewCompanion]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

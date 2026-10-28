@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CockpitApp from './CockpitApp';
+import { requestGoLive, type LiveStatus } from './lib/live-room';
 
 // Mutable per-test input for the digest (away) path.
 const away = vi.hoisted(() => ({ digest: null as null | object }));
@@ -15,6 +16,13 @@ const cockpit = vi.hoisted(() => ({
   // The pane list is known (the split restores on start only then). Off by default, as before.
   ready: false,
 }));
+// The Live Room the (mocked) app reports, and the toasts the cockpit shows.
+const live = vi.hoisted(() => ({
+  status: { live: false, paused: false, viewers: 0, endsAtMs: 0, paneIds: [] as string[], hidden: 0, stopped: null as string | null },
+  listeners: [] as Array<(s: unknown) => void>,
+  notes: [] as string[],
+  stops: 0,
+}));
 // Rust's "show Settings in this window" event (cockpit://settings).
 const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
 
@@ -24,6 +32,7 @@ vi.mock('./hooks/useCockpit', async () => {
     useCockpit: () => {
       const [selectedId, setSelectedId] = useState<string | null>('p1');
       const ids = ['p1', 'p2'];
+      const infoOf = (id: string) => ({ id, cwd: `/proj/${id}`, agent_type: `agent-${id}` });
       return {
         selectedId,
         // Like the real hook: picking a pane keeps a running spawn and clears a failed one.
@@ -37,14 +46,14 @@ vi.mock('./hooks/useCockpit', async () => {
         setMode: async () => {},
         openSettings: cockpit.openSettings,
         newAgent: async () => {},
-        notify: () => {},
+        notify: (text: string) => void live.notes.push(text),
         theme: 'dark',
         now: 0,
         toasts: [],
-        names: {},
+        names: new Map<string, string>(),
         registry: {
-          paneList: ids.map((id) => ({ info: { id, cwd: `/proj/${id}` } })),
-          panes: new Map(ids.map((id) => [id, { info: { id, cwd: `/proj/${id}` }, status: 'idle' }])),
+          paneList: ids.map((id) => ({ info: infoOf(id) })),
+          panes: new Map(ids.map((id) => [id, { info: infoOf(id), status: 'idle' }])),
           initialReady: cockpit.ready,
         },
       };
@@ -62,6 +71,26 @@ vi.mock('./lib/cockpit-api', async (importOriginal) => {
         rust.openSettings = cb;
         return Promise.resolve(() => {});
       },
+    },
+  };
+});
+
+vi.mock('./lib/live-room', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('./lib/live-room')>();
+  return {
+    ...orig,
+    onLiveState: (cb: (s: unknown) => void) => {
+      live.listeners.push(cb);
+      return Promise.resolve(() => {
+        live.listeners = live.listeners.filter((x) => x !== cb);
+      });
+    },
+    liveRoomApi: {
+      ...orig.liveRoomApi,
+      status: async () => live.status,
+      stop: async () => void (live.stops += 1),
+      configGet: async () => ({ relay: 'https://relay.example.test', minutes: 60, maxViewers: 10 }),
+      preview: async () => ({ panes: [], items: [], hidden: 0 }),
     },
   };
 });
@@ -199,12 +228,16 @@ vi.mock('./components/cockpit/PanicSheet', () => ({ PanicSheet: () => null }));
 
 let host: HTMLDivElement;
 let root: Root;
-beforeEach(() => {
+beforeEach(async () => {
   away.digest = null;
   ui.spawn = null;
   cockpit.mode = 'orchestration';
   cockpit.openSettings = vi.fn(async () => {});
   cockpit.ready = false;
+  live.status = { live: false, paused: false, viewers: 0, endsAtMs: 0, paneIds: [], hidden: 0, stopped: null };
+  live.listeners = [];
+  live.notes = [];
+  live.stops = 0;
   localStorage.clear();
   rust.openSettings = null;
   settingsMounts = 0;
@@ -212,7 +245,8 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => root.render(createElement(CockpitApp)));
+  // Async, so the Live Room status read at mount settles inside the act.
+  await act(async () => root.render(createElement(CockpitApp)));
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -507,5 +541,96 @@ describe('CockpitApp split view wiring', () => {
     expect(mainText()).toContain('SPLIT VIEW');
     resize(800);
     expect(mainText()).toBe('PANE VIEW p1');
+  });
+});
+
+// The segment controls of the Go live sheet measure themselves with a ResizeObserver, which jsdom does not have.
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
+describe('CockpitApp Live Room wiring', () => {
+  const flush = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  /** The app tells every window the room changed (`live://state`). */
+  const emit = (over: Partial<LiveStatus>) =>
+    act(async () => {
+      const next = { ...live.status, ...over };
+      live.status = next;
+      live.listeners.forEach((cb) => cb(next));
+    });
+  const bar = () => host.querySelector('.ck-live-bar');
+  const running = (over: Partial<LiveStatus> = {}): Partial<LiveStatus> => ({ live: true, viewers: 7, endsAtMs: Date.now() + 41 * 60_000, paneIds: ['p1'], stopped: null, ...over });
+
+  it('shows no LIVE bar while there is no room', async () => {
+    await flush();
+    expect(bar()).toBeNull();
+  });
+
+  it('the LIVE bar appears on a live://state event and goes on stop, with the reason toast', async () => {
+    await flush();
+    await emit(running());
+    expect(bar()?.textContent).toContain('LIVE');
+    expect(bar()?.textContent).toContain('7 watching');
+    expect(bar()?.textContent).not.toMatch(/https?:|#/);
+    expect(live.notes).toEqual([]);
+    await emit({ live: false, paused: false, stopped: 'expired' });
+    expect(bar()).toBeNull();
+    expect(live.notes).toEqual(['Live Room ended: time is up.']);
+  });
+
+  it('says each stop in plain English, and nothing when the app quits', async () => {
+    await flush();
+    await emit(running());
+    await emit({ live: false, stopped: 'idle' });
+    await emit(running());
+    await emit({ live: false, stopped: 'app_quit' });
+    await emit(running());
+    await emit({ live: false, stopped: 'owner' });
+    expect(live.notes).toEqual(['Live Room stopped: nothing happened for 20 minutes.', 'Live Room stopped.']);
+  });
+
+  it('a stopped status seen at start (no room before) says nothing', async () => {
+    await flush();
+    await emit({ live: false, stopped: 'expired' });
+    expect(live.notes).toEqual([]);
+  });
+
+  it('Stop in the LIVE bar ends the room through the app', async () => {
+    await flush();
+    await emit(running());
+    await act(async () => clickButton('Stop'));
+    expect(live.stops).toBe(1);
+  });
+
+  it('the Go live event (chat menu, palette) opens the sheet with that pane checked', async () => {
+    await flush();
+    act(() => requestGoLive('p2'));
+    await flush();
+    const sheet = document.querySelector('[role="dialog"]');
+    expect(sheet?.textContent).toContain('Go live');
+    const boxes = [...(sheet?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]') ?? [])];
+    expect(boxes.map((b) => b.checked)).toEqual([false, true]);
+  });
+
+  it('the Go live event with no pane checks the selected pane', async () => {
+    await flush();
+    act(() => requestGoLive(null));
+    await flush();
+    const boxes = [...document.querySelectorAll<HTMLInputElement>('[role="dialog"] input[type="checkbox"]')];
+    expect(boxes.map((b) => b.checked)).toEqual([true, false]);
+  });
+
+  it('while a room runs, the Go live event opens nothing and says why', async () => {
+    await flush();
+    await emit(running());
+    act(() => requestGoLive('p1'));
+    await flush();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(live.notes).toEqual(['Live Room is already running. Stop it first.']);
   });
 });

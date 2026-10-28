@@ -139,3 +139,11 @@ export function durationLabel(min: number): string {
   const rest = min % 60;
   return rest === 0 ? `${h} h` : `${h} h ${rest} min`;
 }
+
+/** The window event that opens the Go live sheet. The chat menu and the palette fire it; the cockpit listens. */
+export const GO_LIVE_EVENT = 'pm:go-live';
+
+/** Asks the cockpit to open the Go live sheet, with `paneId` (the pane the person is on) checked. */
+export function requestGoLive(paneId?: string | null): void {
+  window.dispatchEvent(new CustomEvent<{ paneId: string | null }>(GO_LIVE_EVENT, { detail: { paneId: paneId ?? null } }));
+}

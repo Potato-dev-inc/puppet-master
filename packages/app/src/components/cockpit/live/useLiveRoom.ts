@@ -1,7 +1,13 @@
 // The Live Room status, kept fresh: one read on mount, then every `live://state` event. Outside the desktop
 // shell the reads fail and the status stays null, so the LIVE bar and chips simply do not show.
-import { useCallback, useEffect, useState } from 'react';
+import { createContext, useCallback, useEffect, useState } from 'react';
 import { liveRoomApi, onLiveState, type LiveRoomApi, type LiveStatus } from '../../../lib/live-room';
+
+/**
+ * The cockpit shares its one status with the panes and the palette. Without a provider the value is `undefined`
+ * and a chip reads the status itself.
+ */
+export const LiveStatusContext = createContext<LiveStatus | null | undefined>(undefined);
 
 export type LiveSubscribe = (cb: (status: LiveStatus) => void) => Promise<() => void>;
 
