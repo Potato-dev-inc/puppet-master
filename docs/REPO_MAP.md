@@ -356,10 +356,11 @@ serve handle / free port / PTY reader, `reattach.rs` re-attach TUI to a running 
 and server-health changes, `keys.rs` API key profiles/rotation (never exposed through MCP),
 `quota.rs` rate limit / key-swap events, `link.rs` `OpenCodeLink` (native pane <-> serve process link) and worker event emit. TUI-facing parsing lives in `tui/opencode/`.
 
-### 3.6a `handoff/` (usage limits, detect-only)
+### 3.6a `handoff/` (usage limits, and Keep going)
 
-Hand-off at the limit, step one (`D:\pm-night\DESIGN-RELAY.md`; details in `docs/features/handoff-detect.md`). The feature
-is called "hand-off", never "relay" (`team/transport/relay.rs` is the team relay). Per-agent rules are DATA
+Usage limits: detection (`handoff/` files below, details in `docs/features/handoff-detect.md`). Keep going: moving a
+task to another agent at a limit (`handoff/keep_going/`, details in `docs/features/keep-going.md`). The feature is called
+"hand-off" or "Keep going", never "relay" (`team/transport/relay.rs` is the team relay). Per-agent rules are DATA
 (`tui/<agent>/limits.toml`, or an inline `[limits]` table in a TOML agent definition); generic code reads only
 `TuiProfile::limits()` / `detect_limit()`.
 
@@ -369,12 +370,30 @@ is called "hand-off", never "relay" (`team/transport/relay.rs` is the team relay
 | `handoff/detect.rs` | the detector: one screen in, one `LimitHit` out (usage / transient / warning / unavailable / menu), guards against a quoted sentence |
 | `handoff/reset.rs` | "resets 5pm" / "try again at 9:45 PM" as a moment, `Clock` (a foreign zone is `None`) |
 | `handoff/watch.rs` | per-pane state machine: a limit must hold still 2 s, fires once, clears when the turn resumes (pure, virtual time) |
-| `handoff/card.rs` | the Inbox card (a `questions::Question` with `limit: LimitInfo`) and what "Remind me" / "Stop here" decide |
-| `handoff/mod.rs` | the `Engine` (tracker + cards + reminders), `limit_gate` (readiness: nothing is typed at a limit), live wiring |
-| wiring | `pane_activity` (observe + tick + status line), `agent_runs/headless/supervise.rs` (a run on a limit screen is held, never completed from it), `bridge/observe.rs` (stays parked), `agent_runs/readiness.rs` (gate, no keys), `agent_runs/routes/answer.rs` (`USAGE_LIMIT_NOT_ANSWERABLE`), `operations::{mark_operation_usage_limit, mark_operation_stopped_at_limit}`, receipt `usage_limit` |
+| `handoff/card.rs` | the Inbox cards: the limit card (`Continue on <agent>` first when an offer exists, then "Remind me" / "Stop here" or "Dismiss"), the come-back card, the Keep going failure card; `Decision` for each answer. `card_tests.rs` tests them |
+| `handoff/mod.rs` | the `Engine` (tracker + cards + reminders), `limit_gate` (readiness: nothing is typed at a limit), live wiring; the Keep going calls go to `keep_going::live` on a thread, never under the engine lock |
+| `handoff/keep_going/mod.rs` | the module doc and invariants S1 to S13 (fenced agent text, no write path into a pane, only a person's answer starts a move, hop cap 3, same company never offered, PID-only stop, the copy is never discarded, private brief store) |
+| `handoff/keep_going/model.rs` | `Handover` record, `Settings`, `Target` (`agent` or `agent@account`, parsed strictly), `State`, `Back`, `Reason`, error codes `KEEP_GOING_*`, `OLD_AGENT_DID_NOT_STOP`, the caps (hop 3, brief 6 KiB, 200 records, 8 order entries, come-back grace 60 s / retry 10 min / 3 tries, stop wait 5 s) |
+| `handoff/keep_going/store.rs` | `<app data>/keep-going/`: `records.json` (newest 200), `settings.json`, `briefs/<id>.md`; every write through `secure_file`; file names only from a validated id |
+| `handoff/keep_going/brief.rs`, `brief_parse.rs` | the brief text: fixed line 1, fenced notes, trim order at 6 KiB, `parse_numstat`, `open_plan_items`. `brief_tests.rs` (golden fixtures in `fixtures/`) |
+| `handoff/keep_going/offers.rs` | `rank` and `first_ok`: which agents may take over and in what order (same agent hidden, same `limits.vendor` disabled, limited disabled, hop cap disables all). Its test refuses agent names in generic code |
+| `handoff/keep_going/chain.rs` | `hop_for`, `limited_by_records`, `already_from`, `come_backs_due` (pure, from the records) |
+| `handoff/keep_going/live.rs` | the move: `prepare` (guards, brief, `Stopping` record), `execute` (end the old run as `HANDED_OFF`, stop the old agent, start the new one via `run_agent`, link panes, audit), come-back, failure card, status lines, lineage. Takes a `LiveIo` |
+| `handoff/keep_going/live_io.rs`, `live_app.rs`, `live_gather.rs` | the `LiveIo` trait (registry, runs, stop, start, clock, store) and its real app implementation; `live_gather` reads the old pane's chat items (30 s lease), turn summaries and `git diff --numstat` |
+| `handoff/keep_going/view.rs` | the records as the windows see them (no brief path, no goal text) and `Lineage` |
+| `handoff/keep_going/engine_tests.rs` | the whole move against a fake `LiveIo` and virtual clock: order of end and stop, run request fields, failure and retry, come-back, companion and mission refusals, and the no-write-path scan |
+| `commands/keep_going.rs` | six desktop-only Tauri commands: `keep_going_targets`, `keep_going_continue`, `keep_going_lineage`, `keep_going_brief`, `keep_going_settings_get` / `_set`. No bridge route, no MCP tool |
+| `pty/agent_stop.rs`, `pty/agent_proc.rs` | `stop_agent`: kill the pane's own agent process tree by PID, wait up to the stop wait, never by image name; the pane stays in the registry |
+| `operations/transitions.rs` | `HANDED_OFF`, `mark_operation_handed_off` (cancelled, stage `handed_off`, `keep_pane`), `set_handed_off_to` (adds `continued_by` to the error) |
+| `agent_runs/pane_close.rs`, `agent_runs/runtime/followup.rs` | closing a pane never discards a copy whose run ended `HANDED_OFF`; a follow-up on such a task is refused with `HANDED_OFF` and the new handle |
+| wiring | `handoff::Env::keep_going_offer` / `keep_going` (the live env calls `keep_going::live`), `pane_activity` status line (`Handed to <agent>`), `audit::Kind::KeepGoing` (`keep_going.handed_over`), `plans_report::limit_log` (end of the wait) |
+| UI | `lib/keep-going.ts`, `components/cockpit/LimitCard.tsx` ("Other agent…"), `ContinueOnSheet.tsx`, `BriefSheet.tsx`, `components/chat/KeepGoingBanner.tsx` (mounted in `SessionChatPanel`), `components/settings/sections/KeepGoingRows.tsx` (mounted in `AgentsSection`), `styles/cockpit-keep-going.css` |
 
-Invariants: this step never writes to a pane (a test scans the module for every write path); Claude's own "continue
-automatically at usage limit" wait is only read (`self_resume_armed`); the vendor's `/rate-limit-options` menu is never answered.
+Invariants (detection): the detector never writes to a pane (a test scans the module for every write path); Claude's own
+"continue automatically at usage limit" wait is only read (`self_resume_armed`); the vendor's `/rate-limit-options` menu
+is never answered. Invariants (Keep going): the old run ends before its agent is stopped; the old agent is stopped by its
+own PID and must be gone within 5 s or nothing new starts; the new run has no trust, no shell and no extra commands; Puppet
+Master never types into a pane; nothing moves without a person's tap; the brief lives only in the private store.
 
 ### 3.7 Watch
 
@@ -393,6 +412,59 @@ Point and Fix: open your running app in its own preview window, point at an elem
 | File | Purpose / key items |
 |---|---|
 | `point/` (+ `commands/point.rs`, `lib/point-api.ts`, `lib/composerDraft.ts`, `components/point/` the Point box, `styles/point-box.css`) | `origin.rs`: which URLs may open (only `localhost`, `127.0.0.1`, `[::1]`; the URL comes from `pane_preview` or the pane's job ports, never from the UI; Puppet Master's own ports refused) and the navigation guard (`nav`). `pick.rs`: checks what the page sends (caps, redaction before cut, rect clamped, same origin only). `source.rs`: a file hint from the page counts only if it is a real file in the project. `message.rs`: the text sent to the agent. `shot.rs`: crop, save under `<project>/.puppet-master/shots/` (git-excluded), keep 50. `target.rs`: which agent panes can take the message (labels from the agent registry, never a name match). `session.rs`: up to 3 picks for 10 minutes, and drafts for Edit in Chat. `picker.js`: the script injected only into preview windows; it has no IPC. `capture.rs`: WebView2 `CapturePreview` (Windows only in v1). `window.rs`: preview windows, the pull loop (`eval_with_callback`, 250 ms while focused, 2 s otherwise) and the after-pick steps. `box_window.rs`: the Point box window (label `pointbox`, route `index.html?pointbox=1`). Send goes only through `pane_outbox::Outbox::send`; Point never writes to a PTY. Preview windows (`preview-*`) are in no capability, so page code gets no IPC. UI: `components/point/PointBox.tsx`, `PointBoxApp.tsx`, `point-model.ts`; `ChatComposer` takes a draft from Edit in Chat. Tests sit next to each file (`point/tests/*.rs`, `*.test.ts(x)`). |
+
+### 3.9 Text your agents (`channels/`, Telegram)
+
+Telegram is the first chat channel (feature page `docs/features/telegram.md`, status early). Generic code lives in
+`channels/` and names no chat app; Telegram's Bot API is in `channels/telegram/` only. Every outbound message goes
+through `render::clean` (sanitize, strict redaction, e-mail masks, 1,500-character cap, plain text).
+
+| File | What |
+|---|---|
+| `channels/config.rs`, `channels/token.rs` | `telegram.json` (on/off, caps, options, `enabled_at_ms`, `last_update_id`; `Control` is stripped on load and save). The token only in the OS credential store under `channels/<profile>/telegram_bot_token`; no file fallback |
+| `channels/policy.rs` | the card table (D-9: `answerable(kind, risk)`) and the capability each command needs (`command_need`). No wildcard arms, so a new attention kind must be decided here |
+| `channels/commands.rs` | parses the text the person sends: `/start`, `/status`, `/panes`, `/to N`, `/c Name`, `/help`, `/stop`, plain text; 1,000-character limit |
+| `channels/engine.rs`, `channels/engine/` (`pair.rs`, `buttons.rs`, `run.rs`) | the inbound rules in order (private chat only, pairing, strangers, freshness, rate bucket, parse, capability, button grants). Pure: effects come back, nothing is sent here |
+| `channels/pairing.rs` | the one-time code (8 characters, 40 bits, 10 minutes, 5 wrong tries burn it) and the desktop confirm step (D-4) |
+| `channels/grants.rs` | single-use button tokens (answers 10 minutes, confirm 60 seconds), looked up on the server side |
+| `channels/rate.rs`, `channels/refs.rs` | token buckets (inbound 20/min, answers 10/min, outbound 20/min, strangers 1/h, slow note 1/min); the numbered pane list (15 minutes) and conversation windows (15 minutes) |
+| `channels/notify.rs`, `channels/feed.rs` | what the chat hears: cards that need you, companion replies and pane turn ends (only in a window), run ends (with `notify_runs`), the 30 s gate per item, held messages summarised |
+| `channels/render.rs` | the single cleaning step for everything sent out; `MAX_OUT_CHARS` 1,500; question cap 600 |
+| `channels/telegram/api.rs`, `channels/telegram/poller.rs` | the Bot API client (plain text, `protect_content`, link previews off, no `parse_mode`; errors carry no URL or body text) and the long-poll thread (offset saved after each batch; 401, 403 and 409 stop it) |
+| `channels/runtime.rs` | owns engine, notifier and poller; the poller runs only when on and paired, or while a pairing code is live |
+| `channels/setup.rs` | the person's actions (`telegram_set_token`, `pair_start`, `pair_decide`, `set_enabled`, `set_options`, `forget`) and the phone's switch-off (`turn_off_from_phone`). Refuses a bot with a webhook (D-2) |
+| `channels/status.rs` | the `TelegramStatus` the Settings block reads (no token, no chat text) |
+| `channels/host.rs`, `channels/host_live.rs`, `channels/live.rs` | the trait the engine uses, its real version (registry, attention, outbox, companions), and the start-up hook `channels::start` |
+| `channels/test_host.rs`, `channels/fake_bot.rs` | test-only fakes for the host and the Bot API |
+| `commands/channels.rs` | Tauri commands `telegram_status`, `telegram_set_token`, `telegram_pair_start`, `telegram_pair_decide`, `telegram_set_enabled`, `telegram_set_options`, `telegram_forget` (registered in `lib.rs`) |
+| `bridge/routes/channels.rs` | the phone's two routes: `GET /channels/telegram` (`on`, `connected`, `botUsername`) and `POST /channels/telegram/off` (needs a paired phone's bearer; no route turns it on) |
+| UI (not mounted yet) | `components/settings/blocks/TelegramSetup.tsx`, `TelegramPairing.tsx`, `components/mobile/TelegramOffRow.tsx`, `lib/telegram-api.ts`, `lib/telegram-bridge.ts`. Nothing imports the first three yet |
+
+Tests: `channels/*_tests.rs`, `channels/engine_tests.rs`, `channels/runtime_tests.rs`, `channels/setup_tests.rs`,
+`channels/notify_tests.rs`, `channels/telegram/api/tests.rs`, the golden texts in `channels/golden/`. No test talks to Telegram.
+
+### 3.10 Clip It (`clip/`)
+
+A short video of one finished turn, made on the PC (feature page `docs/features/clip-it.md`). The Rust side replays the
+pane's own terminal record and redacts every row before anything leaves Rust. The webview draws the frames on a canvas and
+encodes the MP4. Tauri commands only: no bridge route, no SSE event, no MCP tool, no phone cap.
+
+| File | What |
+|---|---|
+| `clip/model.rs` | the `ClipPlan` JSON (camelCase, the contract with the webview) and the caps: 180 frames, 3 MB plan, 40 steps, 48 MB staged file, 30-minute plan token |
+| `clip/screens.rs` | replays the pane's terminal record (`flight::ring`, at most 2 MB) into frames; only output and resize events; a time map that squeezes gaps to 400 ms |
+| `clip/scrub.rs` | the privacy wall: every row through `redact::strict` and `session_chat::export_text::plain`, logical lines and cross-row secrets, known process values, distinct-row cache, `hidden` count |
+| `clip/steps.rs` | tool steps, the request text and the result facts: every string through `plain`, cut to fixed lengths. Assistant text is not read here |
+| `clip/window.rs` | which turn (the last one, or the given user message) and its time window; refusal sentences for a running turn and for a turn with no times |
+| `clip/plan.rs` | builds the whole plan from the ring, the chat items and the turn summaries; falls back to the activity scene, and says why in a note |
+| `clip/store.rs` | `Plans`: tokens (from `issue`, 30 minutes), `stage` (magic bytes, size, extension), `save` (one-time, through `check_dest_with`, keeps the bytes when the path is refused) |
+| `clip/guard_tests.rs` | no `clip` in `bridge/` or `tool_registry/` sources; `catalog_version` unchanged; no `write_input`, `press_key` or `answer_prompt` in `clip/` |
+| `commands/clip.rs` | Tauri commands `clip_plan`, `clip_stage` (raw body + `x-clip-token` / `x-clip-ext` headers), `clip_save` (registered in `lib.rs`) |
+| UI: `lib/clip.ts`, `clipTypes.ts`, `clipTimeline.ts`, `clipDraw.ts`, `clipEncode.ts`, `clipGuard.ts`, `mp4Mux.ts` | the TS mirror of the plan, the timeline (max 30 s), the canvas drawing, the WebCodecs encoder with a `MediaRecorder` fallback, the second privacy wall, the MP4 writer (no user-data atoms) |
+| UI: `components/chat/ClipSheet.tsx`, `useClipMaker.ts` | the "Make a clip" sheet and its state machine; mounted from `SessionChatPanel` (`Make clip` on a finished turn, and the menu item in `ChatExportMenu`); not in the phone bundle |
+
+Tests: `clip/store_tests.rs`, `clip/guard_tests.rs`, unit tests in each file; `lib/clip*.test.ts`, `lib/mp4Mux.test.ts`,
+`components/chat/ClipSheet.test.tsx`, `clipSheet.sources.test.ts` (greps the clip files for network calls).
 
 ---
 

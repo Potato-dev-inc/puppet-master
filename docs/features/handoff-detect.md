@@ -1,8 +1,9 @@
-# Hand-off at the limit, step one: detect only
+# Usage limits: detection and the limit card
 
 Branch `feat/handoff-detect` (base `fix/live-r12` @ 2111483). Design: `D:\pm-night\DESIGN-RELAY.md` ("Hand-off at the
-limit"), built here up to its first shippable step. The feature is called **hand-off**, never "relay" (the team relay
-is `team/transport/relay.rs`).
+limit"). This branch built the detection step and the limit card. The hand-over that the card can start ("Continue on
+<agent>") was built later; it is described in [`keep-going.md`](keep-going.md). The team relay is a different thing
+(`team/transport/relay.rs`), so never call this feature "relay".
 
 ## What and why
 
@@ -23,9 +24,19 @@ What it does, per agent that has a `[limits]` table:
 3. **Parks the run** bound to the pane: `waiting_input`, stage `usage_limit`, `required_action.kind = "usage_limit"`
    with `window`, `reset_at_ms`, `reset_text`, `self_resume_armed` and no options. An MCP caller waiting on the run
    wakes with `needs_input` and can read why. `answer_prompt` on it is refused (`USAGE_LIMIT_NOT_ANSWERABLE`).
-4. **Raises one Inbox card**: "Claude Code ran out of usage. It can continue at 14:05." with **Remind me at 14:05**
-   and **Stop here** (and, for a pane with no run, **Dismiss**). The card says handing the work to another agent is
-   coming in a later update. There is no hand-off button.
+4. **Raises one Inbox card** (`handoff/card.rs`, `limit_card`): "Claude Code ran out of usage. It can continue at 14:05."
+   The choices, in order:
+   - **Continue on Codex** (first and primary). It is shown only when another agent can take over now. Picking it
+     starts the hand-over: the old pane's agent is stopped and the task moves to the new agent. See
+     [`keep-going.md`](keep-going.md). When no agent can take over, there is no Continue choice. The card says why
+     ("No other agent can take over now: ...") and points to Settings > Agents > Keep going.
+   - **Remind me at 14:05** (or "Remind me in 1 hour" when the reset time is unknown).
+   - **Stop here** (for a pane with a run), or **Dismiss** (for a pane with no run).
+   The context line says what Continue does: the other agent gets a short brief and works in the same folder, and this
+   pane's agent is stopped first. When Claude is set to continue on its own, the card says that Continue stops it.
+   On the desktop, `LimitCard.tsx` adds **Other agent…** for a pane that has a run. It opens the agent list
+   (`ContinueOnSheet.tsx`). On a companion's pane it shows **Wake {name} on…** instead. A paired phone shows the same
+   choices as ordinary buttons. It has no agent list.
    - Remind me: a reminder card at the reset ("usage limit should have reset by now"), skipped if the agent
      already carried on. Reminders survive a restart (`handoff-reminders.json` in the app-data folder).
    - Stop here: the run ends as cancelled with error `USAGE_LIMIT_STOPPED`; its pane is **kept**; the receipt says
@@ -70,5 +81,7 @@ See `D:\pm-night\p0\handoff\REPORT.md` (commands, counts, fail-before logs, scre
   invent one.
 - Reminders and the 2 s hold live in memory (reminders also in a file); the card is a question, so it does not survive
   an app restart. A run parked at a limit is parked again when the screen is seen again.
-- Not built (later steps of the design): the brief, hand-off, resume at the reset, the Backup agents setting, the
-  scheduler, `HANDED_OFF`, lineage on the receipt.
+- Built later, see [`keep-going.md`](keep-going.md): the brief, the hand-over, `HANDED_OFF`, the come-back card, and the
+  lineage shown in the chat banner. The design's "Backup agents" setting became Settings > Agents > Keep going.
+- Not built yet: Puppet Master resuming the first agent at its reset by itself (the come-back is a card the person
+  answers), the scheduler, lineage on the receipt, and a phone agent list.
