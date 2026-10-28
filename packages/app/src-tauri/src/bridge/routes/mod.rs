@@ -19,6 +19,7 @@ pub(super) mod mcp;
 mod opencode;
 mod operations;
 mod pairing;
+mod plans;
 pub(super) mod panes;
 pub(super) mod previews;
 mod push;
@@ -95,6 +96,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| companions::handle(cx))
         .or_else(|| chats::handle(cx))
         .or_else(|| panes::handle(cx))
+        .or_else(|| plans::handle(cx))
 }
 
 /// The agent-run API (`run_agent`, `wait_agents`, ...) owns its own routes.

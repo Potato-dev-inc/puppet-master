@@ -233,6 +233,7 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       call('POST', `/companions/${encodeURIComponent(id)}/memory/pending/${encodeURIComponent(itemId)}`, { decision }),
     companionWake: (id) => call('POST', `/companions/${encodeURIComponent(id)}/wake`, {}),
     companionSleep: (id) => call('POST', `/companions/${encodeURIComponent(id)}/sleep`, {}),
+    plansReport: (month) => call('GET', `/plans${month ? `?month=${encodeURIComponent(month)}` : ''}`),
     patchSettings: (patch) => call('PATCH', '/settings', patch),
     postOrchestratorMessage: (text, messageId) =>
       call('POST', '/orchestrator/message', { text, message_id: messageId }),
