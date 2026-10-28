@@ -83,12 +83,12 @@ fn absolute_paths_shrink_to_the_last_name() {
 
 #[test]
 fn strip_paths_keeps_text_that_is_not_an_absolute_path() {
-    assert_eq!(strip_paths("/api"), "/api");
-    assert_eq!(strip_paths("1/2 and/or"), "1/2 and/or");
-    assert_eq!(strip_paths("https://example.test/a/b"), "https://example.test/a/b");
-    assert_eq!(strip_paths(r"see C:\a\b.rs, ok"), "see b.rs, ok");
-    assert_eq!(strip_paths(r#""C:/x/y""#), r#""y""#);
-    assert_eq!(strip_paths("C:\\"), "C:\\");
+    assert_eq!(strip_paths("/api", None), "/api");
+    assert_eq!(strip_paths("1/2 and/or", None), "1/2 and/or");
+    assert_eq!(strip_paths("https://example.test/a/b", None), "https://example.test/a/b");
+    assert_eq!(strip_paths(r"see C:\a\b.rs, ok", None), "see b.rs, ok");
+    assert_eq!(strip_paths(r#""C:/x/y""#, None), r#""y""#);
+    assert_eq!(strip_paths("C:\\", None), "C:\\");
 }
 
 #[test]
@@ -98,9 +98,74 @@ fn special_characters_are_escaped() {
 
 #[test]
 fn folder_is_shown_by_name_only() {
-    assert_eq!(folder_name(r"C:\Users\you\work\app\"), "app");
-    assert_eq!(folder_name("/home/you/proj"), "proj");
-    assert_eq!(folder_name(""), "");
+    assert_eq!(folder_of(r"C:\Users\you\work\app\", None), "app");
+    assert_eq!(folder_of("/home/you/proj", None), "proj");
+    assert_eq!(folder_of("", None), "");
+}
+
+/// A context whose OS home folder is `home`.
+fn ctx_home(home: &str) -> RedactContext {
+    RedactContext { env_values: Vec::new(), home: Some(home.into()) }
+}
+
+#[test]
+fn a_home_folder_with_a_space_never_shows_the_user_name() {
+    assert_eq!(strip_paths(r"Edited C:\Users\Default User\proj\a.rs", None), "Edited a.rs");
+    assert_eq!(strip_paths(r"Edited C:\Users\Default User\proj\a.rs", Some(r"C:\Users\Default User")), "Edited a.rs");
+    assert_eq!(strip_paths(r#""C:\Users\Default User\proj\a.rs""#, None), r#""a.rs""#);
+}
+
+#[test]
+fn a_bare_home_folder_becomes_a_tilde() {
+    assert_eq!(strip_paths(r"C:\Users\test", None), "~");
+    assert_eq!(strip_paths("cwd C:\\Users\\test\nnext", None), "cwd ~\nnext");
+    assert_eq!(strip_paths(r"C:\Users\Default User", None), "~");
+    assert_eq!(folder_of(r"C:\Users\test", None), "~");
+    assert_eq!(folder_of(r"C:\Users\test\", None), "~");
+    assert_eq!(folder_of(r"C:\Users\test\work\app", None), "app");
+}
+
+#[test]
+fn a_forward_slash_home_folder_is_replaced_too() {
+    assert_eq!(strip_paths("C:/Users/test/proj/a.rs", None), "a.rs");
+    assert_eq!(strip_paths("/home/test/proj/a.rs", None), "a.rs");
+    assert_eq!(strip_paths("/Users/test/proj/b.rs", None), "b.rs");
+    assert_eq!(strip_paths("C:/Users/Default User/proj/c.rs", None), "c.rs");
+    assert_eq!(strip_paths(r"C:/Users/test\proj\d.rs", None), "d.rs");
+}
+
+#[test]
+fn a_mixed_case_home_folder_is_replaced() {
+    assert_eq!(strip_paths(r"c:\users\x\proj\a.rs", None), "a.rs");
+    assert_eq!(strip_paths(r"C:\USERS\X\proj\a.rs", None), "a.rs");
+    assert_eq!(strip_paths(r"c:\users\x", None), "~");
+    assert_eq!(strip_paths("/HOME/Default/proj/a.rs", None), "a.rs");
+    // The OS home is matched in any case and with either slash.
+    assert_eq!(strip_paths("c:/users/x/proj/a.rs", Some(r"C:\Users\X")), "a.rs");
+}
+
+#[test]
+fn a_path_inside_quotes_loses_the_user_name() {
+    assert_eq!(strip_paths(r#""C:\Users\test\proj\a.rs""#, None), r#""a.rs""#);
+    assert_eq!(strip_paths(r"'C:\Users\test'", None), "'~'");
+    let html = page(&[agent(1, r#"Opened "C:\Users\Default User\proj\a.rs" today"#)], &meta(), TurnRange::default(), &ctx_home(r"C:\Users\Default User"));
+    assert!(html.contains("Opened &quot;a.rs&quot; today"));
+    assert!(!html.contains("Default"));
+    assert!(!html.contains("User"));
+}
+
+#[test]
+fn the_user_name_is_gone_from_the_whole_page() {
+    let items = vec![
+        user(1, r"open C:\Users\Default User\proj\a.rs"),
+        call(1, "Read", r"C:\Users\Default User"),
+        ChatItem::ToolResult { id: "r".into(), at: None, call_id: "c".into(), ok: true, output: r"C:/Users/test/x".into() },
+    ];
+    let html = page(&items, &meta(), TurnRange::default(), &ctx_home(r"C:\Users\Default User"));
+    assert!(!html.contains("Default"));
+    assert!(!html.contains("test"));
+    assert!(!html.contains("User"));
+    assert!(html.contains("open a.rs"));
 }
 
 #[test]

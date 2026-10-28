@@ -11,7 +11,7 @@ use super::export_text::{clean, escape, lines, MAX_LINES};
 use super::model::{ChatItem, TurnOutcome};
 use crate::redact::RedactContext;
 
-pub use super::export_text::last_name as folder_name;
+pub use super::export_text::folder_of;
 
 const FOOTER: &str = "Saved from Puppet Master";
 

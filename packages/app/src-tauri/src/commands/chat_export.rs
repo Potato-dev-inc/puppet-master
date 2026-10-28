@@ -43,12 +43,12 @@ pub async fn chat_export_html(
     })
     .await
     .map_err(|e| format!("INTERNAL: {e}"))?;
+    let ctx = crate::redact::known::context();
     let meta = Meta {
         agent: crate::ambient::agent_label(&agent_type),
-        folder: export::folder_name(&cwd),
+        folder: export::folder_of(&cwd, ctx.home.as_deref()),
         date: chrono::Local::now().format("%Y-%m-%d").to_string(),
     };
-    let ctx = crate::redact::known::context();
     Ok(export::page(&items, &meta, range, &ctx))
 }
 

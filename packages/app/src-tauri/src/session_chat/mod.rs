@@ -26,7 +26,6 @@ pub mod watch;
 pub use api::{ApiEndpoint, ChatFrom, SessionApi};
 pub use declared::{cwd_placeholders, validate_session_chat, DeclaredSource, Names, SessionChatTable};
 pub use detail::{bound_input, cut_to, paths_from_input, PlanItem, PlanStatus, ToolDetail};
-pub use export::{Meta as ExportMeta, TurnRange};
 pub use opening::Opening;
 pub use model::{cut, ChatItem, SessionFormat, TurnOutcome};
 pub use source::{plain_path, LaunchFacts, Located, PaneFacts, SessionSource};
