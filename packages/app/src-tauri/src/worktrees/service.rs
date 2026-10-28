@@ -336,6 +336,35 @@ pub fn pr_create_with(
     Ok(pr_ref)
 }
 
+/// Push a fix to the pull request's branch (Red to Green, spec n33 §3.4): commit the agent's loose
+/// edits, then [`pr::push_update`] (a fast-forward only, the remote must still be
+/// `expected_remote`). Never merges, never marks ready, never comments. Returns the new head.
+/// `git_env` is the hardened env of PM's git calls on the copy; the PR's stored checks are cleared
+/// because they describe the old commit.
+#[allow(clippy::too_many_arguments)]
+pub fn pr_push_fix(
+    project: Option<&str>,
+    handle: &str,
+    expected_remote: &str,
+    default_branch: Option<&str>,
+    registry: &Registry,
+    env: &ToolEnv,
+    git_env: &[(String, String)],
+) -> Result<String, OperationError> {
+    let (project, _) = resolve(project, handle, registry)?;
+    let mut stored = stored_with_pr(&project, handle)?;
+    ensure_idle(&project, &stored, registry)?;
+    let mut pr_ref = stored.pr.clone().expect("checked by stored_with_pr");
+    // The PR's base: the copy's branch must never be it (checked again in `push_update`).
+    let base = pr_ref.base.clone();
+    super::commit_pending_with(&stored, git_env)?;
+    let head = pr::push_update(&stored, &base, default_branch, expected_remote, env, git_env)?;
+    pr_ref.checks = None;
+    stored.pr = Some(pr_ref);
+    super::update_meta(&stored)?;
+    Ok(head)
+}
+
 /// Read the PR's checks (polling for at most `wait` while some are pending) and keep the result on
 /// the worktree so the receipt shows it.
 pub fn pr_checks(
