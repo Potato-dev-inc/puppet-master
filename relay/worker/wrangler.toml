@@ -24,6 +24,26 @@ class_name = "IpGate"
 tag = "v1"
 new_sqlite_classes = ["Team", "IpGate"]
 
+# Live Rooms: one object per room (its registration, newest snapshot and deltas, SQLite) and one object
+# for the relay's open rooms (the cap of 100). Both are SQLite-backed, like the team objects.
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[durable_objects.bindings]]
+name = "ROOM_INDEX"
+class_name = "RoomIndex"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Room", "RoomIndex"]
+
+# The viewer page (relay/viewer/dist) is served as text from the Worker's own bundle, with the
+# same policy as relay/server (see index.ts). Only these three names: the Worker's code is JavaScript too.
+[[rules]]
+type = "Text"
+globs = ["**/viewer.html", "**/viewer.js", "**/viewer.css"]
+
 # Optional limits (defaults match relay/server: 60 envelopes a minute and 5,000 a day per device,
 # 600 a minute per team, 300 signed requests a minute per device, 5 join tries per invite, 200 join
 # requests a day per team and 10 an hour per address and team, 30 team registrations an hour per address,
@@ -42,6 +62,11 @@ new_sqlite_classes = ["Team", "IpGate"]
 # LIMIT_TEAM_MAX_ENVELOPES = "20000"
 # LIMIT_TEAM_MAX_BYTES = "134217728"
 # LIMIT_MAX_WAIT_S = "25"
+# Live Rooms (relay/server defaults): 10 registrations an hour per address, 120 viewer calls a minute per
+# address, 100 open rooms on the relay.
+# LIMIT_ROOMS_PER_ADDRESS_PER_HOUR = "10"
+# LIMIT_ROOM_VIEWS_PER_MINUTE = "120"
+# LIMIT_ROOM_MAX_OPEN = "100"
 # Never set TEST_HOOKS on a real deployment: it opens /v1/_test (read and wipe a team's data).
 
 [observability]

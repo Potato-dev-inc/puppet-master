@@ -93,12 +93,21 @@ try {
   if (only === "all") {
     run("protocol checks (Rust, native)", "cargo", ["test", "-p", "pm-relay-wasm"], { cwd: relay });
   }
-  const hooked = await startWorker("hooked", { TEST_HOOKS: "1", LIMIT_UNAUTH_PER_IP_PER_HOUR: "100000" });
+  const hooked = await startWorker("hooked", {
+    TEST_HOOKS: "1",
+    LIMIT_UNAUTH_PER_IP_PER_HOUR: "100000",
+    LIMIT_ROOMS_PER_ADDRESS_PER_HOUR: "100000",
+    LIMIT_ROOM_VIEWS_PER_MINUTE: "100000",
+  });
   console.log(`worker with test hooks: ${hooked}`);
   if (only !== "app") {
     const strict = await startWorker("strict", {});
     console.log(`worker as deployed:     ${strict}`);
     run("Worker tests (node)", process.execPath, ["--test", "--test-concurrency=1", join(worker, "test", "worker.test.mjs")], {
+      cwd: worker,
+      env: { ...process.env, PM_RELAY_TEST_URL: hooked, PM_RELAY_STRICT_URL: strict },
+    });
+    run("Live Room tests (node)", process.execPath, ["--test", "--test-concurrency=1", join(worker, "test", "room.test.mjs")], {
       cwd: worker,
       env: { ...process.env, PM_RELAY_TEST_URL: hooked, PM_RELAY_STRICT_URL: strict },
     });
