@@ -1,6 +1,6 @@
 // The panes this pane started (its helpers): a status dot, the title and the agent. A click opens that pane.
 // With `usage`, a roll-up line for the whole tree and a usage line under each helper (turns, busy time, tokens
-// only when the chat reported them).
+// only when the chat reported them). `onSaveTeam` adds the "Save this team" button (crews).
 import type { PaneUsage } from '../../../lib/pane-usage';
 import { DotSpinner } from '../DotSpinner';
 import { spinnerStatus } from '../model';
@@ -14,7 +14,18 @@ export interface HelperRow {
   status: string;
 }
 
-export function HelpersCard({ helpers, usage, onOpen }: { helpers: readonly HelperRow[]; usage?: PaneUsage | null; onOpen: (id: string) => void }) {
+export function HelpersCard({
+  helpers,
+  usage,
+  onOpen,
+  onSaveTeam,
+}: {
+  helpers: readonly HelperRow[];
+  usage?: PaneUsage | null;
+  onOpen: (id: string) => void;
+  /** Shown as "Save this team" under the list: the pane and its helpers become a crew. */
+  onSaveTeam?: () => void;
+}) {
   if (helpers.length === 0) return null;
   const byId = new Map((usage?.helpers ?? []).map((u) => [u.paneId, u] as const));
   return (
@@ -36,6 +47,11 @@ export function HelpersCard({ helpers, usage, onOpen }: { helpers: readonly Help
           );
         })}
       </ul>
+      {onSaveTeam && (
+        <button type="button" className="ck-btn ck-btn--secondary ck-btn--sm ck-rail-action" onClick={onSaveTeam} title="Save this agent and its helpers as a crew you can start again in any folder">
+          Save this team
+        </button>
+      )}
     </RailCard>
   );
 }

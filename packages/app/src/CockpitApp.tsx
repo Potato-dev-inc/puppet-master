@@ -34,6 +34,8 @@ import { tauriCompanionTransport } from './lib/companion';
 import { CompanionPage } from './components/cockpit/companion/CompanionPage';
 import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './components/cockpit/companion/model';
 import { CompanionSetupSheet } from './components/cockpit/companion/CompanionSetupSheet';
+import { StartCrewSheet } from './components/cockpit/crews/StartCrewSheet';
+import { agentLabel, useAgentRegistry } from './lib/agentRegistry';
 import './styles/cockpit.css';
 
 export type { MainView } from './components/cockpit/main-view';
@@ -79,6 +81,9 @@ export default function CockpitApp() {
   // companion backend the list is null and the palette and sidebar show no companion entries.
   const companions = useCompanions();
   const [setupOpen, setSetupOpen] = useState(false);
+  // "Start crew…" (crews): pick a saved team and a folder.
+  const [crewOpen, setCrewOpen] = useState(false);
+  const agentListing = useAgentRegistry();
   const companion = companions.companions?.find((x) => x.id === companionId) ?? null;
   const openCompanion = (id: string) => {
     setCompanionId(id);
@@ -306,9 +311,17 @@ export default function CockpitApp() {
           onOpenMemory={() => setView('memory')}
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}
+          onStartCrew={() => setCrewOpen(true)}
           companions={companions.companions}
           onOpenCompanion={openCompanion}
           onNewCompanion={companions.companions ? () => setSetupOpen(true) : undefined}
+        />
+      )}
+      {crewOpen && (
+        <StartCrewSheet
+          defaultFolder={c.selectedId ? (c.registry.panes.get(c.selectedId)?.info.cwd ?? null) : null}
+          agentName={(id) => agentLabel(agentListing, id)}
+          onClose={() => setCrewOpen(false)}
         />
       )}
       {setupOpen && (

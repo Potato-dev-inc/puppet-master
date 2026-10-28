@@ -27,9 +27,11 @@ export interface SessionRailProps {
   /** Set when the pane has a Changes tab; a file in the Changes card opens it. */
   onOpenChanges?: () => void;
   onOpenPane: (id: string) => void;
+  /** "Save this team" in the Helpers card (the card only exists when the pane has helpers). */
+  onSaveTeam?: () => void;
 }
 
-export function SessionRail({ paneId, status, cwd, agentName, accountLabel, readsChat, helperOf, helpers, onOpenChanges, onOpenPane }: SessionRailProps) {
+export function SessionRail({ paneId, status, cwd, agentName, accountLabel, readsChat, helperOf, helpers, onOpenChanges, onOpenPane, onSaveTeam }: SessionRailProps) {
   const chat = useSessionChat(paneId, readsChat);
   const branch = usePaneBranch(paneId, status, true);
   const jobs = usePaneJobs()[paneId] ?? [];
@@ -47,7 +49,7 @@ export function SessionRail({ paneId, status, cwd, agentName, accountLabel, read
       <TasksCard plan={chat.plan} />
       <ChangesCard outputs={chat.outputs} cwd={cwd} onOpenChanges={onOpenChanges} />
       <BackgroundCard paneId={paneId} jobs={jobs} />
-      <HelpersCard helpers={helpers} usage={usage} onOpen={onOpenPane} />
+      <HelpersCard helpers={helpers} usage={usage} onOpen={onOpenPane} onSaveTeam={onSaveTeam} />
     </aside>
   );
 }
