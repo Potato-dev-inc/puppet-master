@@ -162,7 +162,7 @@ These are the conservative choices from the feature spec. "In code" means the ru
 - Rust: `cargo test --lib channels`. Every test uses fake hosts and a fake bot. No test talks to Telegram.
 - Rust, the desktop guard for chat answers: `cargo test --lib attention::answer`.
 - UI: `cd packages/app; npx vitest run src/lib/telegram-api src/lib/telegram-bridge src/components/settings/blocks/TelegramSetup src/components/mobile/TelegramOffRow`.
-- Live case, when the Settings block is on screen: see `docs/TEST-PLAN.md` section 2.9.
+- Live case, when the Settings block is on screen: see `docs/TEST-PLAN.md` section 2.10.
 
 ## Not done yet
 
