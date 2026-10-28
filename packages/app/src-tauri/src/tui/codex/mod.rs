@@ -3,10 +3,12 @@
 //! - `headless` — `codex exec` command line, session resume, JSONL output parsing
 //! - `screen` — whether the interactive TUI is working, waiting on a dialog, or at an empty composer
 //! - `prompt` — the folder-trust dialog as an answerable card (Trust / Don't trust)
+//! - `history` — where its old chats are kept (`~/.codex/sessions`, `CODEX_HOME`) and how to resume one
 //!
 //! Interactive-pane heuristics beyond standby use the generic defaults.
 
 mod headless;
+mod history;
 mod prompt;
 pub mod session_file;
 mod session_extra;
@@ -62,6 +64,11 @@ impl TuiProfile for Codex {
 
     fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
         Some(&session_source::SOURCE)
+    }
+
+    /// Codex's old chats: `~/.codex/sessions` and `CODEX_HOME` (`history.rs`).
+    fn session_history(&self) -> Option<&'static dyn crate::session_chat::SessionHistory> {
+        Some(&history::HISTORY)
     }
 
     fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
