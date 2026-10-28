@@ -11,6 +11,7 @@ mod schema;
 mod screen;
 mod session_chat;
 mod select;
+mod store_approval;
 mod template;
 mod validate;
 
