@@ -23,12 +23,15 @@ pub const WAIT_DRAFT: &str = "The terminal box has text. Send or clear it there 
 pub const WAIT_RUN: &str = "An agent run controls this pane. Sends when the run ends.";
 pub const WAIT_TURN: &str = "Waits for the messages before it.";
 
+pub const NOT_READY_BOX: &str = "The agent is not showing its input box. Check the pane.";
+
 pub const FAIL_NOT_RUNNING: &str = "The agent is not running in this pane.";
 pub const FAIL_CLOSED: &str = "The pane was closed.";
 pub const FAIL_TOO_LONG: &str = "Waited too long. Not sent.";
 pub const FAIL_NOT_TAKEN: &str = "The agent did not take the message. Check the terminal.";
 pub const FAIL_IN_BOX: &str = "The message may be in the terminal box, not sent. Check the terminal.";
 pub const FAIL_WRITE: &str = "Could not type the message. Check the terminal.";
+pub const FAIL_STUCK: &str = "The message is in the terminal box but was not sent. Press Enter there, or clear it.";
 
 /// Where a message stands. Only `Queued` can be cancelled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

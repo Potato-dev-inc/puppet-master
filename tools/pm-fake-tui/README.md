@@ -32,6 +32,8 @@ version = "2.1.299"           # banner (optional)
 model = "Haiku 5.5 · Claude Pro"
 boot_ms = 300                 # loading screen before anything else
 paste_burst_ms = 120          # default: 120 for codex, 0 for claude
+input_keys_per_turn = 4       # a machine under load: at most 4 keys handled per ~15 ms, the rest queue (default 0 = all)
+no_paste_collapse = true      # claude layout: show the text as typed, never as [Pasted text ...]
 interrupt = true
 
 [[startup]]                   # shown before the composer takes input, in order

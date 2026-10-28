@@ -25,6 +25,10 @@ use tauri::{AppHandle, Emitter, State};
 const NO_PANE: &str = "This pane is not open any more.";
 /// A screenshot that cannot be copied into the agent's folder. The message still goes, without it.
 const COPY_FAILED: &str = "The screenshot could not be copied into the agent's folder.";
+/// A pane the "To:" list greys out, without a sentence of its own.
+const NOT_A_TARGET: &str = "This pane cannot take a message now.";
+/// A failed message the outbox gave no sentence for.
+const FAILED: &str = "The message was not sent. Check the terminal.";
 
 /// Opens the preview of a dev server pane's port in its own window. The frontend arms it after.
 #[tauri::command(async)]
@@ -72,14 +76,20 @@ pub async fn point_send(
     request: String,
 ) -> Result<OutboxMessage, String> {
     let target = target_of(&state, &target_pane_id)?;
+    // A pane on a dialog, a question or without its input box gets nothing typed, and nothing is closed for it.
+    if let Some(why) = refusal(&target) {
+        return Err(why);
+    }
     let picks = live_picks();
     let preview_id = picks.last().map(|p| p.preview_id.clone()).unwrap_or_default();
     let text = compose_text(picks, &request, Path::new(&target.cwd))?;
     let note = sent_note(&target);
     let host = LiveOutbox { app: app.clone(), registry: state.registry.clone() };
+    let watched = target_pane_id.clone();
     let sent = tauri::async_runtime::spawn_blocking(move || send_with(&host, &target_pane_id, &text))
         .await
         .map_err(|e| format!("INTERNAL: {e}"))??;
+    watch_for_failure(&app, state.registry.clone(), watched, sent.id.clone(), preview_id.clone(), &target);
     SESSION.lock().discard_keep_files();
     box_window::hide(&app);
     window::toast(&app, &preview_id, &note);
@@ -138,6 +148,8 @@ pub fn point_open_blocked_link(_app: AppHandle) -> Result<(), String> {
 /// The one way a message reaches a pane: the pane outbox.
 trait SendHost: Send + Sync {
     fn send(&self, pane_id: &str, text: &str) -> Result<OutboxMessage, String>;
+    /// The pane's messages as the outbox lists them now (a failure shows there after the send was queued).
+    fn list(&self, pane_id: &str) -> Vec<OutboxMessage>;
 }
 
 /// The live outbox (`pane_outbox::global`).
@@ -150,6 +162,10 @@ impl SendHost for LiveOutbox {
     fn send(&self, pane_id: &str, text: &str) -> Result<OutboxMessage, String> {
         pane_outbox::global(&self.registry, &self.app).send(pane_id, text)
     }
+
+    fn list(&self, pane_id: &str) -> Vec<OutboxMessage> {
+        pane_outbox::global(&self.registry, &self.app).list(pane_id)
+    }
 }
 
 /// Hands the text to the pane outbox, once. Its error is returned unchanged (the person reads it under the box).
@@ -157,10 +173,52 @@ fn send_with(host: &dyn SendHost, pane_id: &str, text: &str) -> Result<OutboxMes
     host.send(pane_id, text)
 }
 
+/// Why a message to this pane is refused before anything is queued (the "To:" list greys it out for the same reason).
+fn refusal(target: &TargetFacts) -> Option<String> {
+    let (can_send, why) = crate::point::target::gate(target);
+    (!can_send).then(|| why.unwrap_or_else(|| NOT_A_TARGET.to_string()))
+}
+
+/// How long, and how often, Point looks at a queued message to learn that it failed.
+const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+const WATCH_ROUNDS: u32 = 1800;
+
+/// Follows a queued message until it is sent, cancelled or gone. `Some(sentence)` when it failed: the outbox
+/// keeps the failed message and its reason; this is how the person learns of it after the Point box closed.
+fn failure_of(host: &dyn SendHost, pane_id: &str, message_id: &str, every: std::time::Duration, rounds: u32) -> Option<String> {
+    for round in 0..rounds {
+        if round > 0 {
+            std::thread::sleep(every);
+        }
+        match host.list(pane_id).into_iter().find(|m| m.id == message_id) {
+            None => return None,
+            Some(m) if m.state == pane_outbox::State::Failed => return Some(m.error.unwrap_or_else(|| FAILED.to_string())),
+            Some(m) if m.state.active() => {}
+            Some(_) => return None,
+        }
+    }
+    None
+}
+
+/// The note the preview shows when a queued message failed.
+fn failed_note(target: &TargetFacts, why: &str) -> String {
+    format!("Not sent to {} \u{b7} {}. {why}", target.agent_label, target.title)
+}
+
+fn watch_for_failure(app: &AppHandle, registry: Arc<Mutex<PaneRegistry>>, pane_id: String, message_id: String, preview_id: String, target: &TargetFacts) {
+    let (app, target) = (app.clone(), target.clone());
+    std::thread::spawn(move || {
+        let host = LiveOutbox { app: app.clone(), registry };
+        if let Some(why) = failure_of(&host, &pane_id, &message_id, WATCH_EVERY, WATCH_ROUNDS) {
+            window::toast(&app, &preview_id, &failed_note(&target, &why));
+        }
+    });
+}
+
 /// The pane the person picked in the "To:" list, from the live registry.
 fn target_of(state: &AppState, pane_id: &str) -> Result<TargetFacts, String> {
     let infos = state.registry.lock().list();
-    window::target_facts(&infos).into_iter().find(|t| t.pane_id == pane_id).ok_or_else(|| NO_PANE.to_string())
+    window::target_facts(&state.registry, &infos).into_iter().find(|t| t.pane_id == pane_id).ok_or_else(|| NO_PANE.to_string())
 }
 
 /// The picks that wait for a request. An expired session has none (the box shows none either).
@@ -220,6 +278,8 @@ mod tests {
     struct FakeOutbox {
         calls: std::sync::Mutex<Vec<(String, String)>>,
         answer: Option<String>,
+    /// What the outbox lists for the pane, one entry per later look (the last repeats).
+    listed: std::sync::Mutex<Vec<Vec<OutboxMessage>>>,
     }
 
     impl SendHost for FakeOutbox {
@@ -236,6 +296,11 @@ mod tests {
                     error: None,
                 }),
             }
+        }
+
+        fn list(&self, _pane_id: &str) -> Vec<OutboxMessage> {
+            let mut listed = self.listed.lock().unwrap();
+            if listed.len() > 1 { listed.remove(0) } else { listed.first().cloned().unwrap_or_default() }
         }
     }
 
@@ -314,8 +379,68 @@ mod tests {
             cwd: "C:/project".into(),
             kind: crate::pane_outbox::PaneKind::Agent,
             run_controls: false,
+            not_ready: None,
             last_output_at: None,
         };
         assert_eq!(sent_note(&target), "Sent to Codex \u{b7} fix-pricing. It waits until the agent is free.");
+    }
+    fn message(state: crate::pane_outbox::State, error: Option<&str>) -> OutboxMessage {
+        OutboxMessage { id: "m1".into(), text: "x".into(), created_at: 0, state, waiting_for: None, error: error.map(str::to_string) }
+    }
+
+    fn target(not_ready: Option<&str>) -> TargetFacts {
+        TargetFacts {
+            pane_id: "pane-7".into(),
+            agent_label: "Codex".into(),
+            title: "fix-pricing".into(),
+            cwd: "C:/project".into(),
+            kind: crate::pane_outbox::PaneKind::Agent,
+            run_controls: false,
+            not_ready: not_ready.map(str::to_string),
+            last_output_at: None,
+        }
+    }
+
+    #[test]
+    fn a_pane_on_a_dialog_is_refused_before_anything_is_queued() {
+        assert_eq!(refusal(&target(None)), None);
+        let why = "The agent asks something. Answer it first.";
+        assert_eq!(refusal(&target(Some(why))).as_deref(), Some(why));
+        let mut protocol = target(None);
+        protocol.kind = crate::pane_outbox::PaneKind::Protocol;
+        assert!(refusal(&protocol).is_some());
+    }
+
+    #[test]
+    fn a_message_that_fails_after_it_was_queued_is_reported_with_the_outbox_sentence() {
+        use crate::pane_outbox::State;
+        let host = FakeOutbox::default();
+        *host.listed.lock().unwrap() = vec![
+            vec![message(State::Queued, None)],
+            vec![message(State::Sending, None)],
+            vec![message(State::Failed, Some("The message is in the terminal box but was not sent. Press Enter there, or clear it."))],
+        ];
+        let every = std::time::Duration::from_millis(1);
+        let why = failure_of(&host, "pane-7", "m1", every, 10).expect("the failure is seen");
+        assert!(why.starts_with("The message is in the terminal box"), "{why}");
+        assert_eq!(
+            failed_note(&target(None), &why),
+            "Not sent to Codex \u{b7} fix-pricing. The message is in the terminal box but was not sent. Press Enter there, or clear it."
+        );
+    }
+
+    #[test]
+    fn a_message_that_was_sent_or_left_the_list_raises_no_failure() {
+        use crate::pane_outbox::State;
+        let every = std::time::Duration::from_millis(1);
+        let sent = FakeOutbox::default();
+        *sent.listed.lock().unwrap() = vec![vec![message(State::Queued, None)], vec![message(State::Sent, None)]];
+        assert_eq!(failure_of(&sent, "p", "m1", every, 10), None);
+        let gone = FakeOutbox::default();
+        assert_eq!(failure_of(&gone, "p", "m1", every, 10), None);
+        // Still waiting when the watch ends: not a failure either.
+        let waiting = FakeOutbox::default();
+        *waiting.listed.lock().unwrap() = vec![vec![message(State::Queued, None)]];
+        assert_eq!(failure_of(&waiting, "p", "m1", every, 3), None);
     }
 }
