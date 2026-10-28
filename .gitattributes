@@ -67,3 +67,6 @@ scripts/fixtures/store-catalog/** text eol=lf
 packages/app/src-tauri/src/issue_intake/fixtures/gh/*.json text eol=lf
 # Assign-an-issue text fixtures (issue bodies, task and issue-file goldens) are compared byte for byte: keep them LF.
 packages/app/src-tauri/src/issue_intake/fixtures/text/*.txt text eol=lf
+
+# What Broke It test-runner output fixtures (failing-name parsing): read line by line, keep them LF.
+packages/app/src-tauri/src/checkpoints/bisect/fixtures/fail_*.txt text eol=lf

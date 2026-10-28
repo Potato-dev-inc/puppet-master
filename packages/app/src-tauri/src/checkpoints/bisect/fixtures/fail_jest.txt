@@ -1,0 +1,18 @@
+ PASS  src/math.test.js
+ FAIL  src/strings.test.js
+  ● strings › trims spaces
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "a"
+    Received: "a "
+
+      4 |   expect(trim("a ")).toBe("a");
+
+ FAIL  src/dates.test.js
+  ✕ parses ISO (4 ms)
+  ✓ parses short dates (1 ms)
+
+Test Suites: 2 failed, 1 passed, 3 total
+Tests:       2 failed, 4 passed, 6 total
+Time:        1.92 s

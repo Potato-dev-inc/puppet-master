@@ -1,0 +1,14 @@
+TAP version 13
+# Subtest: math
+    ok 1 - adds positives
+    not ok 2 - adds negatives
+      ---
+      error: 'expected 1'
+      ...
+ok 2 - math
+not ok 3 -
+  ---
+  ...
+# tests 3
+# pass 1
+# fail 2
