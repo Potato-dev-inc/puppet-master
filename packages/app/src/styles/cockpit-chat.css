@@ -744,6 +744,25 @@
   gap: 6px;
 }
 
+/* The message a search result opened: a soft gray wash that fades out. */
+.cockpit .ck-chat-turn.is-found {
+  border-radius: 8px;
+  animation: ck-chat-found 1800ms var(--ease) both;
+}
+@keyframes ck-chat-found {
+  0%, 60% {
+    background: var(--fill-active);
+  }
+  100% {
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-chat-turn.is-found {
+    animation: none;
+    background: var(--fill);
+  }
+}
 /* "Save as page" preview (ChatExportMenu): a wide sheet with the page in a frame. The frame is white in both themes:
    the page carries its own colours. */
 .cockpit .ck-chat-export.ck-sheet {
