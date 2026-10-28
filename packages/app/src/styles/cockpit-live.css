@@ -1,0 +1,322 @@
+/* Live Room: the LIVE bar, the LIVE chip in a shared pane's header, the Go live sheet and its preview.
+   Monochrome: grayscale tokens only. The one exception is the inverted LIVE bar, which is near-black in
+   both themes, so its two greys are defined once here, on the cockpit, and used by name below. */
+
+.cockpit {
+  --live-ink: #0a0a0b;
+  --live-paper: #f5f5f7;
+  --live-line: rgba(245, 245, 247, 0.28);
+  --live-hover: rgba(245, 245, 247, 0.12);
+}
+
+/* ---------- the LIVE bar (top of the cockpit, no close button) ---------- */
+
+.cockpit .ck-live-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 34px;
+  padding: 4px 12px;
+  background: var(--live-ink);
+  color: var(--live-paper);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.cockpit .ck-live-bar .ck-live-text + .ck-live-text::before {
+  content: '·';
+  margin-right: 12px;
+  opacity: 0.6;
+}
+.cockpit .ck-live-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.cockpit .ck-live-text {
+  color: var(--live-paper);
+  opacity: 0.86;
+}
+.cockpit .ck-live-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.cockpit .ck-live-btn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--live-line);
+  color: var(--live-paper);
+  font-weight: 500;
+}
+.cockpit .ck-live-btn:hover:not(:disabled) {
+  background: var(--live-hover);
+}
+.cockpit .ck-live-btn.is-stop {
+  background: var(--live-paper);
+  color: var(--live-ink);
+  box-shadow: none;
+}
+.cockpit .ck-live-btn.is-stop:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+/* The dot: a slow white pulse while live, still when paused. */
+.cockpit .ck-live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--live-paper);
+  animation: ck-live-pulse 2.4s ease-in-out infinite;
+}
+.cockpit .ck-live-dot.is-still {
+  animation: none;
+  opacity: 0.6;
+}
+@keyframes ck-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------- the LIVE chip in a shared pane's header ---------- */
+
+.cockpit .ck-live-chip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.cockpit .ck-live-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--live-ink);
+  color: var(--live-paper);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.cockpit .ck-live-chip .ck-live-dot {
+  width: 5px;
+  height: 5px;
+}
+.cockpit .ck-live-chip-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 128px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--bg-float);
+  border: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
+  display: flex;
+  flex-direction: column;
+}
+.cockpit .ck-live-menu-item {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--label);
+  text-align: left;
+}
+.cockpit .ck-live-menu-item:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-live-menu-item.is-stop {
+  color: var(--label-2);
+}
+
+/* ---------- the Go live sheet ---------- */
+
+.cockpit .ck-sheet--live {
+  width: 440px;
+}
+.cockpit .ck-live-field-label {
+  margin-top: 8px;
+  color: var(--label-3);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.cockpit .ck-live-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-live-input {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  box-shadow: inset 0 0 0 1px var(--sep);
+}
+.cockpit .ck-live-input:focus-visible {
+  box-shadow: var(--focus);
+}
+.cockpit .ck-live-panes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow: auto;
+}
+.cockpit .ck-live-pane {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 4px;
+  border-radius: 6px;
+}
+.cockpit .ck-live-pane:hover {
+  background: var(--fill);
+}
+.cockpit .ck-live-pane-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.cockpit .ck-live-pane-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-live-pane-why {
+  margin-left: auto;
+  color: var(--label-3);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.cockpit .ck-live-pane.is-blocked .ck-live-pane-name {
+  color: var(--label-3);
+}
+.cockpit .ck-live-pane.is-helper .ck-live-pane-name {
+  color: var(--label-2);
+}
+.cockpit .ck-live-helpers {
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: var(--label-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.cockpit .ck-live-helpers:hover:not(:disabled) {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.cockpit .ck-live-link {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-live-link code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.cockpit .ck-live-row {
+  display: flex;
+  gap: 8px;
+}
+.cockpit .ck-live-help {
+  margin: 4px 0 0;
+}
+.cockpit .ck-live-norelay {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.cockpit .ck-live-error {
+  margin: 0;
+  color: var(--label);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- the preview list (plain text, read-only) ---------- */
+
+.cockpit .ck-live-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 200px;
+  overflow: auto;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.cockpit .ck-live-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-live-who {
+  color: var(--label-3);
+  font-size: 11px;
+  font-weight: 500;
+  min-width: 44px;
+}
+.cockpit .ck-live-src {
+  color: var(--label-3);
+  font-size: 11px;
+}
+.cockpit .ck-live-body {
+  flex: 1;
+  min-width: 0;
+  color: var(--label);
+  white-space: pre-wrap;
+}
+.cockpit .ck-live-item.is-agent .ck-live-body {
+  color: var(--label-2);
+}
+.cockpit .ck-live-item.is-note .ck-live-body {
+  color: var(--label-3);
+}
+.cockpit .ck-live-tasks {
+  flex-basis: 100%;
+  margin: 0 0 0 52px;
+  padding: 0;
+  list-style: disc;
+  color: var(--label-2);
+}
+.cockpit .ck-live-empty,
+.cockpit .ck-live-hidden {
+  margin: 0;
+  color: var(--label-3);
+  font-size: 11.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-live-dot {
+    animation: none;
+  }
+}
