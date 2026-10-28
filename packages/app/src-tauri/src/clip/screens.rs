@@ -111,8 +111,12 @@ pub struct Replayed {
     pub cols: u16,
     pub rows: u16,
     pub frames: Vec<RawFrame>,
-    /// Real turn length over clip length, rounded, at least 1 ("Sped up Nx").
+    /// Active time over clip length, rounded, at least 1 ("Sped up Nx"). Active time is the window
+    /// minus the time that squeezing removed from its pauses, so a long idle pause does not inflate it.
     pub speed_x: u32,
+    /// Raw speed: window length over clip length, rounded, at least 1. Pauses count in full. Not
+    /// shown by default; kept for a plan that needs the unsqueezed ratio.
+    pub raw_speed_x: u32,
     pub length_ms: u32,
     /// The ring holds at least half of the turn. When false, show the steps instead.
     pub covered: bool,
@@ -188,7 +192,12 @@ pub fn replay_every(snap: &Snapshot, start_ms: u64, end_ms: u64, every_ms: u32) 
     let speed = (total / REPLAY_MAX_MS as f64).max(1.0);
     let length_ms = ((total / speed).round() as u32).min(REPLAY_MAX_MS);
     let time_map = TimeMap { knots, speed, length_ms };
-    let speed_x = ((end - start) as f64 / length_ms.max(1) as f64).round().max(1.0) as u32;
+    // Active time: the window after squeezing. The map is linear inside each gap, so the squeezed
+    // span between the window's two ends is exactly the time that is left.
+    let active_ms = time_map.squeezed_at(end) - time_map.squeezed_at(start);
+    let clip = length_ms.max(1) as f64;
+    let speed_x = (active_ms / clip).round().max(1.0) as u32;
+    let raw_speed_x = ((end - start) as f64 / clip).round().max(1.0) as u32;
 
     let stamps: Vec<u32> = sampled.iter().map(|&(_, t)| time_map.clip_at(t)).collect();
     let mut frames = Vec::new();
@@ -228,6 +237,7 @@ pub fn replay_every(snap: &Snapshot, start_ms: u64, end_ms: u64, every_ms: u32) 
         rows,
         frames,
         speed_x,
+        raw_speed_x,
         length_ms,
         covered,
         truncated: snap.truncated,
@@ -460,8 +470,25 @@ mod tests {
         let b = map.clip_ms(START as u64 + 600_000);
         assert_eq!(b - a, 400);
         assert_eq!(replayed.length_ms, 1100);
-        // The label is real span over clip length (spec 3.4), so the squeezed pause counts: 600 500 / 1 100.
-        assert_eq!(replayed.speed_x, 546);
+        // Active time is about 567 ms (the 10 min pause is cut to 400 ms, the rest is real), so the
+        // badge stays at its floor of 1. The raw ratio still counts the pause: 600 500 / 1 100 = 546.
+        assert_eq!(replayed.speed_x, 1);
+        assert_eq!(replayed.raw_speed_x, 546);
+    }
+
+    #[test]
+    fn a_pause_does_not_inflate_the_sped_up_badge() {
+        // Busy 10 s, then a 9 min pause, then busy 10 s. Active time is about 20 s of real output.
+        let mut items: Vec<Item> = (0..=100).map(|i| out(i * 100, "x")).collect();
+        items.extend((0..=100).map(|i| out(560_000 + i * 100, "y")));
+        let snap = snap_with((80, 4), false, items);
+        let (start, end) = window(0, 570_000);
+        let replayed = replay(&snap, start, end).expect("replays");
+        // Active: 10 s + 10 s + the 400 ms the pause keeps = about 20.4 s, in an 18 s clip: about 1.1x.
+        // The raw ratio (570 s over 18 s, about 32) is what the old badge showed.
+        assert_eq!(replayed.length_ms, 18_000);
+        assert_eq!(replayed.speed_x, 1);
+        assert!(replayed.raw_speed_x > replayed.speed_x);
     }
 
     #[test]
@@ -481,6 +508,7 @@ mod tests {
         let (start, end) = window(0, 360_000);
         let replayed = replay(&snap, start, end).expect("replays");
         assert_eq!(replayed.speed_x, 20);
+        assert_eq!(replayed.raw_speed_x, 20);
         assert_eq!(replayed.length_ms, 18_000);
         assert!(replayed.frames.len() <= MAX_FRAMES);
     }
