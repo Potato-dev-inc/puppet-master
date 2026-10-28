@@ -22,6 +22,7 @@ pub const ALL: &[(&str, Rule)] = &[
     ("blank_screen_is_unknown", blank_screen_is_unknown),
     ("session_chat_reads_noise_quietly", session_chat_reads_noise_quietly),
     ("session_history_conforms", session_history_conforms),
+    ("linux_launch_is_bare", linux_launch_is_bare),
 ];
 
 /// A UUID-shaped session id, the kind every agent's chat file names are made of.
@@ -56,6 +57,57 @@ pub fn session_history_conforms(profile: &dyn TuiProfile) -> Result<(), String> 
         }
     }
     Ok(())
+}
+
+/// A Linux (WSL) launch names a bare program (`^[A-Za-z0-9._-]{1,64}$`, no Windows program extension), and
+/// only the CLI kind has one: a native-protocol backend or a plain shell answers `None`. Reads no file.
+pub fn linux_launch_is_bare(profile: &dyn TuiProfile) -> Result<(), String> {
+    let id = profile.id();
+    let kind = profile.features().kind;
+    let request = SpawnRequest { cwd: "/home/you/work", extra_args: &[], cols: 80, rows: 24, read_only: false };
+    let launch = profile.linux_launch(&request);
+    if matches!(kind, Kind::NativeProtocol | Kind::Shell) {
+        return match launch {
+            None => Ok(()),
+            Some(_) => Err(format!("{id}: a {} profile has a Linux launch", kind.as_str())),
+        };
+    }
+    match launch {
+        Some(launch) if !is_bare_program(&launch.program) => {
+            Err(format!("{id}: the Linux program {:?} is not a bare program name", launch.program))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// `^[A-Za-z0-9._-]{1,64}$`, not only dots (`.`, `..`), and not a Windows program name (`.exe`, `.cmd`, `.ps1`).
+fn is_bare_program(program: &str) -> bool {
+    let lower = program.to_ascii_lowercase();
+    (1..=64).contains(&program.len())
+        && program.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        && !program.bytes().all(|b| b == b'.')
+        && !([".exe", ".cmd", ".ps1"].iter().any(|ext| lower.ends_with(ext)))
+}
+
+#[cfg(test)]
+mod linux_program_names {
+    use super::is_bare_program;
+
+    #[test]
+    fn bare_names_pass() {
+        let longest = "x".repeat(64);
+        for name in ["claude", "codex", "opencode", "node-18.x", "my_tool.1", "a", longest.as_str()] {
+            assert!(is_bare_program(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn paths_extensions_and_odd_names_fail() {
+        let too_long = "x".repeat(65);
+        for name in ["", "/usr/bin/claude", "bin\\claude", "claude.exe", "CLAUDE.CMD", "run.ps1", ".", "..", "a b", "x;y", too_long.as_str()] {
+            assert!(!is_bare_program(name), "{name:?}");
+        }
+    }
 }
 
 /// What a shell or `cmd` reads as syntax, and white space (an argument with a space splits in a command string).
