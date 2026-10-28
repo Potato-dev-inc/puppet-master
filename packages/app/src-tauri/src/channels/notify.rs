@@ -135,6 +135,7 @@ impl Notifier {
             out: Outgoing {
                 text: compose(&lines),
                 keyboard,
+                silent: false,
             },
             remember: c.pane_id.clone().map(Target::Pane),
         })
@@ -169,6 +170,7 @@ impl Notifier {
             out: Outgoing {
                 text: compose(&lines),
                 keyboard: Vec::new(),
+                silent: false,
             },
             remember: Some(target),
         })
@@ -222,6 +224,7 @@ impl Notifier {
             out: Outgoing {
                 text: compose(&[line]),
                 keyboard: Vec::new(),
+                silent: false,
             },
             remember: Some(target),
         })
@@ -248,6 +251,7 @@ impl Notifier {
             out: Outgoing {
                 text: compose(&[text]),
                 keyboard: Vec::new(),
+                silent: false,
             },
             remember: None,
         })

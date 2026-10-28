@@ -961,3 +961,50 @@ fn a_pem_key_in_a_turn_summary_leaks_no_body_line() {
         .expect("in window");
     assert_no_key_body(&text_of(&note));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Silent sends (Focus Time, FT-3): the flag is a delivery detail. Today every note is loud.
+
+#[test]
+fn every_note_is_loud_until_focus_marks_it_silent() {
+    let p = approval("npm test", true, RiskLevel::Low, "Run a test command");
+    let cards = [
+        candidate(Kind::WaitingInput, Some(p), Some(item())),
+        candidate(Kind::TrustGate, None, None),
+        candidate(Kind::Budget, None, None),
+    ];
+    for (i, c) in cards.iter().enumerate() {
+        let mut world = World::new();
+        let note = Notifier::default()
+            .offer(c, None, &cfg(), world.links(), 1)
+            .unwrap_or_else(|| panic!("card {i} sent"));
+        assert!(!note.out.silent, "card {i} is loud");
+    }
+    let mut world = World::new();
+    world.refs.open_window(&Target::Companion("c1".into()), 0);
+    let reply = Notifier::default()
+        .companion_reply("c1", "Mochi", "The build is green.", &cfg(), world.links(), 1_000)
+        .expect("in window");
+    assert!(!reply.out.silent, "a companion reply is loud");
+}
+
+#[test]
+fn a_silent_note_keeps_its_text_and_buttons() {
+    use crate::channels::engine::to_wire;
+    let mut world = World::new();
+    let p = approval("npm test", true, RiskLevel::Low, "Run a test command");
+    let c = candidate(Kind::WaitingInput, Some(p), Some(item()));
+    let note = Notifier::default().offer(&c, None, &cfg(), world.links(), 1).expect("sent");
+    assert_eq!(labels(&note), vec![vec!["Allow once…".to_string(), "Deny".to_string()]]);
+
+    let loud = note.out.clone();
+    let quiet = Outgoing { silent: true, ..loud.clone() };
+    assert_eq!(quiet.text.as_str(), loud.text.as_str(), "same words");
+    assert_eq!(quiet.keyboard, loud.keyboard, "same buttons, same data");
+
+    let (wire_loud, wire_quiet) = (to_wire(&loud), to_wire(&quiet));
+    assert_eq!(wire_quiet.text.as_str(), wire_loud.text.as_str());
+    assert_eq!(wire_quiet.keyboard, wire_loud.keyboard);
+    assert!(!wire_loud.disable_notification, "the loud note has a sound");
+    assert!(wire_quiet.disable_notification, "the silent note has none");
+}
