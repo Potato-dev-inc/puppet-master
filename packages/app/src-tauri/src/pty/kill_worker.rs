@@ -195,8 +195,14 @@ mod tests {
             })
         };
         worker.submit(1);
-        // Let the worker take item 1 off the queue, then fill the 2 free slots.
-        std::thread::sleep(Duration::from_millis(100));
+        // Let the worker take item 1 off the queue (its handler is running when its thread id is recorded), then
+        // fill the 2 free slots. Waiting for that, not for a fixed time: a starved worker thread may take
+        // seconds to start, and until it does item 1 still takes one of the 2 slots.
+        let began = Instant::now();
+        while threads.lock().unwrap().is_empty() {
+            assert!(began.elapsed() < Duration::from_secs(60), "the worker never took item 1");
+            std::thread::sleep(Duration::from_millis(5));
+        }
         worker.submit(2);
         worker.submit(3);
         // Slot count exhausted: this one runs here, so it also finishes before submit returns.
@@ -210,7 +216,7 @@ mod tests {
             *open.lock().unwrap() = true;
             cv.notify_all();
         }
-        assert!(worker.drain(Duration::from_secs(5)));
+        assert!(worker.drain(Duration::from_secs(60)));
         let mut seen = log.lock().unwrap().clone();
         seen.sort();
         assert_eq!(seen, vec![1, 2, 3, 4], "no kill was dropped");
