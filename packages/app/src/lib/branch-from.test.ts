@@ -9,6 +9,7 @@ import {
   BRANCH_CHANGED_EVENT,
   branchBrief,
   branchLineage,
+  branchKeepWarning,
   branchPreview,
   branchStart,
   branchStateText,
@@ -163,5 +164,26 @@ describe('branchStateText', () => {
     expect(branchStateText(view({ state: 'starting', stateText: '  ' }))).toBe('Fake B · Work is starting');
     expect(branchStateText(view({ state: 'running', stateText: '' }))).toBe('Running in a separate copy');
     expect(branchStateText(view({ state: 'failed', stateText: '' }))).toBe("Fake B · Work couldn't start");
+  });
+});
+
+describe('branchKeepWarning', () => {
+  it('says nothing for a normal copy (no branch)', () => {
+    expect(branchKeepWarning(null)).toBeNull();
+  });
+
+  it('says nothing once the branch is kept or thrown away', () => {
+    expect(branchKeepWarning(view({ closed: 'kept' }))).toBeNull();
+    expect(branchKeepWarning(view({ closed: 'thrown_away' }))).toBeNull();
+  });
+
+  it('warns on an open branch, with its save point, in plain words', () => {
+    expect(branchKeepWarning(view())).toBe(
+      'This branch started after turn 5 · 14:02. The original chat may have kept working after that, and merging this branch does not bring that later work in. Check both chats before you merge.',
+    );
+  });
+
+  it('keeps a sentence when the save point label is empty', () => {
+    expect(branchKeepWarning(view({ pointLabel: ' ' }))).toContain('This branch started from a save point.');
   });
 });

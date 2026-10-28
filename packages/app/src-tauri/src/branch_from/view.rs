@@ -3,11 +3,6 @@
 //! `state` serializes as `preparing | starting | running | failed`, the names `src/lib/branch-from.ts`
 //! uses. Ids, labels, counts and times only. The brief text is read through its own desktop command
 //! (`branch_brief`) and, for the sheet, through [`Preview::brief`].
-//!
-//! TODO(UI-4/UI-5, founder): when keeping a branch would drop later work from the original (the
-//! branch left out everything the chat did after its save point), the Keep step in Changes must say
-//! so clearly before Merge. That step is `Changes.tsx` and the History / chat entry points, not this
-//! module; the facts are already here (`BranchView::point_label`, `from_pane_id`, `closed`).
 
 use super::brief::hhmm_of_ms;
 use super::model::{Branch, State};
