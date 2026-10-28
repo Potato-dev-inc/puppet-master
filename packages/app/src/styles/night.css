@@ -1,0 +1,313 @@
+/* Night Shift (SPEC n32 3.10): the Tonight sheet and its Tests popover. Grayscale tokens only, dense rows,
+   hairline separators, 13px body text, tabular numbers for times and counts. Every rule sits under .cockpit. */
+
+.cockpit .ck-sheet.ck-night-sheet {
+  width: 600px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  gap: 8px;
+}
+.cockpit .ck-night-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.cockpit .ck-night-intro {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--label-2);
+}
+.cockpit .ck-night-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-night-hint {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-night-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--label-3);
+}
+.cockpit .ck-night-error {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-night-blocked {
+  margin: 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--label-3);
+}
+.cockpit .ck-night-warn {
+  font-size: 12px;
+  color: var(--label);
+  font-weight: 500;
+}
+.cockpit .ck-night-ok {
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-night-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* ---- tasks ------------------------------------------------------------------------------------ */
+.cockpit .ck-night-tasks,
+.cockpit .ck-night-checks,
+.cockpit .ck-night-checks-list,
+.cockpit .ck-night-plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cockpit .ck-night-task {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-night-task-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.cockpit .ck-night-n {
+  width: 16px;
+  padding-top: 7px;
+  flex: none;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--label-3);
+}
+.cockpit .ck-night-select,
+.cockpit .ck-night-text,
+.cockpit .ck-night-input,
+.cockpit .ck-night-num,
+.cockpit .ck-night-time {
+  font: inherit;
+  font-size: 13px;
+  color: var(--label);
+  background: var(--bg-raised);
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  box-shadow: var(--raise-hi);
+}
+.cockpit .ck-night-select {
+  height: 28px;
+  max-width: 180px;
+  padding: 0 6px;
+}
+.cockpit .ck-night-text {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 6px 8px;
+  line-height: 1.4;
+  resize: vertical;
+}
+.cockpit .ck-night-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+}
+.cockpit .ck-night-input--cmd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.cockpit .ck-night-num {
+  width: 64px;
+  height: 26px;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-night-time {
+  height: 26px;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-night-select:focus-visible,
+.cockpit .ck-night-text:focus-visible,
+.cockpit .ck-night-input:focus-visible,
+.cockpit .ck-night-num:focus-visible,
+.cockpit .ck-night-time:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-night-moves {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+}
+.cockpit .ck-night-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-left: 24px;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-night-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-night-chip {
+  height: 24px;
+  max-width: 220px;
+  padding: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+  font-size: 12px;
+  color: var(--label);
+  background: var(--fill);
+  border: 1px solid var(--sep);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.cockpit .ck-night-chip:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+.cockpit .ck-night-chip:disabled {
+  color: var(--label-3);
+  cursor: default;
+}
+.cockpit .ck-night-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-night-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-left: 24px;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-night-add {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+/* ---- tests popover ---------------------------------------------------------------------------- */
+.cockpit .ck-night-pop {
+  position: absolute;
+  top: auto;
+  left: 24px;
+  margin-top: 6px;
+  z-index: 5;
+  width: 360px;
+  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 12px;
+  background: var(--bg-float);
+  border: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
+}
+.cockpit .ck-night-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cockpit .ck-night-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cockpit .ck-night-check--found {
+  justify-content: space-between;
+}
+.cockpit .ck-night-check--add {
+  padding-top: 6px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-night-nochecks {
+  align-self: flex-start;
+}
+
+/* ---- plans ------------------------------------------------------------------------------------ */
+.cockpit .ck-night-plans {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.cockpit .ck-night-plan-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 2px 16px;
+}
+.cockpit .ck-night-plan {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-night-plan input:disabled + .ck-night-plan-name {
+  color: var(--label-3);
+}
+.cockpit .ck-night-plan-status {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- when, awake, checks ---------------------------------------------------------------------- */
+.cockpit .ck-night-when {
+  margin-top: 8px;
+  padding-left: 0;
+}
+.cockpit .ck-night-awake {
+  justify-content: space-between;
+  padding-left: 0;
+}
+.cockpit .ck-night-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--sep);
+  background: var(--fill);
+}
+.cockpit .ck-night-checks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+.cockpit .ck-night-worst {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--label-2);
+}
