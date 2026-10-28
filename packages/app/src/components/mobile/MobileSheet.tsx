@@ -236,6 +236,7 @@ export function MenuSheet({
   onCloseActive,
   onEditConnection,
   onStopAll,
+  onOpenPlans,
 }: {
   onClose: () => void;
   bridgeUrl: string;
@@ -251,6 +252,8 @@ export function MenuSheet({
   onEditConnection: () => void;
   /** Panic button: interrupt every running agent on the PC. */
   onStopAll?: () => void;
+  /** Opens "Your plans" (read only) over this menu. */
+  onOpenPlans?: () => void;
 }) {
   const setDelay = (value: number) => {
     const ms = Number.isFinite(value) ? (value <= 0 ? 0 : Math.min(1000, Math.max(50, Math.round(value)))) : 250;
@@ -341,6 +344,22 @@ export function MenuSheet({
                   Close {activeLabel}
                 </button>
               )}
+            </div>
+          </>
+        )}
+
+        {onOpenPlans && (
+          <>
+            <h2 className="ph-sec">Usage</h2>
+            <div className="ph-group">
+              <button type="button" onClick={onOpenPlans} className="ph-row">
+                <span className="ph-rowtext">Your plans</span>
+                <span className="ph-chev" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="m9 5 7 7-7 7" />
+                  </svg>
+                </span>
+              </button>
             </div>
           </>
         )}
