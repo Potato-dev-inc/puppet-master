@@ -52,7 +52,8 @@ export interface CrewStartOutcome {
 export interface CrewsApi {
   list: () => Promise<CrewSummary[]>;
   draft: (paneId: string) => Promise<CrewDraft>;
-  save: (crew: Crew) => Promise<CrewSaveOutcome>;
+  /** `replace` overwrites the saved crew with the same name (the sheet asks first). */
+  save: (crew: Crew, replace?: boolean) => Promise<CrewSaveOutcome>;
   remove: (slug: string) => Promise<void>;
   start: (slug: string, folder: string) => Promise<CrewStartOutcome>;
 }
@@ -67,7 +68,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 export const crewsApi: CrewsApi = {
   list: () => call<CrewSummary[]>('crews_list'),
   draft: (paneId) => call<CrewDraft>('crews_draft', { paneId }),
-  save: (crew) => call<CrewSaveOutcome>('crews_save', { crew }),
+  save: (crew, replace = false) => call<CrewSaveOutcome>('crews_save', { crew, replace }),
   remove: (slug) => call<void>('crews_remove', { slug }),
   start: (slug, folder) => call<CrewStartOutcome>('crews_start', { slug, folder }),
 };

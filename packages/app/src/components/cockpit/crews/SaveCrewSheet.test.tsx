@@ -125,4 +125,33 @@ describe('SaveCrewSheet', () => {
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("That agent's pane is closed.");
     expect(button('Save crew').disabled).toBe(true);
   });
+
+  it('asks before replacing a crew with the same name, and Replace saves over it', async () => {
+    const a = api({
+      save: vi.fn(async (_crew: Crew, replace?: boolean) =>
+        replace ? { slug: 'lead-team', errors: [] } : { slug: null, errors: [{ code: 'CREW_NAME_TAKEN', role: null, message: 'A crew with this name exists. Replace it?' }] },
+      ),
+    });
+    const { onSaved } = await render(a);
+    await act(async () => button('Save crew').click());
+    expect(host.querySelector('[data-testid="crew-name-taken"]')?.textContent).toBe('A crew with this name exists. Replace it?');
+    expect(onSaved).not.toHaveBeenCalled();
+    await act(async () => button('Replace').click());
+    expect((a.save as ReturnType<typeof vi.fn>).mock.calls[1][1]).toBe(true);
+    expect(onSaved).toHaveBeenCalledWith('Lead team');
+  });
+
+  it('Rename goes back to the name and saves nothing over the other crew', async () => {
+    const a = api({
+      save: vi.fn(async () => ({ slug: null, errors: [{ code: 'CREW_NAME_TAKEN', role: null, message: 'A crew with this name exists. Replace it?' }] })),
+    });
+    const { onSaved } = await render(a);
+    await act(async () => button('Save crew').click());
+    await act(async () => button('Rename').click());
+    expect(host.querySelector('[data-testid="crew-name-taken"]')).toBeNull();
+    expect(document.activeElement).toBe(field('Crew name'));
+    expect(a.save).toHaveBeenCalledTimes(1);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(button('Save crew')).toBeDefined();
+  });
 });
