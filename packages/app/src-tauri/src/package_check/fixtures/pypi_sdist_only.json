@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "api-version": "1.1",
+    "_last-serial": 1
+  },
+  "name": "demo-sdist-only",
+  "project-status": {
+    "status": "active"
+  },
+  "files": [
+    {
+      "filename": "demo-sdist-only-0.3.0.zip",
+      "url": "https://files.example.test/demo-sdist-only-0.3.0.zip",
+      "hashes": {},
+      "upload-time": "2024-02-02T00:00:00.000000Z",
+      "yanked": false
+    },
+    {
+      "filename": "demo-sdist-only-0.4.0.tar.gz",
+      "url": "https://files.example.test/demo-sdist-only-0.4.0.tar.gz",
+      "hashes": {},
+      "upload-time": "2025-05-05T00:00:00.000000Z"
+    }
+  ]
+}
