@@ -131,7 +131,22 @@ function press(key: string, init: KeyboardEventInit = {}, el: Element = document
   el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
 }
 
-// Two animation frames (or two 16 ms timers when rAF is missing) plus slack.
+// A pick is queued two animation frames after the click (picker.js afterFrames). Waiting for the queue,
+// not for a fixed time, keeps the check exact: a fixed 80 ms sleep lost the race on a busy PC, when the
+// frames arrived late and the test read the queue too early. The limit is only a failure bound.
+const PICK_WAIT_MS = 3000;
+
+async function waitForPick(api: PickerApi): Promise<PickPayload> {
+  const deadline = Date.now() + PICK_WAIT_MS;
+  for (;;) {
+    const raw = api.take();
+    if (raw !== null) return JSON.parse(raw) as PickPayload;
+    if (Date.now() > deadline) throw new Error('no pick was queued');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+// A short fixed wait, used only where the test checks that nothing was queued.
 async function settle(): Promise<void> {
   await new Promise((r) => setTimeout(r, 80));
 }
@@ -145,10 +160,7 @@ async function pickClick(api: PickerApi, el: Element): Promise<PickPayload> {
   api.arm();
   hover(el);
   click(el);
-  await settle();
-  const payload = pickOf(api);
-  if (!payload) throw new Error('no pick was queued');
-  return payload;
+  return waitForPick(api);
 }
 
 beforeEach(() => {
@@ -508,16 +520,14 @@ describe('pointing flow', () => {
     hover(btn);
     press('ArrowUp');
     click(btn);
-    await settle();
-    expect(pickOf(api)?.tag).toBe('section');
+    expect((await waitForPick(api)).tag).toBe('section');
 
     api.arm();
     hover(btn);
     press('ArrowUp');
     press('ArrowDown');
     click(btn);
-    await settle();
-    expect(pickOf(api)?.tag).toBe('button');
+    expect((await waitForPick(api)).tag).toBe('button');
   });
 
   it('Esc turns the picker off, so clicks reach the page again', async () => {
@@ -551,8 +561,7 @@ describe('pointing flow', () => {
     hover(btn);
     click(btn);
     expect(pageClicks).toBe(0);
-    await settle();
-    expect(pickOf(api)?.tag).toBe('button');
+    expect((await waitForPick(api)).tag).toBe('button');
   });
 
   it('queues one pick after two frames, and take() returns it once', async () => {
@@ -564,8 +573,7 @@ describe('pointing flow', () => {
     hover(btn);
     click(btn);
     expect(api.take()).toBeNull();
-    await settle();
-    expect(api.take()).not.toBeNull();
+    await waitForPick(api);
     expect(api.take()).toBeNull();
   });
 
@@ -578,7 +586,8 @@ describe('pointing flow', () => {
     hover(btn);
     click(btn);
     expect(document.getElementById('pm-point-cursor')).toBeNull();
-    await settle();
+    // Drain the queued pick so no frame callback lands after this test ends.
+    await waitForPick(api);
   });
 
   it('Alt+P toggles the picker, and a bare P does nothing', () => {
