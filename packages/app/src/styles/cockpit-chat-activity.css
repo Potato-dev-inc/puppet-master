@@ -1,0 +1,6 @@
+/* The "(N failed)" part of an activity line: full ink and a heavier weight, so it stands out from the muted counts. */
+.cockpit .ck-chat-activity-failed,
+.ph .ck-chat-activity-failed {
+  color: var(--label);
+  font-weight: 600;
+}
