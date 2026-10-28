@@ -98,6 +98,7 @@ mod settings_patch;
 mod shell_env;
 mod startup_timing;
 mod tamper;
+mod night_shift;
 pub mod shell_exec;
 mod standby;
 mod team;
