@@ -19,6 +19,7 @@ mod app_paths;
 mod bridge;
 mod budgets;
 mod canary;
+mod channels;
 mod checkpoints;
 mod clip;
 mod commands;
