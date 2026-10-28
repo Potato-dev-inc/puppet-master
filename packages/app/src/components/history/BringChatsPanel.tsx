@@ -1,7 +1,7 @@
 // "Bring my old chats": finds the chats each agent kept on this PC and adds them to search. It is the content
 // only; the caller wraps it in a Sheet (Escape and Tab come from there). Nothing in an agent folder is read
 // until the person presses "Find my chats". Nothing leaves this computer.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { chatIndexSetEnabled } from '../../lib/chatIndex';
 import {
   chatImportApi,
@@ -38,7 +38,11 @@ function pickView(a: { looking: boolean; starting: boolean; progress: ImportProg
   return 'intro';
 }
 
-export function BringChatsPanel({ api = chatImportApi, onClose }: { api?: ImportApi; onClose?: () => void }) {
+/**
+ * `startLooking`: the caller's own "Find my chats" press already asked the person (the first-start card), so the
+ * look starts once, when the saved answers are in. Without it the intro waits for its own button.
+ */
+export function BringChatsPanel({ api = chatImportApi, onClose, startLooking = false }: { api?: ImportApi; onClose?: () => void; startLooking?: boolean }) {
   const [state, setState] = useState<ImportState | null>(null);
   const [progress, setProgress] = useState<ImportProgress>(idleProgress);
   const [found, setFound] = useState<ImportFound[] | null>(null);
@@ -102,6 +106,16 @@ export function BringChatsPanel({ api = chatImportApi, onClose }: { api?: Import
     setSinceDays(days);
     void look(days);
   };
+
+  // Once per panel: the caller's press was the consent. Waits for the saved window and switches (`state`).
+  const startedLook = useRef(false);
+  useEffect(() => {
+    if (!startLooking || !state || startedLook.current) return;
+    startedLook.current = true;
+    void look(state.sinceDays);
+    // `look` is rebuilt every render; this must run once, when `state` arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startLooking, state]);
 
   const enabledIds = (found ?? []).filter((f) => picked[f.id]).map((f) => f.id);
   // Chats already in search are not counted again.
