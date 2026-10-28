@@ -15,8 +15,11 @@ use crate::session_chat::home_to_tilde;
 
 /// Goal text kept, in characters. The goal is never trimmed.
 const GOAL_CHARS: usize = 1_200;
-/// The title on line 1, in characters.
-const TITLE_CHARS: usize = 60;
+/// Line 1 is fixed text for each reason. It never holds agent or task text (SPEC n32 S1): the task
+/// itself sits inside the fenced notes.
+const LINE_ONE_USAGE: &str = "Continue: the task is in the fenced block below. It was handed over at a usage limit.";
+const LINE_ONE_CAME_BACK: &str =
+    "Continue: the task is in the fenced block below. It was handed back when the first agent's usage reset.";
 /// Worst-case caps on one turn sentence, one file path and one task-list item (characters).
 const TURN_CHARS: usize = 160;
 const PATH_CHARS: usize = 120;
@@ -73,7 +76,7 @@ pub struct Brief {
     pub bytes: usize,
     /// The trim steps that ran, in order (`files`, `last_message`, `turns`, `plan`, `question`).
     pub trimmed: Vec<&'static str>,
-    /// Line 1, such as `Continue: Make the cart total round to cents`.
+    /// Line 1: fixed text for the reason (no agent or task text).
     pub goal_line: String,
 }
 
@@ -153,7 +156,11 @@ impl Prepared {
     fn new(inputs: &BriefInputs, clean: &dyn Fn(&str) -> String) -> Prepared {
         let goal = non_empty(clean(inputs.goal.as_deref().unwrap_or("")))
             .map(|goal| cut_chars(&goal, GOAL_CHARS));
-        let goal_line = format!("Continue: {}", title_of(goal.as_deref()));
+        let goal_line = match inputs.reason {
+            Reason::UsageLimit => LINE_ONE_USAGE,
+            Reason::CameBack => LINE_ONE_CAME_BACK,
+        }
+        .to_string();
         let turns = inputs
             .turns
             .iter()
@@ -449,23 +456,6 @@ fn plan_body(p: &Prepared, s: &Shape) -> String {
 }
 
 // ---- small helpers ----
-
-/// Line 1's title: the goal's first line, control characters removed, fence markers defanged, 60 characters.
-fn title_of(goal: Option<&str>) -> String {
-    let line = goal.and_then(|goal| goal.lines().map(str::trim).find(|line| !line.is_empty())).unwrap_or("");
-    let title: String = defang(line).chars().filter(|c| !c.is_control()).take(TITLE_CHARS).collect();
-    let title = title.trim();
-    if title.is_empty() {
-        "the task in this folder".to_string()
-    } else {
-        title.to_string()
-    }
-}
-
-/// The same neutralising `context_pack::fence` does to a body: no `<<<` or `>>>` survives.
-fn defang(text: &str) -> String {
-    text.replace("<<<", "\u{2039}\u{2039}\u{2039}").replace(">>>", "\u{203a}\u{203a}\u{203a}")
-}
 
 fn non_empty(text: String) -> Option<String> {
     let trimmed = text.trim();
