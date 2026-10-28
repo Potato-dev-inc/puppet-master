@@ -17,9 +17,9 @@
 //! 6. the result is recorded: the ledger, the item's tombstone ("Allowed once from Anna's iPhone"),
 //!    the audit log.
 //!
-//! A chat answer (`Via::Telegram`) is refused for a trust gate, a consent card, a budget, a limit and
-//! any approval above low risk, right after the item is looked up and before any key is typed (see
-//! `chat_refusal`).
+//! A chat answer (`Via::Telegram`) is refused for a trust gate, a consent card, a budget, a limit, a
+//! person-only question card (an issue card) and any approval above low risk, right after the item is
+//! looked up and before any key is typed (see `chat_refusal` and `person_only_question_refusal`).
 //!
 //! A question, a consent card, a budget or a usage-limit card goes to the questions store (no pane
 //! write). This route is for paired people only: an agent answers through `answer_prompt`, where the
@@ -128,6 +128,8 @@ pub trait Env {
     fn lock_answers(&self) -> Box<dyn std::any::Any>;
     fn deliver(&self, pane_id: &str, prompt_id: &str, choice: &str, permit: &AnswerPermit) -> Delivered;
     fn answer_question(&self, question_id: &str, choice: Option<&str>, text: Option<&str>) -> QuestionResult;
+    /// The kind a question card was raised with (`budget`, `issue_start`...); `None` for an agent's own question.
+    fn question_kind(&self, question_id: &str) -> Option<String>;
     /// The tombstone of this item will say how it was answered.
     fn note_resolution(&self, key: &str, resolution: Resolution);
     fn audit(&self, caller: &Caller, summary: &str, detail: Value);
@@ -211,6 +213,8 @@ fn resolved(item: &Item, caller: &Caller) -> Reply {
     }))
 }
 
+const PERSON_ONLY_HINT: &str = "Decide this in Puppet Master on the PC or on a paired phone.";
+
 /// The rule for a chat answer (`Via::Telegram`), enforced here as well as in the Telegram layer
 /// (defence in depth: a bug in that layer must not be enough). A trust gate, a consent card, a budget
 /// or a limit, and an approval above low risk or with no risk read, are never answered from a chat.
@@ -226,6 +230,17 @@ fn chat_refusal(item: &Item) -> Option<&'static str> {
         },
         Kind::Question | Kind::Error | Kind::Stuck | Kind::Review | Kind::Done | Kind::Answer => None,
     }
+}
+
+/// A question card that only the person answers (`questions::PERSON_ONLY_KINDS`, an issue card). The list shows it
+/// as an ordinary question, so the kind is read from the card itself. A paired phone and the PC may answer it.
+fn person_only_question_refusal(env: &dyn Env, item: &Item) -> Option<&'static str> {
+    if item.kind != Kind::Question {
+        return None;
+    }
+    let (_, question_id) = item.key.split_once(':')?;
+    let kind = env.question_kind(question_id)?;
+    crate::questions::PERSON_ONLY_KINDS.contains(&kind.as_str()).then_some(PERSON_ONLY_HINT)
 }
 
 /// `item_id` is the opaque id of the card; `request` is what the phone sent.
@@ -251,7 +266,7 @@ pub fn answer(env: &dyn Env, caller: &Caller, item_id: &str, request: &Request) 
         return resolved(item, caller);
     }
     if caller.via == Via::Telegram {
-        if let Some(hint) = chat_refusal(item) {
+        if let Some(hint) = chat_refusal(item).or_else(|| person_only_question_refusal(env, item)) {
             return (403, json!({"error": "not_from_chat", "hint": hint}));
         }
     }
@@ -483,6 +498,10 @@ impl Env for RealEnv {
         }
     }
 
+    fn question_kind(&self, question_id: &str) -> Option<String> {
+        crate::questions::store().get(question_id, crate::questions::now_ms()).and_then(|q| q.kind)
+    }
+
     fn note_resolution(&self, key: &str, resolution: Resolution) {
         super::note_resolution(key, resolution);
     }
@@ -519,6 +538,8 @@ pub(crate) mod testing {
         /// The permit is refused on every write (the pane never stops printing).
         pub always_stale: Mutex<bool>,
         pub question_result: Mutex<Option<QuestionResult>>,
+        /// Question id -> the kind its card was raised with (what the store would say).
+        pub question_kinds: Mutex<HashMap<String, String>>,
         pub notes: Mutex<Vec<(String, Resolution)>>,
         pub audits: Mutex<Vec<String>>,
         pub ledger: Mutex<Ledger>,
@@ -588,6 +609,7 @@ pub(crate) mod testing {
                 deliver_result: Mutex::new(None),
                 always_stale: Mutex::new(false),
                 question_result: Mutex::new(None),
+                question_kinds: Mutex::new(HashMap::new()),
                 notes: Mutex::new(Vec::new()),
                 audits: Mutex::new(Vec::new()),
                 ledger: Mutex::new(Ledger::default()),
@@ -660,6 +682,9 @@ pub(crate) mod testing {
         }
         fn answer_question(&self, _id: &str, choice: Option<&str>, _text: Option<&str>) -> QuestionResult {
             self.question_result.lock().take().unwrap_or(QuestionResult::Answered { label: choice.map(str::to_string) })
+        }
+        fn question_kind(&self, question_id: &str) -> Option<String> {
+            self.question_kinds.lock().get(question_id).cloned()
         }
         fn note_resolution(&self, key: &str, resolution: Resolution) {
             self.notes.lock().push((key.to_string(), resolution.clone()));

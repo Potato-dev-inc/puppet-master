@@ -381,3 +381,87 @@ fn a_new_question_triggers_one_push_and_polling_or_cancelling_triggers_none() {
     }
     assert_eq!((count(&id), count(&id2)), (1, 1));
 }
+
+// ---- Person-only cards: an issue card (`issue_start`, `issue_push`) ----------------------------
+
+fn issue_card(store: &QuestionStore, kind: &str, text: &str) -> Question {
+    store
+        .create(NewQuestion { question: text.into(), choices: choices(), kind: Some(kind.into()), ..Default::default() }, now_ms())
+        .unwrap()
+}
+
+#[test]
+fn an_issue_card_may_wait_a_day_and_no_longer() {
+    let store = QuestionStore::new();
+    for kind in ["issue_start", "issue_push"] {
+        let day = NewQuestion {
+            question: format!("{kind} day"),
+            choices: choices(),
+            kind: Some(kind.into()),
+            timeout_s: Some(24 * 3600),
+            ..Default::default()
+        };
+        assert!(store.create(day.clone(), 0).is_ok(), "{kind}: 24 hours is accepted");
+        let too_long = NewQuestion { timeout_s: Some(24 * 3600 + 1), ..day };
+        let refused = store.create(too_long, 0).unwrap_err();
+        assert_eq!(refused.code, "INVALID_ARGUMENT", "{kind}: 25 hours is refused");
+    }
+    // A plain question still has the one-hour cap.
+    let plain = NewQuestion { question: "plain".into(), choices: choices(), timeout_s: Some(3601), ..Default::default() };
+    assert!(store.create(plain, 0).is_err());
+}
+
+#[test]
+fn an_agent_cannot_ask_for_an_issue_card_over_ask_user() {
+    // `ask_user` never sets a kind: a question an agent asks cannot become a person-only card.
+    let body = json!({ "question": "Start on #9 with Codex?", "choices": [{"id": "start", "label": "Start"}], "kind": "issue_start", "wait_ms": 1 });
+    let (status, reply) = routes::handle("POST", &["questions", "ask"], &body, Some("agent-kind-1"), false, &|| {})
+        .unwrap()
+        .unwrap();
+    assert_eq!(status, 200);
+    let id = reply["question_id"].as_str().unwrap().to_string();
+    assert_eq!(store().get(&id, now_ms()).unwrap().kind, None);
+    // So the same answer from a plain loopback request is the agent's own question: it is not refused here.
+    let (status, _) = routes::handle("POST", &["questions", &id, "answer"], &json!({ "choice_id": "start" }), None, false, &|| {})
+        .unwrap()
+        .unwrap();
+    assert_eq!(status, 200);
+}
+
+#[test]
+fn only_the_person_answers_or_dismisses_an_issue_card_over_the_bridge() {
+    let card = issue_card(store(), "issue_start", "Start on #42 \"Login button does nothing\" with Codex? [loopback]");
+    let answer = json!({ "choice_id": "yes" });
+    // Plain loopback HTTP (an agent's shell, a companion, any local program): refused, the card stays pending.
+    let (status, body) = routes::handle("POST", &["questions", &card.id, "answer"], &answer, None, false, &|| {})
+        .unwrap()
+        .unwrap_err();
+    assert_eq!((status, body["code"].as_str()), (403, Some("ISSUE_NEEDS_PERSON")));
+    assert_eq!(store().get(&card.id, now_ms()).unwrap().state, QuestionState::Pending);
+    let (status, body) = routes::handle("POST", &["questions", &card.id, "dismiss"], &json!({}), None, false, &|| {})
+        .unwrap()
+        .unwrap_err();
+    assert_eq!((status, body["code"].as_str()), (403, Some("ISSUE_NEEDS_PERSON")));
+    assert_eq!(store().get(&card.id, now_ms()).unwrap().state, QuestionState::Pending);
+    // A paired phone is the person: it may answer.
+    let (status, _) = routes::handle("POST", &["questions", &card.id, "answer"], &answer, None, true, &|| {})
+        .unwrap()
+        .unwrap();
+    assert_eq!(status, 200);
+    assert_eq!(store().get(&card.id, now_ms()).unwrap().state, QuestionState::Answered);
+}
+
+#[test]
+fn a_phone_may_dismiss_an_issue_card_and_loopback_dismiss_of_other_cards_is_unchanged() {
+    let card = issue_card(store(), "issue_push", "Draft PR ready for #7? [dismiss]");
+    let (status, _) = routes::handle("POST", &["questions", &card.id, "dismiss"], &json!({}), None, true, &|| {})
+        .unwrap()
+        .unwrap();
+    assert_eq!(status, 200);
+    // A plain question still dismisses over loopback, as before.
+    let plain = ask(store(), now_ms());
+    let (status, _) = routes::handle("POST", &["questions", &plain.id, "dismiss"], &json!({}), None, false, &|| {})
+        .unwrap()
+        .unwrap();
+    assert_eq!(status, 200);
+}

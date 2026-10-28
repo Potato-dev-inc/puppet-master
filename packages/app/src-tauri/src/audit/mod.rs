@@ -76,6 +76,9 @@ pub enum Kind {
     ChannelMessage,
     ChannelStranger,
     ChannelError,
+    /// Assign an issue (`crate::issue_intake`): `issue.asked`, `issue.auto_approved`, `issue.started`,
+    /// `issue.pr_opened`, `issue.held`, `issue.thrown_away`, `issue.settings`. The detail carries `event`.
+    IssueIntake,
 }
 
 impl Kind {
@@ -110,6 +113,7 @@ impl Kind {
             Self::ChannelMessage => "channel.message",
             Self::ChannelStranger => "channel.stranger",
             Self::ChannelError => "channel.error",
+            Self::IssueIntake => "issue.intake",
         }
     }
 }
