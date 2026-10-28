@@ -154,6 +154,32 @@ pub fn call(wizard: &Wizard, action: &str, body: Value) -> Result<Value, crate::
     crate::tui::declarative::wizard::api::handle(wizard, action, &body)
 }
 
+/// How a test learns that `visibletest` returned on its thread: the error text, or a note that it returned without one.
+pub type Ended = Arc<parking_lot::Mutex<Option<String>>>;
+
+/// Run `visibletest` on a thread and record in `ended` when (and how) it returned.
+pub fn run_visibletest(wizard: &Arc<Wizard>, id: &str, plan: &str, ended: &Ended) -> std::thread::JoinHandle<Result<Value, crate::tui::declarative::wizard::WizardError>> {
+    let (wizard, id, plan, ended) = (wizard.clone(), id.to_string(), plan.to_string(), ended.clone());
+    std::thread::spawn(move || {
+        let result = call(&wizard, "visibletest", json!({"session": id, "confirm": true, "plan": plan}));
+        *ended.lock() = Some(result.as_ref().err().map_or_else(|| "it returned without a pane".to_string(), |e| e.to_string()));
+        result
+    })
+}
+
+/// The id of the test pane once the host has one. Panics with the thread's own error when `visibletest` returned
+/// without ever starting a pane, instead of waiting blind for the full time.
+pub fn wait_for_test_pane(host: &FakeHost, ended: &Ended) -> String {
+    super::fake_host::wait_for(super::fake_host::PANE_WAIT_SECS, || {
+        if host.spawned().first().is_some() {
+            return Some(Ok(host.pane_id()));
+        }
+        ended.lock().clone().map(Err)
+    })
+    .expect("the test pane is started")
+    .unwrap_or_else(|why: String| panic!("the visible test ended before it started a pane: {why}"))
+}
+
 pub fn ok(wizard: &Wizard, action: &str, body: Value) -> Value {
     call(wizard, action, body).unwrap_or_else(|e| panic!("{action}: {e}"))
 }
