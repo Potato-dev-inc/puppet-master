@@ -1,7 +1,11 @@
 // The panes this pane started (its helpers): a status dot, the title and the agent. A click opens that pane.
+// With `usage`, a roll-up line for the whole tree and a usage line under each helper (turns, busy time, tokens
+// only when the chat reported them).
+import type { PaneUsage } from '../../../lib/pane-usage';
 import { DotSpinner } from '../DotSpinner';
 import { spinnerStatus } from '../model';
 import { RailCard } from './RailCard';
+import { helperUsageLine, rollupLine } from './usageText';
 
 export interface HelperRow {
   id: string;
@@ -10,20 +14,27 @@ export interface HelperRow {
   status: string;
 }
 
-export function HelpersCard({ helpers, onOpen }: { helpers: readonly HelperRow[]; onOpen: (id: string) => void }) {
+export function HelpersCard({ helpers, usage, onOpen }: { helpers: readonly HelperRow[]; usage?: PaneUsage | null; onOpen: (id: string) => void }) {
   if (helpers.length === 0) return null;
+  const byId = new Map((usage?.helpers ?? []).map((u) => [u.paneId, u] as const));
   return (
     <RailCard title="Helpers" note={String(helpers.length)} testId="rail-helpers">
+      {usage && <p className="ck-rail-line" data-testid="rail-helpers-rollup">{rollupLine(usage)}</p>}
       <ul className="ck-rail-list">
-        {helpers.map((h) => (
-          <li key={h.id}>
-            <button type="button" className="ck-rail-item" onClick={() => onOpen(h.id)} title={`Open ${h.title}`}>
-              <DotSpinner status={spinnerStatus(h.status)} />
-              <span className="ck-rail-file">{h.title}</span>
-              {h.agent && <span className="ck-rail-folder">{h.agent}</span>}
-            </button>
-          </li>
-        ))}
+        {helpers.map((h) => {
+          const line = byId.get(h.id);
+          const text = line ? helperUsageLine(h.agent, line) : null;
+          return (
+            <li key={h.id}>
+              <button type="button" className="ck-rail-item" onClick={() => onOpen(h.id)} title={`Open ${h.title}`}>
+                <DotSpinner status={spinnerStatus(h.status)} />
+                <span className="ck-rail-file">{h.title}</span>
+                {h.agent && <span className="ck-rail-folder">{h.agent}</span>}
+              </button>
+              {text && <p className="ck-rail-line" title={text}>{text}</p>}
+            </li>
+          );
+        })}
       </ul>
     </RailCard>
   );

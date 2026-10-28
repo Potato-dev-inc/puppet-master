@@ -42,7 +42,7 @@ vi.mock('./hooks/useCockpit', async () => {
         names: {},
         registry: {
           paneList: ids.map((id) => ({ info: { id, cwd: `/proj/${id}` } })),
-          panes: new Map(),
+          panes: new Map(ids.map((id) => [id, { info: { id, cwd: `/proj/${id}` }, status: 'idle' }])),
         },
       };
     },
@@ -91,13 +91,15 @@ vi.mock('./components/cockpit/Sidebar', async () => {
     c: { select: (id: string | null) => void; openSettings: (tab?: string) => Promise<void>; registry: { paneList: { info: { id: string } }[] } };
     onOpenDoctor: () => void;
     onOpenMemory: () => void;
+    onOpenToSide?: (id: string) => void;
   };
   return {
-    Sidebar: ({ c, onOpenDoctor, onOpenMemory }: Props) =>
+    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenToSide }: Props) =>
       h(
         'div',
         null,
         h('button', { type: 'button', onClick: onOpenDoctor }, 'Set up agents'),
+        h('button', { type: 'button', onClick: () => onOpenToSide?.('p2') }, 'Open p2 to the side'),
         h('button', { type: 'button', onClick: onOpenMemory }, 'Project memory'),
         h('button', { type: 'button', onClick: () => void c.openSettings() }, 'Settings'),
         h('button', { type: 'button', onClick: () => c.select(null) }, 'Inbox'),
@@ -114,6 +116,30 @@ vi.mock('./components/cockpit/AgentDoctor', async () => {
 vi.mock('./components/cockpit/ProjectMemory', async () => {
   const { createElement: h } = await import('react');
   return { ProjectMemory: () => h('div', null, 'MEMORY VIEW') };
+});
+// The split view's own rendering is tested in SplitView.test.tsx; here only its wiring from CockpitApp.
+vi.mock('./components/cockpit/SplitView', async () => {
+  const { createElement: h, useEffect, useState } = await import('react');
+  type Props = { leftId: string; rightId: string; focus: string; onClose: () => void; onFocus: (side: string) => void };
+  return {
+    useWindowWidth: () => {
+      const [w, setW] = useState(() => window.innerWidth);
+      useEffect(() => {
+        const on = () => setW(window.innerWidth);
+        window.addEventListener('resize', on);
+        return () => window.removeEventListener('resize', on);
+      }, []);
+      return w;
+    },
+    SplitView: ({ leftId, rightId, focus, onClose, onFocus }: Props) =>
+      h(
+        'div',
+        null,
+        `SPLIT VIEW ${leftId}|${rightId}|${focus}`,
+        h('button', { type: 'button', onClick: onClose }, 'Close split'),
+        h('button', { type: 'button', onClick: () => onFocus('right') }, 'Focus right'),
+      ),
+  };
 });
 vi.mock('./components/cockpit/PaneView', async () => {
   const { createElement: h } = await import('react');
@@ -414,5 +440,49 @@ describe('CockpitApp palette shortcuts', () => {
     press({ key: 'f', ctrlKey: true });
     press({ key: 'f', ctrlKey: true, shiftKey: true, altKey: true });
     expect(palette()).toBeNull();
+  });
+});
+
+describe('CockpitApp split view wiring', () => {
+  const ctrlBackslash = () => window.dispatchEvent(new KeyboardEvent('keydown', { key: '\\', ctrlKey: true, bubbles: true }));
+  const resize = (width: number) => {
+    window.innerWidth = width;
+    act(() => window.dispatchEvent(new Event('resize')));
+  };
+  afterEach(() => resize(1024));
+
+  it('Ctrl+\\ splits with the pane below the selected one (the first pane has none above), and again closes it', () => {
+    expect(mainText()).toBe('PANE VIEW p1');
+    act(() => ctrlBackslash());
+    expect(mainText()).toContain('SPLIT VIEW p1|p2|left');
+    act(() => ctrlBackslash());
+    expect(mainText()).toBe('PANE VIEW p1');
+  });
+
+  it('"Open to the side" puts that pane on the right, and a click on the right side moves the focus', () => {
+    clickButton('Open p2 to the side');
+    expect(mainText()).toContain('SPLIT VIEW p1|p2|left');
+    clickButton('Focus right');
+    expect(mainText()).toContain('SPLIT VIEW p1|p2|right');
+  });
+
+  it('picking the right pane in the sidebar swaps the sides; the inbox ends the split', () => {
+    clickButton('Open p2 to the side');
+    clickButton('pane p2');
+    expect(mainText()).toContain('SPLIT VIEW p2|p1|left');
+    clickButton('Inbox');
+    expect(mainText()).not.toContain('SPLIT VIEW');
+    expect(mainText()).toContain('INBOX VIEW');
+  });
+
+  it('below 900px the shortcut does nothing, and an open split turns off when the window gets narrow', () => {
+    resize(800);
+    act(() => ctrlBackslash());
+    expect(mainText()).toBe('PANE VIEW p1');
+    resize(1024);
+    act(() => ctrlBackslash());
+    expect(mainText()).toContain('SPLIT VIEW');
+    resize(800);
+    expect(mainText()).toBe('PANE VIEW p1');
   });
 });
