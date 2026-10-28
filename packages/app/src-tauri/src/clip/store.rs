@@ -68,6 +68,7 @@ struct Staged {
 
 struct Plan {
     token: String,
+    #[allow(dead_code)] // kept for the plan's owner; the pane the clip was made for
     pane_id: String,
     issued: Instant,
     staged: Option<Staged>,

@@ -35,13 +35,15 @@ pub struct ExportMarkdown {
     pub token: String,
 }
 
-/// The chat of a pane, read once: its items, the header facts and the redaction context they were made with.
-async fn gather(
+/// The items of a pane's chat, read once, with the pane's agent type and folder. `holder` names the lease that keeps
+/// the reader open while it reads; it lets go at once. Shared by the chat exports and Clip It.
+pub(crate) async fn read_items(
     app: &AppHandle,
     state: &AppState,
     chat: &SessionChatState,
     pane_id: &str,
-) -> Result<(Vec<ChatItem>, Meta, Arc<RedactContext>), String> {
+    holder: &'static str,
+) -> Result<(Vec<ChatItem>, String, String), String> {
     let (agent_type, cwd) = {
         let registry = state.registry.lock();
         let pane = registry.get(pane_id).ok_or_else(|| format!("unknown pane: {pane_id}"))?;
@@ -51,13 +53,24 @@ async fn gather(
     let watchers = chat.watchers(app, &state.registry);
     let owned_pane = pane_id.to_string();
     let items = tauri::async_runtime::spawn_blocking(move || {
-        opening.open(&watchers, &owned_pane, Hold::lease(HOLDER, HOLD_FOR));
+        opening.open(&watchers, &owned_pane, Hold::lease(holder, HOLD_FOR));
         let items = watchers.since(&owned_pane, None, usize::MAX).map(|delta| delta.items).unwrap_or_default();
-        watchers.close(&owned_pane, HOLDER);
+        watchers.close(&owned_pane, holder);
         items
     })
     .await
     .map_err(|e| format!("INTERNAL: {e}"))?;
+    Ok((items, agent_type, cwd))
+}
+
+/// The chat of a pane, read once: its items, the header facts and the redaction context they were made with.
+async fn gather(
+    app: &AppHandle,
+    state: &AppState,
+    chat: &SessionChatState,
+    pane_id: &str,
+) -> Result<(Vec<ChatItem>, Meta, Arc<RedactContext>), String> {
+    let (items, agent_type, cwd) = read_items(app, state, chat, pane_id, HOLDER).await?;
     let ctx = crate::redact::known::context();
     let meta = Meta {
         agent: crate::ambient::agent_label(&agent_type),
