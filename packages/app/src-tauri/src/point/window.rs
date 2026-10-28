@@ -124,12 +124,27 @@ pub fn parse_take(raw: &str) -> Option<String> {
     }
 }
 
-/// Where a new preview goes: a share of the cockpit's monitor, beside the cockpit (right of it when
-/// there is room, else left, else flush right), cascaded by `slot`. All values are physical pixels.
-pub fn preview_bounds(monitor: Rect4, cockpit: Rect4, slot: usize) -> Rect4 {
-    let (mx, my, mw, mh) = monitor;
-    let w = (f64::from(mw) * WIDTH_SHARE) as u32;
-    let h = (f64::from(mh) * HEIGHT_SHARE) as u32;
+/// Moves and shrinks a window box so all of it is inside `area`. The size is cut to the area first
+/// (a window wider than the area gets the area's width), then the position is moved back in from
+/// whichever edge sticks out. Works with negative coordinates (a monitor left of the primary one).
+pub fn fit_inside(area: Rect4, want: Rect4) -> Rect4 {
+    let (ax, ay, aw, ah) = area;
+    let w = want.2.min(aw);
+    let h = want.3.min(ah);
+    let x = want.0.clamp(ax, ax + (aw - w) as i32);
+    let y = want.1.clamp(ay, ay + (ah - h) as i32);
+    (x, y, w, h)
+}
+
+/// Where a new preview goes: a share of the cockpit's monitor's work area, beside the cockpit (right
+/// of it when there is room, else left, else flush right), cascaded by `slot`. All values are physical
+/// pixels. `frame` is the space the OS adds around the inner area (title bar and borders). The whole
+/// window, frame included, is kept inside `work`. Returns the outer top-left corner and the inner size
+/// (what `set_size` takes).
+pub fn preview_bounds(work: Rect4, cockpit: Rect4, slot: usize, frame: (u32, u32)) -> Rect4 {
+    let (mx, my, mw, mh) = work;
+    let w = (f64::from(mw) * WIDTH_SHARE) as u32 + frame.0;
+    let h = (f64::from(mh) * HEIGHT_SHARE) as u32 + frame.1;
     let mright = mx + mw as i32;
     let mut x = cockpit.0 + cockpit.2 as i32;
     if x + w as i32 > mright {
@@ -138,11 +153,10 @@ pub fn preview_bounds(monitor: Rect4, cockpit: Rect4, slot: usize) -> Rect4 {
     if x < mx {
         x = mright - w as i32;
     }
-    let y = my + ((mh - h) / 2) as i32;
+    let y = my + (mh as i32 - h as i32) / 2;
     let step = (crate::app_windows::CASCADE_STEP as i32) * (slot % crate::app_windows::CASCADE_SLOTS) as i32;
-    let x = (x + step).min(mright - w as i32).max(mx);
-    let y = (y + step).min(my + mh as i32 - h as i32).max(my);
-    (x, y, w, h)
+    let (x, y, w, h) = fit_inside(work, (x + step, y + step, w, h));
+    (x, y, w.saturating_sub(frame.0), h.saturating_sub(frame.1))
 }
 
 /// True for a file the pipeline made itself: `.../.puppet-master/shots/pick-*.png`. Only these are
@@ -153,6 +167,28 @@ pub fn is_own_shot(path: &Path) -> bool {
         dir.file_name().is_some_and(|n| n == "shots") && dir.parent().and_then(|p| p.file_name()).is_some_and(|n| n == ".puppet-master")
     });
     in_shots && name.starts_with("pick-") && name.ends_with(".png")
+}
+
+/// Which WebView2 debugging port a preview window gets (the live-check knob `PM_PREVIEW_CDP_PORT`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewCdp {
+    /// The knob is not set: the preview opens no debugging port.
+    Off,
+    /// The preview's own port, set on its browser arguments.
+    Own(u16),
+    /// The process already has a debugging port from `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`. WebView2
+    /// applies that to every window in the process, so the preview gets this port and no second flag.
+    Shared(u16),
+}
+
+/// The debugging port decision. `knob` is `PM_PREVIEW_CDP_PORT`, `process_args` is
+/// `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`. A port already in the process wins over the knob.
+pub fn preview_cdp(knob: Option<u16>, process_args: Option<&str>) -> PreviewCdp {
+    match (knob, process_args.and_then(origin::cdp_port_in)) {
+        (None, _) => PreviewCdp::Off,
+        (Some(_), Some(process)) => PreviewCdp::Shared(process),
+        (Some(port), None) => PreviewCdp::Own(port),
+    }
 }
 
 /// The screen rectangle (physical pixels) of an element, from its CSS rect and the window's inner box.
@@ -222,11 +258,20 @@ pub fn open(app: &AppHandle, pane_id: &str, port: u16, armed: bool) -> Result<Pr
             NewWindowResponse::Deny
         })
         .on_download(|_webview, _event| false);
-    if let Some(port) = std::env::var("PM_PREVIEW_CDP_PORT").ok().and_then(|v| v.trim().parse::<u16>().ok()) {
+    let knob = std::env::var("PM_PREVIEW_CDP_PORT").ok().and_then(|v| v.trim().parse::<u16>().ok());
+    let process_args = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").ok();
+    match preview_cdp(knob, process_args.as_deref()) {
+        PreviewCdp::Off => {}
         // Live checks only. Setting browser arguments replaces wry's defaults, so they are repeated.
-        builder = builder.additional_browser_args(&format!(
-            "--remote-debugging-port={port} --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
-        ));
+        PreviewCdp::Own(port) => {
+            builder = builder.additional_browser_args(&format!(
+                "--remote-debugging-port={port} --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+            ));
+        }
+        PreviewCdp::Shared(port) => tracing::warn!(
+            "point: PM_PREVIEW_CDP_PORT is ignored. WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS already sets \
+             --remote-debugging-port={port}, and WebView2 applies that to every window, so the preview is on port {port}."
+        ),
     }
     let window = builder.build().map_err(|e| format!("The preview window did not open: {e}"))?;
 
@@ -288,15 +333,26 @@ fn place(app: &AppHandle, window: &WebviewWindow, slot: usize) {
         .and_then(|w| w.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten());
     let Some(monitor) = monitor else { return };
-    let monitor_rect = (monitor.position().x, monitor.position().y, monitor.size().width, monitor.size().height);
+    // The work area leaves out the taskbar, so the window never sits under it.
+    let work = monitor.work_area();
+    let work_rect = (work.position.x, work.position.y, work.size.width, work.size.height);
     let cockpit_rect = cockpit
         .as_ref()
         .and_then(|w| Some((w.outer_position().ok()?, w.outer_size().ok()?)))
         .map(|(p, s)| (p.x, p.y, s.width, s.height))
-        .unwrap_or((monitor_rect.0, monitor_rect.1, 0, 0));
-    let (x, y, w, h) = preview_bounds(monitor_rect, cockpit_rect, slot);
+        .unwrap_or((work_rect.0, work_rect.1, 0, 0));
+    let (x, y, w, h) = preview_bounds(work_rect, cockpit_rect, slot, frame_of(window));
     let _ = window.set_size(PhysicalSize::new(w, h));
     let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+/// The space the OS adds around a window's inner area (title bar and borders), in physical pixels.
+/// `set_position` moves the outer edge, so this is what makes a window reach past its inner size.
+fn frame_of(window: &WebviewWindow) -> (u32, u32) {
+    match (window.outer_size(), window.inner_size()) {
+        (Ok(outer), Ok(inner)) => (outer.width.saturating_sub(inner.width), outer.height.saturating_sub(inner.height)),
+        _ => (0, 0),
+    }
 }
 
 fn focus(window: &WebviewWindow) {
@@ -591,6 +647,9 @@ pub fn discard_all(app: &AppHandle) {
 mod tests {
     use super::*;
 
+    /// A window with no title bar or borders (the frame argument of `preview_bounds`).
+    const NO_FRAME: (u32, u32) = (0, 0);
+
     fn origin() -> PreviewOrigin {
         PreviewOrigin { scheme: "http".into(), host: "localhost".into(), port: 5173 }
     }
@@ -649,7 +708,7 @@ mod tests {
         // Cockpit on the left 40% of a monitor left of the primary one.
         let monitor: Rect4 = (-1920, 0, 1920, 1080);
         let cockpit: Rect4 = (-1920, 0, 768, 1080);
-        let (x, y, w, h) = preview_bounds(monitor, cockpit, 0);
+        let (x, y, w, h) = preview_bounds(monitor, cockpit, 0, NO_FRAME);
         assert_eq!((w, h), (1152, 918));
         assert_eq!(x, -1920 + 768);
         assert_eq!(y, (1080 - 918) / 2);
@@ -660,14 +719,14 @@ mod tests {
     fn a_preview_goes_left_of_a_cockpit_on_the_right_edge() {
         let monitor: Rect4 = (0, 0, 1920, 1080);
         let cockpit: Rect4 = (1200, 0, 720, 1080);
-        let (x, _, w, _) = preview_bounds(monitor, cockpit, 0);
+        let (x, _, w, _) = preview_bounds(monitor, cockpit, 0, NO_FRAME);
         assert_eq!(x, 1200 - w as i32);
     }
 
     #[test]
     fn a_full_screen_cockpit_gives_a_preview_flush_right() {
         let monitor: Rect4 = (0, 0, 1920, 1080);
-        let (x, _, w, _) = preview_bounds(monitor, (0, 0, 1920, 1080), 0);
+        let (x, _, w, _) = preview_bounds(monitor, (0, 0, 1920, 1080), 0, NO_FRAME);
         assert_eq!(x + w as i32, 1920);
     }
 
@@ -675,14 +734,86 @@ mod tests {
     fn previews_cascade_and_stay_on_the_monitor() {
         let monitor: Rect4 = (0, 0, 1920, 1080);
         let cockpit: Rect4 = (0, 0, 700, 1080);
-        let first = preview_bounds(monitor, cockpit, 0);
-        let second = preview_bounds(monitor, cockpit, 1);
+        let first = preview_bounds(monitor, cockpit, 0, NO_FRAME);
+        let second = preview_bounds(monitor, cockpit, 1, NO_FRAME);
         assert_eq!(second.0 - first.0, crate::app_windows::CASCADE_STEP as i32);
-        assert_eq!(preview_bounds(monitor, cockpit, crate::app_windows::CASCADE_SLOTS), first);
+        assert_eq!(preview_bounds(monitor, cockpit, crate::app_windows::CASCADE_SLOTS, NO_FRAME), first);
         for slot in 0..20 {
-            let (x, y, w, h) = preview_bounds(monitor, cockpit, slot);
+            let (x, y, w, h) = preview_bounds(monitor, cockpit, slot, NO_FRAME);
             assert!(x >= 0 && y >= 0 && x + w as i32 <= 1920 && y + h as i32 <= 1080, "slot {slot}");
         }
+    }
+
+    #[test]
+    fn a_window_wider_than_the_monitor_is_cut_to_the_monitor_width() {
+        assert_eq!(fit_inside((0, 0, 1920, 1080), (100, 50, 2400, 500)), (0, 50, 1920, 500));
+        assert_eq!(fit_inside((0, 0, 1920, 1080), (-300, -200, 1000, 2000)), (0, 0, 1000, 1080));
+    }
+
+    #[test]
+    fn a_window_off_the_left_edge_comes_back_on_a_negative_monitor() {
+        // The monitor is left of the primary one, so its coordinates are negative.
+        let monitor: Rect4 = (-1920, 0, 1920, 1080);
+        assert_eq!(fit_inside(monitor, (-2000, 20, 500, 400)), (-1920, 20, 500, 400));
+        assert_eq!(fit_inside(monitor, (-100, -40, 300, 300)), (-300, 0, 300, 300));
+        assert_eq!(fit_inside(monitor, (-1000, 900, 300, 300)), (-1000, 780, 300, 300));
+    }
+
+    #[test]
+    fn a_window_across_two_side_by_side_monitors_is_pulled_onto_the_chosen_one() {
+        let left: Rect4 = (0, 0, 1920, 1080);
+        let right: Rect4 = (1920, 0, 1920, 1080);
+        // Mostly on the right monitor, poking 120 px onto the left one: pulled fully onto the right.
+        assert_eq!(fit_inside(right, (1800, 100, 400, 300)), (1920, 100, 400, 300));
+        // Mostly on the left monitor: pulled fully onto the left one.
+        assert_eq!(fit_inside(left, (1700, 100, 400, 300)), (1520, 100, 400, 300));
+        // Past the right edge of the right monitor.
+        assert_eq!(fit_inside(right, (3700, 900, 400, 300)), (3440, 780, 400, 300));
+    }
+
+    #[test]
+    fn a_window_that_fits_is_not_moved() {
+        let monitor: Rect4 = (-1920, 0, 1920, 1080);
+        assert_eq!(fit_inside(monitor, (-1152, 81, 1152, 918)), (-1152, 81, 1152, 918));
+    }
+
+    #[test]
+    fn a_preview_with_its_title_bar_and_borders_stays_inside_the_left_monitor() {
+        // The bug: the inner size fit the monitor, but the frame added 16 px on the right edge.
+        let monitor: Rect4 = (-1920, 0, 1920, 1080);
+        let cockpit: Rect4 = (-1920, 0, 768, 1080);
+        let frame = (16, 39);
+        let (x, y, w, h) = preview_bounds(monitor, cockpit, 0, frame);
+        assert_eq!((w, h), (1152, 918), "the inner size is still 60% by 85%");
+        assert!(x >= monitor.0, "left edge {x}");
+        assert!(x + (w + frame.0) as i32 <= 0, "right edge {}", x + (w + frame.0) as i32);
+        assert!(y >= 0 && y + (h + frame.1) as i32 <= 1080, "top {y}");
+    }
+
+    #[test]
+    fn a_preview_with_its_frame_stays_inside_every_cascade_slot() {
+        let monitor: Rect4 = (0, 0, 1920, 1080);
+        let cockpit: Rect4 = (0, 0, 700, 1080);
+        let frame = (16, 39);
+        for slot in 0..20 {
+            let (x, y, w, h) = preview_bounds(monitor, cockpit, slot, frame);
+            assert!(x >= 0 && y >= 0, "slot {slot}");
+            assert!(x + (w + frame.0) as i32 <= 1920 && y + (h + frame.1) as i32 <= 1080, "slot {slot}");
+        }
+    }
+
+    #[test]
+    fn a_preview_knob_is_skipped_when_webview2_already_has_a_debugging_port() {
+        // No knob: nothing extra.
+        assert_eq!(preview_cdp(None, None), PreviewCdp::Off);
+        assert_eq!(preview_cdp(None, Some("--remote-debugging-port=9222")), PreviewCdp::Off);
+        // The knob alone: the preview gets its own port.
+        assert_eq!(preview_cdp(Some(9444), None), PreviewCdp::Own(9444));
+        assert_eq!(preview_cdp(Some(9444), Some("--disable-gpu")), PreviewCdp::Own(9444));
+        // The process already has a port: the preview shares it, whatever the knob says.
+        let process = Some("--remote-debugging-port=9222");
+        assert_eq!(preview_cdp(Some(9444), process), PreviewCdp::Shared(9222));
+        assert_eq!(preview_cdp(Some(9222), process), PreviewCdp::Shared(9222));
     }
 
     #[test]
