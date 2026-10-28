@@ -21,6 +21,12 @@ pub fn lines(text: &str, ctx: &RedactContext, max: usize) -> (Vec<String>, usize
     (shown, all.len().saturating_sub(max))
 }
 
+/// Plain text for a file that is not HTML: redacted in strict mode, then with its paths cut down to their last names.
+/// Not HTML-escaped, so the caller must not put it into markup without escaping.
+pub fn plain(text: &str, ctx: &RedactContext) -> String {
+    cut_paths(text, ctx)
+}
+
 /// `text` redacted in strict mode, then with its paths cut down.
 fn cut_paths(text: &str, ctx: &RedactContext) -> String {
     strip_paths(redact::strict_with(text, ctx).as_str(), ctx.home.as_deref())

@@ -68,11 +68,17 @@ impl Pages {
     }
 }
 
-/// The place to write, or why it is refused.
+/// The place to write, or why it is refused. A saved chat page must end in `.html` or `.htm`.
 pub fn check_dest(path: &str) -> Result<PathBuf, String> {
+    check_dest_with(path, &["html", "htm"], NEED_HTML)
+}
+
+/// The place to write for a file whose extension must be one of `exts` (no dot, any case); `need_msg` is the
+/// sentence shown when the extension is wrong. The other checks are the same for every file kind.
+pub fn check_dest_with(path: &str, exts: &[&str], need_msg: &str) -> Result<PathBuf, String> {
     let dest = PathBuf::from(path.trim());
     if dest.as_os_str().is_empty() {
-        return Err(NEED_HTML.into());
+        return Err(need_msg.into());
     }
     if !dest.is_absolute() {
         return Err("Save the page where the save window put it: a full path is needed.".into());
@@ -80,9 +86,9 @@ pub fn check_dest(path: &str) -> Result<PathBuf, String> {
     if dest.components().any(|c| matches!(c, Component::ParentDir | Component::CurDir)) {
         return Err("The path must not contain . or .. parts.".into());
     }
-    let is_html = dest.extension().is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"));
-    if !is_html {
-        return Err(NEED_HTML.into());
+    let ext_ok = dest.extension().is_some_and(|e| exts.iter().any(|want| e.eq_ignore_ascii_case(want)));
+    if !ext_ok {
+        return Err(need_msg.into());
     }
     if is_device_name(&dest) {
         return Err("That file name is reserved by the system. Choose another.".into());

@@ -2,7 +2,7 @@ use super::*;
 
 use crate::redact::RedactContext;
 use crate::session_chat::detail::{PlanItem, PlanStatus, ToolDetail};
-use crate::session_chat::export_text::{escape, strip_paths};
+use crate::session_chat::export_text::{escape, plain, strip_paths};
 use crate::session_chat::model::{ChatItem, TurnOutcome};
 use serde_json::json;
 
@@ -360,4 +360,20 @@ fn an_unknown_shape_secret_is_masked_in_the_page() {
 fn the_account_name_in_a_path_is_masked_with_no_home_known() {
     let html = render(&[agent(1, r"see C:\Users\someone\notes.txt and /home/someone/x.rs")]);
     assert!(!html.contains("someone"));
+}
+
+#[test]
+fn plain_text_drops_the_key_and_the_user_folder() {
+    let text = format!(r"key {FAKE_TOKEN} in C:\Users\you\proj\a.rs");
+    let out = plain(&text, &ctx());
+    assert!(!out.contains("sk-ant-api03"), "{out}");
+    assert!(!out.contains("Users"), "{out}");
+    assert!(!out.contains("you"), "{out}");
+    assert!(out.contains("a.rs"), "{out}");
+}
+
+#[test]
+fn plain_text_is_not_html_escaped() {
+    let out = plain(r#"a <b> & "c" C:\Users\you\x\y.rs"#, &ctx());
+    assert!(out.contains("<b>") && out.contains('&') && out.contains("\"c\""), "{out}");
 }

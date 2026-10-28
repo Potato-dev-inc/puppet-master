@@ -180,3 +180,66 @@ fn a_failed_write_keeps_the_page_for_another_try() {
     assert!(pages.save(&token, &dest).is_err());
     assert_eq!(pages.count(), 1);
 }
+
+const VIDEO: &[&str] = &["mp4", "webm"];
+const NEED_VIDEO: &str = "Choose a file name that ends in .mp4 or .webm.";
+
+#[test]
+fn video_names_are_accepted_for_video_exts() {
+    let dir = temp_dir();
+    assert!(check_dest_with(&path_in(&dir, "clip-1.mp4"), VIDEO, NEED_VIDEO).is_ok());
+    assert!(check_dest_with(&path_in(&dir, "clip-1.WEBM"), VIDEO, NEED_VIDEO).is_ok());
+}
+
+#[test]
+fn html_is_refused_for_video_exts_with_the_given_message() {
+    let dir = temp_dir();
+    let error = check_dest_with(&path_in(&dir, "clip.html"), VIDEO, NEED_VIDEO).unwrap_err();
+    assert_eq!(error, NEED_VIDEO);
+    assert!(check_dest_with(&path_in(&dir, "clip"), VIDEO, NEED_VIDEO).is_err());
+    assert!(check_dest_with(&path_in(&dir, "clip.mp4.exe"), VIDEO, NEED_VIDEO).is_err());
+}
+
+#[test]
+fn a_device_name_is_refused_for_video_exts() {
+    let dir = temp_dir();
+    assert!(check_dest_with(&path_in(&dir, "NUL.mp4"), VIDEO, NEED_VIDEO).is_err());
+    assert!(check_dest_with(&path_in(&dir, "com1.webm"), VIDEO, NEED_VIDEO).is_err());
+    assert!(check_dest_with(&path_in(&dir, "com10.mp4"), VIDEO, NEED_VIDEO).is_ok());
+}
+
+#[test]
+fn a_link_is_refused_for_video_exts() {
+    let dir = temp_dir();
+    let target = dir.join("target.mp4");
+    std::fs::write(&target, b"keep me").unwrap();
+    let link = dir.join("link.mp4");
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_file(&target, &link);
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(&target, &link);
+    if made.is_err() {
+        // Making a link needs a privilege on some Windows set-ups; nothing to check there.
+        return;
+    }
+    let error = check_dest_with(&link.to_string_lossy(), VIDEO, NEED_VIDEO).unwrap_err();
+    assert!(error.contains("link"), "{error}");
+    assert_eq!(std::fs::read(&target).unwrap(), b"keep me");
+}
+
+#[test]
+fn an_existing_folder_named_like_a_video_is_refused() {
+    let dir = temp_dir();
+    std::fs::create_dir(dir.join("dir.mp4")).unwrap();
+    let error = check_dest_with(&path_in(&dir, "dir.mp4"), VIDEO, NEED_VIDEO).unwrap_err();
+    assert!(error.contains("not a plain file"), "{error}");
+}
+
+#[test]
+fn relative_and_dot_paths_are_refused_for_video_exts() {
+    let dir = temp_dir();
+    assert!(check_dest_with("clip-1.mp4", VIDEO, NEED_VIDEO).is_err());
+    let sneaky = format!("{}{}..{}clip.mp4", dir.display(), std::path::MAIN_SEPARATOR, std::path::MAIN_SEPARATOR);
+    assert!(check_dest_with(&sneaky, VIDEO, NEED_VIDEO).is_err());
+    assert!(check_dest_with("", VIDEO, NEED_VIDEO).unwrap_err() == NEED_VIDEO);
+}
