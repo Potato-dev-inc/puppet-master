@@ -24,6 +24,9 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | Live regression | `node scripts/pm-regression.mjs` (needs the running app; spawns real agents) | `28/28 scenario runs passed; 0 failed assertion(s)`; known flaky: `cursor_agent timeout` can fail `WORKER_STOP_FAILED` (PF3 run was 27/28, rerun passed) |
 | Read-only parity | `node scripts/pm-regression/readonly-check.mjs` | claude and kilo PASS; the control (a write) is detected |
 | Window monitor | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-window-monitor.ps1` | exit 0, `OK: no Puppet Master window on the primary monitor` |
+| Bring All My Chats: Rust | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib session_chat::history` (also `session_chat::declared::history`, `chat_index`, `commands::chat_import`, `tui::claude::history`, `tui::codex::history`, `tui::opencode::history`, `tui::conformance`) | Static count on `feat/bc-docs`: 162 Bring All My Chats test functions (+1 ignored `regenerate_fixture_db`), counted from source, not run in the docs pass. The filters `chat_index` and `tui::conformance` also run older tests. The count includes the guard tests in `session_chat/history/guard.rs` |
+| Bring All My Chats: UI | `cd packages/app; npx vitest run src/components/history src/lib/chatImport src/components/settings/blocks/BringChatsSettings src/lib/chatTab` | Static count: 45 test cases in those files, not run in the docs pass. `CockpitApp.test.tsx` (31 cases, 3 for the old-chat host) runs with `npx vitest run src/CockpitApp` |
+| Bring All My Chats: fixture builder | `node --test scripts/make-fixture-history-home.test.mjs` | Static count: 15 cases (layout, refusals, extra files, exit codes), not run in the docs pass |
 | Perf (optional) | `node scripts/perf-latency.mjs` then `perf-summarize.mjs` | see `docs/perf/latency-baseline.md` |
 
 `cargo test` needs `packages/app/dist` (run `npx vite build` in `packages/app` once). After any change to `tool_registry/`, the shim or bridge code it
@@ -100,7 +103,16 @@ Setup: open `http://localhost:1420/?pwa=1` at phone size, or pair a phone in Set
 - **Headless iPhone check.** Chrome headless over CDP with an iPhone user agent, touch and a fake `visualViewport` whose height drops by the keyboard height: run the steps above and read pane sizes from `/panes`, prompt lines from `.xterm-rows`, and whether the focused input element survives the resize.
 
 ### 2.8 Bring All My Chats (fixture home only)
-Never run against the real home. Build the fake home: `node scripts/make-fixture-history-home.mjs D:\pm-night\bc-fixture-home` (add `--extra-claude <file>` and `--extra-codex <file>` for the two real chats from the check's own test pane). Start the app with `PUPPET_MASTER_PROFILE=bc-live` and `PUPPET_MASTER_HISTORY_HOME=D:\pm-night\bc-fixture-home` on its own CDP port, then run `node scripts/verify-bring-chats.mjs D:\pm-night\bc-live --cdp <port> --expect claude=2,codex=3,opencode=2` (fixture counts; add the real counts when the extra files are in). The script checks the card counts, the Codex toggle, "Add N chats", the Ctrl+Shift+F hit for "stripe webhook" with the "Old chat" tag, and the read-only viewer. Still by hand: Remove imported chats, index off, Continue in a pane (Claude and OpenCode), the planted-secret byte check on `chat-index.sqlite` and `-wal`, and `scripts/check-window-monitor.ps1`. The card steps need the cockpit wiring of the card (BC-23).
+Never run against the real home. Use a new empty folder for the fake home, outside your real home and outside any agent folder.
+
+1. Build the fake home: `node scripts/make-fixture-history-home.mjs <fixture-home>`. It refuses the real home and its agent folders. Add `--extra-claude <file>` or `--extra-codex <file>` only for session files you made in a test pane of your own (the live check's own panes).
+2. Start the app on its own profile and CDP port, with `PUPPET_MASTER_PROFILE=bc-live` and `PUPPET_MASTER_HISTORY_HOME=<fixture-home>`. Use a fresh profile: step 3 expects every chat to be new. The script refuses port 9333.
+3. Open **Bring my old chats** from the palette. On this branch no card opens it at start (the first-start card is `feat/bc-card`, not merged here).
+4. Run `node scripts/verify-bring-chats.mjs <evidence-folder> --cdp <port> --expect claude=2,codex=3,opencode=2`. The counts are the fixture counts; add the extra files to them. The script waits up to 20 s for the panel. It checks the agent counts, the Codex switch, "Add N chats", the Ctrl+Shift+F hit for "stripe webhook" with the "Old chat" tag, and the read-only viewer, with a screenshot per step.
+
+Still by hand: Remove imported chats (the Settings row shows no chats after it), index off ("Chat search is off"), Continue in a pane for Claude and OpenCode (the resumed chat answers), the planted-secret check on `chat-index.sqlite` and its `-wal` (the fake key and e-mail are not in the bytes), and `scripts/check-window-monitor.ps1`.
+
+Known gap to check, expected to fail today: with a paired phone that has the `watch` cap, search "stripe webhook" in the phone's search. Today an old chat hit can appear. After the fix, no old chat hit appears there.
 
 ## 3. Known flaky tests (collected from the progress log and T37 evidence)
 - `tui::descriptor::descriptor_builds_all_nine` - global registry race (fixed by `registry::test_serial()`; tests that swap/count the global registry must take it).
@@ -121,3 +133,7 @@ Never run against the real home. Build the fake home: `node scripts/make-fixture
 - `npm run test:mcp-package` / `test:mcp-operations` were not run at T37.
 - Mobile PWA: verified on an Android emulator through the Cloudflare tunnel, in headless Chrome as an iPhone, and from a recording of a real Android phone; not yet on a real iPhone. The emulator stops showing its on-screen keyboard once host-keyboard input is used (`show_ime_with_hard_keyboard = 0`): tap its keys instead.
 - The removed legacy UI (grid, Overview, orchestrator sidebar) has no live tests by design; its code is unreachable. The Settings > Agents cases in 2.1 run in the tray Settings window.
+- **Bring All My Chats: phone search shows old chats.** `GET /chats/search` searches every row (see `docs/features/bring-all-my-chats.md`). A test should prove that imported rows are skipped there.
+- **Bring All My Chats: first-start card** is on `feat/bc-card` (BC-13) and not merged into this branch. Section 2.8 step 3 depends on it.
+- **Bring All My Chats: OpenCode layout** is taken from the installed OpenCode 1.19.0 program, not from a live database. A live session is needed to confirm it.
+- **Bring All My Chats: no live run** is recorded for this branch. Section 2.8 is the plan.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Bring my old chats: an opt-in way to add the chats you had in Claude Code, Codex, OpenCode and any agent with a
+  `[session_chat.history]` table to Ctrl+Shift+F search. Nothing is read until you press "Find my chats"; the chats stay on
+  this PC, are redacted before they are saved, and "Remove imported chats" deletes them. Phone search can still show them
+  (known gap, see `docs/features/bring-all-my-chats.md`).
+
 - The Approve dialog for your own agents now shows the whole command: the program that will run (its path, with
   your user folder shown as `~`) and then the arguments, for the headless command and the visible pane command.
   A program that is not installed shows its name and "not found on this PC". The Agent Wizard's review screen
