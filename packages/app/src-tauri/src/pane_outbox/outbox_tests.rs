@@ -20,6 +20,8 @@ struct Fake {
     look: Mutex<Option<Look>>,
     attempt: Mutex<Attempt>,
     typed: Mutex<Vec<String>>,
+    /// How often `type_message` was called (a gate that keeps refusing must not be retried every poll).
+    calls: Mutex<usize>,
     published: Mutex<Vec<Vec<OutboxMessage>>>,
     /// While true `type_message` waits (a message stays `sending`).
     hold: Mutex<bool>,
@@ -46,6 +48,7 @@ impl Fake {
             look: Mutex::new(Some(first)),
             attempt: Mutex::new(Attempt::Sent),
             typed: Mutex::new(Vec::new()),
+            calls: Mutex::new(0),
             published: Mutex::new(Vec::new()),
             hold: Mutex::new(false),
             released: Condvar::new(),
@@ -88,6 +91,7 @@ impl Host for Fake {
     }
 
     fn type_message(&self, _pane_id: &str, text: &str) -> Attempt {
+        *self.calls.lock() += 1;
         let mut hold = self.hold.lock();
         while *hold {
             self.released.wait(&mut hold);
@@ -111,6 +115,7 @@ fn fast() -> Timing {
         give_up: Duration::from_secs(60),
         keep: Duration::from_secs(60),
         after_send: Duration::ZERO,
+        gate_retry: Duration::from_millis(100),
     }
 }
 
@@ -154,7 +159,11 @@ fn only_a_ready_idle_agent_with_an_empty_box_gets_the_message() {
     assert_eq!(decide(&busy()), Step::Wait(WAIT_BUSY));
     assert_eq!(decide(&look(Readiness::Gate(PROMPT_GATE), Unknown, true)), Step::Wait(WAIT_GATE));
     let startup = StartupGate { id: "notice", summary: "x", dismiss: Some("\u{1b}") };
-    assert_eq!(decide(&look(Readiness::Gate(startup), Unknown, true)), Step::Wait(WAIT_GATE), "even a gate with its own keys");
+    // A notice with its own dismiss keys goes to delivery, which closes it before typing (whatever the status says).
+    assert_eq!(decide(&look(Readiness::Gate(startup), Unknown, true)), Step::Deliver);
+    assert_eq!(decide(&look(Readiness::Gate(startup), Unknown, false)), Step::Deliver, "status is not read over a notice");
+    let only_user = StartupGate { id: "trust", summary: "x", dismiss: None };
+    assert_eq!(decide(&look(Readiness::Gate(only_user), Unknown, true)), Step::Wait(WAIT_GATE), "a gate only the user may pass");
     assert_eq!(decide(&look(Readiness::HostShell(HostShell::AgentExited), Unknown, true)), Step::Fail(FAIL_NOT_RUNNING));
     assert_eq!(decide(&look(Readiness::HostShell(HostShell::NotInstalled("x".into())), Unknown, true)), Step::Fail(FAIL_NOT_RUNNING));
 }
@@ -197,17 +206,49 @@ fn a_message_for_a_busy_agent_waits_for_the_turn_to_end() {
 
 #[test]
 fn a_question_or_dialog_is_waited_for_and_no_key_is_pressed() {
-    for gate in [PROMPT_GATE, StartupGate { id: "notice", summary: "x", dismiss: Some("\u{1b}") }] {
+    // The agent's question and a startup screen only the person may pass (folder trust, sign-in).
+    for gate in [PROMPT_GATE, StartupGate { id: "workspace_trust", summary: "x", dismiss: None }] {
         let host = Fake::new(look(Readiness::Gate(gate), ComposerState::Unknown, true));
         let outbox = outbox(&host);
         let message = outbox.send("p", "hello").unwrap();
         waiting_for(&outbox, &message.id, WAIT_GATE);
         std::thread::sleep(Duration::from_millis(60));
         assert!(host.typed().is_empty(), "a gate gets no key and no text");
+        assert_eq!(*host.calls.lock(), 0, "delivery is not even started: it would look for keys to press");
         host.set(ready());
         until_state(&outbox, &message.id, State::Sent);
         assert_eq!(host.typed(), ["hello"]);
     }
+}
+
+#[test]
+fn a_startup_notice_with_its_own_keys_is_handed_to_delivery_instead_of_waiting_for_ever() {
+    // Codex's "Update available" menu on a companion pane: nobody closed it, so every message sat behind it.
+    let notice = StartupGate { id: "update_available", summary: "x", dismiss: Some("\u{1b}") };
+    let host = Fake::new(look(Readiness::Gate(notice), ComposerState::Unknown, false));
+    let outbox = outbox(&host);
+    let message = outbox.send("p", "hello").unwrap();
+    until_state(&outbox, &message.id, State::Sent);
+    assert_eq!(host.typed(), ["hello"], "delivery closed the notice and typed once");
+}
+
+#[test]
+fn a_notice_that_ignores_its_keys_keeps_the_message_waiting_and_is_not_pressed_every_poll() {
+    let notice = StartupGate { id: "update_available", summary: "x", dismiss: Some("\u{1b}") };
+    let host = Fake::new(look(Readiness::Gate(notice), ComposerState::Unknown, true));
+    *host.attempt.lock() = Attempt::Gate;
+    let outbox = outbox(&host);
+    let message = outbox.send("p", "hello").unwrap();
+    waiting_for(&outbox, &message.id, WAIT_GATE);
+    // Polls are 5 ms and the retry gap is 100 ms: about three tries in 280 ms, not fifty.
+    std::thread::sleep(Duration::from_millis(280));
+    let calls = *host.calls.lock();
+    assert!((1..=5).contains(&calls), "{calls} attempts");
+    assert!(host.typed().is_empty());
+    // The person closes it themselves: the next look is Ready and the message goes at once (no retry gap).
+    *host.attempt.lock() = Attempt::Sent;
+    host.set(ready());
+    until_state(&outbox, &message.id, State::Sent);
 }
 
 #[test]
@@ -557,6 +598,98 @@ mod scripted {
         };
         let typed = trace.iter().any(|line| line.contains(delivery::TYPING_TRACE));
         (attempt_of(outcome, typed), trace)
+    }
+
+    // ---- the real Codex profile behind its update menu (live captures) ----
+
+    const MENU: &str = include_str!("../tui/codex/fixtures/update_prompt_0_164_live.txt");
+    const CODEX_READY: &str = include_str!("../tui/codex/fixtures/standby_ready_live.txt");
+    const CODEX_UNSENT: &str = include_str!("../tui/codex/fixtures/composer_unsent_glued_live.txt");
+    const CODEX_SUBMITTED: &str = include_str!("../tui/codex/fixtures/submitted_live.txt");
+    /// The text those captures show in the box and the transcript.
+    const CODEX_TEXT: &str = "Reply with the single word FIVE. Do not use any tools.";
+
+    /// A Codex pane that starts at its update menu. `esc_closes`: whether Esc closes it (it does on the real one).
+    struct CodexMenu {
+        screen: String,
+        esc_closes: bool,
+        /// (what, enter) for every write, whatever its permit.
+        writes: Vec<(String, bool)>,
+        /// Writes made while the menu was still up that were not Esc: the bug (a message typed into the menu).
+        into_menu: Vec<String>,
+    }
+
+    impl CodexMenu {
+        fn new(esc_closes: bool) -> Self {
+            Self { screen: MENU.into(), esc_closes, writes: Vec::new(), into_menu: Vec::new() }
+        }
+        fn menu_up(&self) -> bool {
+            self.screen == MENU
+        }
+    }
+
+    impl DeliveryIo for CodexMenu {
+        fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
+            origin.admit_terminal_write("", text, enter, None, || AgentProcess::Unknown)?;
+            self.writes.push((text.to_string(), enter));
+            if self.menu_up() {
+                if text == "\u{1b}" && !enter {
+                    if self.esc_closes {
+                        self.screen = CODEX_READY.into();
+                    }
+                } else {
+                    self.into_menu.push(format!("{text:?} enter={enter}"));
+                }
+            } else if enter {
+                self.screen = CODEX_SUBMITTED.into();
+            } else if !text.is_empty() {
+                self.screen = CODEX_UNSENT.into();
+            }
+            Ok(())
+        }
+        fn screen(&mut self) -> String {
+            self.screen.clone()
+        }
+        fn busy(&mut self) -> bool {
+            self.writes.iter().any(|(_, enter)| *enter)
+        }
+        fn pause(&mut self, _duration: Duration) {}
+        fn profile(&mut self) -> Arc<dyn TuiProfile> {
+            crate::tui::profile_for("codex")
+        }
+    }
+
+    fn run_codex(pane: &mut CodexMenu) -> Attempt {
+        let profile = crate::tui::profile_for("codex");
+        let mut trace = Vec::new();
+        let outcome = {
+            let mut guard = DraftGuard::new(pane);
+            delivery::deliver_text(&mut guard, profile.as_ref(), None, CODEX_TEXT, &mut trace)
+        };
+        let typed = trace.iter().any(|line| line.contains(delivery::TYPING_TRACE));
+        attempt_of(outcome, typed)
+    }
+
+    /// The pane outbox (a companion's check-in, a phone message) and a run's task go through one delivery step:
+    /// the update menu is closed with its own Esc, then the message is typed. Never Enter, never into the menu.
+    #[test]
+    fn the_update_menu_is_closed_with_esc_before_a_message_is_typed() {
+        let mut pane = CodexMenu::new(true);
+        assert_eq!(run_codex(&mut pane), Attempt::Sent);
+        assert!(pane.into_menu.is_empty(), "typed into the menu: {:?}", pane.into_menu);
+        assert_eq!(pane.writes.first(), Some(&("\u{1b}".to_string(), false)), "Esc first: {:?}", pane.writes);
+        assert_eq!(pane.writes.iter().filter(|(text, _)| text == "\u{1b}").count(), 1);
+        let text_at = pane.writes.iter().position(|(text, _)| text == CODEX_TEXT).expect("the message was typed");
+        assert!(text_at > 0, "the message came after the Esc: {:?}", pane.writes);
+    }
+
+    #[test]
+    fn a_menu_that_ignores_esc_gets_nothing_typed_and_the_message_waits() {
+        let mut pane = CodexMenu::new(false);
+        assert_eq!(run_codex(&mut pane), Attempt::Gate);
+        assert!(pane.into_menu.is_empty(), "typed into the menu: {:?}", pane.into_menu);
+        assert!(pane.writes.iter().all(|(text, enter)| text == "\u{1b}" && !enter), "only Esc went in: {:?}", pane.writes);
+        assert!(pane.writes.len() <= 1, "one Esc, not a storm: {:?}", pane.writes);
     }
 
     #[test]
