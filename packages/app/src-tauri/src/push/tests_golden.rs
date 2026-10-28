@@ -539,6 +539,21 @@ fn the_night_shift_morning_push_is_counts_only() {
     assert_eq!(payload_for(&deliveries, "dev-h")["body"], json!(HIDDEN_PUSH));
 }
 
+// ---- focus -----------------------------------------------------------------------------------------
+
+/// The end-of-Focus message as a phone receives it: the counts for a phone that may watch, and the fixed
+/// sentence for one with "Hide details" on. No agent, pane or task text in either.
+#[test]
+fn the_focus_end_push_is_counts_only() {
+    use crate::push::focus::{Message, HIDDEN_BODY};
+    let hub = hub("focus");
+    let message = Message::summary("4 turns done, 1 failed, 2 asked for you. 1 still waits.");
+    let deliveries = hub.focus_deliveries(&message, 1_000);
+    check("focus", &payload_for(&deliveries, "dev-a"));
+    check("focus_hidden", &payload_for(&deliveries, "dev-h"));
+    assert_eq!(payload_for(&deliveries, "dev-h")["body"], json!(HIDDEN_BODY));
+}
+
 /// Every golden file is exercised: a stray file means a case was dropped.
 #[test]
 fn no_golden_file_is_orphaned() {
