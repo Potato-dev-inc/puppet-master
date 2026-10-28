@@ -488,7 +488,12 @@ impl Env for RealEnv {
     }
 
     fn audit(&self, caller: &Caller, summary: &str, detail: Value) {
-        crate::audit::record(crate::audit::Kind::Approval, crate::audit::Who::Device(Some(caller.device_id.clone())), summary, detail);
+        // A chat answer is audited as the channel (not a paired phone); the rest as the phone.
+        let (kind, who) = match caller.via {
+            Via::Telegram => (crate::audit::Kind::ChannelAnswer, crate::audit::Who::Channel("telegram".into())),
+            Via::LockScreen | Via::Card => (crate::audit::Kind::Approval, crate::audit::Who::Device(Some(caller.device_id.clone()))),
+        };
+        crate::audit::record(kind, who, summary, detail);
     }
 
     fn ledger(&self) -> &Mutex<Ledger> {
