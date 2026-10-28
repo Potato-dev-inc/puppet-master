@@ -5,6 +5,7 @@ pub mod agent_stop;
 pub mod agents;
 pub mod ansi;
 pub mod hidden;
+pub mod kill_worker;
 pub mod keys;
 pub mod launch_session;
 pub mod pane_facts;
@@ -26,7 +27,8 @@ pub const PANE_ID_ENV: &str = "PUPPET_MASTER_PANE_ID";
 
 pub use registry::{
     get_project_path as registry_get_project_path, kill_all as registry_kill_all,
-    kill_pane as registry_kill_pane,
+    kill_all_and_wait as registry_kill_all_and_wait, kill_pane as registry_kill_pane,
+    kill_pane_and_wait as registry_kill_pane_and_wait,
     kill_pane_with_reason as registry_kill_pane_with_reason, read_buffer as registry_read_buffer,
     read_full_text as registry_read_full_text, read_raw_buffer as registry_read_raw_buffer, read_screen_replay_at as registry_read_screen_replay_at, read_snapshot as registry_read_snapshot, read_snapshot_full as registry_read_snapshot_full, read_snapshot_full_at as registry_read_snapshot_full_at,
     resize as registry_resize, set_project_path as registry_set_project_path,

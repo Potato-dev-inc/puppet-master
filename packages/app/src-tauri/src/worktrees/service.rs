@@ -167,11 +167,8 @@ fn ensure_idle(
 /// Close the panes sitting in the worktree (their directory is about to disappear).
 fn close_panes(registry: &Registry, worktree: &WorktreeRef) {
     for (pane_id, _) in panes_in(registry, worktree) {
-        let _ = crate::pty::registry_kill_pane_with_reason(
-            registry,
-            &pane_id,
-            Some("worktree_closed"),
-        );
+        // Waits: the folder is removed right after, and a running shell would hold it.
+        let _ = crate::pty::registry_kill_pane_and_wait(registry, &pane_id, Some("worktree_closed"));
     }
 }
 

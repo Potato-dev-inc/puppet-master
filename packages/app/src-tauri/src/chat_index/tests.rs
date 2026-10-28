@@ -56,6 +56,7 @@ fn row(id: &str, text: &str, at_ms: i64) -> Entry {
         folder: "shop".into(),
         at_ms,
         text: text.into(),
+        imported: false,
     }
 }
 
@@ -494,4 +495,217 @@ fn a_session_id_seen_before_stays_while_the_lookup_has_none_yet() {
     labels.of(&Fixed(ctx()), "p");
     let later = PaneContext { session: String::new(), ..ctx() };
     assert_eq!(labels.of(&Fixed(later), "p").session, "sess-1");
+}
+
+mod imported_tests {
+    use super::super::entry::{entry_of_with, Entry, PaneContext, Strength, MAX_IMPORTED_TEXT_CHARS};
+    use super::super::imported::{import_pane_id, ImportedChatRow};
+    use super::super::store::Store;
+    use super::super::{open_store, FILE_NAME};
+    use super::{row, temp_dir};
+    use crate::session_chat::ChatItem;
+
+    const AGENT: &str = "agent-x";
+
+    fn chat(session: &str, stamp: &str) -> ImportedChatRow {
+        ImportedChatRow {
+            agent: AGENT.into(),
+            session: session.into(),
+            folder: "shop".into(),
+            cwd: "~/projects/shop".into(),
+            title: "first words".into(),
+            updated_ms: 500,
+            stamp: stamp.into(),
+            items: 2,
+            cut_short: false,
+            imported_ms: 600,
+        }
+    }
+
+    /// An item of an old chat, built the way the importer builds it (its import pane, imported flag).
+    fn old(session: &str, id: &str, text: &str, at_ms: i64) -> Entry {
+        Entry {
+            pane_id: import_pane_id(AGENT),
+            session: session.into(),
+            item_id: id.into(),
+            kind: "assistant",
+            agent: AGENT.into(),
+            folder: "shop".into(),
+            at_ms,
+            text: text.into(),
+            imported: true,
+        }
+    }
+
+    #[test]
+    fn a_file_made_before_imports_is_migrated_and_keeps_its_rows() {
+        let dir = temp_dir();
+        let path = dir.join(FILE_NAME);
+        {
+            // The schema of a file made before the import columns existed.
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(super::super::store::SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO chat_items (pane_id, session, item_id, kind, agent, folder, at_ms, text)
+                 VALUES ('pane-1', 's', '1:0', 'user', 'agent-x', 'shop', 10, 'old live words')",
+                [],
+            )
+            .unwrap();
+        }
+        let store = open_store(&path, 100).unwrap();
+        assert_eq!(store.count().unwrap(), 1);
+        let hits = store.search("live", 5).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(!hits[0].imported);
+        assert_eq!(store.imported_usage().unwrap(), (0, 0));
+        drop(store);
+        // Opening it again changes nothing.
+        let again = open_store(&path, 100).unwrap();
+        assert_eq!(again.count().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_chat_is_written_whole_and_writing_it_twice_gives_the_same_count() {
+        let mut store = Store::open_memory(100).unwrap();
+        let entries = vec![old("s1", "1:0", "kittens first", 10), old("s1", "2:0", "kittens second", 20)];
+        store.replace_chat(&chat("s1", "10:20"), &entries).unwrap();
+        store.replace_chat(&chat("s1", "10:20"), &entries).unwrap();
+        assert_eq!(store.imported_usage().unwrap(), (1, 2));
+        assert_eq!(store.imported_stamp(AGENT, "s1").unwrap().as_deref(), Some("10:20"));
+        // A new version of the chat replaces all of its old items.
+        store.replace_chat(&chat("s1", "11:30"), &[old("s1", "1:0", "only one now", 10)]).unwrap();
+        assert_eq!(store.imported_usage().unwrap(), (1, 1));
+        assert!(store.search("kittens", 5).unwrap().is_empty());
+        assert_eq!(store.imported_stamp(AGENT, "s1").unwrap().as_deref(), Some("11:30"));
+    }
+
+    #[test]
+    fn a_failed_chat_write_leaves_the_chat_as_it_was() {
+        let mut store = Store::open_memory(100).unwrap();
+        store.replace_chat(&chat("s1", "10:20"), &[old("s1", "1:0", "kittens first", 10)]).unwrap();
+        // Two items with one id: the write fails and nothing of the new version stays.
+        let broken = vec![old("s1", "9:0", "new words", 5), old("s1", "9:0", "more new words", 6)];
+        assert!(store.replace_chat(&chat("s1", "99:99"), &broken).is_err());
+        assert_eq!(store.imported_stamp(AGENT, "s1").unwrap().as_deref(), Some("10:20"));
+        assert_eq!(store.search("kittens", 5).unwrap().len(), 1);
+        assert!(store.search("new", 5).unwrap().is_empty());
+        assert_eq!(store.imported_usage().unwrap(), (1, 1));
+    }
+
+    #[test]
+    fn the_imported_cap_drops_only_imported_items_and_the_live_cap_only_live_ones() {
+        let mut store = Store::open_memory(3).unwrap();
+        store.set_imported_cap(2);
+        store.insert(&[row("1:0", "live one", 1), row("2:0", "live two", 2), row("3:0", "live three", 3)]).unwrap();
+        // Three imported items against a cap of two: the oldest imported item goes, no live item does.
+        store
+            .replace_chat(&chat("s1", "a"), &[old("s1", "1:0", "old one", 100), old("s1", "2:0", "old two", 200), old("s1", "3:0", "old three", 300)])
+            .unwrap();
+        assert_eq!(store.imported_usage().unwrap(), (1, 2));
+        assert!(store.search("old one", 9).unwrap().is_empty());
+        assert_eq!(store.search("live", 9).unwrap().len(), 3);
+        // Two more live items against a live cap of three: the two oldest live items go, the imports stay.
+        store.insert(&[row("4:0", "live four", 4), row("5:0", "live five", 5)]).unwrap();
+        assert!(store.search("live two", 9).unwrap().is_empty());
+        assert!(store.search("live one", 9).unwrap().is_empty());
+        assert_eq!(store.search("live", 9).unwrap().len(), 3);
+        assert_eq!(store.imported_usage().unwrap(), (1, 2));
+        assert_eq!(store.count().unwrap(), 5);
+    }
+
+    #[test]
+    fn a_live_write_of_a_chat_replaces_its_imported_copy() {
+        let mut store = Store::open_memory(100).unwrap();
+        store.replace_chat(&chat("s", "10:20"), &[old("s", "1:0", "imported kittens", 10)]).unwrap();
+        assert_eq!(store.imported_usage().unwrap(), (1, 1));
+        assert!(!store.has_live(AGENT, "s").unwrap());
+        // The pane runs the same chat now: the live item is kept and the imported copy is gone.
+        store.insert(&[row("1:0", "live kittens", 50)]).unwrap();
+        assert!(store.has_live(AGENT, "s").unwrap());
+        assert_eq!(store.imported_usage().unwrap(), (0, 0));
+        assert!(store.imported_chat(AGENT, "s").unwrap().is_none());
+        let hits = store.search("kittens", 5).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(!hits[0].imported);
+    }
+
+    #[test]
+    fn an_imported_hit_is_marked_and_no_pane_search_finds_it() {
+        let mut store = Store::open_memory(100).unwrap();
+        store.insert(&[row("1:0", "live kittens", 1)]).unwrap();
+        store.replace_chat(&chat("s1", "a"), &[old("s1", "1:0", "imported kittens", 2)]).unwrap();
+        let all = store.search("kittens", 10).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all.iter().filter(|h| h.imported).count(), 1);
+        let imported_hit = all.iter().find(|h| h.imported).unwrap();
+        assert_eq!(serde_json::to_value(imported_hit).unwrap()["imported"], serde_json::json!(true));
+        let real: Vec<String> = ["pane-1", "companion-mochi", "pane-9"].iter().map(|p| p.to_string()).collect();
+        let scoped = store.search_in("kittens", 10, &real).unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert!(!scoped[0].imported);
+    }
+
+    #[test]
+    fn an_imported_text_is_strictly_masked_and_cut_at_two_thousand() {
+        let ctx = PaneContext::of(AGENT, "C:\\Users\\you\\projects\\shop", Some("s1"));
+        let token = "sk-ant-api03-FakeFakeFakeFake0123456789abcdef";
+        let hex = "0123456789abcdef0123456789abcdef01234567";
+        let text = format!("key {token} mail someone@example.com hash {hex} file C:\\Users\\you\\proj\\.env");
+        let item = ChatItem::User { id: "1:0".into(), at: None, text };
+        let e = entry_of_with("import:agent-x", &ctx, &item, 1, Strength::Strict, true, MAX_IMPORTED_TEXT_CHARS).expect("kept");
+        for secret in ["FakeFake", "someone@example.com", hex, "Users\\you"] {
+            assert!(!e.text.contains(secret), "{}", e.text);
+        }
+        assert!(e.imported);
+        let long = ChatItem::Assistant { id: "2:0".into(), at: None, text: "word ".repeat(1000), model: None, final_answer: true };
+        let cut = entry_of_with("import:agent-x", &ctx, &long, 1, Strength::Strict, true, MAX_IMPORTED_TEXT_CHARS).expect("kept");
+        assert_eq!(cut.text.chars().count(), MAX_IMPORTED_TEXT_CHARS + 1);
+        assert!(cut.text.ends_with('…'));
+    }
+
+    #[test]
+    fn the_record_reads_back_with_its_title_masked_and_cut() {
+        let mut store = Store::open_memory(100).unwrap();
+        let mut record = chat("s1", "7:8");
+        record.title = format!("Use sk-ant-api03-FakeFakeFakeFake0123456789abcdef and someone@example.com {}", "x".repeat(200));
+        store.replace_chat(&record, &[old("s1", "1:0", "kittens", 10)]).unwrap();
+        let back = store.imported_chat(AGENT, "s1").unwrap().expect("the record");
+        assert!(!back.title.contains("FakeFake") && !back.title.contains("someone@example.com"), "{}", back.title);
+        assert!(back.title.chars().count() <= 120, "{}", back.title);
+        assert_eq!((back.folder.as_str(), back.cwd.as_str(), back.updated_ms, back.items), ("shop", "~/projects/shop", 500, 2));
+        assert_eq!((back.cut_short, back.imported_ms), (false, 600));
+        assert!(store.imported_chat(AGENT, "other").unwrap().is_none());
+        assert!(!store.has_live(AGENT, "s1").unwrap());
+        assert_eq!(store.imported_stamp(AGENT, "other").unwrap(), None);
+    }
+
+    #[test]
+    fn clearing_the_imports_keeps_the_live_rows_and_erases_the_imported_text_from_the_file() {
+        let dir = temp_dir();
+        let path = dir.join(FILE_NAME);
+        let mut store = open_store(&path, 1000).unwrap();
+        store.insert(&[row("1:0", "live LIVEMARKER42", 1)]).unwrap();
+        store.replace_chat(&chat("s1", "a"), &[old("s1", "1:0", "imported IMPORTMARK9913 text", 2)]).unwrap();
+        let needle: &[u8] = b"IMPORTMARK9913";
+        let in_file = |file: &std::path::Path| std::fs::read(file).unwrap_or_default().windows(needle.len()).any(|w| w == needle);
+        assert!(in_file(&path) || in_file(&dir.join(format!("{FILE_NAME}-wal"))), "the text is saved before the clear");
+
+        store.clear_imported().unwrap();
+        assert_eq!(store.imported_usage().unwrap(), (0, 0));
+        assert!(store.imported_chat(AGENT, "s1").unwrap().is_none());
+        assert_eq!(store.search("LIVEMARKER42", 5).unwrap().len(), 1);
+        for file in [path.clone(), dir.join(format!("{FILE_NAME}-wal"))] {
+            assert!(!in_file(&file), "{file:?} still has the text");
+        }
+        assert_eq!(store.integrity().unwrap(), "ok");
+    }
+
+    #[test]
+    fn clear_removes_the_imported_chats_too() {
+        let mut store = Store::open_memory(100).unwrap();
+        store.replace_chat(&chat("s1", "a"), &[old("s1", "1:0", "imported words", 2)]).unwrap();
+        store.clear().unwrap();
+        assert_eq!(store.imported_usage().unwrap(), (0, 0));
+        assert_eq!(store.count().unwrap(), 0);
+    }
 }

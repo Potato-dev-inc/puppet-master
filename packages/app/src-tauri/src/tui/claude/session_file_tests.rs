@@ -427,6 +427,52 @@ fn a_real_session_file_reads_as_chat() {
     assert!(items.iter().any(|item| matches!(item, ChatItem::TurnEnd { .. })), "a TurnEnd item");
 }
 
+/// The synthetic history chats (`fixtures/history/`, SPEC n32 BC-4). BC-14 reads the same files from a temp home.
+const HISTORY_CHAT: &str = include_str!(
+    "fixtures/history/projects/C--Users-you-proj/3f2a9c10-7b4e-4d21-9a6c-1e5f0b7d8a01.jsonl"
+);
+const HISTORY_SECOND: &str = include_str!(
+    "fixtures/history/projects/C--Users-you-proj/5c8e1d22-0a9b-4f3e-b7c6-2d4a8e9f0b02.jsonl"
+);
+const HISTORY_SIDECHAIN: &str = include_str!("fixtures/history/projects/C--Users-you-proj/agent-aaaa.jsonl");
+const HISTORY_SUBAGENT: &str = include_str!(
+    "fixtures/history/projects/C--Users-you-proj/3f2a9c10-7b4e-4d21-9a6c-1e5f0b7d8a01/subagents/agent-x.jsonl"
+);
+
+#[test]
+fn history_fixtures_give_the_expected_item_kinds() {
+    let kinds = |text: &str| -> Vec<&'static str> { parse_text(text).1.iter().map(kind_name).collect() };
+    assert_eq!(
+        kinds(HISTORY_CHAT),
+        [
+            "Session", "User", "Assistant", "ToolCall", "Usage", "Session", "ToolResult", "Session", "User", "ToolCall",
+            "Usage", "Session", "ToolResult", "Assistant", "TurnEnd", "Usage",
+        ]
+    );
+    assert_eq!(
+        kinds(HISTORY_SECOND),
+        ["User", "Assistant", "TurnEnd", "Usage", "User", "Assistant", "TurnEnd", "Usage"]
+    );
+    // Sidechain files (`agent-*.jsonl`) and the subagent folder are skipped by the reader, and the parser gives
+    // nothing for their lines either.
+    assert!(parse_text(HISTORY_SIDECHAIN).1.is_empty());
+    assert!(parse_text(HISTORY_SUBAGENT).1.is_empty());
+
+    let items = parse_text(HISTORY_CHAT).1;
+    assert!(items.iter().any(|item| matches!(
+        item,
+        ChatItem::ToolCall { name, summary, .. } if name == "Bash" && summary == "dir"
+    )));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        ChatItem::ToolResult { ok: true, output, .. } if output == "config.toml\n.env"
+    )));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        ChatItem::Assistant { text, final_answer: true, .. } if text.starts_with("The key is on line 1")
+    )));
+}
+
 /// The kind of an item, as printed by the real-file tests.
 fn kind_name(item: &ChatItem) -> &'static str {
     match item {

@@ -17,6 +17,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 
 use super::entry::{entries_of, is_kept, PaneContext};
+use super::filter::{Facets, Filters};
 use super::store::{Hit, Store};
 use crate::session_chat::{ChatItem, ItemObserver};
 
@@ -86,11 +87,24 @@ impl ChatIndex {
 
     /// The items whose text has every typed word, newest first (none when the index is off).
     pub fn search(&self, query: &str, limit: usize) -> Result<Answer, String> {
+        self.search_filtered(query, limit, &Filters::default())
+    }
+
+    /// Like `search`, with the chips' filters (`Filters`). None when the index is off.
+    pub fn search_filtered(&self, query: &str, limit: usize, filters: &Filters) -> Result<Answer, String> {
         if !self.enabled() {
             return Ok(Answer { enabled: false, hits: Vec::new() });
         }
-        let hits = self.store.lock().search(query, limit).map_err(|error| format!("INTERNAL: chat search: {error}"))?;
+        let hits = self.store.lock().search_filtered(query, limit, filters).map_err(|error| format!("INTERNAL: chat search: {error}"))?;
         Ok(Answer { enabled: true, hits })
+    }
+
+    /// The agents and folders in the index, for the filter menus. Nothing when the index is off.
+    pub fn facets(&self) -> Result<Facets, String> {
+        if !self.enabled() {
+            return Ok(Facets::default());
+        }
+        self.store.lock().facets().map_err(|error| format!("INTERNAL: chat search: {error}"))
     }
 
     /// What was said (the person's and the agent's messages) in the chats of `panes` only, newest first. Nothing

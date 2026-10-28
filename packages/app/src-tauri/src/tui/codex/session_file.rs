@@ -759,6 +759,30 @@ mod tests {
         assert!(items.iter().any(|item| matches!(item, ChatItem::TurnEnd { .. })), "a TurnEnd item");
     }
 
+    /// The synthetic history rollouts (`fixtures/history/`, SPEC n32 BC-4): the item kinds each gives, in order, and
+    /// the `cwd` and thread id its first line names. BC-15 reads the same files from a temp home.
+    #[test]
+    fn history_rollouts_give_the_expected_item_kinds_and_meta() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui/codex/fixtures/history/sessions");
+        let first = root.join("2026/08/14/rollout-2026-08-14T10-00-00-0198b000-0000-7000-8000-0000000000a1.jsonl");
+        let second = root.join("2026/08/15/rollout-2026-08-15T09-30-00-0198b100-0000-7000-8000-0000000000b2.jsonl");
+        let kinds = |path: &Path| -> Vec<&'static str> {
+            let text = fs::read_to_string(path).expect("the history rollout is in the fixtures");
+            let lines: Vec<(u64, String)> =
+                text.lines().enumerate().map(|(i, line)| (i as u64, line.to_string())).collect();
+            read_lines(&CodexRollout, &lines).iter().map(kind_name).collect()
+        };
+        assert_eq!(
+            kinds(&first),
+            ["Session", "Session", "User", "ToolCall", "ToolResult", "Assistant", "Assistant", "Usage", "TurnEnd"]
+        );
+        assert_eq!(kinds(&second), ["Session", "Session", "User", "Assistant", "TurnEnd"]);
+        assert_eq!(
+            rollout_meta(&first),
+            Some(("C:\\Users\\you\\shop".to_string(), "0198b000-0000-7000-8000-0000000000a1".to_string()))
+        );
+    }
+
     /// The kind of an item, as printed by the real-file test.
     fn kind_name(item: &ChatItem) -> &'static str {
         match item {

@@ -5,6 +5,7 @@
 //! - `entry`: what is kept of a chat item (user and assistant text, tool title; never tool output), redacted
 //!   (`redact::text`) before anything is stored, with the pane's agent, folder name (not the path) and session.
 //! - `store`: the SQLite file: upsert by (pane, session, item), the cap (newest `MAX_ITEMS` kept), search.
+//! - `filter`: the chips' filters (agent, folder, start time, who spoke) as bound SQL parameters.
 //! - `query`: turns what the person typed into an FTS5 query, and the marked snippet into text plus ranges.
 //! - `feeder`: the background writer that `session_chat::Watchers` hands items to (`ItemObserver`), so a reader
 //!   thread never waits on the disk.
@@ -14,14 +15,20 @@
 mod aside;
 mod entry;
 mod feeder;
+mod imported;
+mod filter;
 mod query;
 mod store;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod filter_tests;
 
 pub use entry::PaneContext;
 pub use feeder::{open_store, Answer, ChatIndex, ContextLookup, Status};
+pub use imported::ImportedChatRow;
+pub use filter::{Facets, Filters, Role};
 pub use store::{Hit, MAX_ITEMS};
 
 use std::sync::atomic::{AtomicBool, Ordering};

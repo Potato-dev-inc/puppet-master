@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Live Room</title>
+<link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+<div class="lr" id="lr-app">
+  <header class="lr-head">
+    <div class="lr-title-row">
+      <h1 class="lr-title" id="lr-title">Live Room</h1>
+      <span class="lr-live" id="lr-live" hidden>LIVE</span>
+    </div>
+    <p class="lr-meta">Read-only. You can watch, not type.</p>
+    <p class="lr-notice" id="lr-notice" role="status" hidden></p>
+    <nav class="lr-tabs" id="lr-tabs" aria-label="Panes"></nav>
+  </header>
+  <main class="lr-panes" id="lr-panes"></main>
+  <footer class="lr-foot">
+    <span class="lr-brand">Made with Puppet Master</span>
+    <button class="lr-follow" id="lr-follow" type="button" aria-pressed="true">Follow</button>
+  </footer>
+</div>
+<script src="viewer.js" defer></script>
+</body>
+</html>

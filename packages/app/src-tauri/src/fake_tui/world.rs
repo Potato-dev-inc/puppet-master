@@ -1,7 +1,7 @@
 //! The process-wide test world and the per-test session.
 
 use super::profile::FakeAgent;
-use crate::pty::{registry_kill_pane, registry_read_snapshot, registry_read_snapshot_full, PaneRegistry};
+use crate::pty::{registry_read_snapshot, registry_read_snapshot_full, PaneRegistry};
 use crate::tui::TuiProfile;
 use parking_lot::{Mutex, MutexGuard};
 use serde_json::{json, Value};
@@ -582,8 +582,9 @@ impl Session {
         crate::pty::registry_write_input(&self.world.registry, &self.world.app, pane_id, &seq, false, false, None, crate::pty::WriteOrigin::Api)
     }
 
+    /// Waits for the process tree: a test ends (and its folder goes) right after, with no orphans left.
     pub fn close_pane(&self, pane_id: &str) {
-        let _ = registry_kill_pane(&self.world.registry, pane_id);
+        let _ = crate::pty::registry_kill_pane_and_wait(&self.world.registry, pane_id, None);
     }
 
     /// A pane outbox over this world's registry and app: the message box under the Chat tab.

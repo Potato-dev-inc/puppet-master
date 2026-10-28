@@ -119,6 +119,19 @@ describe('phone AgentTabBar', () => {
     expect(onMenu).toHaveBeenCalledTimes(1);
   });
 
+  it('has a search icon only when a search is given, and opens search from it', () => {
+    mount();
+    expect(host.querySelector('button[aria-label="Search all chats"]')).toBeNull();
+    act(() => root.unmount());
+    root = createRoot(host);
+    const onSearch = vi.fn();
+    act(() => {
+      root.render(<AgentTabBar panes={panes} labels={labels} active="all" bridgeReady onSelect={vi.fn()} onNew={vi.fn()} onSearch={onSearch} onMenu={vi.fn()} />);
+    });
+    act(() => button('Search all chats').click());
+    expect(onSearch).toHaveBeenCalledTimes(1);
+  });
+
   it('disables the new-agent button and marks the connection off when the bridge is not ready', () => {
     const { onNew } = mount({ bridgeReady: false });
     expect(button('Open a new agent').disabled).toBe(true);
