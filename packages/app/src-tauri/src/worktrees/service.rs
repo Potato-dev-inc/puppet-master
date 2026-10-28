@@ -308,13 +308,29 @@ pub fn pr_create(
     registry: &Registry,
     env: &ToolEnv,
 ) -> Result<PrRef, OperationError> {
+    pr_create_with(project, handle, title, body, base, registry, env, &[])
+}
+
+/// [`pr_create`] whose own git calls (the commit and the push) run with `git_env` (see
+/// [`super::harden::git_env`]). An empty `git_env` is the plain behaviour.
+#[allow(clippy::too_many_arguments)]
+pub fn pr_create_with(
+    project: Option<&str>,
+    handle: &str,
+    title: &str,
+    body: &str,
+    base: &str,
+    registry: &Registry,
+    env: &ToolEnv,
+    git_env: &[(String, String)],
+) -> Result<PrRef, OperationError> {
     let (project, worktree) = resolve(project, handle, registry)?;
     ensure_idle(&project, &worktree, registry)?;
     let mut stored = super::find_by_handle(&project, handle).unwrap_or(worktree);
     // Saves the agent's loose edits as one commit. A branch that may not be pushed is refused
     // inside `pr::create`, after this only touched the copy's own branch.
-    super::commit_pending(&stored)?;
-    let pr_ref = pr::create(&stored, title, body, base, env)?;
+    super::commit_pending_with(&stored, git_env)?;
+    let pr_ref = pr::create_with(&stored, title, body, base, env, git_env)?;
     stored.pr = Some(pr_ref.clone());
     super::update_meta(&stored)?;
     Ok(pr_ref)
