@@ -24,9 +24,15 @@ use parking_lot::Mutex;
 use plan::{Plan, Step, Tools};
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 
+use crate::agent_health::Probe;
+use crate::agent_store::catalog::{self, CatalogEntry};
 use crate::pty::PaneRegistry;
+use crate::tui::declarative::parse_definition;
+use crate::tui::install::InstallSpec;
+use crate::tui::VersionCommand;
 
 /// Install panes this module started, so `status` reads only those.
 static INSTALL_PANES: once_cell::sync::Lazy<Mutex<HashSet<String>>> =
@@ -74,15 +80,51 @@ fn step_view(index: usize, s: &Step) -> Value {
     })
 }
 
-/// The current plan for `agent_id`, on this PC, right now.
+fn unknown_agent(agent_id: &str) -> String {
+    format!("INSTALL_UNKNOWN_AGENT: {agent_id} is not an agent Puppet Master knows")
+}
+
+/// The current plan for `agent_id`, on this PC, right now. A registered agent uses its profile's
+/// spec. An id that is not registered but is in the Store catalog uses its catalog entry.
 pub fn plan_for(agent_id: &str, tools: &Tools) -> Result<(Plan, Option<String>), String> {
-    let descriptor = crate::tui::descriptors()
+    let Some(descriptor) = crate::tui::descriptors()
         .into_iter()
         .find(|d| d.id.eq_ignore_ascii_case(agent_id))
-        .ok_or_else(|| format!("INSTALL_UNKNOWN_AGENT: {agent_id} is not an agent Puppet Master knows"))?;
+    else {
+        let entry = catalog::get(agent_id).ok_or_else(|| unknown_agent(agent_id))?;
+        let spec = catalog::install_spec(agent_id);
+        return Ok((store_plan(entry, spec.as_ref(), tools), None));
+    };
     let spec = crate::tui::profile_for(descriptor.id).install_spec();
     let plan = plan::plan_install(descriptor.id, &descriptor.label, spec.as_ref(), tools);
     Ok((plan, descriptor.install_hint))
+}
+
+/// The install plan for a catalog entry that is not registered. The label is the vendor's name from
+/// the entry. `spec` is its Windows install spec, or `None` (then the plan says why it is blocked).
+pub fn store_plan(entry: &CatalogEntry, spec: Option<&InstallSpec>, tools: &Tools) -> Plan {
+    plan::plan_install(&entry.entry.store.id, &entry.entry.vendor.name, spec, tools)
+}
+
+/// The health probe for a catalog entry that is not registered. The program is looked up the way
+/// its definition says (`resolve_binary`, which skips the project folder), then checked like any agent.
+pub fn store_probe(entry: &CatalogEntry, here: &Path) -> Option<Probe> {
+    let def = parse_definition(entry.definition_text.as_deref()?).ok()?;
+    let program = crate::tui::resolve_binary(&def.binary, here).ok();
+    let words = |text: &str| Some(text.trim().to_string()).filter(|t| !t.is_empty());
+    Some(Probe {
+        id: entry.entry.store.id.clone(),
+        label: entry.entry.vendor.name.clone(),
+        installed: program.is_some(),
+        version_command: program.map(|program| VersionCommand {
+            program: program.to_string_lossy().into_owned(),
+            args: def.binary.version_args.clone(),
+        }),
+        install_hint: words(def.binary.install_hint.as_str()),
+        install_fallback: None,
+        login_hint: words(def.binary.login_hint.as_str()),
+        can_test: false,
+    })
 }
 
 /// `agents_install_plan`.
@@ -123,9 +165,24 @@ pub fn start(
     shown_command: &str,
     acknowledged_risk: bool,
 ) -> Result<Value, String> {
-    use tauri::Emitter;
     let (plan, _) = plan_for(agent_id, &Tools::detect())?;
-    let step = check_request(&plan, step_index, shown_command, acknowledged_risk)?.clone();
+    start_plan(app, registry, &plan, step_index, shown_command, acknowledged_risk, "Install")
+}
+
+/// Runs one step of a plan the person confirmed, in a visible PowerShell pane. The plan must be
+/// built fresh from the current state; the step's command must equal `shown_command`. `verb` starts
+/// the pane title ("Install", "Uninstall"), so the step label reads "Install <label>".
+pub fn start_plan(
+    app: &tauri::AppHandle,
+    registry: &Arc<Mutex<PaneRegistry>>,
+    plan: &Plan,
+    step_index: usize,
+    shown_command: &str,
+    acknowledged_risk: bool,
+    verb: &str,
+) -> Result<Value, String> {
+    use tauri::Emitter;
+    let step = check_request(plan, step_index, shown_command, acknowledged_risk)?.clone();
     let script = command::powershell_script(&step);
 
     // A neutral folder: an install must not sync project memory into the active project.
@@ -147,7 +204,7 @@ pub fn start(
         },
     )?;
     INSTALL_PANES.lock().insert(pane_id.clone());
-    crate::ambient::store::set_user_title(&pane_id, &format!("Install {}", step.label));
+    crate::ambient::store::set_user_title(&pane_id, &format!("{verb} {}", step.label));
     crate::ambient::announce_title_change(app, &pane_id);
     let (cols, rows) = registry
         .lock()
@@ -158,7 +215,7 @@ pub fn start(
         .unwrap_or((120, 30));
     crate::cockpit::present_pane(app, &pane_id, "powershell", cols, rows, crate::cockpit::Origin::CockpitUi);
     let _ = app.emit("pty://panes-changed", ());
-    tracing::info!(agent = agent_id, step = step_index, command = %step.command, pane = %pane_id, "agent install: started in a visible pane");
+    tracing::info!(agent = plan.agent_id.as_str(), step = step_index, command = %step.command, pane = %pane_id, "agent install: started in a visible pane");
     Ok(json!({ "pane_id": pane_id, "command": step.command, "label": step.label }))
 }
 
@@ -185,10 +242,19 @@ pub fn status(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Value {
 /// `agents_install_finish`: refresh PATH for this process, then check the agent again.
 pub fn finish(agent_id: &str) -> Result<Value, String> {
     let refresh = path_refresh::refresh_process_path();
-    let probe = crate::agent_health::collect_probes()
+    let probe = match crate::agent_health::collect_probes()
         .into_iter()
         .find(|p| p.id.eq_ignore_ascii_case(agent_id))
-        .ok_or_else(|| format!("INSTALL_UNKNOWN_AGENT: {agent_id} is not an agent Puppet Master knows"))?;
+    {
+        Some(probe) => probe,
+        // Not registered (a Store agent that is not added yet): check it the way its definition says.
+        None => {
+            let here = std::env::current_dir().unwrap_or_default();
+            catalog::get(agent_id)
+                .and_then(|entry| store_probe(entry, &here))
+                .ok_or_else(|| unknown_agent(agent_id))?
+        }
+    };
     let health = crate::agent_health::check_probe(&probe, crate::agent_health::VERSION_TIMEOUT);
     Ok(json!({
         "path_added": refresh.added,
