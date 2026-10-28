@@ -408,6 +408,36 @@ fn a_chat_answer_is_allowed_for_a_question() {
 }
 
 #[test]
+fn a_chat_answer_is_refused_for_an_issue_card_but_the_phone_and_the_pc_may_answer_it() {
+    // An issue card shows as an ordinary question in the list; the kind of the card decides.
+    for kind in ["issue_start", "issue_push"] {
+        let env = fresh();
+        env.items.lock().push(question_item(Kind::Question, "i1"));
+        env.question_kinds.lock().insert("i1".into(), kind.into());
+        let request = Request { choice: Some("start".into()), ..Request::default() };
+        let from_chat = answer(&env, &chat(), "q-i1", &request);
+        assert_eq!((from_chat.0, from_chat.1["error"].as_str()), (403, Some("not_from_chat")), "{kind}");
+        assert_eq!(from_chat.1["hint"], "Decide this in Puppet Master on the PC or on a paired phone.", "{kind}");
+        assert_eq!(env.writes(), 0, "{kind}");
+        assert!(env.audits.lock().is_empty(), "{kind}: nothing was answered, so no audit line");
+        // The same card answered from a paired phone goes through, like any question.
+        *env.question_result.lock() = Some(QuestionResult::Answered { label: Some("Start with Codex".into()) });
+        let from_card = answer(&env, &all(), "q-i1", &request);
+        assert_eq!(outcome(&from_card), "answered", "{kind}");
+        assert_eq!(env.audits.lock().clone(), vec!["A phone answered a card: Start with Codex".to_string()], "{kind}");
+    }
+}
+
+#[test]
+fn a_chat_answer_is_allowed_for_an_agents_own_question_with_no_card_kind() {
+    let env = fresh();
+    env.items.lock().push(question_item(Kind::Question, "q2"));
+    // No kind is recorded for it: the agent's own `ask_user` question stays answerable from a chat.
+    let reply = answer(&env, &chat(), "q-q2", &Request { choice: Some("pg".into()), ..Request::default() });
+    assert_eq!(outcome(&reply), "answered");
+}
+
+#[test]
 fn the_card_and_lock_screen_wording_of_the_audit_line_is_unchanged() {
     let env = fresh();
     answer(&env, &all(), &env.item_id(), &env.request("allow_once", None));

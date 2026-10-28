@@ -342,6 +342,55 @@ fn no_first_line_is_longer_than_fifty_six_characters() {
     }
 }
 
+/// An issue card (`issue_intake`) is said as a question from its title line. Its context (the issue text,
+/// which the lock screen must never show) is not in the push at all.
+fn issue_card_payload(name: &str, kind: &str, question: &str) -> Value {
+    use crate::questions::{Choice, NewQuestion, QuestionStore};
+    let store = QuestionStore::new();
+    let card = store
+        .create(
+            NewQuestion {
+                question: question.into(),
+                choices: vec![Choice { id: "start".into(), label: "Start with Codex".into() }, Choice { id: "not_now".into(), label: "Not now".into() }],
+                kind: Some(kind.into()),
+                context: Some("SECRET-ISSUE-BODY-LINE".into()),
+                ..Default::default()
+            },
+            1_000,
+        )
+        .unwrap();
+    let (kind, label, detail) = super::classify_question(&card, String::new());
+    let c = Candidate {
+        kind,
+        key: "q-issue".into(),
+        pane_id: None,
+        agent_label: label,
+        heading: None,
+        prompt: Some(PromptInfo { prompt_id: String::new(), text: card.question.clone(), actionable: false, risk: None }),
+        item: None,
+        detail,
+    };
+    let payload = payload_for(&plan(name, &c), "dev-a");
+    assert!(!payload.to_string().contains("SECRET-ISSUE-BODY-LINE"), "the issue context never reaches a phone");
+    payload
+}
+
+#[test]
+fn issue_start_card_says_github_issue_and_never_shows_its_context() {
+    let payload = issue_card_payload("g-issue-start", "issue_start", "Start on #42 \"Login button does nothing\" with Codex?");
+    assert_eq!(payload["kind"], "question");
+    assert!(payload["body"].as_str().unwrap().ends_with("
+GitHub issue"), "{}", payload["body"]);
+    check("issue_start", &payload);
+}
+
+#[test]
+fn issue_push_card_says_github_issue_and_never_shows_its_context() {
+    let payload = issue_card_payload("g-issue-push", "issue_push", "Open a draft PR for #42?");
+    assert!(payload["body"].as_str().unwrap().contains("Open a draft PR for #42?"), "{}", payload["body"]);
+    check("issue_push", &payload);
+}
+
 // ---- companion replies ---------------------------------------------------------------------------
 
 /// A phone set for companion replies: "dev-a" (watch), "dev-w" (watch), "dev-h" (hide details, watch),

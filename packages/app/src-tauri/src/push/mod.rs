@@ -392,6 +392,11 @@ fn classify_question(question: &crate::questions::Question, label: String) -> (K
         let reset = limit.reset_text.clone().filter(|t| !t.trim().is_empty());
         return (Kind::Limit, truncate_chars(&limit.agent_label, 40), reset);
     }
+    if matches!(question.kind.as_deref(), Some(k) if k == crate::questions::ISSUE_KIND_START || k == crate::questions::ISSUE_KIND_PUSH) {
+        // An issue card (`issue_intake`) is worded as a question, from its title line only: the context (the
+        // issue text) never reaches a lock screen.
+        return (Kind::Question, "GitHub issue".to_string(), Some(question.question.chars().take(60).collect()));
+    }
     (Kind::Question, label, None)
 }
 
