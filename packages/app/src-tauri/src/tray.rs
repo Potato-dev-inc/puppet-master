@@ -10,16 +10,21 @@ use std::time::Duration;
 /// The tooltip when nothing is going on, and the prefix of every tooltip.
 const TOOLTIP_NAME: &str = "Puppet Master";
 
-/// Tray tooltip from the pane statuses and the background jobs: `Puppet Master · 2 need you · 3 working
-/// · 1 server running`. A job counts as a server when it listens on a port. Only the words, no agent
-/// names. Standby (hidden) panes must be left out by the caller.
-pub fn summary_line(statuses: &[&str], jobs: &[Job]) -> String {
-    let waiting = statuses.iter().filter(|s| **s == "waiting_input").count();
+/// Tray tooltip: `Puppet Master · 2 need you · 1 error · 3 working · 1 server running`. `need_you` is
+/// the attention count (`attention::counts().blocking`), the same number the Inbox shows; the other
+/// parts come from pane statuses and background jobs (a job that listens on a port is a server).
+/// Parts with 0 are left out. Only the words, no agent names. Standby (hidden) panes must be left
+/// out of `statuses` and `jobs` by the caller.
+pub fn summary_line(statuses: &[&str], jobs: &[Job], need_you: u32) -> String {
+    let errors = statuses.iter().filter(|s| **s == "error").count();
     let working = statuses.iter().filter(|s| **s == "running").count();
     let servers = jobs.iter().filter(|j| !j.ports.is_empty()).count();
     let mut parts: Vec<String> = Vec::new();
-    if waiting > 0 {
-        parts.push(format!("{waiting} {}", if waiting == 1 { "needs you" } else { "need you" }));
+    if need_you > 0 {
+        parts.push(format!("{need_you} {}", if need_you == 1 { "needs you" } else { "need you" }));
+    }
+    if errors > 0 {
+        parts.push(format!("{errors} {}", if errors == 1 { "error" } else { "errors" }));
     }
     if working > 0 {
         parts.push(format!("{working} working"));
@@ -238,7 +243,7 @@ mod runtime {
     use super::*;
     use crate::pane_jobs::PaneRef;
     use crate::AppState;
-    use std::sync::Mutex;
+    use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
     use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -343,6 +348,17 @@ mod runtime {
         }
     }
 
+    /// The app handle, kept so code that has no handle (the attention worker) can ask for a refresh.
+    static APP: OnceLock<AppHandle> = OnceLock::new();
+
+    /// Ask for a refresh from anywhere in the app (e.g. the attention count changed). A no-op until the
+    /// tray is set up.
+    pub fn request_refresh() {
+        if let Some(app) = APP.get() {
+            refresh(app);
+        }
+    }
+
     fn refresh_now(app: &AppHandle) {
         let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
         match build_menu(app) {
@@ -356,7 +372,8 @@ mod runtime {
 
     /// The tooltip for the panes and jobs open now. Standby (hidden) panes are not the person's work.
     fn current_summary(app: &AppHandle) -> String {
-        let Some(state) = app.try_state::<AppState>() else { return summary_line(&[], &[]) };
+        let need_you = crate::attention::counts().blocking;
+        let Some(state) = app.try_state::<AppState>() else { return summary_line(&[], &[], need_you) };
         let panes: Vec<_> = state.registry.lock().list().into_iter().filter(|p| !crate::pty::hidden::is_hidden(&p.id)).collect();
         let statuses: Vec<&str> = panes.iter().map(|p| p.status.as_str()).collect();
         let refs: Vec<PaneRef> = panes
@@ -364,7 +381,7 @@ mod runtime {
             .map(|p| PaneRef { id: p.id.clone(), agent_type: p.agent_type.clone(), pid: p.pid })
             .collect();
         let jobs: Vec<Job> = crate::pane_jobs::jobs_for_panes(&refs).into_values().flatten().collect();
-        summary_line(&statuses, &jobs)
+        summary_line(&statuses, &jobs, need_you)
     }
 
     /// Open a visible pane for `agent` in the default project folder and pop it out. A Preload worker
@@ -582,6 +599,7 @@ mod runtime {
     }
 
     pub fn init(app: &AppHandle) -> tauri::Result<()> {
+        let _ = APP.set(app.clone());
         let menu = build_menu(app)?;
         let mut builder = TrayIconBuilder::with_id(TRAY_ID)
             .tooltip("Puppet Master")
@@ -611,7 +629,7 @@ mod runtime {
     }
 }
 
-pub use runtime::{init, new_pane, new_pane_for, new_pane_for_account, new_pane_in, new_pane_with};
+pub use runtime::{init, new_pane, new_pane_for, new_pane_for_account, new_pane_in, new_pane_with, request_refresh};
 
 #[cfg(test)]
 mod tests {
@@ -772,27 +790,37 @@ mod tests {
 
     #[test]
     fn zero_panes_say_nothing_is_running() {
-        assert_eq!(summary_line(&[], &[]), "Puppet Master \u{b7} nothing running");
+        assert_eq!(summary_line(&[], &[], 0), "Puppet Master \u{b7} nothing running");
         // Open panes that are idle are not running either.
-        assert_eq!(summary_line(&["idle", "idle"], &[]), "Puppet Master \u{b7} nothing running");
+        assert_eq!(summary_line(&["idle", "idle"], &[], 0), "Puppet Master \u{b7} nothing running");
     }
 
     #[test]
-    fn mixed_statuses_and_a_server_give_the_right_counts() {
-        let statuses = ["waiting_input", "waiting_input", "running", "running", "running", "idle"];
+    fn mixed_counts_and_a_server_give_the_right_parts_in_order() {
+        let statuses = ["waiting_input", "error", "running", "running", "running", "idle"];
         assert_eq!(
-            summary_line(&statuses, &[job(&[8765])]),
-            "Puppet Master \u{b7} 2 need you \u{b7} 3 working \u{b7} 1 server running"
+            summary_line(&statuses, &[job(&[8765])], 2),
+            "Puppet Master \u{b7} 2 need you \u{b7} 1 error \u{b7} 3 working \u{b7} 1 server running"
         );
     }
 
     #[test]
+    fn need_you_is_the_attention_count_not_the_waiting_panes() {
+        // The Inbox counts a question, a stuck pane and a consent card too: the tooltip shows that
+        // number, and the one waiting pane does not change it.
+        assert_eq!(summary_line(&["waiting_input"], &[], 6), "Puppet Master \u{b7} 6 need you");
+        assert_eq!(summary_line(&["waiting_input"], &[], 0), "Puppet Master \u{b7} nothing running");
+    }
+
+    #[test]
     fn plural_words_follow_the_count() {
-        assert_eq!(summary_line(&["waiting_input"], &[]), "Puppet Master \u{b7} 1 needs you");
-        assert_eq!(summary_line(&["running"], &[]), "Puppet Master \u{b7} 1 working");
-        assert_eq!(summary_line(&[], &[job(&[3000])]), "Puppet Master \u{b7} 1 server running");
+        assert_eq!(summary_line(&[], &[], 1), "Puppet Master \u{b7} 1 needs you");
+        assert_eq!(summary_line(&["error"], &[], 0), "Puppet Master \u{b7} 1 error");
+        assert_eq!(summary_line(&["error", "error"], &[], 0), "Puppet Master \u{b7} 2 errors");
+        assert_eq!(summary_line(&["running"], &[], 0), "Puppet Master \u{b7} 1 working");
+        assert_eq!(summary_line(&[], &[job(&[3000])], 0), "Puppet Master \u{b7} 1 server running");
         assert_eq!(
-            summary_line(&[], &[job(&[3000]), job(&[5173, 5174])]),
+            summary_line(&[], &[job(&[3000]), job(&[5173, 5174])], 0),
             "Puppet Master \u{b7} 2 servers running"
         );
     }
@@ -800,8 +828,11 @@ mod tests {
     #[test]
     fn a_background_job_without_a_port_is_not_a_server() {
         // A test runner or watcher is a job, but it does not count as a server.
-        assert_eq!(summary_line(&[], &[job(&[])]), "Puppet Master \u{b7} nothing running");
-        assert_eq!(summary_line(&["running"], &[job(&[]), job(&[8000])]), "Puppet Master \u{b7} 1 working \u{b7} 1 server running");
+        assert_eq!(summary_line(&[], &[job(&[])], 0), "Puppet Master \u{b7} nothing running");
+        assert_eq!(
+            summary_line(&["running"], &[job(&[]), job(&[8000])], 0),
+            "Puppet Master \u{b7} 1 working \u{b7} 1 server running"
+        );
     }
 
     #[test]

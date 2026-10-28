@@ -150,34 +150,6 @@ pub fn tick_after(pattern: Pattern) -> Option<Duration> {
     is_animated(pattern).then_some(FRAME_INTERVAL)
 }
 
-/// Tray tooltip: "Puppet Master — 2 need you · 3 working". Only tests read it now: the live tooltip
-/// is `tray::summary_line`, the one writer.
-#[cfg(test)]
-pub fn tooltip(agg: &Aggregate) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    match agg.blocking {
-        // One number, the same one the Inbox shows; errors are part of it.
-        Some(n) if n > 0 => parts.push(if n == 1 { "1 needs you".into() } else { format!("{n} need you") }),
-        Some(_) => {}
-        None => {
-            if agg.needs_you > 0 {
-                parts.push(if agg.needs_you == 1 { "1 needs you".into() } else { format!("{} need you", agg.needs_you) });
-            }
-            if agg.errors > 0 {
-                parts.push(if agg.errors == 1 { "1 error".into() } else { format!("{} errors", agg.errors) });
-            }
-        }
-    }
-    if agg.running > 0 {
-        parts.push(format!("{} working", agg.running));
-    }
-    if parts.is_empty() {
-        "Puppet Master".to_string()
-    } else {
-        format!("Puppet Master \u{2014} {}", parts.join(" \u{b7} "))
-    }
-}
-
 /// The animation state machine behind the tray icon. Pure: the runtime thread feeds it
 /// aggregate updates and timer ticks, and draws `pattern()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -339,23 +311,13 @@ mod tests {
     }
 
     #[test]
-    fn the_attention_count_replaces_the_status_count_in_the_badge_and_tooltip() {
+    fn the_attention_count_replaces_the_status_count_in_the_badge() {
         // Two waiting panes and an error make 3 by status, but a question, a stuck pane and a consent
-        // card also need the person: the badge says what the Inbox says.
+        // card also need the person: the badge says what the Inbox says. (The tooltip text is
+        // `tray::summary_line`, tested there.)
         let a = agg(2, 1, 1).with_blocking(6);
         assert_eq!(a.attention(), 6);
-        assert_eq!(tooltip(&a), "Puppet Master \u{2014} 6 need you \u{b7} 1 working");
-        assert_eq!(tooltip(&agg(0, 1, 0).with_blocking(1)), "Puppet Master \u{2014} 1 needs you");
-        assert_eq!(tooltip(&agg(0, 0, 2).with_blocking(0)), "Puppet Master \u{2014} 2 working");
         // The glyph pattern still follows the pane statuses.
         assert_eq!(pattern_for(&a, true, 0), Pattern::NeedsYou);
-    }
-
-    #[test]
-    fn tooltip_lists_needs_errors_and_working() {
-        assert_eq!(tooltip(&agg(2, 0, 3)), "Puppet Master \u{2014} 2 need you \u{b7} 3 working");
-        assert_eq!(tooltip(&agg(1, 0, 0)), "Puppet Master \u{2014} 1 needs you");
-        assert_eq!(tooltip(&agg(0, 2, 1)), "Puppet Master \u{2014} 2 errors \u{b7} 1 working");
-        assert_eq!(tooltip(&agg(0, 0, 0)), "Puppet Master");
     }
 }
