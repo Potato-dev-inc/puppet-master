@@ -17,6 +17,8 @@
 //! several `&&`-joined commands and every one must match an entry. Everything else is refused:
 //! `;` `||` `|` `&`, redirections, command substitution (`$`, backtick, parentheses), `%`, `^`,
 //! newlines, truncated lines, `sudo`/`runas`, and recursive or forced deletes, even if listed.
+//! An install of a look-alike package name, or of a package from a link, is never approved either
+//! (`hard_denied`): the card goes to the person.
 
 pub const MAX_ALLOWED_COMMANDS: usize = 10;
 const MARKER: &str = "not in allowlist:";
@@ -160,6 +162,21 @@ fn program_name(token: &str) -> String {
     lower.strip_suffix(".exe").unwrap_or(&lower).to_string()
 }
 
+/// Whether this command installs a package whose name looks like a popular one, or a package from
+/// a link. Such an install always stops for the person (SPEC-n33 section 3.11 E).
+fn install_needs_person(argv: &[String]) -> bool {
+    crate::prompt_risk::packages::extract(&argv.join(" "), false)
+        .items
+        .iter()
+        .any(|item| {
+            item.lookalike.is_some()
+                || matches!(
+                    item.source,
+                    crate::prompt_risk::packages::model::Source::Link { .. }
+                )
+        })
+}
+
 /// Programs and flags that are never auto-approved, even when an entry would match them.
 fn hard_denied(argv: &[String]) -> bool {
     let Some(first) = argv.first() else {
@@ -167,6 +184,9 @@ fn hard_denied(argv: &[String]) -> bool {
     };
     let program = program_name(first);
     if matches!(program.as_str(), "sudo" | "su" | "doas" | "runas" | "format" | "mkfs" | "dd") {
+        return true;
+    }
+    if install_needs_person(argv) {
         return true;
     }
     let deletes = matches!(
