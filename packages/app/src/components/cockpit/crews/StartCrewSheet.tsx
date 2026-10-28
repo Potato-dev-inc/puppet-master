@@ -1,11 +1,24 @@
-// "Start crew…": pick a saved crew and a folder, then start it. The roles start one at a time (the lead first, each
-// helper under the pane of its parent); if one fails, the rest wait and the sheet says which. A started agent that asks
-// something (trust, permission) asks in its own pane like any other; nothing here answers for it.
+// "Start crew…": pick a crew (one of yours, or a starter) and a folder, check which agent each role uses, then start it.
+// The roles start one at a time (the lead first, each helper under the pane of its parent); if one fails, the rest wait
+// and the sheet says which. A started agent that asks something (trust, permission) asks in its own pane like any other;
+// nothing here answers for it. A starter can be copied to My crews, where it is edited and saved like any crew.
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
-import { crewErrorText, crewsApi, type CrewStartOutcome, type CrewSummary, type CrewsApi } from '../../../lib/crews-api';
+import {
+  crewErrorText,
+  crewsApi,
+  DEFAULT_AGENT,
+  type Crew,
+  type CrewAgents,
+  type CrewRole,
+  type CrewStartOutcome,
+  type CrewSummary,
+  type CrewsApi,
+} from '../../../lib/crews-api';
 import { shipApi, type ShipApi } from '../../../lib/ship-api';
 import { Sheet } from '../Sheet';
-import { failureText } from './model';
+import { failureText, roleLine } from './model';
+import { SaveCrewSheet } from './SaveCrewSheet';
 import '../../../styles/cockpit-crews.css';
 
 const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -24,26 +37,62 @@ export function StartCrewSheet({
   agentName: (agentType: string) => string;
   onClose: () => void;
 }) {
-  const [crews, setCrews] = useState<CrewSummary[] | null>(null);
+  const [saved, setSaved] = useState<CrewSummary[] | null>(null);
+  const [starters, setStarters] = useState<CrewSummary[] | null>(null);
+  const [agents, setAgents] = useState<CrewAgents | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
+  /** The roles of the crew picked last, with the agent each one will use (role name -> agent id). */
+  const [picked, setPicked] = useState<{ slug: string; roles: CrewRole[] } | null>(null);
+  const [chosen, setChosen] = useState<Record<string, string>>({});
   const [folder, setFolder] = useState<string | null>(defaultFolder ?? null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<CrewStartOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  /** A starter being copied: the same editor as "Save this team", with nothing saved until Save. */
+  const [copying, setCopying] = useState<Crew | null>(null);
+
+  const defaultAgent = agents?.default ?? null;
+  /** A starter role shows the default agent's name until the crew starts. */
+  const label = (id: string) => (id === DEFAULT_AGENT ? 'Default agent' : agentName(id));
 
   const load = useCallback(() => {
-    api
-      .list()
-      .then((list) => {
-        setCrews(list);
-        setSlug((cur) => (cur && list.some((c) => c.slug === cur) ? cur : (list.find((c) => !c.problem)?.slug ?? null)));
+    Promise.all([api.list(), api.starters(), api.agents()])
+      .then(([mine, built, choices]) => {
+        setSaved(mine);
+        setStarters(built);
+        setAgents(choices);
+        setSlug((cur) => {
+          const all = [...mine, ...built];
+          return cur && all.some((c) => c.slug === cur) ? cur : (all.find((c) => !c.problem)?.slug ?? null);
+        });
       })
       .catch((err) => setError(crewErrorText(err)));
   }, [api]);
   useEffect(load, [load]);
 
-  const chosen = crews?.find((c) => c.slug === slug) ?? null;
-  const canStart = !!chosen && !chosen.problem && !!folder && !busy;
+  // The roles of the crew picked, each with its agent: a `{default}` role takes the default agent.
+  useEffect(() => {
+    if (!slug) return;
+    let live = true;
+    api
+      .get(slug)
+      .then((crew) => {
+        if (!live) return;
+        setPicked({ slug, roles: crew.roles });
+        setChosen(Object.fromEntries(crew.roles.map((r) => [r.name, r.agent_type === DEFAULT_AGENT ? (defaultAgent ?? '') : r.agent_type])));
+      })
+      .catch((err) => live && setError(crewErrorText(err)));
+    return () => {
+      live = false;
+    };
+  }, [api, slug, defaultAgent]);
+
+  const all = [...(saved ?? []), ...(starters ?? [])];
+  const chosenCrew = all.find((c) => c.slug === slug) ?? null;
+  const roles = picked?.slug === slug ? picked.roles : null;
+  const ready = !!roles && roles.length > 0 && roles.every((r) => !!chosen[r.name]);
+  const canStart = !!chosenCrew && !chosenCrew.problem && !!folder && !busy && ready;
 
   const pick = async () => {
     setError(null);
@@ -56,11 +105,11 @@ export function StartCrewSheet({
   };
 
   const start = async () => {
-    if (!chosen || !folder) return;
+    if (!chosenCrew || !folder) return;
     setBusy(true);
     setError(null);
     try {
-      setOutcome(await api.start(chosen.slug, folder));
+      setOutcome(await api.start(chosenCrew.slug, folder, chosen));
     } catch (err) {
       setError(crewErrorText(err));
     }
@@ -76,6 +125,33 @@ export function StartCrewSheet({
       setError(crewErrorText(err));
     }
   };
+
+  const copy = async (c: CrewSummary) => {
+    setError(null);
+    setNotice(null);
+    try {
+      const crew = await api.get(c.slug);
+      setCopying({ ...crew, roles: crew.roles.map((r) => ({ ...r, agent_type: r.agent_type === DEFAULT_AGENT ? (defaultAgent ?? r.agent_type) : r.agent_type })) });
+    } catch (err) {
+      setError(crewErrorText(err));
+    }
+  };
+
+  if (copying) {
+    return (
+      <SaveCrewSheet
+        initial={copying}
+        api={api}
+        agentName={label}
+        onClose={() => setCopying(null)}
+        onSaved={(name) => {
+          setCopying(null);
+          setNotice(`Copied to My crews as ${name}.`);
+          load();
+        }}
+      />
+    );
+  }
 
   if (outcome) {
     const failure = failureText(outcome);
@@ -120,44 +196,122 @@ export function StartCrewSheet({
     );
   }
 
+  /** One crew in a list: the radio that picks it, and the action beside it (Remove, or Copy for a starter). */
+  const row = (c: CrewSummary, action: ReactNode) => (
+    <li key={c.slug} className="ck-crew-item">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={c.slug === slug}
+        className={`ck-crew-pick${c.slug === slug ? ' is-picked' : ''}`}
+        onClick={() => setSlug(c.slug)}
+        disabled={busy}
+      >
+        <span className="ck-crew-name">{c.name}</span>
+        <span className="ck-crew-role-meta">
+          {c.roles} {c.roles === 1 ? 'agent' : 'agents'}
+          {c.agents.length > 0 && ` · ${c.agents.map(label).join(', ')}`}
+        </span>
+        {c.problem && <span className="ck-crew-problem">{c.problem}</span>}
+      </button>
+      {action}
+    </li>
+  );
+
+  // A role's agent: the agents that can take a role, plus the one the role has now even if it is not set up.
+  const agentOptions = (current: string) => {
+    const list = agents?.agents ?? [];
+    return current && !list.some((a) => a.id === current) ? [...list, { id: current, label: `${label(current)} (not set up)` }] : list;
+  };
+
   return (
     <Sheet labelledBy="ck-crew-start-t" role="dialog" className="ck-sheet--crew" onClose={busy ? undefined : onClose}>
       <h2 className="ck-section" id="ck-crew-start-t">
         Start crew
       </h2>
-      {!crews && !error && <p className="ck-sub">Looking for saved crews…</p>}
-      {crews && crews.length === 0 && (
-        <p className="ck-sub" data-testid="crew-empty">
-          No crews yet. When an agent has helpers, choose Save this team in its side panel.
+      {!saved && !error && <p className="ck-sub">Looking for crews…</p>}
+      {notice && (
+        <p className="ck-sub" role="status">
+          {notice}
         </p>
       )}
-      {crews && crews.length > 0 && (
-        <ul className="ck-crew-list" role="radiogroup" aria-label="Saved crews">
-          {crews.map((c) => (
-            <li key={c.slug} className="ck-crew-item">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={c.slug === slug}
-                className={`ck-crew-pick${c.slug === slug ? ' is-picked' : ''}`}
-                onClick={() => setSlug(c.slug)}
-                disabled={busy}
-              >
-                <span className="ck-crew-name">{c.name}</span>
-                <span className="ck-crew-role-meta">
-                  {c.roles} {c.roles === 1 ? 'agent' : 'agents'}
-                  {c.agents.length > 0 && ` · ${c.agents.map(agentName).join(', ')}`}
-                </span>
-                {c.problem && <span className="ck-crew-problem">{c.problem}</span>}
-              </button>
-              <button type="button" className="ck-btn ck-btn--plain ck-btn--sm" onClick={() => void remove(c)} disabled={busy} title={`Remove ${c.name}`}>
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
+      {saved && (
+        <section aria-labelledby="ck-crew-mine-t">
+          <p className="ck-crew-folder-label" id="ck-crew-mine-t">
+            My crews
+          </p>
+          {saved.length === 0 && (
+            <p className="ck-sub" data-testid="crew-empty">
+              No crews of your own yet. When an agent has helpers, choose Save this team in its side panel. Or copy a starter below.
+            </p>
+          )}
+          {saved.length > 0 && (
+            <ul className="ck-crew-list" role="radiogroup" aria-label="My crews">
+              {saved.map((c) =>
+                row(
+                  c,
+                  <button type="button" className="ck-btn ck-btn--plain ck-btn--sm" onClick={() => void remove(c)} disabled={busy} title={`Remove ${c.name}`}>
+                    Remove
+                  </button>,
+                ),
+              )}
+            </ul>
+          )}
+        </section>
       )}
-      {crews && crews.length > 0 && (
+      {starters && starters.length > 0 && (
+        <section aria-labelledby="ck-crew-starters-t">
+          <p className="ck-crew-folder-label" id="ck-crew-starters-t">
+            Starters
+          </p>
+          <ul className="ck-crew-list" role="radiogroup" aria-label="Starters">
+            {starters.map((c) =>
+              row(
+                c,
+                <button type="button" className="ck-btn ck-btn--plain ck-btn--sm" onClick={() => void copy(c)} disabled={busy} title={`Copy ${c.name} to My crews`}>
+                  Copy to My crews
+                </button>,
+              ),
+            )}
+          </ul>
+        </section>
+      )}
+      {roles && roles.length > 0 && (
+        <div className="ck-crew-agents" data-testid="crew-start-roles">
+          <p className="ck-crew-folder-label">Agents</p>
+          <ul className="ck-crew-roles">
+            {roles.map((role) => {
+              const current = chosen[role.name] ?? '';
+              return (
+                <li key={role.name} className="ck-crew-role">
+                  <div className="ck-crew-role-head">
+                    <span className="ck-crew-result-name">{role.name}</span>
+                    <span className="ck-crew-role-meta">{roleLine(role)}</span>
+                    <select
+                      className="ck-pr-input"
+                      aria-label={`Agent for ${role.name}`}
+                      value={current}
+                      disabled={busy}
+                      onChange={(e) => setChosen((cur) => ({ ...cur, [role.name]: e.target.value }))}
+                    >
+                      {!current && <option value="">Choose an agent</option>}
+                      {agentOptions(current).map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          {!defaultAgent && roles.some((r) => r.agent_type === DEFAULT_AGENT) && (
+            <p className="ck-sub">No agent is set up on this computer for the default role. Pick one above, or set one up first.</p>
+          )}
+        </div>
+      )}
+      {saved && starters && (
         <div className="ck-crew-folder">
           <span className="ck-crew-folder-label">Folder</span>
           <span className="ck-crew-folder-path ck-mono" title={folder ?? undefined}>

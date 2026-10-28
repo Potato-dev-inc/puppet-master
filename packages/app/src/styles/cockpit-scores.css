@@ -1,0 +1,203 @@
+/* "Scores on your code": a dense monochrome table, like "Your plans". Cockpit tokens only, no colour literals. */
+.cockpit .ck-scores {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 28px 24px 24px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.cockpit .ck-scores-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.cockpit .ck-scores-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--sep);
+}
+.cockpit .ck-scores-scope button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.cockpit .ck-scores-scope button:hover {
+  color: var(--label);
+  background: var(--fill-hover);
+}
+.cockpit .ck-scores-scope button.is-on {
+  color: var(--label);
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 1px var(--sep);
+}
+.cockpit .ck-scores-scope button:focus-visible,
+.cockpit .ck-scores-select:focus-visible,
+.cockpit .ck-scores-how summary:focus-visible {
+  outline: 2px solid var(--label-2);
+  outline-offset: 1px;
+}
+.cockpit .ck-scores-select {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  color: var(--label);
+  font: inherit;
+  font-size: 12.5px;
+}
+.cockpit .ck-scores-scroll {
+  overflow-x: auto;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--sep);
+}
+.cockpit .ck-scores-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-scores-table th,
+.cockpit .ck-scores-table td {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 400;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.cockpit .ck-scores-table thead th {
+  white-space: normal;
+  min-width: 96px;
+  vertical-align: bottom;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label);
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-scores-caption {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--label-3);
+  white-space: normal;
+}
+.cockpit .ck-scores-table tbody tr + tr > *,
+.cockpit .ck-scores-table tfoot > tr > * {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-scores-table .is-num {
+  text-align: right;
+}
+.cockpit .ck-scores-table tbody th {
+  white-space: normal;
+  min-width: 150px;
+  max-width: 240px;
+}
+.cockpit .ck-scores-table tbody th > span {
+  display: block;
+}
+.cockpit .ck-scores-agent {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-scores-account {
+  color: var(--label-3);
+  font-size: 11.5px;
+}
+.cockpit .ck-scores-detail {
+  margin-top: 2px;
+  color: var(--label-3);
+  font-size: 11.5px;
+  line-height: 1.35;
+  white-space: normal;
+}
+.cockpit .ck-scores-table td.is-none {
+  color: var(--label-4);
+}
+.cockpit .ck-scores-table .is-early {
+  color: var(--label-3);
+}
+.cockpit .ck-scores-pct {
+  margin-left: 4px;
+  color: var(--label-3);
+}
+.cockpit .ck-scores-tag,
+.cockpit .ck-scores-ahead {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 16px;
+  color: var(--label-3);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.cockpit .ck-scores-ahead {
+  color: var(--label);
+  box-shadow: inset 0 0 0 1px var(--label-2);
+}
+.cockpit .ck-scores-table tr.ck-scores-notenough > * {
+  color: var(--label-3);
+  text-align: left;
+  white-space: normal;
+}
+.cockpit .ck-scores-empty {
+  margin: 8px 0;
+  color: var(--label-3);
+}
+.cockpit .ck-scores-error {
+  margin: 0;
+  color: var(--label);
+}
+.cockpit .ck-scores-how {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-scores-how summary {
+  width: fit-content;
+  color: var(--label);
+  font-weight: 600;
+  cursor: pointer;
+}
+.cockpit .ck-scores-how ul,
+.cockpit .ck-scores-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--label-3);
+}
+.cockpit .ck-scores-how ul {
+  margin-top: 6px;
+}
+@media (max-width: 640px) {
+  .cockpit .ck-scores {
+    padding: 20px 16px 16px;
+  }
+}

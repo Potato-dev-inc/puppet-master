@@ -23,6 +23,7 @@
 
 pub mod card;
 pub mod detect;
+pub mod keep_going;
 pub mod limits;
 pub mod reset;
 pub mod watch;

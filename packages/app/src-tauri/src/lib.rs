@@ -19,6 +19,7 @@ mod app_paths;
 mod bridge;
 mod budgets;
 mod canary;
+mod channels;
 mod checkpoints;
 mod clip;
 mod commands;
@@ -46,6 +47,7 @@ mod operations_contract_tests;
 mod pane_activity;
 mod pane_jobs;
 mod pane_preview;
+mod point;
 mod loop_guard;
 mod panic;
 mod askbar;
@@ -417,6 +419,8 @@ pub fn run() {
             commands::plain_send,
             commands::crews_list,
             commands::crews_get,
+            commands::crews_starters,
+            commands::crews_agents,
             commands::crews_draft,
             commands::crews_save,
             commands::crews_remove,
