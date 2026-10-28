@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
-import { openPreview, previewLabel } from '../../lib/pane-preview';
+import { previewLabel } from '../../lib/pane-preview';
+import { pointApi } from '../../lib/point-api';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { requestChatJump } from '../../lib/chatJump';
 import type { ChatHit } from '../../lib/chatSearch';
@@ -172,13 +173,23 @@ export function Palette({
       const id = p.info.id;
       for (const pv of c.previews?.[id] ?? []) {
         const agent = c.names.get(id) ?? p.info.agent_type;
+        const failed = (e: unknown) => c.notify(typeof e === 'string' ? e : 'Could not open the preview');
         out.push({
           id: `preview:${id}:${pv.port}`,
           group: 'Actions',
           title: `Open preview: ${agent} ${previewLabel(pv)}`,
           desc: pv.url,
           icon: <IconGlobe />,
-          run: () => void openPreview(pv.url).catch(() => c.notify('Could not open the preview')),
+          run: () => void pointApi.openPreview(id, pv.port).catch(failed),
+        });
+        out.push({
+          id: `point:${id}:${pv.port}`,
+          group: 'Actions',
+          title: `Point and fix in the preview: ${agent} ${previewLabel(pv)}`,
+          desc: 'Click the part that is wrong, then say what should change',
+          keywords: 'point fix pick element change',
+          icon: <IconGlobe />,
+          run: () => void pointApi.openPreview(id, pv.port, true).catch(failed),
         });
       }
     }

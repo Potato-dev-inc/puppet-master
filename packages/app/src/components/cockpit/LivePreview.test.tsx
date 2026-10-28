@@ -86,14 +86,16 @@ describe('sidebar', () => {
 });
 
 describe('pane header chip', () => {
-  it('shows Preview with the port and opens the URL through open_external_url', () => {
+  it('shows Preview with the port and opens it in the app preview', () => {
     act(() => root.render(<PaneView c={cockpit(PREVIEWS)} paneId="p1" />));
     const chip = host.querySelector<HTMLButtonElement>('.ck-preview-chip')!;
     expect(chip.textContent).toContain('Preview');
     expect(chip.textContent).not.toContain(':5173');
     expect(chip.getAttribute('title')).toContain('localhost:5173');
+    expect(chip.getAttribute('title')).toContain('Point at something to fix it.');
     act(() => chip.click());
-    expect(invoke).toHaveBeenCalledWith('open_external_url', { url: 'http://localhost:5173/' });
+    expect(invoke).toHaveBeenCalledWith('point_open_preview', { paneId: 'p1', port: 5173 });
+    expect(invoke).not.toHaveBeenCalledWith('open_external_url', expect.anything());
   });
 
   it('has no chip without a preview', () => {
@@ -103,13 +105,13 @@ describe('pane header chip', () => {
 });
 
 describe('command palette', () => {
-  it('lists "Open preview: <agent> :port" for each preview and opens it', () => {
+  it('lists "Open preview: <agent> :port" for each preview and opens it in the app preview', () => {
     act(() => root.render(<Palette c={cockpit(PREVIEWS)} onClose={() => {}} />));
     const titles = [...host.querySelectorAll('[role="option"], .ck-pal-item, button')].map((e) => e.textContent ?? '');
     expect(titles.some((t) => t.includes('Open preview: Agent A :5173'))).toBe(true);
     expect(titles.some((t) => t.includes('Open preview: Agent A :3000'))).toBe(true);
     const item = [...host.querySelectorAll<HTMLElement>('button, [role="option"]')].find((e) => e.textContent?.includes('Open preview: Agent A :5173'))!;
     act(() => item.click());
-    expect(invoke).toHaveBeenCalledWith('open_external_url', { url: 'http://localhost:5173/' });
+    expect(invoke).toHaveBeenCalledWith('point_open_preview', { paneId: 'p1', port: 5173 });
   });
 });
