@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mocked } from 'vitest';
 import type { Checkpoint, CheckpointList, CheckpointsApi } from '../../lib/cockpit-api';
+import type { BranchFrom, BranchView } from '../../lib/branch-from';
 import { History } from './History';
 import {
   checkpointTitle,
@@ -14,6 +15,28 @@ import {
 } from './history-model';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// The sheet has its own tests. Here it is a stub that records the props History gives it and
+// renders a marker, so a test can see whether the sheet is open.
+const sheet = vi.hoisted(() => ({ spy: vi.fn((_props: unknown) => null) }));
+vi.mock('./BranchSheet', async () => {
+  const React = await import('react');
+  return {
+    BranchSheet: (props: unknown) => {
+      sheet.spy(props);
+      return React.createElement('div', { 'data-testid': 'branch-sheet' });
+    },
+  };
+});
+
+type SheetProps = {
+  paneId: string;
+  from: BranchFrom;
+  onClose: () => void;
+  onStarted: (view: BranchView) => void;
+};
+/** The props of the newest render of the stubbed sheet, or undefined when it is not shown. */
+const sheetProps = (): SheetProps | undefined => sheet.spy.mock.calls.at(-1)?.[0] as SheetProps | undefined;
 
 const NOW = 1_800_000_000_000;
 
@@ -135,7 +158,7 @@ describe('Restore confirm sheet', () => {
   it('asks first, says files-only, and restores only after the confirm', async () => {
     const api = mockApi();
     const notify = await mount(api);
-    await click(host.querySelectorAll('.ck-hist-row .ck-btn')[1]);
+    await click(host.querySelectorAll('.ck-hist-restore')[1]);
     const sheet = host.querySelector('[role="alertdialog"]');
     expect(sheet).toBeTruthy();
     expect(sheet!.textContent).toContain('Restore "Before turn 2"?');
@@ -156,7 +179,7 @@ describe('Restore confirm sheet', () => {
   it('the restore toast has an Undo that restores the "Before undo" checkpoint', async () => {
     const api = mockApi();
     const notify = await mount(api);
-    await click(host.querySelectorAll('.ck-hist-row .ck-btn')[1]);
+    await click(host.querySelectorAll('.ck-hist-restore')[1]);
     await click(button('Restore files'));
     const action = notify.mock.calls[0][1] as { label: string; run: () => void };
     expect(api.checkpointRestore).toHaveBeenCalledTimes(1);
@@ -170,7 +193,7 @@ describe('Restore confirm sheet', () => {
     const api = mockApi();
     api.checkpointRestore.mockResolvedValueOnce({ safetyId: null, written: 0, removed: 0, failed: [] });
     const notify = await mount(api);
-    await click(host.querySelectorAll('.ck-hist-row .ck-btn')[1]);
+    await click(host.querySelectorAll('.ck-hist-restore')[1]);
     await click(button('Restore files'));
     expect(notify).toHaveBeenCalledWith('Files restored to "Before turn 2".', undefined);
   });
@@ -178,7 +201,7 @@ describe('Restore confirm sheet', () => {
   it('Cancel closes the sheet and restores nothing', async () => {
     const api = mockApi();
     await mount(api);
-    await click(host.querySelectorAll('.ck-hist-row .ck-btn')[0]);
+    await click(host.querySelectorAll('.ck-hist-restore')[0]);
     await click(button('Cancel'));
     expect(host.querySelector('[role="alertdialog"]')).toBeNull();
     expect(api.checkpointRestore).not.toHaveBeenCalled();
@@ -187,7 +210,7 @@ describe('Restore confirm sheet', () => {
   it('disables Restore while the agent is running', async () => {
     const api = mockApi();
     await mount(api, 'running');
-    const restore = Array.from(host.querySelectorAll<HTMLButtonElement>('.ck-hist-row .ck-btn'));
+    const restore = Array.from(host.querySelectorAll<HTMLButtonElement>('.ck-hist-restore'));
     expect(restore.every((b) => b.disabled)).toBe(true);
     expect(restore[0].title).toBe('Interrupt the agent first');
     expect(host.textContent).toContain('interrupt it before restoring');
@@ -197,7 +220,7 @@ describe('Restore confirm sheet', () => {
     const api = mockApi();
     api.checkpointRestore.mockRejectedValueOnce(new Error('The agent is working. Interrupt it first, then undo.'));
     const notify = await mount(api);
-    await click(host.querySelectorAll('.ck-hist-row .ck-btn')[0]);
+    await click(host.querySelectorAll('.ck-hist-restore')[0]);
     await click(button('Restore files'));
     expect(notify).toHaveBeenCalledWith('The agent is working. Interrupt it first, then undo.');
     expect(host.querySelector('[role="alertdialog"]')).toBeNull();
@@ -223,7 +246,7 @@ describe('Restore warns when another pane works in the same folder', () => {
     await act(async () => {
       root.render(<History paneId="p1" status="idle" now={NOW} notify={vi.fn()} api={api} sharedWith={sharedWith} />);
     });
-    await click(host.querySelectorAll('.ck-hist-row .ck-btn')[0]);
+    await click(host.querySelectorAll('.ck-hist-restore')[0]);
     return host.querySelector('[role="alertdialog"]');
   };
 
@@ -292,7 +315,7 @@ describe('History polish', () => {
     await mount(api);
     const primary = Array.from(host.querySelectorAll<HTMLButtonElement>('button.ck-btn--primary'));
     expect(primary.map((b) => b.textContent)).toEqual(['Undo last turn']);
-    const rows = Array.from(host.querySelectorAll('.ck-hist-row .ck-btn'));
+    const rows = Array.from(host.querySelectorAll('.ck-hist-restore'));
     expect(rows.every((b) => b.classList.contains('ck-hist-restore') && !b.classList.contains('ck-btn--primary'))).toBe(true);
   });
 
@@ -326,5 +349,62 @@ describe('History polish', () => {
     await mount(mockApi());
     expect(host.querySelector('.ck-hist-time')!.className).toBe('ck-hist-time');
     expect(host.querySelectorAll('.ck-hist-row .ck-btn--primary').length).toBe(0);
+  });
+});
+
+describe('Branch from here on each row', () => {
+  const branchButtons = () => Array.from(host.querySelectorAll<HTMLButtonElement>('.ck-hist-branch'));
+  const sheetShown = () => host.querySelector('[data-testid="branch-sheet"]') !== null;
+
+  beforeEach(() => {
+    sheet.spy.mockClear();
+  });
+
+  it('each row has a Branch from here button next to Restore', async () => {
+    await mount(mockApi());
+    const rows = Array.from(host.querySelectorAll('.ck-hist-row'));
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      const branch = row.querySelectorAll('.ck-hist-branch');
+      expect(branch).toHaveLength(1);
+      expect(branch[0].textContent).toBe('Branch from here');
+      expect(row.querySelectorAll('.ck-hist-restore')).toHaveLength(1);
+    }
+  });
+
+  it('stays enabled while the agent runs (Restore is disabled)', async () => {
+    await mount(mockApi(), 'running');
+    expect(branchButtons()).toHaveLength(3);
+    expect(branchButtons().every((b) => !b.disabled)).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('.ck-hist-restore')!.disabled).toBe(true);
+  });
+
+  it('opens the sheet on that row save point and restores nothing', async () => {
+    const api = mockApi();
+    await mount(api);
+    expect(sheetShown()).toBe(false);
+    // The listing is newest first: index 1 is checkpoint "2" ("Before turn 2").
+    await click(branchButtons()[1]);
+    expect(sheetShown()).toBe(true);
+    expect(sheetProps()).toEqual(
+      expect.objectContaining({ paneId: 'p1', from: { kind: 'save_point', checkpoint_id: '2' } }),
+    );
+    expect(host.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(api.checkpointRestore).not.toHaveBeenCalled();
+  });
+
+  it('closing the sheet removes it', async () => {
+    await mount(mockApi());
+    await click(branchButtons()[0]);
+    expect(sheetShown()).toBe(true);
+    await act(async () => sheetProps()!.onClose());
+    expect(sheetShown()).toBe(false);
+  });
+
+  it('when the branch starts, says so with the new agent name', async () => {
+    const notify = await mount(mockApi());
+    await click(branchButtons()[0]);
+    await act(async () => sheetProps()!.onStarted({ toLabel: 'Codex' } as BranchView));
+    expect(notify).toHaveBeenCalledWith('Branch started. Codex works in a separate copy.');
   });
 });
