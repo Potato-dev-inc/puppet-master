@@ -7,6 +7,7 @@ import { tauriOutboxTransport } from '../../lib/paneOutbox';
 import { usePendingBubbles } from '../../hooks/usePendingBubbles';
 import { useSessionChat } from '../../hooks/useSessionChat';
 import { ChatComposer } from './ChatComposer';
+import { ChatExportMenu } from './ChatExportMenu';
 import { PendingMessages } from './PendingMessages';
 import { SessionChatView } from './SessionChatView';
 import { useSideQuestion } from './useSideQuestion';
@@ -38,6 +39,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote }: { paneId: s
       remember
       emptyNote={emptyNote}
       headerExtra={chat.state === 'unavailable' ? undefined : side.button}
+      headerMenu={chat.state === 'unavailable' ? undefined : <ChatExportMenu paneId={paneId} />}
       overlay={side.box}
       dock={dock}
       pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
