@@ -112,6 +112,40 @@ pub(crate) fn agent_pid_in(pane_id: &str, root_pid: u32, procs: &[ProcEntry]) ->
     if !HOST_SHELLS.contains(&root.image.as_str()) {
         return Some(root_pid);
     }
+    let track = observe_shell(pane_id, root_pid, procs);
+    track.agent.or(track.candidate.map(|(pid, _)| pid))
+}
+
+/// The agent's pid in `pane_id`, only when it is confirmed: the root itself when the root is not a
+/// host shell, else the host shell's child that was seen alive for [`CONFIRM_MS`] and is still its
+/// child. A child still being confirmed is not returned (it may be a profile helper, and stopping
+/// one would stop nothing of the agent). `None` when unknown or gone. Read on demand, like [`state`].
+pub fn agent_pid(pane_id: &str, root_pid: u32) -> Option<u32> {
+    let procs = snapshot()?;
+    confirmed_agent_pid_in(pane_id, root_pid, &procs)
+}
+
+/// [`agent_pid`] judged on `procs` (one snapshot the caller already took).
+pub(crate) fn confirmed_agent_pid_in(pane_id: &str, root_pid: u32, procs: &[ProcEntry]) -> Option<u32> {
+    // Pid 0 is the System Idle Process on Windows: it is in the snapshot, but never a pane's agent.
+    if root_pid == 0 {
+        return None;
+    }
+    let root = procs.iter().find(|p| p.pid == root_pid)?;
+    if !HOST_SHELLS.contains(&root.image.as_str()) {
+        return Some(root_pid);
+    }
+    confirmed_pid(&observe_shell(pane_id, root_pid, procs), root_pid, procs)
+}
+
+/// The confirmed agent in `track`, if it is still a child of the shell `root_pid` in `procs`.
+pub(crate) fn confirmed_pid(track: &Track, root_pid: u32, procs: &[ProcEntry]) -> Option<u32> {
+    let pid = track.agent?;
+    procs.iter().any(|p| p.pid == pid && p.parent == root_pid).then_some(pid)
+}
+
+/// Looks at a host shell's children now and returns what is remembered for `pane_id`.
+fn observe_shell(pane_id: &str, root_pid: u32, procs: &[ProcEntry]) -> Track {
     let now = now_ms();
     let mut seen = SEEN.lock();
     let entry = seen.entry(pane_id.to_string()).or_default();
@@ -119,7 +153,7 @@ pub(crate) fn agent_pid_in(pane_id: &str, root_pid: u32, procs: &[ProcEntry]) ->
         *entry = Seen { root: root_pid, track: Track::default() };
     }
     classify(procs, root_pid, &mut entry.track, now);
-    entry.track.agent.or(entry.track.candidate.map(|(pid, _)| pid))
+    entry.track.clone()
 }
 
 fn look(pane_id: &str, root_pid: u32, input: bool) -> AgentProcess {
@@ -351,6 +385,22 @@ mod tests {
         let mut track = Track::default();
         assert_eq!(classify(&[p(20, 1, "cursor-agent.exe")], 20, &mut track, 0), AgentProcess::Alive);
         assert_eq!(classify(&[], 20, &mut track, 10), AgentProcess::Exited, "the pane's process is gone");
+    }
+
+    /// `agent_pid` names only a confirmed agent: a child still being confirmed (maybe a profile
+    /// helper) is not returned, and a confirmed one that is no longer under the shell is not either.
+    #[test]
+    fn only_a_confirmed_agent_that_is_still_a_child_is_its_pid() {
+        let host = p(10, 1, "powershell.exe");
+        let agent = p(11, 10, "node.exe");
+        let mut track = Track::default();
+        assert_eq!(confirmed_pid(&track, 10, &[host.clone(), agent.clone()]), None, "nothing confirmed yet");
+        classify(&[host.clone(), agent.clone()], 10, &mut track, 0);
+        assert_eq!(confirmed_pid(&track, 10, &[host.clone(), agent.clone()]), None, "a candidate is not confirmed");
+        classify(&[host.clone(), agent.clone()], 10, &mut track, 1_200);
+        assert_eq!(confirmed_pid(&track, 10, &[host.clone(), agent.clone()]), Some(11));
+        assert_eq!(confirmed_pid(&track, 10, &[host.clone()]), None, "the confirmed child is gone");
+        assert_eq!(confirmed_pid(&track, 10, &[host, p(11, 99, "node.exe")]), None, "pid no longer a child of the shell");
     }
 
     #[cfg(windows)]
