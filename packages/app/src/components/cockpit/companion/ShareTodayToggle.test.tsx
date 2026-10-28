@@ -54,6 +54,7 @@ describe('ShareTodayToggle', () => {
   it('names the companion in the label', async () => {
     await renderWith(false);
     expect(host.textContent).toContain('Let Mochi see what my agents did today');
+    expect(host.textContent).toContain('The list is sent to the AI service of this agent.');
     expect(toggle().getAttribute('aria-label')).toBe('Let Mochi see what my agents did today');
   });
 

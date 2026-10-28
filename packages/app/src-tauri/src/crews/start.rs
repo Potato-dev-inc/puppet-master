@@ -3,9 +3,37 @@
 //! are tested with a fake. A started pane is a normal pane: whatever question its agent asks (trust,
 //! permission) waits as a card and is never answered here.
 
-use super::model::{Crew, Role};
+use super::model::{Crew, CrewError, Role};
 use super::validate::fill_folder;
 use serde::Serialize;
+use std::collections::BTreeSet;
+use std::sync::Mutex;
+
+/// Slugs of the crews that are starting right now. A start can take minutes (one role at a time), so
+/// a second click on the same crew must not start it again: it is refused with `CREW_STARTING`.
+static STARTING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Holds the "starting" flag of one crew slug while it starts; the flag is released when it drops.
+#[derive(Debug)]
+pub struct StartGuard {
+    slug: String,
+}
+
+impl StartGuard {
+    pub fn claim(slug: &str) -> Result<Self, CrewError> {
+        let mut starting = STARTING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !starting.insert(slug.to_string()) {
+            return Err(CrewError::new("CREW_STARTING", "This crew is already starting."));
+        }
+        Ok(Self { slug: slug.to_string() })
+    }
+}
+
+impl Drop for StartGuard {
+    fn drop(&mut self) {
+        STARTING.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(&self.slug);
+    }
+}
 
 /// One role about to start.
 #[derive(Debug, Clone, PartialEq, Eq)]
