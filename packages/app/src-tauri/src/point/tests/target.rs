@@ -17,6 +17,7 @@ fn pane(id: &str, cwd: &str, last: Option<i64>) -> TargetFacts {
         cwd: cwd.into(),
         kind: PaneKind::Agent,
         run_controls: false,
+        not_ready: None,
         last_output_at: last,
     }
 }
@@ -162,5 +163,33 @@ fn labels_and_titles_come_from_the_caller() {
     assert_eq!(list[0].agent_label, "Kilo CLI");
     assert_eq!(list[0].title, "Fix the pricing page");
     assert!(list[0].can_send);
+    assert_eq!(default, None);
+}
+
+#[test]
+fn a_pane_on_a_dialog_is_greyed_out_with_a_plain_reason_and_is_never_the_default() {
+    // Seen live: Codex sat on its own "Update available" dialog, was listed as sendable and was the default.
+    let why = outbox_model::WAIT_GATE;
+    let mut dialog = pane("dialog", "C:/w/app", Some(900));
+    dialog.not_ready = Some(why.to_string());
+    let mut no_box = pane("nobox", "C:/w/app", Some(800));
+    no_box.not_ready = Some(outbox_model::NOT_READY_BOX.to_string());
+    let panes = vec![dialog, no_box, pane("free", "C:/w/app", Some(1))];
+
+    // The dialog pane started the preview, and is the newest: it still cannot be the opener's slot or the default.
+    let (list, default) = targets(&panes, Some("dialog"), Some("C:/w/app"));
+    let by_id = |id: &str| list.iter().find(|t| t.pane_id == id).unwrap().clone();
+    assert!(!by_id("dialog").can_send);
+    assert_eq!(by_id("dialog").reason.as_deref(), Some(why));
+    assert!(!by_id("nobox").can_send);
+    assert_eq!(by_id("nobox").reason.as_deref(), Some(outbox_model::NOT_READY_BOX));
+    assert!(by_id("free").can_send);
+    assert_eq!(ids(&list), ["dialog", "nobox", "free"], "the dialog pane is not in the opener slot: it sorts with its folder by output");
+    assert_eq!(default.as_deref(), Some("free"));
+
+    // Nothing else can take it: no default at all, rather than a pane that is on a dialog.
+    let mut only = pane("only", "C:/w/app", Some(5));
+    only.not_ready = Some(why.to_string());
+    let (_, default) = targets(&[only], Some("only"), Some("C:/w/app"));
     assert_eq!(default, None);
 }

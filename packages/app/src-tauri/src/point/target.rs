@@ -35,6 +35,9 @@ pub struct TargetFacts {
     pub cwd: String,
     pub kind: PaneKind,
     pub run_controls: bool,
+    /// One plain sentence when the pane shows a dialog, a question or no input box right now (`pane_outbox::target_block`).
+    /// Nothing is typed into such a pane, so it is greyed out and never the default.
+    pub not_ready: Option<String>,
     /// The pane's last output time (any unit; only the order matters). `None` when it has no output yet.
     pub last_output_at: Option<i64>,
 }
@@ -81,13 +84,17 @@ pub fn targets(panes: &[TargetFacts], opener: Option<&str>, preview_cwd: Option<
 }
 
 /// Whether the outbox would take a message for this pane, and the sentence when it would not.
-/// Same order as `pane_outbox::Outbox::send`: protocol first, then a run that controls the pane.
-fn gate(p: &TargetFacts) -> (bool, Option<String>) {
+/// Same order as `pane_outbox::Outbox::send`: protocol first, then a run that controls the pane; then what the
+/// pane shows right now (a dialog, no input box), which the outbox would only wait on.
+pub(crate) fn gate(p: &TargetFacts) -> (bool, Option<String>) {
     if p.kind == PaneKind::Protocol {
         return (false, Some(NOT_SUPPORTED.to_string()));
     }
     if p.run_controls {
         return (false, Some(RUN_CONTROLS.to_string()));
+    }
+    if let Some(why) = &p.not_ready {
+        return (false, Some(why.clone()));
     }
     (true, None)
 }

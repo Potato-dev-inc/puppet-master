@@ -14,6 +14,7 @@
 //!
 //! Generic: nothing here names an agent; the profile of the pane decides what ready means.
 
+mod confirm;
 mod draft_guard;
 mod host;
 mod live;
@@ -25,7 +26,8 @@ mod worker;
 mod tests;
 
 pub use host::{Attempt, Host, Look, PaneKind};
-pub use live::{global, redacted, LiveHost};
+pub use worker::target_block;
+pub use live::{global, look_pane, redacted, LiveHost};
 pub use model::{OutboxMessage, State, MAX_CHARS, MAX_WAITING};
 /// The one decision per look, for the live checks that ask it of a real screen.
 #[cfg(test)]
@@ -48,6 +50,9 @@ pub struct Timing {
     pub poll: Duration,
     pub give_up: Duration,
     pub keep: Duration,
+    /// How long a failed one stays listed. Longer than `keep`: a failure is the one thing the person must see, and a
+    /// Point send closes its window as soon as the message is queued.
+    pub keep_failed: Duration,
     /// After a message went in, the next one waits this long even if the pane still reads ready (the agent
     /// may not have drawn the start of its turn yet).
     pub after_send: Duration,
@@ -62,6 +67,7 @@ impl Default for Timing {
             poll: Duration::from_millis(400),
             give_up: Duration::from_secs(2 * 60 * 60),
             keep: Duration::from_secs(120),
+            keep_failed: Duration::from_secs(10 * 60),
             after_send: Duration::from_millis(1500),
             gate_retry: GATE_RETRY,
         }

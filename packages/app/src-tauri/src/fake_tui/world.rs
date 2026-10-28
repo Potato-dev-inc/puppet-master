@@ -593,6 +593,14 @@ impl Session {
         crate::pane_outbox::Outbox::new(Arc::new(host))
     }
 
+    /// The Point box's "To:" list over this world's panes, as the box gets it: `{ "targets": [...], "default": id | null }`.
+    pub fn point_targets(&self, opener: Option<&str>, cwd: Option<&str>) -> Value {
+        let infos = self.world.registry.lock().list();
+        let facts = crate::point::window::target_facts(&self.world.registry, &infos);
+        let (targets, default) = crate::point::target::targets(&facts, opener, cwd);
+        serde_json::json!({ "targets": targets, "default": default })
+    }
+
     /// The Chat tab of a pane, read off its screen (what the app does for an agent with no session file).
     pub fn open_screen_chat(&self, pane_id: &str, agent_type: &str) -> super::ChatProbe {
         super::ChatProbe::open(self.world.registry.clone(), pane_id, agent_type)

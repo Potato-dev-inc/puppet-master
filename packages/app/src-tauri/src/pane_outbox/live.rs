@@ -1,9 +1,10 @@
 //! The outbox over the live app: the pane registry, the pane's own delivery code, the Tauri event
 //! `pane-outbox` for the desktop windows and the SSE event of the same name for paired phones.
 
+use super::confirm;
 use super::draft_guard::{DraftGuard, DRAFT_PREFIX};
 use super::host::{Attempt, Host, Look, PaneKind};
-use super::model::{OutboxMessage, FAIL_IN_BOX, FAIL_NOT_TAKEN, FAIL_WRITE};
+use super::model::{OutboxMessage, FAIL_IN_BOX, FAIL_NOT_TAKEN, FAIL_STUCK, FAIL_WRITE};
 use super::Outbox;
 use crate::agent_runs::delivery::{self, Delivery, PaneIo};
 use crate::agent_runs::readiness;
@@ -44,6 +45,33 @@ pub(super) fn attempt_of(outcome: Delivery, typed: bool) -> Attempt {
     }
 }
 
+/// One look at a live pane: the readiness verdict, what the input box holds, and whether the pane reads idle.
+/// Also what the Point box asks for each pane in its "To:" list.
+pub fn look_pane(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<Look> {
+    let (agent, idle) = {
+        let registry = registry.lock();
+        let pane = registry.get(pane_id)?;
+        let idle = pane.status.lock().as_str() == "idle";
+        (pane.info.agent_type.clone(), idle)
+    };
+    let profile = crate::tui::profile_for(&agent);
+    let verdict = readiness::assess(profile.as_ref(), delivery::observe_pane(registry, pane_id));
+    Some(Look::from_verdict(&verdict, idle))
+}
+
+/// The delivery outcome's name, for the log (the screen it may carry stays out of it).
+fn outcome_name(outcome: &Delivery) -> &'static str {
+    match outcome {
+        Delivery::Started => "started",
+        Delivery::SubmittedUnconfirmed => "submitted_unconfirmed",
+        Delivery::NotVisible { .. } => "not_visible",
+        Delivery::Blocked(_) => "blocked",
+        Delivery::AgentGone(_) => "agent_gone",
+        Delivery::NotReady { .. } => "not_ready",
+        Delivery::WriteFailed(_) => "write_failed",
+    }
+}
+
 impl Host for LiveHost {
     fn pane_kind(&self, pane_id: &str) -> Option<PaneKind> {
         let agent = self.agent_type(pane_id)?;
@@ -56,15 +84,7 @@ impl Host for LiveHost {
     }
 
     fn look(&self, pane_id: &str) -> Option<Look> {
-        let (agent, idle) = {
-            let registry = self.registry.lock();
-            let pane = registry.get(pane_id)?;
-            let idle = pane.status.lock().as_str() == "idle";
-            (pane.info.agent_type.clone(), idle)
-        };
-        let profile = crate::tui::profile_for(&agent);
-        let verdict = readiness::assess(profile.as_ref(), delivery::observe_pane(&self.registry, pane_id));
-        Some(Look::from_verdict(&verdict, idle))
+        look_pane(&self.registry, pane_id)
     }
 
     fn type_message(&self, pane_id: &str, text: &str) -> Attempt {
@@ -82,7 +102,17 @@ impl Host for LiveHost {
                 tracing::warn!(pane_id, %error, "outbox could not type the message");
             }
         }
-        attempt_of(outcome, typed)
+        let unconfirmed = matches!(outcome, Delivery::SubmittedUnconfirmed);
+        let name = outcome_name(&outcome);
+        let mut attempt = attempt_of(outcome, typed);
+        // Enter was pressed and no turn showed, yet the box still holds the text: it was not sent.
+        if unconfirmed && confirm::still_in_box(&mut io, profile.as_ref(), text) {
+            attempt = Attempt::Failed(FAIL_STUCK.into());
+        }
+        if let Attempt::Failed(why) = &attempt {
+            tracing::warn!(pane_id, outcome = name, typed, %why, "outbox message was not sent");
+        }
+        attempt
     }
 
     fn publish(&self, pane_id: &str, messages: &[OutboxMessage]) {

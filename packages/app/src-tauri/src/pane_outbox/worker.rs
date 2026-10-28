@@ -42,6 +42,18 @@ pub fn decide(look: &Look) -> Step {
     }
 }
 
+/// Why a pane is not a place to send a Point message to right now, for the "To:" list: a dialog or question is up,
+/// the agent is gone, or the screen shows no input box. Nothing is typed in any of these. A working agent or text
+/// in the box is not a reason: the outbox keeps the message until the turn ends or the box is empty.
+pub fn target_block(look: &Look) -> Option<&'static str> {
+    match &look.readiness {
+        Readiness::Gate(_) => Some(WAIT_GATE),
+        Readiness::HostShell(_) => Some(FAIL_NOT_RUNNING),
+        Readiness::Unknown if look.composer != ComposerState::HasText => Some(NOT_READY_BOX),
+        _ => None,
+    }
+}
+
 pub(super) fn snapshot(queue: &PaneQueue) -> Vec<OutboxMessage> {
     queue.entries.iter().map(|e| e.message.clone()).collect()
 }
@@ -49,7 +61,10 @@ pub(super) fn snapshot(queue: &PaneQueue) -> Vec<OutboxMessage> {
 /// Drops the messages that finished more than `keep` ago. True when any went.
 pub(super) fn prune(queue: &mut PaneQueue, timing: &Timing) -> bool {
     let before = queue.entries.len();
-    queue.entries.retain(|e| e.finished.map_or(true, |at| at.elapsed() < timing.keep));
+    queue.entries.retain(|e| {
+        let keep = if e.message.state == State::Failed { timing.keep_failed.max(timing.keep) } else { timing.keep };
+        e.finished.map_or(true, |at| at.elapsed() < keep)
+    });
     queue.entries.len() != before
 }
 

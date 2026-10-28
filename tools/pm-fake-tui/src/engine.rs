@@ -164,6 +164,11 @@ impl Engine {
         engine
     }
 
+    /// Keys handled per loop turn; 0 = all of them (`Script::input_keys_per_turn`).
+    pub fn keys_per_turn(&self) -> usize {
+        self.script.input_keys_per_turn
+    }
+
     pub fn exit_code(&self) -> Option<i32> {
         self.exit
     }
@@ -416,7 +421,7 @@ impl Engine {
         };
         self.composer.push_str(text);
         self.burst = Some((start, now));
-        if self.layout != Layout::Claude {
+        if self.layout != Layout::Claude || self.script.no_paste_collapse {
             return;
         }
         let pasted = &self.composer[start..];

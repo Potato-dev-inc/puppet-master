@@ -26,6 +26,8 @@ use crate::tui::{ComposerState, StartupGate, TuiProfile};
 use std::sync::Arc;
 use std::time::Duration;
 
+mod settle;
+
 /// Longest prompt prefix compared against the screen.
 const HEAD_CHARS: usize = 40;
 const TAIL_CHARS: usize = 30;
@@ -81,6 +83,10 @@ const GATE_SETTLE_POLLS: u32 = 25;
 const UNVERIFIED_CLEAR_PAUSE: Duration = Duration::from_millis(250);
 /// How many times a look may be repeated because the pane printed between the look and the write.
 const MAX_STALE_LOOKS: u32 = 20;
+/// How many looks an Enter may take before the pane is called busy. A TUI that is still taking in a long message
+/// (a loaded machine, a slow start) paints on every look; each refused look waits a poll, so this is about ten
+/// seconds, not the second that [`MAX_STALE_LOOKS`] gives a pane that printed once.
+const ENTER_LOOKS: u32 = 100;
 
 pub trait DeliveryIo {
     /// Writes run input under the permit it was issued with (`WriteOrigin::Task` for the clear
@@ -721,6 +727,10 @@ pub fn deliver_prompt_traced(
         trace.push(format!("not visible; bottom rows at give-up:\n{}", bottom_rows(&io.screen(), 20)));
         return give_up_not_visible(io, profile, undo, &permit, prompt, before_typing.as_deref(), trace);
     }
+    // A long text shows its start long before its end on a loaded machine: wait for the whole of it.
+    if let Err(stop) = settle::await_whole_text(io, profile, prompt, trace) {
+        return stop;
+    }
     // Some TUIs read an Enter that follows the typed text too closely as a line break in a paste.
     let settle = io.enter_settle();
     if !settle.is_zero() {
@@ -929,7 +939,7 @@ fn press_enter(
     trace: &mut Vec<String>,
     label: &str,
 ) -> Result<String, Delivery> {
-    for _ in 0..=MAX_STALE_LOOKS {
+    for look in 0..=ENTER_LOOKS {
         let verdict = readiness::assess(profile, io.observe());
         if let Readiness::HostShell(shell) = verdict.readiness() {
             trace.push(format!("{}; {label} was not pressed", verdict.why()));
@@ -947,7 +957,10 @@ fn press_enter(
         match io.write(WriteOrigin::Task(permit), "", true) {
             Ok(()) => return Ok(verdict.screen().to_string()),
             Err(error) if is_stale(&error) => {
-                trace.push(format!("the pane printed output after the look before {label}; looking again ({error})"));
+                if look == 0 {
+                    trace.push(format!("the pane printed output after the look before {label}; looking again until it is quiet ({error})"));
+                }
+                io.pause(POLL_INTERVAL);
             }
             Err(error) => return Err(Delivery::WriteFailed(error)),
         }

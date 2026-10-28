@@ -16,7 +16,7 @@ use super::session::{PointState, SESSION};
 use super::target::{self, TargetFacts};
 use super::{shot, source, Pick, Shot, KEEP_SHOTS};
 use crate::pane_outbox::PaneKind;
-use crate::pty::PaneInfo;
+use crate::pty::{PaneInfo, PaneRegistry};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -414,7 +414,7 @@ fn after_pick(app: &AppHandle, rec: &Preview, window: &WebviewWindow, raw: &str)
 
     // The "To:" list and the folders a source file may live in: the dev server pane's and the default target's.
     let infos = pane_infos(app);
-    let (targets, default) = target::targets(&target_facts(&infos), Some(&rec.opener), Some(&rec.cwd));
+    let (targets, default) = target::targets(&target_facts(&registry_of(app), &infos), Some(&rec.opener), Some(&rec.cwd));
     let default_cwd = default.as_ref().and_then(|id| infos.iter().find(|p| &p.id == id)).map(|p| p.cwd.clone());
     let mut roots: Vec<&Path> = vec![Path::new(&rec.cwd)];
     roots.extend(default_cwd.as_deref().map(Path::new));
@@ -504,8 +504,12 @@ fn pane_infos(app: &AppHandle) -> Vec<PaneInfo> {
     app.state::<crate::commands::AppState>().registry.lock().list()
 }
 
+fn registry_of(app: &AppHandle) -> Arc<Mutex<PaneRegistry>> {
+    app.state::<crate::commands::AppState>().registry.clone()
+}
+
 /// The "To:" candidates from the live panes. Labels come from the agent registry, never from a name match.
-pub fn target_facts(infos: &[PaneInfo]) -> Vec<TargetFacts> {
+pub fn target_facts(registry: &Arc<Mutex<PaneRegistry>>, infos: &[PaneInfo]) -> Vec<TargetFacts> {
     infos
         .iter()
         .map(|p| {
@@ -517,13 +521,22 @@ pub fn target_facts(infos: &[PaneInfo]) -> Vec<TargetFacts> {
                 .map(|t| crate::redact::text(t.trim()).into_inner())
                 .filter(|t| !t.is_empty())
                 .unwrap_or_else(|| agent_label.clone());
+            let kind = PaneKind::of(crate::tui::profile_for(&p.agent_type).features().kind);
+            // A pane on a dialog, a question or a screen without its input box is not a place to send to (it is
+            // looked at the way the outbox looks before it types; shells and protocol panes have no such screen).
+            let not_ready = (kind == PaneKind::Agent)
+                .then(|| crate::pane_outbox::look_pane(registry, &p.id))
+                .flatten()
+                .and_then(|look| crate::pane_outbox::target_block(&look))
+                .map(str::to_string);
             TargetFacts {
                 pane_id: p.id.clone(),
                 agent_label,
                 title,
                 cwd: p.cwd.clone(),
-                kind: PaneKind::of(crate::tui::profile_for(&p.agent_type).features().kind),
+                kind,
                 run_controls: crate::bridge::pane_has_open_run(&p.id, &p.cwd),
+                not_ready,
                 last_output_at: p.last_output_at,
             }
         })
@@ -533,7 +546,7 @@ pub fn target_facts(infos: &[PaneInfo]) -> Vec<TargetFacts> {
 /// The state the Point box shows now: picks, the "To:" list and the notice.
 pub fn current_state(app: &AppHandle) -> PointState {
     let (opener, cwd) = newest_opener();
-    let (targets, default) = target::targets(&target_facts(&pane_infos(app)), opener.as_deref(), cwd.as_deref());
+    let (targets, default) = target::targets(&target_facts(&registry_of(app), &pane_infos(app)), opener.as_deref(), cwd.as_deref());
     current_state_with(targets, default)
 }
 

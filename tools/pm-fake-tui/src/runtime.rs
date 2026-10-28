@@ -167,18 +167,17 @@ pub fn run(script: Script, base_dir: PathBuf) -> i32 {
     let mut inline = InlinePainter::new();
     let mut stdin_open = true;
     let mut next_size_check = 0u64;
+    // Keys read but not handled yet: with `input_keys_per_turn` a loaded machine takes input in small steps.
+    let per_turn = engine.keys_per_turn();
+    let mut waiting: std::collections::VecDeque<crate::keys::Key> = std::collections::VecDeque::new();
     let code = loop {
         if stdin_open {
             match input.recv_timeout(Duration::from_millis(15)) {
                 Ok(bytes) => {
                     let t = now();
-                    for key in parser.feed(&bytes, t) {
-                        engine.on_key(key, t);
-                    }
+                    waiting.extend(parser.feed(&bytes, t));
                     while let Ok(more) = input.try_recv() {
-                        for key in parser.feed(&more, t) {
-                            engine.on_key(key, t);
-                        }
+                        waiting.extend(parser.feed(&more, t));
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -188,8 +187,12 @@ pub fn run(script: Script, base_dir: PathBuf) -> i32 {
             std::thread::sleep(Duration::from_millis(15));
         }
         let t = now();
-        for key in parser.poll(t) {
+        waiting.extend(parser.poll(t));
+        let mut handled = 0;
+        while per_turn == 0 || handled < per_turn {
+            let Some(key) = waiting.pop_front() else { break };
             engine.on_key(key, t);
+            handled += 1;
         }
         if t >= next_size_check {
             next_size_check = t + 100;

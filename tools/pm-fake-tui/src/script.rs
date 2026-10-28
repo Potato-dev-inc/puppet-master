@@ -77,6 +77,15 @@ pub struct Script {
     pub paste_burst_ms: Option<u64>,
     #[serde(default)]
     pub paste_burst_effect: Option<BurstEffect>,
+    /// A TUI on a machine under heavy load: it handles at most this many keys per loop turn (about 15 ms) and
+    /// the rest of what was typed waits in a queue, so a long message is still being taken in (and the screen
+    /// still repainting) seconds after it was written. 0 (default): every key at once.
+    #[serde(default)]
+    pub input_keys_per_turn: usize,
+    /// Claude layout only: the text is never collapsed into `[Pasted text #N +M lines]`. A loaded Claude Code
+    /// gets the write in small pieces, does not take them for one paste and shows the text as typed.
+    #[serde(default)]
+    pub no_paste_collapse: bool,
     /// Esc during a turn interrupts it (default true). False: the agent ignores Esc.
     #[serde(default = "yes")]
     pub interrupt: bool,
@@ -467,6 +476,14 @@ impl Script {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_loaded_machine_knobs_parse_and_default_to_off() {
+        let off = Script::parse("agent = \"claude\"", false).expect("parses");
+        assert_eq!((off.input_keys_per_turn, off.no_paste_collapse), (0, false));
+        let on = Script::parse("agent = \"claude\"\ninput_keys_per_turn = 4\nno_paste_collapse = true", false).expect("parses");
+        assert_eq!((on.input_keys_per_turn, on.no_paste_collapse), (4, true));
+    }
 
     #[test]
     fn a_full_script_parses_and_picks_turns() {
