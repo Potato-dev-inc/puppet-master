@@ -223,6 +223,72 @@
 .ph .ph-chat .ck-chat-send:disabled {
   opacity: 0.35;
 }
+/* Voice typing (phone only): the mic is a 44px button in the row. The field's wrapper holds a mirror that shows
+   heard words in gray at the cursor, while the field's own text turns clear for that moment. */
+.ph .ph-chat .ck-chat-composer-field-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.ph .ph-chat .ck-chat-composer-field-wrap .ck-chat-composer-field {
+  width: 100%;
+}
+.ph .ph-chat .ck-chat-composer-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  padding: 6px 0;
+  font: 16px/1.4 var(--font-ui);
+  color: var(--label);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.ph .ph-chat .ck-chat-composer-field--voice {
+  color: transparent;
+}
+.ph .ph-chat .ck-chat-composer-interim {
+  color: var(--label-3);
+}
+.ph .ph-chat .ck-chat-mic {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--label-2);
+  background: transparent;
+}
+.ph .ph-chat .ck-chat-mic[aria-pressed='true'] {
+  color: var(--label);
+  background: var(--fill-active);
+}
+.ph .ph-chat .ck-chat-mic[aria-disabled='true'] {
+  opacity: 0.35;
+}
+.ph .ph-chat .ck-chat-mic-dot {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--label);
+  animation: ph-mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ph-mic-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ph .ph-chat .ck-chat-mic-dot {
+    animation: none;
+  }
+}
 .ph .ph-chat .ck-chat-composer-note {
   margin: 6px 4px 0;
   font-size: 13px;
