@@ -22,6 +22,7 @@ import { ALL_TAB, companionTab, isCompanionPane, isCompanionTab, orderPanes, pho
 import { bridgeCompanionTransport, type CompanionView } from './lib/companion';
 import { bridgePlansApi } from './lib/plans-report';
 import { PhonePlans } from './components/mobile/PhonePlans';
+import { NightSummary, bridgeNightApi } from './components/mobile/NightSummary';
 import { useBridgeCompanions } from './hooks/useBridgeCompanions';
 import { CompanionHome } from './components/mobile/CompanionHome';
 import {
@@ -162,6 +163,8 @@ export default function PwaApp() {
   const companionTransport = useMemo(() => (bridge ? bridgeCompanionTransport(bridge) : null), [bridge]);
   // Memoised: the plans sheet refetches when its api changes.
   const plansTransport = useMemo(() => (bridge ? bridgePlansApi(bridge) : null), [bridge]);
+  // Night Shift on the phone: read and stop only (`GET /night`, `POST /night/stop`).
+  const nightApi = useMemo(() => (bridge ? bridgeNightApi(bridge.baseUrl) : null), [bridge]);
   const companionList = useBridgeCompanions(companionTransport, resyncKey, companionPush);
   const companions = companionList.companions;
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
@@ -365,6 +368,7 @@ export default function PwaApp() {
   }, [bridge]);
   // What the PC's list says this phone may do wins over the pairing read (it comes with every list read).
   const canAnswer = attention?.device?.can_answer ?? abilities.canAnswer;
+  const canControl = attention?.device?.can_control ?? abilities.canControl;
   /** "Open card" on a companion: its card from the list, or the plain sentence when the card has left it. */
   const openCompanionCard = useCallback(
     (itemId: string) => {
@@ -690,6 +694,9 @@ export default function PwaApp() {
           onPointerDownCapture={activePane && activeView === 'terminal' ? onAgentPointerDown : undefined}
           onPointerUpCapture={activePane && activeView === 'terminal' ? onAgentPointerUp : undefined}
         >
+          {bridge && active === ALL_TAB && nightApi && (
+            <NightSummary api={nightApi} canControl={canControl} refreshKey={resyncKey} />
+          )}
           {bridge && active === ALL_TAB && (
             <AgentsOverview
               bridge={bridge}
