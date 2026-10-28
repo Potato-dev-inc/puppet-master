@@ -18,7 +18,8 @@ pub mod session_source;
 #[cfg(test)]
 mod fullscreen_tests;
 
-use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, PaneStatus, Reply, StandbyScreen, StandbySupport, StartupGate, TuiProfile};
+use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, LinuxLaunch, PaneStatus, Reply, SpawnRequest, StandbyScreen, StandbySupport, StartupGate, TuiProfile};
+use crate::pty::agents::{linux_command, AgentType};
 
 use serde_json::Value;
 
@@ -166,6 +167,11 @@ impl TuiProfile for Claude {
         super::install::parse_install_toml(include_str!("install.toml")).ok().flatten()
     }
 
+    /// The same program and flags as on Windows, run inside the distro (`pty::agents::linux_command`).
+    fn linux_launch(&self, request: &SpawnRequest) -> Option<LinuxLaunch> {
+        Some(LinuxLaunch::from_command(linux_command(AgentType::Claude), request.extra_args))
+    }
+
     fn headless_command(&self, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
         headless::command(launch)
     }
@@ -271,5 +277,27 @@ impl TuiProfile for Claude {
     /// person's draft is not Puppet Master's to erase.
     fn retype_clear_sequence(&self) -> Option<&'static str> {
         Some(screen::CLEAR_TYPED_TEXT)
+    }
+}
+
+#[cfg(test)]
+mod linux_launch_tests {
+    use super::*;
+
+    fn request<'a>(cwd: &'a str, extra: &'a [String]) -> SpawnRequest<'a> {
+        SpawnRequest { cwd, extra_args: extra, cols: 80, rows: 24, read_only: false }
+    }
+
+    #[test]
+    fn claude_runs_as_a_bare_program_with_no_flags() {
+        let launch = Claude.linux_launch(&request("/mnt/d/work/shop", &[])).unwrap();
+        assert_eq!(launch, LinuxLaunch { program: "claude".into(), args: vec![] });
+    }
+
+    #[test]
+    fn extra_args_follow_in_order() {
+        let extra = vec!["--resume".to_string(), "abc".to_string()];
+        let launch = Claude.linux_launch(&request("/mnt/d/work/shop", &extra)).unwrap();
+        assert_eq!(launch.args, ["--resume", "abc"]);
     }
 }

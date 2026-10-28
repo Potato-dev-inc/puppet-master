@@ -283,6 +283,25 @@ pub struct SpawnRequest<'a> {
     pub read_only: bool,
 }
 
+/// Program and arguments a profile runs inside WSL (`TuiProfile::linux_launch`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxLaunch {
+    /// A bare program name (`claude`), found on the distro's own PATH. Never a path, never `.exe`/`.cmd`/`.ps1`.
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+impl LinuxLaunch {
+    /// The profile's base command (`pty::agents::linux_command`), then the caller's extra arguments in order.
+    pub fn from_command(command: (&str, Vec<&str>), extra_args: &[String]) -> Self {
+        let (program, base) = command;
+        Self {
+            program: program.to_string(),
+            args: base.into_iter().map(str::to_string).chain(extra_args.iter().cloned()).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct HeadlessLaunch<'a> {
     pub project: &'a str,

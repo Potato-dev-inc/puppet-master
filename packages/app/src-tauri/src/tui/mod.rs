@@ -125,6 +125,13 @@ pub fn profile_for(agent_type: &str) -> Arc<dyn TuiProfile> {
     registry::profile_for_arc(agent_type)
 }
 
+/// Bare program a profile runs inside WSL (`TuiProfile::linux_launch`), or `None` when it has no Linux
+/// launch. Asked with an empty request: the program does not depend on the folder.
+pub fn linux_program(agent_type: &str) -> Option<String> {
+    let request = SpawnRequest { cwd: "/", extra_args: &[], cols: 0, rows: 0, read_only: false };
+    profile_for(agent_type).linux_launch(&request).map(|launch| launch.program)
+}
+
 pub fn is_registered(agent_type: &str) -> bool {
     registry::registry().find(agent_type).is_some()
 }

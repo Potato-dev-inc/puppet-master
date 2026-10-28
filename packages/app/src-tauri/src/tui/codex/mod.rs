@@ -15,7 +15,8 @@ mod session_extra;
 pub mod session_source;
 mod screen;
 
-use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionFile, LaunchSpec, RunFacts, StandbyScreen, StandbySupport, StartupGate, SubmitSequence, TuiProfile, Warning};
+use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionFile, LaunchSpec, LinuxLaunch, RunFacts, SpawnRequest, StandbyScreen, StandbySupport, StartupGate, SubmitSequence, TuiProfile, Warning};
+use crate::pty::agents::{linux_command, AgentType};
 
 pub struct Codex;
 
@@ -133,6 +134,11 @@ impl TuiProfile for Codex {
 
     fn install_spec(&self) -> Option<super::install::InstallSpec> {
         super::install::parse_install_toml(include_str!("install.toml")).ok().flatten()
+    }
+
+    /// The same program and flags as on Windows (sandbox, approval), run inside the distro (`pty::agents::linux_command`).
+    fn linux_launch(&self, request: &SpawnRequest) -> Option<LinuxLaunch> {
+        Some(LinuxLaunch::from_command(linux_command(AgentType::Codex), request.extra_args))
     }
 
     fn headless_command(&self, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
@@ -266,5 +272,28 @@ impl TuiProfile for Codex {
             }];
         }
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod linux_launch_tests {
+    use super::*;
+
+    fn request<'a>(cwd: &'a str, extra: &'a [String]) -> SpawnRequest<'a> {
+        SpawnRequest { cwd, extra_args: extra, cols: 80, rows: 24, read_only: false }
+    }
+
+    #[test]
+    fn codex_keeps_the_windows_sandbox_flags() {
+        let launch = Codex.linux_launch(&request("/mnt/d/work/shop", &[])).unwrap();
+        assert_eq!(launch.program, "codex");
+        assert_eq!(launch.args, ["--sandbox", "workspace-write", "--ask-for-approval", "never"]);
+    }
+
+    #[test]
+    fn extra_args_follow_the_profile_own_in_order() {
+        let extra = vec!["--model".to_string(), "x".to_string()];
+        let launch = Codex.linux_launch(&request("/mnt/d/work/shop", &extra)).unwrap();
+        assert_eq!(launch.args, ["--sandbox", "workspace-write", "--ask-for-approval", "never", "--model", "x"]);
     }
 }

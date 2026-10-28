@@ -268,6 +268,21 @@ fn old_chat_stores_conform() {
     check_all("session_history_conforms", rules::session_history_conforms);
 }
 
+/// A Linux (WSL) launch names a bare program, and only the CLI kind may have one.
+#[test]
+fn linux_launches_are_bare_programs() {
+    check_all("linux_launch_is_bare", rules::linux_launch_is_bare);
+}
+
+/// The rule is not vacuous: the three TUI agents have a Linux launch and pass it; the protocol backend has none.
+#[test]
+fn the_built_in_tui_agents_have_a_linux_launch() {
+    for id in ["claude", "codex", "opencode"] {
+        assert!(linux_program(id).is_some(), "{id} has a Linux launch");
+    }
+    assert_eq!(linux_program("opencode_native"), None);
+}
+
 /// The rule is not vacuous: the three built-in agents answer `session_history()` and pass it.
 #[test]
 fn the_built_in_old_chat_stores_pass_the_rule() {
