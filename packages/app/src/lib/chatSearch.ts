@@ -23,9 +23,15 @@ const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNA
 
 export const CHAT_SEARCH_LIMIT = 30;
 
-export async function searchChats(query: string, limit = CHAT_SEARCH_LIMIT): Promise<ChatHit[]> {
-  if (!isTauri()) return [];
-  return invoke<ChatHit[]>('chat_search', { query, limit });
+/** `enabled` is false when the person turned the search index off: then there are no hits. */
+export interface ChatSearchAnswer {
+  enabled: boolean;
+  hits: ChatHit[];
+}
+
+export async function searchChats(query: string, limit = CHAT_SEARCH_LIMIT): Promise<ChatSearchAnswer> {
+  if (!isTauri()) return { enabled: true, hits: [] };
+  return invoke<ChatSearchAnswer>('chat_search', { query, limit });
 }
 
 export interface SnippetPart {

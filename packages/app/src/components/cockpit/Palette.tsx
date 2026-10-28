@@ -337,7 +337,15 @@ export function Palette({
             <>
               {chats.hits.length === 0 && (
                 <p className="ck-sub ck-pad">
-                  {!query.trim() ? 'Type to search every chat you have opened.' : chats.state === 'searching' ? 'Searching…' : chats.state === 'failed' ? 'Search is not available right now.' : 'No matches'}
+                  {!query.trim()
+                    ? 'Type to search every chat you have opened.'
+                    : chats.state === 'searching'
+                      ? 'Searching…'
+                      : chats.state === 'failed'
+                        ? 'Search is not available right now.'
+                        : chats.state === 'off'
+                          ? 'Search is off — turn it on in Settings'
+                          : 'No matches'}
                 </p>
               )}
               <ChatHitRows
