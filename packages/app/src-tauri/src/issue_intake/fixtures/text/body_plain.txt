@@ -1,0 +1,9 @@
+The sign-in button does nothing when I click it.
+
+Steps:
+1. Open the sign-in page.
+2. Enter a made-up name and password.
+3. Click "Sign in".
+
+Expected: the dashboard opens.
+Actual: nothing happens and no error shows.
