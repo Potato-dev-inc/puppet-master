@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { jobCount, jobsRunning, tauriJobsApi, usePaneJobs, type JobsApi, type JobsMap } from '../../../lib/pane-jobs';
 import { IconTerminal } from '../Icons';
 import { Sheet } from '../Sheet';
-import { stopJob } from './BackgroundCard';
+import { previewJobPort, stopJob } from './BackgroundCard';
 import { BackgroundJobs } from './BackgroundJobs';
 
 export interface JobsChipProps {
@@ -43,7 +43,12 @@ export function JobsSheet({ jobs, names, onOpenPane, onClose, api = tauriJobsApi
                 Open
               </button>
             </div>
-            <BackgroundJobs jobs={list} onStop={(pid, startedAtMs) => stopJob(api, paneId, pid, startedAtMs)} />
+            <BackgroundJobs
+              jobs={list}
+              onStop={(pid, startedAtMs) => stopJob(api, paneId, pid, startedAtMs)}
+              onPreview={(port, external) => previewJobPort(paneId, port, external)}
+              onPointFix={(port) => previewJobPort(paneId, port, false, true)}
+            />
           </section>
         ))}
       </div>
