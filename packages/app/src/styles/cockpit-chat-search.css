@@ -1,0 +1,71 @@
+/* Search all chats: the palette's hit rows and the card for a chat that is closed. Grayscale only. */
+.cockpit .ck-palette-row--hit {
+  height: auto;
+  min-height: 44px;
+  align-items: flex-start;
+  padding: 6px 10px;
+}
+.cockpit .ck-hit-who {
+  flex: none;
+  width: 38px;
+  padding-top: 1px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--label-3);
+}
+.cockpit .ck-hit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.cockpit .ck-hit-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-2);
+}
+.cockpit .ck-hit-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-hit-mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: var(--fill-active);
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-palette-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--sep);
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-hit-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px 16px;
+}
+.cockpit .ck-hit-detail-meta {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-hit-detail-text {
+  color: var(--label);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.cockpit .ck-palette-mode-note {
+  margin-left: auto;
+}

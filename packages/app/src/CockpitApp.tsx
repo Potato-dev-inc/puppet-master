@@ -9,7 +9,7 @@ import { LastTurnContext } from './components/cockpit/away-context';
 import { AwayDigest } from './components/cockpit/AwayDigest';
 import { Inbox } from './components/cockpit/Inbox';
 import { PaneView } from './components/cockpit/PaneView';
-import { Palette } from './components/cockpit/Palette';
+import { Palette, type PaletteMode } from './components/cockpit/Palette';
 import { NeedsYouContext, useNeedsYouSource } from './hooks/useNeedsYou';
 import { useMissions } from './lib/missions';
 import { UndoSheet } from './components/cockpit/UndoSheet';
@@ -40,6 +40,8 @@ export type { MainView } from './components/cockpit/main-view';
 export default function CockpitApp() {
   const c = useCockpit();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Ctrl+Shift+F opens the palette in "Search all chats"; Ctrl+K in its commands.
+  const [paletteMode, setPaletteMode] = useState<PaletteMode>('commands');
   // The one thing the main area shows (see main-view.ts): the last click wins.
   const [view, setView] = useState<MainView>(() => homeView(c.spawn !== null, c.selectedId));
   // A new selection or spawn state (a pane closing, an agent starting, a digest opening a pane)
@@ -154,9 +156,16 @@ export default function CockpitApp() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (!e.shiftKey && key === 'k') {
         e.preventDefault();
+        setPaletteMode('commands');
         setPaletteOpen((v) => !v);
+      } else if (e.shiftKey && key === 'f') {
+        e.preventDefault();
+        setPaletteMode('chats');
+        setPaletteOpen(true);
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -192,7 +201,10 @@ export default function CockpitApp() {
     <div className="cockpit" data-theme={c.theme} onClickCapture={onClickCapture}>
       <Sidebar
         c={nav}
-        onOpenPalette={() => setPaletteOpen(true)}
+        onOpenPalette={() => {
+          setPaletteMode('commands');
+          setPaletteOpen(true);
+        }}
         onOpenDoctor={() => setView('doctor')}
         onOpenMemory={() => setView('memory')}
         companions={companions.companions}
@@ -272,7 +284,9 @@ export default function CockpitApp() {
       </main>
       {paletteOpen && (
         <Palette
+          key={paletteMode}
           c={nav}
+          initialMode={paletteMode}
           onClose={() => setPaletteOpen(false)}
           onOpenDoctor={() => setView('doctor')}
           onStopAll={stopAll}

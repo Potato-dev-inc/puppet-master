@@ -555,3 +555,29 @@ fn a_folder_under_home_is_written_with_a_tilde() {
     assert_eq!(tilde(&other, Some(&home)), other.display().to_string());
     assert_eq!(tilde(&home.join("x"), None), home.join("x").display().to_string());
 }
+
+#[derive(Default)]
+struct Seen(Mutex<Vec<(String, Vec<String>)>>);
+
+impl ItemObserver for Seen {
+    fn observe(&self, pane_id: &str, items: &[ChatItem]) {
+        self.0.lock().push((pane_id.to_string(), texts(items)));
+    }
+}
+
+#[test]
+fn an_observer_sees_the_first_look_and_every_later_batch() {
+    let mut rig = Rig::new(MAX_ITEMS);
+    let seen = Arc::new(Seen::default());
+    let tuning = Tuning { poll: Duration::from_millis(10), relocate: Duration::from_millis(10), ..Tuning::default() };
+    rig.watchers = Watchers::with_tuning(rig.sink.clone(), rig.panes.clone(), tuning).with_observer(seen.clone());
+    let path = rig.file("observed.jsonl");
+    append(&path, "u:one\nu:two\n");
+    let src = source(Located::Found(path.clone()));
+
+    rig.watchers.open("p1", "w", src);
+    assert_eq!(*seen.0.lock(), vec![("p1".to_string(), strings(&["one", "two"]))]);
+    append(&path, "u:three\n");
+    wait_until("the appended batch", || seen.0.lock().len() == 2);
+    assert_eq!(seen.0.lock()[1], ("p1".to_string(), strings(&["three"])));
+}
