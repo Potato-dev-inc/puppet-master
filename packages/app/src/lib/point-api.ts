@@ -40,6 +40,8 @@ export interface PointState {
   defaultTarget?: string | null;
   /** One plain line, e.g. a blocked link. */
   notice?: string | null;
+  /** The live session's id. It changes when a new session starts; null when no session is live. */
+  session?: number | null;
 }
 
 /** What `point_open_preview` returns. */
