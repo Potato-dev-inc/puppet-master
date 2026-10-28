@@ -646,6 +646,24 @@ mod imported_tests {
     }
 
     #[test]
+    fn the_live_search_and_the_pane_search_never_return_an_imported_row() {
+        let mut store = Store::open_memory(100).unwrap();
+        store.insert(&[row("1:0", "live kittens", 1)]).unwrap();
+        store.replace_chat(&chat("s1", "a"), &[old("s1", "1:0", "imported kittens", 2)]).unwrap();
+        // The every-row search (the desktop window) finds both; the live one (the phone) finds the live row only.
+        assert_eq!(store.search("kittens", 10).unwrap().len(), 2);
+        let live = store.search_live("kittens", 10).unwrap();
+        assert_eq!(live.len(), 1);
+        assert!(!live[0].imported);
+        // Even when the old chat's own pane id is asked for, nothing imported comes back.
+        assert!(store.search_in("kittens", 10, &[import_pane_id(AGENT)]).unwrap().is_empty());
+        // The desktop's filtered search still finds the old chat (the chips see every row); the live search does not.
+        let filters = super::super::Filters { agent: Some(AGENT.into()), ..Default::default() };
+        assert!(store.search_live("kittens", 10).unwrap().iter().all(|hit| !hit.imported));
+        assert!(store.search_filtered("kittens", 10, &filters).unwrap().iter().any(|hit| hit.imported));
+    }
+
+    #[test]
     fn an_imported_text_is_strictly_masked_and_cut_at_two_thousand() {
         let ctx = PaneContext::of(AGENT, "C:\\Users\\you\\projects\\shop", Some("s1"));
         let token = "sk-ant-api03-FakeFakeFakeFake0123456789abcdef";
@@ -697,6 +715,38 @@ mod imported_tests {
         for file in [path.clone(), dir.join(format!("{FILE_NAME}-wal"))] {
             assert!(!in_file(&file), "{file:?} still has the text");
         }
+        assert_eq!(store.integrity().unwrap(), "ok");
+    }
+
+    #[test]
+    fn removing_the_imports_leaves_no_marker_in_the_index_file_or_its_log() {
+        let dir = temp_dir();
+        let path = dir.join(FILE_NAME);
+        let wal = dir.join(format!("{FILE_NAME}-wal"));
+        let mut store = open_store(&path, 1000).unwrap();
+        store.insert(&[row("1:0", "live LIVEMARK5511 words", 1)]).unwrap();
+        // Three old chats long enough to fill pages; the marker is in the first chat's title and in every text.
+        for n in 0..3 {
+            let session = format!("s{n}");
+            let mut record = chat(&session, "a");
+            if n == 0 {
+                record.title = "titled OLDMARK5511".into();
+            }
+            let entries: Vec<Entry> = (0..120)
+                .map(|i| old(&session, &format!("{i}:0"), &format!("OLDMARK5511 number {i} {}", "filler words ".repeat(30)), i as i64))
+                .collect();
+            store.replace_chat(&record, &entries).unwrap();
+        }
+        let needle: &[u8] = b"OLDMARK5511";
+        let in_file = |file: &std::path::Path| std::fs::read(file).unwrap_or_default().windows(needle.len()).any(|w| w == needle);
+        assert!(in_file(&path) || in_file(&wal), "the marker is saved before the removal");
+
+        store.clear_imported().unwrap();
+        assert_eq!(store.imported_usage().unwrap(), (0, 0));
+        assert_eq!(std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0), 0, "the log is emptied");
+        assert!(!in_file(&path), "the removed text is still in the index file");
+        assert!(!in_file(&wal), "the removed text is still in the log");
+        assert_eq!(store.search("LIVEMARK5511", 5).unwrap().len(), 1);
         assert_eq!(store.integrity().unwrap(), "ok");
     }
 

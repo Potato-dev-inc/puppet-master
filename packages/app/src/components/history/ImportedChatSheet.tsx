@@ -11,6 +11,7 @@ import {
   type OpenedImportedChat,
   type ResumePlan,
 } from '../../lib/chatImport';
+import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import type { ChatJump } from '../../lib/chatJump';
 import { groupTurns } from '../../lib/sessionChatModel';
 import { SessionChatView } from '../chat/SessionChatView';
@@ -24,7 +25,7 @@ export function chatDate(ms: number, now: number = Date.now()): string {
   return at.getFullYear() === new Date(now).getFullYear() ? day : `${day} ${at.getFullYear()}`;
 }
 
-/** The banner line: "Old Codex chat from 14 Aug. Read-only." */
+/** The banner line: "Old Codex CLI chat from 14 Aug. Read-only." (`label` is the agent's display name, not its id). */
 export function bannerText(label: string, updatedMs: number, now?: number): string {
   return `Old ${label} chat from ${chatDate(updatedMs, now)}. Read-only.`;
 }
@@ -47,6 +48,8 @@ export interface ImportedChatSheetProps {
 export function ImportedChatSheet({ request, api = chatImportApi, onContinue, onClose }: ImportedChatSheetProps) {
   const { agent, session, itemId, nonce } = request;
   const titleId = useId();
+  // The banner shows the agent's display name from the registry ("Claude Code"), never its id ("claude").
+  const agentName = agentLabel(useAgentRegistry(), agent);
   const [loaded, setLoaded] = useState<Loaded>({ kind: 'loading' });
   const [plan, setPlan] = useState<ResumePlan | null>(null);
 
@@ -111,7 +114,7 @@ export function ImportedChatSheet({ request, api = chatImportApi, onContinue, on
       {ready && (
         <>
           <p className="ck-sub history-viewer-banner" role="note">
-            {bannerText(loaded.chat.meta.agent || agent, loaded.chat.meta.updatedMs)}
+            {bannerText(agentName, loaded.chat.meta.updatedMs)}
           </p>
           {continueReason && <p className="ck-sub history-viewer-reason">{continueReason}</p>}
           {loaded.chat.meta.cutShort && <p className="ck-sub">Only the first part of this chat is shown.</p>}

@@ -63,6 +63,16 @@ fn at_ms(at: &Option<String>, now_ms: i64) -> i64 {
         .unwrap_or(now_ms)
 }
 
+/// The time an item says it happened, when it says one (`None` for an item without a readable time). The importer
+/// uses the latest of these as the chat's own last-update time, instead of the file's modified time.
+pub fn item_time_ms(item: &ChatItem) -> Option<i64> {
+    let at = match item {
+        ChatItem::User { at, .. } | ChatItem::Assistant { at, .. } | ChatItem::ToolCall { at, .. } => at,
+        _ => return None,
+    };
+    at.as_deref().and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok()).map(|at| at.timestamp_millis())
+}
+
 /// Whether the index keeps this item at all (so the feeder copies only these).
 pub fn is_kept(item: &ChatItem) -> bool {
     matches!(item, ChatItem::User { .. } | ChatItem::Assistant { .. } | ChatItem::ToolCall { .. })

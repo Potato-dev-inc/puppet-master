@@ -33,7 +33,7 @@ the same search.
 | The panel (`BringChatsPanel.tsx`) | Intro, Looking, the agent list with switches, the time window, Add, Reading (bar, Stop), the result, Look again, Remove imported chats. |
 | Index off | The panel says "Chat search is off. Turn it on to bring your old chats." with a **Turn on** button. |
 | Search hit | An imported hit has the tag "Old chat". Choosing it opens the read-only viewer, not the closed-pane card. |
-| Read-only viewer (`ImportedChatSheet.tsx`) | The chat in the normal chat view, with no message box. A banner says "Old <agent id> chat from 14 Aug. Read-only." **Continue in a pane** is disabled, with a reason, when the chat cannot be continued. |
+| Read-only viewer (`ImportedChatSheet.tsx`) | The chat in the normal chat view, with no message box. A banner says "Old <agent display name> chat from 14 Aug. Read-only." (the name comes from the agent registry, for example "Claude Code"; the date is the chat's own last message time) **Continue in a pane** is disabled, with a reason, when the chat cannot be continued. |
 
 The time window choices are 30 days, 90 days, 12 months and All. The default is 12 months.
 
@@ -161,14 +161,13 @@ fixtures LF and marks the `.db` as binary.
 
 ## Known gaps
 
-- **Phone search can show old chats.** `GET /chats/search` searches every row, so imported hits can reach a paired
-  phone with the `watch` cap. The spec said the phone must never see them. Fix before release: skip `imported` rows in
-  that route, or give the route its own search. Add a test for it.
+- **Phone search (fixed).** `GET /chats/search` now calls `ChatIndex::search_live`, which skips imported rows
+  (`Reach::LiveOnly`). `companion_recall` (`search_in`) is live-only too. The guard `all_chats_search`
+  (`session_chat/history/guard.rs`) fails when a phone, tool, companion or team file calls an every-row search.
 - **The first-start card is not on this branch.** The card ("Read my old chats on this PC...") is BC-13 on
   `feat/bc-card`. Until it is merged, nothing asks on first start. The panel is reached from the palette and Settings.
   `scripts/verify-bring-chats.mjs` waits for the panel at start, so on this branch open the panel first.
 - **OpenCode is not proven on a live database.** See the note above the table.
-- The viewer banner shows the agent id (for example "Old claude chat"), not the display name ("Claude Code").
 - The Settings row shows the chat count only. It does not show the size.
 - `chatImportDismiss` (the "Not now" call) exists in `lib/chatImport.ts`, but no UI calls it on this branch.
 - No live run is recorded for this branch. Continue in a pane for Claude and OpenCode is covered by unit tests of the

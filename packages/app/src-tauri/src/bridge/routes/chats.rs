@@ -1,7 +1,11 @@
-//! `GET /chats/search?q=<text>&limit=<n>`: search across every chat, for the phone's search screen. The answer is
-//! the desktop's (`{ enabled, hits }`, see `chat_index`): what was said, redacted, with the agent, the folder name
+//! `GET /chats/search?q=<text>&limit=<n>`: search across every live chat, for the phone's search screen. The answer
+//! is the desktop's (`{ enabled, hits }`, see `chat_index`): what was said, redacted, with the agent, the folder name
 //! (never the path), the pane and the snippet's marks. `enabled` is false when the person turned the index off;
 //! then `hits` is empty and nothing was searched.
+//!
+//! Old chats (the imported rows of "Bring my old chats") are never searched here: the spec keeps them on the desktop.
+//! The route calls `ChatIndex::search_live`, and a guard test (`session_chat/history/guard.rs`, `all_chats_search`)
+//! keeps every-row searches out of the bridge.
 //!
 //! Reading it needs the device cap `watch` (`mobile_pairing/caps.rs`), like a pane's chat. The gate
 //! (`authorize_caller`) refuses a request with no paired token before this runs.
@@ -42,7 +46,8 @@ pub(super) fn reply(index: Option<&ChatIndex>, query: &str, limit: Option<&str>)
     let Some(index) = index else {
         return Ok((200, json!({ "enabled": chat_index::enabled(), "hits": [] })));
     };
-    match index.search(query, limit) {
+    // Live rows only: an old chat (imported with the desktop's "Bring my old chats") never reaches a phone.
+    match index.search_live(query, limit) {
         Ok(answer) => serde_json::to_value(answer)
             .map(|value| (200, value))
             .map_err(|error| (500, json!({ "code": "INTERNAL", "error": error.to_string(), "message": error.to_string() }))),
@@ -65,7 +70,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-    use crate::chat_index::{ContextLookup, PaneContext, MAX_ITEMS};
+    use crate::chat_index::{entry_of_with, ContextLookup, ImportedChatRow, PaneContext, Strength, MAX_ITEMS};
     use crate::session_chat::{ChatItem, ItemObserver};
 
     struct Fixed;
@@ -100,6 +105,28 @@ mod tests {
         result.unwrap_or_else(|(status, value)| panic!("status {status}: {value}")).1
     }
 
+    /// One old chat (an imported row, strictly redacted, as the importer writes it) on another folder and session.
+    /// Its text says "license" too, and "pelican", which no live chat says.
+    fn add_old_chat(index: &ChatIndex) {
+        let item = ChatItem::Assistant { id: "1:0".into(), at: None, text: "pelican license key in checks.rs".into(), model: None, final_answer: true };
+        let ctx = PaneContext::of("agent-x", r"C:\Users\you\projects\old-shop", Some("old-sess-1"));
+        // 2000 is the importer's cap for an imported text (`MAX_IMPORTED_TEXT_CHARS`).
+        let entry = entry_of_with("import:agent-x", &ctx, &item, 500, Strength::Strict, true, 2000).expect("an entry");
+        let row = ImportedChatRow {
+            agent: "agent-x".into(),
+            session: "old-sess-1".into(),
+            folder: "old-shop".into(),
+            cwd: "~/projects/old-shop".into(),
+            title: "old license question".into(),
+            updated_ms: 500,
+            stamp: "1:500".into(),
+            items: 1,
+            cut_short: false,
+            imported_ms: 600,
+        };
+        index.import_chat(&row, &[entry]).expect("the old chat is written");
+    }
+
     #[test]
     fn the_limit_is_kept_between_1_and_50_and_defaults_to_30() {
         assert_eq!(clamp_limit(None), 30);
@@ -127,6 +154,31 @@ mod tests {
             assert!(!hit.to_string().contains("projects"), "{hit}");
             assert!(!hit.to_string().contains(r"C:\Users"), "{hit}");
         }
+    }
+
+    #[test]
+    fn an_old_chat_never_reaches_the_phone_search() {
+        let index = index_with(true);
+        add_old_chat(&index);
+        // The desktop search sees the old chat: three rows say "license", one of them imported.
+        let desktop = index.search_hits("license", 50).expect("the desktop search");
+        assert_eq!(desktop.len(), 3, "{desktop:?}");
+        assert_eq!(desktop.iter().filter(|hit| hit.imported).count(), 1, "{desktop:?}");
+        // The phone gets the two live hits only: the same word, no imported row, no old folder or session.
+        let answer = body(reply(Some(&*index), "license", Some("50")));
+        let hits = answer["hits"].as_array().expect("hits");
+        assert_eq!(hits.len(), 2, "{answer}");
+        for hit in hits {
+            assert_eq!(hit["imported"], false, "{answer}");
+            assert_eq!(hit["paneId"], "pane-7", "{answer}");
+        }
+        for leaked in ["old-shop", "old-sess-1", "import:", "pelican"] {
+            assert!(!answer.to_string().contains(leaked), "{leaked} leaked to the phone: {answer}");
+        }
+        // A word that only the old chat says finds nothing on the phone at all.
+        let only_old = body(reply(Some(&*index), "pelican", None));
+        assert_eq!(only_old, json!({ "enabled": true, "hits": [] }));
+        assert_eq!(index.search_hits("pelican", 50).expect("the desktop search").len(), 1);
     }
 
     #[test]

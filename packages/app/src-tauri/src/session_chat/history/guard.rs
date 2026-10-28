@@ -6,7 +6,8 @@
 //! `home_or_env` (stores never call `home_dir(` or `env::var` themselves), `user_folder` (no user folder in
 //! fixtures, only the `you` placeholder), `test_join` (a test never joins `.claude` / `.codex` to a real
 //! `home_dir(`) and `not_on_pc_surfaces` (no `chat_import` under bridge, tool registry, MCP shim, companion,
-//! team or mobile pairing code).
+//! team or mobile pairing code) and `all_chats_search` (no every-row search call, `.search(`, `.search_filtered(`,
+//! `.facets(`, `chat_search(`, under those surfaces: they use `search_live` or `search_in`, which never return old chats).
 //!
 //! An exception goes in [`ALLOWED`] with its reason. The forbidden snippets in the tests below are data, so this
 //! file is exempt from every rule.
@@ -46,7 +47,7 @@ const ALLOWED: &[Allowed] = &[
 ];
 
 /// Every rule id a `Hit` can carry.
-const RULE_IDS: &[&str] = &["from_process", "home_or_env", "user_folder", "test_join", "not_on_pc_surfaces"];
+const RULE_IDS: &[&str] = &["from_process", "home_or_env", "user_folder", "test_join", "not_on_pc_surfaces", "all_chats_search"];
 
 /// Which text a rule reads. `Code` has comments and string contents blanked; `Raw` is the file as written.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -85,6 +86,13 @@ const RULES: &[Rule] = &[
         scope: pc_surfaces,
         needles: &["chat_import", "chat_index::import"],
         advice: "old chats stay in the desktop window's own commands; bridge, tools, companion, team and phone code never reach them",
+    },
+    Rule {
+        id: "all_chats_search",
+        text: Text::Code,
+        scope: pc_surfaces,
+        needles: &[".search(", ".search_filtered(", ".facets(", "chat_search("],
+        advice: "the every-row search (live and old chats) is for the desktop window only; a phone, tool, companion or team surface calls `search_live` (or `search_in` with its own pane ids)",
     },
 ];
 
@@ -474,6 +482,23 @@ fn a_chat_import_under_a_pc_surface_is_flagged_by_the_same_scan() {
     }
     let outside = scan(&[Source::new("commands/chat_search.rs", "use crate::commands::chat_import::chat_import_search;")]);
     assert!(!outside.iter().any(|h| h.rule == "not_on_pc_surfaces"), "the desktop commands may name the importer");
+}
+
+#[test]
+fn an_every_row_search_under_a_pc_surface_is_flagged_by_the_same_scan() {
+    let every_row = "fn phone(index: &ChatIndex) { let _ = index.search(\"license\", 5); }";
+    let filtered = "fn phone(index: &ChatIndex) { let _ = index.search_filtered(\"license\", 5, &f); }";
+    let facets = "fn phone(index: &ChatIndex) { let _ = index.facets(); }";
+    let live = "fn phone(index: &ChatIndex) { let _ = index.search_live(\"license\", 5); let _ = index.search_in(\"license\", 5, &p); }";
+    for file in ["bridge/routes/chats.rs", "companion/live.rs", "tool_registry/catalog/chat.rs", "team/card.rs"] {
+        let hits = scan(&[Source::new(file, every_row), Source::new(file, filtered), Source::new(file, facets)]);
+        assert_eq!(hits.iter().filter(|h| h.rule == "all_chats_search").count(), 3, "{file}: {}", describe(&hits));
+        let ok = scan(&[Source::new(file, live)]);
+        assert!(ok.iter().all(|h| h.rule != "all_chats_search"), "{file}: {}", describe(&ok));
+    }
+    // The desktop window's commands may search every row.
+    let desktop = scan(&[Source::new("commands/session_chat.rs", every_row)]);
+    assert!(desktop.iter().all(|h| h.rule != "all_chats_search"), "{}", describe(&desktop));
 }
 
 #[test]

@@ -797,4 +797,4 @@ validation unless noted.
 - Frontend (`packages/app/src`) is only sketched; it mirrors Rust enums in `lib/tauri.ts` and
   `packages/shared/src/protocol.ts`.
 - Declarative agents: env/stdin launches, `[mcp_host]` route/UI, `extract_model` parity and a recorder bridge route are not implemented (see `FEATURES.md` section 8 and `TEST-PLAN.md` section 4).
-- Bring All My Chats: `bridge/routes/chats.rs` (`GET /chats/search`, the phone's search) uses `ChatIndex::search`, which also returns imported old-chat rows. The spec wanted the phone never to see them; this is not enforced yet (see `docs/features/bring-all-my-chats.md`, "Known gaps").
+- Bring All My Chats: `bridge/routes/chats.rs` (`GET /chats/search`, the phone's search) uses `ChatIndex::search_live`, which returns live rows only (old chats never reach the phone). The guard `all_chats_search` in `session_chat/history/guard.rs` keeps every-row searches out of the bridge, tools, companion, team and mobile pairing code.
