@@ -254,6 +254,7 @@ pub fn spawn_pane(
         account_label,
         title: None,
         parent_pane_id: None,
+        place: None,
     };
 
     let pane = PaneState {

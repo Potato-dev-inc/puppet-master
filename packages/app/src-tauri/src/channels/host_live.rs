@@ -173,6 +173,7 @@ mod tests {
             account_label: None,
             title: title.map(Into::into),
             parent_pane_id: None,
+            place: None,
         }
     }
 
