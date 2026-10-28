@@ -823,3 +823,22 @@
   border-radius: 8px;
   background: #fff;
 }
+.cockpit .ck-chat-export-switch {
+  margin: 10px 0;
+}
+/* The Markdown preview: the file as plain text, scrolled inside the sheet. */
+.cockpit .ck-chat-export-text {
+  flex: 1;
+  width: 100%;
+  height: min(60vh, 560px);
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
