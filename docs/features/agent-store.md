@@ -146,8 +146,8 @@ Asks first: one confirm.
 ### Uninstall the program
 
 - The button is shown only when the Store's record says it installed the program with winget, npm or uv, and the current
-  catalog entry names the same method and package. Otherwise there is no button. The reason ("The Store did not install
-  this program" or "This was installed another way") is built in code but is not shown on the sheet yet (see Known gaps).
+  catalog entry names the same method and package. Otherwise there is no button. The sheet shows the reason in its place
+  ("The Store did not install this program" or "This was installed another way").
 - The removal runs in a visible window: `winget uninstall --id <id> -e --source winget`,
   `npm uninstall -g <package>`, or `uv tool uninstall <package>`.
 - A script install is never removed by the Store. For an added agent with no Uninstall button, the sheet shows the
@@ -159,19 +159,19 @@ Asks first: one confirm (the button reads **Uninstall <name>**).
 ## The shipped agents (19)
 
 Tier, license and sign-in come from each `entry.toml`. Install methods come from each `definition.toml`, or from the
-built-in code profile for the four built-in agents. Name in brackets is what the card shows today (see Known gaps).
+built-in code profile for the four built-in agents. A built-in card is titled with its agent's own label (for example "Claude Code").
 
 | Id | Card name | Tier | License | Sign in | Windows install | Notes |
 |---|---|---|---|---|---|---|
 | `aider` | Aider | Basic support | Apache-2.0 (open source) | API key | uv `aider-chat` (Python 3.12), vendor script | License from the planning table. The PyPI license field was empty. |
 | `auggie` | Auggie | Basic support | Proprietary | Either | none, so How to install | The npm name was planned, but no install step is shipped. |
-| `claude` | Claude Code [shows "Anthropic"] | Tested chip, `windows_tested` false | Proprietary | Account (paid plan) | winget, npm, script | Built-in agent. |
+| `claude` | Claude Code | Tested chip, `windows_tested` false | Proprietary | Account (paid plan) | winget, npm, script | Built-in agent. |
 | `cline` | Cline | Basic support | Apache-2.0 (open source) | Either | npm `cline` | npm lists no maintainer, so the check is by repository only. |
-| `codex` | Codex [shows "OpenAI"] | Tested chip, `windows_tested` false | Apache-2.0 (open source) | Account | winget, npm, script | Built-in agent. |
+| `codex` | Codex CLI | Tested chip, `windows_tested` false | Apache-2.0 (open source) | Account | winget, npm, script | Built-in agent. |
 | `continue` | Continue | Basic support | Apache-2.0 (open source) | Either | none, so How to install | Short name `cn`. Confirm before Add. |
 | `copilot` | GitHub Copilot | Basic support | Proprietary | Either | winget, npm | Vendor says PowerShell 6 or newer is needed. License from the planning table. |
 | `crush` | Crush | Basic support | FSL-1.1-MIT (source available) | Either | winget, npm | The winget id was not run with `winget show` yet. |
-| `cursor_agent` | Cursor Agent [shows "Anysphere"] | Tested chip, `windows_tested` false | Proprietary | Account | vendor script | Built-in agent. Installs the Cursor Agent tool, not the editor. |
+| `cursor_agent` | Cursor Agent CLI | Tested chip, `windows_tested` false | Proprietary | Account | vendor script | Built-in agent. Installs the Cursor Agent tool, not the editor. |
 | `droid` | Droid | Basic support | Proprietary | Account | none, so How to install | License from the planning table. The vendor page had no Windows command. |
 | `gemini` | Gemini CLI | Basic support | Apache-2.0 (open source) | Either | npm | |
 | `goose` | goose | Basic support | Apache-2.0 (open source) | Either | none, so How to install | The repository moved to a new organisation. The vendor page gives no Windows command. |
@@ -179,7 +179,7 @@ built-in code profile for the four built-in agents. Name in brackets is what the
 | `kimi` | Kimi Code | Basic support | MIT (open source) | Either | vendor script only | The script needs Git for Windows. The planned npm package is not shipped. |
 | `kiro` | Kiro | Basic support | Proprietary | Account | none, so How to install | The plan said Tested. It has no fixtures, so it is Basic support. |
 | `mistral_vibe` | Mistral Vibe | Basic support | Apache-2.0 (open source) | API key | uv `mistral-vibe` (Python 3.12 or newer) | Short name `vibe`. Confirm before Add. The vendor says it targets UNIX. |
-| `opencode` | OpenCode [shows "SST"] | Tested chip, `windows_tested` false | MIT (open source) | Either | winget, npm | Built-in agent. |
+| `opencode` | OpenCode | Tested chip, `windows_tested` false | MIT (open source) | Either | winget, npm | Built-in agent. |
 | `pi` | Pi | Basic support | MIT (open source) | Either | none, so How to install | Short name `pi`. Confirm before Add. The npm name differs between sources, so none is shipped. |
 | `qwen` | Qwen Code | Basic support | Apache-2.0 (open source) | API key | npm `@qwen-code/qwen-code` (Node 22 or newer) | The planned script from a cloud bucket is not shipped. |
 
@@ -203,8 +203,6 @@ Filter results from the entries: "Open source" shows 12 cards. "Needs a key" sho
 - **The four built-in agents show the Tested chip** but their entries say `windows_tested = false`. The rule for Tested
   exempts built-in entries, so nothing stops this. Until it is fixed, the detail sheet says "We have not run this on
   Windows ourselves" next to a Tested chip.
-- **Built-in cards show the vendor name as the title.** Built-in entries have no definition file, so the title falls back
-  to the vendor name. The card shows "Anthropic", "OpenAI", "Anysphere" and "SST" instead of the agent names.
 - **"Tested" and "Basic support" are chips, not a promise.** Basic support means "it can run in a pane". It does not
   mean the vendor's install or sign-in steps were checked.
 - **Proprietary licenses show "Paid terms".** That wording is one fixed label for every proprietary entry. It is not
@@ -224,8 +222,6 @@ Filter results from the entries: "Open source" shows 12 cards. "Needs a key" sho
   state reason only.
 - **The end-to-end test is not on this branch.** The planned test with a made-up agent is missing.
   `npm run test:fake-tui` runs only the existing fake-TUI tests.
-- **The reason an uninstall is not available is not shown.** When the Store did not install a program, the sheet hides
-  the Uninstall button and shows no reason. The reason text exists in code (`agent_store/uninstall.rs`).
 - **No live run yet.** The grid, Install, Add, Check, Remove and Uninstall have unit tests only.
 - **The catalog check runs only as a test.** It is part of the Rust unit tests (`cargo test --lib`), which CI runs. The app does not run it at start.
   At Add time the app checks only the bytes of the file and the rule that forbids unsafe settings.

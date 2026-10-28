@@ -47,9 +47,6 @@ installs as data.
 Gemini CLI is not a registered agent, so it has no `install.toml` yet. A definition for it would use
 `[install.windows] npm = "@google/gemini-cli"` and Puppet Master would offer Node.js through winget first.
 
-## Evidence
-See `D:\pm-night\p0\doctor-installs\REPORT.md`.
-
 ## Limits
 - No checked download (URL + checksum) method: the vendors publish moving "latest" URLs, so there is no stable
   checksum to pin. winget verifies the installer hash itself (it is in the manifest).
