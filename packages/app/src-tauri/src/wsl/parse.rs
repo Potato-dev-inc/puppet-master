@@ -216,7 +216,19 @@ fn required<'a>(values: &BTreeMap<&str, &'a str>, key: &'static str) -> Result<&
 
 fn is_wsl_unc(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
-    lower.starts_with(r"\\wsl.localhost\") || lower.starts_with(r"\\wsl$\")
+    lower.starts_with(r"\\wsl.localhost\") || lower.starts_with(r"\\wsl$\") || is_fake_home(value)
+}
+
+/// The end-to-end tests stand a temp Windows folder in for the distro's home (`pm-fake-wsl` prints it
+/// as `home_windows`). Only in builds with feature `dev-fake-tui`, and only that exact folder.
+#[cfg(feature = "dev-fake-tui")]
+fn is_fake_home(value: &str) -> bool {
+    std::env::var("PM_FAKE_WSL_HOME").is_ok_and(|home| !home.is_empty() && home == value)
+}
+
+#[cfg(not(feature = "dev-fake-tui"))]
+fn is_fake_home(_value: &str) -> bool {
+    false
 }
 
 fn valid_git(value: &str) -> bool {

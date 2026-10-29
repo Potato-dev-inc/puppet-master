@@ -86,3 +86,7 @@ A turn that runs out of steps ends like a real one: a summary row, then the comp
 `script.rs` (the format) · `keys.rs` (bytes to keys) · `engine.rs` (the state machine, no terminal, no real time) · `render.rs` (the screens) · `term.rs`, `runtime.rs` (ConPTY plumbing). Everything but the last two is unit-tested without a console: `cd tools/pm-fake-tui && cargo test`.
 
 Windows only for now (it needs a ConPTY and VT console modes); other platforms build a best-effort `stty` fallback.
+
+## pm-fake-wsl
+
+`pm-fake-wsl` (`src/bin/fake_wsl.rs`) stands in for `wsl.exe` in the Linux Inside end-to-end tests (`src-tauri/tests/fake_tui_wsl.rs`). The app uses it only when `PM_FAKE_WSL_EXE` points at it (builds with feature `dev-fake-tui`). It lists one WSL 2 distro (`Ubuntu-Test`), answers the probe (`home_windows` = `PM_FAKE_WSL_HOME`), launches `PM_FAKE_TUI_EXE` for a launcher call (only the names in `WSLENV` cross; the `PM_FAKE_TUI_*` settings pass too), and answers a stop call. `PM_FAKE_WSL_LOG=<file>` gets one JSON line per call (`list`, `status`, `probe`, `launch`, `stop`). A transcript path may hold `{arg:--flag}` (the value the program was started with after that flag), and `PM_FAKE_TUI_TRANSCRIPT_ROOT` moves the transcript base out of the working folder.

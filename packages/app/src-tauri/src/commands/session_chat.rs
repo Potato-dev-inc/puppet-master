@@ -117,7 +117,7 @@ impl Sink for EventSink {
 }
 
 /// A pane's facts from the registry, the hook ledger (agent session id) and the accounts store.
-struct RegistryPanes(Arc<Mutex<PaneRegistry>>);
+pub(crate) struct RegistryPanes(pub(crate) Arc<Mutex<PaneRegistry>>);
 
 impl PaneLookup for RegistryPanes {
     fn facts(&self, pane_id: &str) -> Option<PaneFacts> {

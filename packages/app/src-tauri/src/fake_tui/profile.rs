@@ -8,7 +8,7 @@
 use crate::pty::status::PaneStatus;
 use crate::tui::{
     Activity, AccountScheme, ComposerState, DefinitionRef, Features, GateError, HeadlessLaunch, InstructionFile,
-    LaunchSpec, Reply, RunFacts, RunOptionSupport, SidebarCrop, SpawnRequest, StandbyScreen, StandbySupport,
+    LaunchSpec, LinuxLaunch, LaunchSession, Reply, RunFacts, RunOptionSupport, SidebarCrop, SpawnRequest, StandbyScreen, StandbySupport,
     StartupGate, SubmitSequence, TestedRange, TuiProfile, VersionCommand, Warning,
 };
 use serde_json::Value;
@@ -119,6 +119,23 @@ impl TuiProfile for FakeAgent {
             PathBuf::from(request.cwd),
             false,
         ))
+    }
+
+    /// The real profile's Linux launch (a bare program name and its flags): the fake only changes what runs
+    /// at the end of it, `pm-fake-wsl` swaps the program for `pm-fake-tui`.
+    fn linux_launch(&self, request: &SpawnRequest) -> Option<LinuxLaunch> {
+        self.inner.linux_launch(request)
+    }
+
+    /// A pane that runs in Linux is launched with the real profile's session id (`--session-id <id>`), so its
+    /// Chat tab finds the session file by name. Windows panes of the fake keep launching without one.
+    fn launch_session(&self, user_args: &[String], fresh_id: &str) -> LaunchSession {
+        let in_linux = crate::wsl::settings::Store::at(&crate::app_paths::app_data_dir()).get(self.id).is_some();
+        if in_linux {
+            self.inner.launch_session(user_args, fresh_id)
+        } else {
+            LaunchSession::Unmanaged
+        }
     }
 
     fn spawn_gate(&self, _project: &str) -> Result<Option<DefinitionRef>, GateError> {
