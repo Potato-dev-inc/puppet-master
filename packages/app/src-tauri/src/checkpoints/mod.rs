@@ -16,6 +16,9 @@ pub use engine::{Checkpoint, CheckpointError, FileChange, RestoreReport, TurnPat
 #[cfg(test)]
 pub(crate) use engine::{snapshot as test_snapshot, Kind as TestKind, Limits as TestLimits};
 pub use runtime::{before_answer, before_dispatch, before_stop, live, note_dispatched, on_pane_status, PaneFacts, Runtime};
+/// For Review Desk's real-git tests: the environment a test `Runtime` is built with (`Runtime::new`).
+#[cfg(test)]
+pub(crate) use runtime::{Env as TestEnv, Settings as TestSettings};
 
 /// What the History tab and `GET /panes/{id}/checkpoints` show.
 #[derive(Debug, Clone, serde::Serialize)]
