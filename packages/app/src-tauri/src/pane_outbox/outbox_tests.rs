@@ -22,6 +22,9 @@ struct Fake {
     typed: Mutex<Vec<String>>,
     /// How often `type_message` was called (a gate that keeps refusing must not be retried every poll).
     calls: Mutex<usize>,
+    /// When each `type_message` call began and ended: the waits the worker keeps between tries are checked
+    /// against these (a gap can only grow on a busy machine, so a lower bound on it never flakes).
+    attempts: Mutex<Vec<(Instant, Instant)>>,
     published: Mutex<Vec<Vec<OutboxMessage>>>,
     /// While true `type_message` waits (a message stays `sending`).
     hold: Mutex<bool>,
@@ -49,6 +52,7 @@ impl Fake {
             attempt: Mutex::new(Attempt::Sent),
             typed: Mutex::new(Vec::new()),
             calls: Mutex::new(0),
+            attempts: Mutex::new(Vec::new()),
             published: Mutex::new(Vec::new()),
             hold: Mutex::new(false),
             released: Condvar::new(),
@@ -61,6 +65,12 @@ impl Fake {
 
     fn typed(&self) -> Vec<String> {
         self.typed.lock().clone()
+    }
+
+    /// The shortest time between the end of one `type_message` call and the start of the next.
+    fn shortest_gap(&self) -> Option<Duration> {
+        let attempts = self.attempts.lock();
+        attempts.windows(2).map(|pair| pair[1].0.saturating_duration_since(pair[0].1)).min()
     }
 
     /// The states one message went through, as published (repeats dropped).
@@ -92,6 +102,7 @@ impl Host for Fake {
 
     fn type_message(&self, _pane_id: &str, text: &str) -> Attempt {
         *self.calls.lock() += 1;
+        let began = Instant::now();
         let mut hold = self.hold.lock();
         while *hold {
             self.released.wait(&mut hold);
@@ -101,6 +112,7 @@ impl Host for Fake {
         if attempt == Attempt::Sent {
             self.typed.lock().push(text.to_string());
         }
+        self.attempts.lock().push((began, Instant::now()));
         attempt
     }
 
@@ -124,8 +136,9 @@ fn outbox(host: &Arc<Fake>) -> Outbox {
     Outbox::with_timing(host.clone(), fast())
 }
 
+/// A hang detector, not a time limit: a machine running the whole suite stretches every poll of the worker.
 fn until(what: &str, mut check: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(60);
     while !check() {
         assert!(Instant::now() < deadline, "timed out waiting for: {what}");
         std::thread::sleep(Duration::from_millis(3));
@@ -241,10 +254,12 @@ fn a_notice_that_ignores_its_keys_keeps_the_message_waiting_and_is_not_pressed_e
     let outbox = outbox(&host);
     let message = outbox.send("p", "hello").unwrap();
     waiting_for(&outbox, &message.id, WAIT_GATE);
-    // Polls are 5 ms and the retry gap is 100 ms: about three tries in 280 ms, not fifty.
-    std::thread::sleep(Duration::from_millis(280));
-    let calls = *host.calls.lock();
-    assert!((1..=5).contains(&calls), "{calls} attempts");
+    // Polls are 5 ms and the retry gap is 100 ms: once the keys were tried three times, none of the tries came
+    // sooner than the gap after the one before (every poll would be 5 ms). Checked on the gaps, not on how many
+    // tries fit in a sleep, which depends on how fast the machine runs the worker.
+    until("three tries to close the notice", || *host.calls.lock() >= 3);
+    let gap = host.shortest_gap().expect("at least two tries");
+    assert!(gap >= fast().gate_retry, "the keys were pressed again after {gap:?}");
     assert!(host.typed().is_empty());
     // The person closes it themselves: the next look is Ready and the message goes at once (no retry gap).
     *host.attempt.lock() = Attempt::Sent;
@@ -364,10 +379,12 @@ fn the_next_message_waits_a_moment_after_one_went_in() {
     let first = outbox.send("p", "a").unwrap();
     let second = outbox.send("p", "b").unwrap();
     until_state(&outbox, &first.id, State::Sent);
-    std::thread::sleep(Duration::from_millis(50));
-    assert_eq!(host.typed(), ["a"], "the pane still reads ready, but a turn is just starting");
     until_state(&outbox, &second.id, State::Sent);
     assert_eq!(host.typed(), ["a", "b"]);
+    // The pane read ready the whole time, but a turn was just starting: the second went in no sooner than
+    // `after_send` after the first one was in (measured on the host's own clock, so a slow worker cannot fake it).
+    let gap = host.shortest_gap().expect("two messages were typed");
+    assert!(gap >= Duration::from_millis(150), "the second message followed the first after {gap:?}");
 }
 
 #[test]

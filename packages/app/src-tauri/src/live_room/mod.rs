@@ -12,6 +12,7 @@ use std::time::Duration;
 pub mod active;
 pub mod client;
 pub mod config;
+pub mod pin;
 pub mod publisher;
 pub mod seal;
 pub mod service;

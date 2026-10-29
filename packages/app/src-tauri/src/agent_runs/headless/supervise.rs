@@ -616,6 +616,21 @@ fn supervise_loop(
     poll: Duration,
     tick: &mut dyn FnMut(&OperationSnapshot) -> Step,
 ) -> Option<OperationSnapshot> {
+    supervise_loop_on(snapshot, poll, tick, &wall_clock_ms)
+}
+
+fn wall_clock_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+}
+
+/// `supervise_loop` reading the time from `clock_ms` (the deadline and the time parked at a limit both count on
+/// it), so a test can move the clock instead of waiting for it.
+fn supervise_loop_on(
+    snapshot: &OperationSnapshot,
+    poll: Duration,
+    tick: &mut dyn FnMut(&OperationSnapshot) -> Step,
+    clock_ms: &dyn Fn() -> u64,
+) -> Option<OperationSnapshot> {
     let start = snapshot.started_at_ms.unwrap_or(snapshot.created_at_ms);
     let deadline_ms = snapshot.timeout_ms;
     // A snapshot read can fail transiently (file briefly locked mid-write). Giving up on the
@@ -623,7 +638,7 @@ fn supervise_loop(
     let mut read_failures = 0u32;
     // Time the run spent parked at a usage limit, which the deadline does not count.
     let mut paused_ms = 0u64;
-    let mut last_tick = std::time::Instant::now();
+    let mut last_tick_ms = clock_ms();
     loop {
         let current = match operations::get_operation(&snapshot.project_path, &snapshot.operation_id) {
             Ok(current) => {
@@ -652,14 +667,11 @@ fn supervise_loop(
         let parked_at_limit = current.status == OperationStatus::WaitingInput
             && current.required_action.as_ref().and_then(|a| a.get("kind")).and_then(serde_json::Value::as_str)
                 == Some(operations::USAGE_LIMIT_KIND);
+        let now = clock_ms();
         if parked_at_limit {
-            paused_ms += last_tick.elapsed().as_millis() as u64;
+            paused_ms += now.saturating_sub(last_tick_ms);
         }
-        last_tick = std::time::Instant::now();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        last_tick_ms = now;
         if now.saturating_sub(start).saturating_sub(paused_ms) >= deadline_ms {
             return Some(current);
         }

@@ -2,6 +2,7 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
 import { shipApi, type GitState, type ShipApi } from '../../lib/ship-api';
 import { tauri } from '../../lib/tauri';
+import { tauriPickApi } from '../../lib/pick-for-me';
 import { isValidProjectPath } from '../../lib/project-path';
 import { copyDefault, lastRealFolder, projectOfCwd, readStoredCopyPreference, supportsCopies, writeCopyPreference } from '../../lib/ship-model';
 import type { CockpitApi } from '../../hooks/useCockpit';
@@ -316,6 +317,7 @@ export function Sidebar({
                 onClose={() => setMenuOpen(false)}
                 project={project}
                 onProject={setChosen}
+                pick={tauriPickApi}
                 isolated={isolated}
                 onIsolated={(on) => {
                   setStored(on);

@@ -169,15 +169,16 @@ pub fn run(script: Script, base_dir: PathBuf) -> i32 {
     let mut next_size_check = 0u64;
     // Keys read but not handled yet: with `input_keys_per_turn` a loaded machine takes input in small steps.
     let per_turn = engine.keys_per_turn();
-    let mut waiting: std::collections::VecDeque<crate::keys::Key> = std::collections::VecDeque::new();
+    // Each key with the time it was read: a key handled late still counts as having arrived when it did.
+    let mut waiting: std::collections::VecDeque<(crate::keys::Key, u64)> = std::collections::VecDeque::new();
     let code = loop {
         if stdin_open {
             match input.recv_timeout(Duration::from_millis(15)) {
                 Ok(bytes) => {
                     let t = now();
-                    waiting.extend(parser.feed(&bytes, t));
+                    waiting.extend(parser.feed(&bytes, t).into_iter().map(|key| (key, t)));
                     while let Ok(more) = input.try_recv() {
-                        waiting.extend(parser.feed(&more, t));
+                        waiting.extend(parser.feed(&more, t).into_iter().map(|key| (key, t)));
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -187,11 +188,11 @@ pub fn run(script: Script, base_dir: PathBuf) -> i32 {
             std::thread::sleep(Duration::from_millis(15));
         }
         let t = now();
-        waiting.extend(parser.poll(t));
+        waiting.extend(parser.poll(t).into_iter().map(|key| (key, t)));
         let mut handled = 0;
         while per_turn == 0 || handled < per_turn {
-            let Some(key) = waiting.pop_front() else { break };
-            engine.on_key(key, t);
+            let Some((key, arrived)) = waiting.pop_front() else { break };
+            engine.on_key_arrived(key, t, arrived);
             handled += 1;
         }
         if t >= next_size_check {

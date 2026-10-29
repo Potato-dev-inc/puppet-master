@@ -383,7 +383,15 @@ impl Scenario {
 
     fn wait_for_state(&self, session: &Session, state: &str, secs: u64) -> Value {
         drive(session, &self.rig, secs, &format!("run state {state}"), || {
-            run_of(&self.rig, self.number).filter(|run| run["state"]["state"] == state)
+            let run = run_of(&self.rig, self.number)?;
+            let now = run["state"]["state"].as_str().unwrap_or_default();
+            // A run that is waited for to be held never comes back from these: say so at once, with the
+            // run, instead of after the whole wait (a push that went out is not something to wait on).
+            if state == "held" && ["pr_open", "pushing", "no_changes", "thrown_away", "failed"].contains(&now) {
+                panic!("waiting for run state held, but the run is already {now}: {run:#}
+-- fake events: {:#?}", session.events());
+            }
+            (now == state).then_some(run)
         })
     }
 }

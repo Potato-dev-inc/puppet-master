@@ -54,6 +54,8 @@ impl World {
     }
 
     fn start() -> World {
+        // A turn summary waits this long for its checkpoint before it is built without the files (25 s in the app).
+        crate::turn_summary::set_settle_timeout_for_e2e(std::time::Duration::from_secs(300));
         // Before anything reads `app_paths::profile()` (a process-wide OnceLock): a separate app-data folder.
         std::env::set_var(crate::app_paths::PROFILE_ENV, "fake-tui-e2e");
         // ... rooted in this process's own temp folder, not the real `%APPDATA%`: test processes run side
@@ -264,7 +266,9 @@ impl Session {
             "project_path": self.project.to_string_lossy(),
             "wait_ms": 1,
             "background": true,
-            "timeout_ms": 90_000,
+            // The run's own wall-clock limit is only a hang detector here. 90 s ended a plain run with TIMEOUT
+            // on a starved machine (pinned to one core among 12 busy processes the whole run took 148 s).
+            "timeout_ms": 600_000,
             // A pane a person watches stays open after the run, like the cockpit's: its screen and its
             // turn summary are what several tests read.
             "keep_pane": true,
@@ -283,7 +287,7 @@ impl Session {
             "project_path": self.project.to_string_lossy(),
             "wait_ms": 1,
             "background": true,
-            "timeout_ms": 90_000,
+            "timeout_ms": 600_000,
             "keep_pane": true,
         });
         if let (Some(map), Some(extra)) = (body.as_object_mut(), extra.as_object()) {
