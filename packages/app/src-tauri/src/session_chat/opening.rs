@@ -35,6 +35,11 @@ impl Opening {
         }
     }
 
+    /// Whether the chat is read from the agent's session file and from nothing else (so it can only ever be a file's).
+    pub fn is_file_only(&self) -> bool {
+        matches!(self, Opening::File(_))
+    }
+
     /// `"file"`, `"screen"` or `"api"`: where the items come from. For `Api` and `FileOrScreen` this is what it starts as; the
     /// pane's reader knows what it reads from now (`Watchers::source_of`).
     pub fn source_name(&self) -> &'static str {

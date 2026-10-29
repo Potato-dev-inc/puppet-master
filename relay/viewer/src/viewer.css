@@ -98,6 +98,12 @@ body {
   letter-spacing: 0.06em;
 }
 
+.lr-live[data-paused] {
+  background: transparent;
+  color: var(--label-2);
+  box-shadow: inset 0 0 0 1px var(--label-3);
+}
+
 .lr-meta,
 .lr-foot {
   margin: 2px 0 0;

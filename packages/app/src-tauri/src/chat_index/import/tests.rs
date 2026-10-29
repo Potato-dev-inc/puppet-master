@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use super::fakes::{
-    finished, importer, is_reading, memory_index, source, wait_until, FakeHistory, NoPanes,
+    finished, importer, importer_on_clock, is_reading, memory_index, source, ticking_clock, wait_until, FakeHistory, NoPanes,
 };
 use super::{ImportRequest, Importer, Phase, Progress, IMPORT_NOTHING_CHOSEN, IMPORT_RUNNING, INDEX_OFF};
 use crate::chat_index::store::Store;
@@ -349,7 +349,10 @@ fn the_worker_yields_so_the_live_writer_still_gets_rows_in() {
 fn the_progress_event_is_throttled_and_always_carries_the_end() {
     let (index, _) = memory_index();
     let fake = store_of(40, "many");
-    let (importer, emitted) = importer(vec![source("agent-a", false, fake)], &index);
+    // The throttle counts time on a clock that moves 1 ms per look, so the whole run is far inside one 250 ms
+    // window however slowly the machine runs it (on the real clock a starved run of 40 chats took seconds and
+    // sent one event per quarter second, which is the throttle working, not failing).
+    let (importer, emitted) = importer_on_clock(vec![source("agent-a", false, fake)], &index, ticking_clock(Duration::from_millis(1)));
     importer.start(request(&["agent-a"]), env()).unwrap();
     let end = finished(&importer);
     assert_eq!((end.phase, end.chats_done), (Phase::Done, 40));
@@ -454,6 +457,25 @@ fn the_progress_reporter_sends_phase_changes_at_once_and_other_updates_at_most_f
     let seen = seen.lock();
     assert_eq!(seen.last().map(|p| (p.phase, p.chats_done)), Some((Phase::Done, 1000)), "the end carries the latest numbers");
     assert_eq!(reporter.get().chats_done, 1000);
+}
+
+#[test]
+fn the_progress_reporter_sends_an_update_once_a_quarter_second_has_passed_on_its_clock() {
+    use super::progress::{Reporter, EMIT_EVERY};
+    use super::Emitter;
+    let seen: Arc<parking_lot::Mutex<Vec<Progress>>> = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let emit: Emitter = Arc::new(move |p: &Progress| sink.lock().push(p.clone()));
+    // Every look at the clock is 100 ms later: an update is sent on every third one.
+    let reporter = Reporter::with_clock(emit, ticking_clock(Duration::from_millis(100)));
+    reporter.update(|p| p.phase = Phase::Reading);
+    let first = seen.lock().len();
+    for _ in 0..9 {
+        reporter.update(|p| p.chats_done += 1);
+    }
+    assert_eq!(first, 1);
+    assert_eq!(seen.lock().len(), 1 + 9 / 3, "sent when {EMIT_EVERY:?} or more had passed since the last one");
+    assert_eq!(seen.lock().last().map(|p| p.chats_done), Some(9));
 }
 
 #[test]
