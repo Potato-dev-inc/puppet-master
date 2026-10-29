@@ -131,12 +131,13 @@ vi.mock('./components/cockpit/Sidebar', async () => {
     onOpenDoctor: () => void;
     onOpenMemory: () => void;
     onOpenScores: () => void;
+    onOpenReview?: () => void;
     onOpenMorning?: () => void;
     onOpenStore?: () => void;
     onOpenToSide?: (id: string) => void;
   };
   return {
-    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenMorning, onOpenStore, onOpenToSide }: Props) =>
+    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenReview, onOpenMorning, onOpenStore, onOpenToSide }: Props) =>
       h(
         'div',
         null,
@@ -144,6 +145,7 @@ vi.mock('./components/cockpit/Sidebar', async () => {
         h('button', { type: 'button', onClick: () => onOpenToSide?.('p2') }, 'Open p2 to the side'),
         h('button', { type: 'button', onClick: onOpenMemory }, 'Project memory'),
         h('button', { type: 'button', onClick: onOpenScores }, 'Scores'),
+        h('button', { type: 'button', onClick: onOpenReview }, 'Review'),
         h('button', { type: 'button', onClick: onOpenMorning }, 'Night Shift chip'),
         // The "More agents…" row of the "+" menu (its own wiring is tested in NewAgentMenu.test.tsx).
         h('button', { type: 'button', onClick: onOpenStore }, 'More agents…'),
@@ -184,6 +186,25 @@ vi.mock('./components/cockpit/night/MorningPage', async () => {
 vi.mock('./components/cockpit/AgentScores', async () => {
   const { createElement: h } = await import('react');
   return { AgentScores: ({ project }: { project?: { path: string } | null }) => h('div', null, 'SCORES VIEW ' + (project?.path ?? 'all')) };
+});
+// The Review Desk is stubbed: its own behavior is tested in review/ReviewDesk.test.tsx. Here: the wiring only.
+vi.mock('./components/cockpit/review/ReviewDesk', async () => {
+  const { createElement: h } = await import('react');
+  type Props = { openFirst?: boolean; onClose: () => void; onOpenPane: (id: string) => void; renderDetail?: unknown };
+  return {
+    ReviewDesk: ({ openFirst, onClose, onOpenPane, renderDetail }: Props) =>
+      h(
+        'div',
+        null,
+        'REVIEW VIEW first=' + String(Boolean(openFirst)) + ' detail=' + String(typeof renderDetail === 'function'),
+        h('button', { type: 'button', onClick: onClose }, 'Close review'),
+        h('button', { type: 'button', onClick: () => onOpenPane('p2') }, 'Review open pane'),
+      ),
+  };
+});
+vi.mock('./components/cockpit/review/ReviewDetail', async () => {
+  const { createElement: h } = await import('react');
+  return { ReviewDetail: () => h('div', null, 'REVIEW DETAIL') };
 });
 vi.mock('./components/store/StoreHost', async () => {
   const { createElement: h } = await import('react');
@@ -267,8 +288,14 @@ vi.mock('./components/cockpit/SpawnView', async () => {
 vi.mock('./components/cockpit/Palette', async () => {
   const { createElement: h } = await import('react');
   return {
-    Palette: ({ initialMode, onOpenStore }: { initialMode?: string; onOpenStore?: () => void }) =>
-      h('div', { 'data-testid': 'palette', 'data-mode': initialMode }, h('button', { type: 'button', onClick: onOpenStore }, 'Open Agent Store')),
+    Palette: ({ initialMode, onOpenStore, onOpenReview, onReviewRiskiest }: { initialMode?: string; onOpenStore?: () => void; onOpenReview?: () => void; onReviewRiskiest?: () => void }) =>
+      h(
+        'div',
+        { 'data-testid': 'palette', 'data-mode': initialMode },
+        h('button', { type: 'button', onClick: onOpenStore }, 'Open Agent Store'),
+        h('button', { type: 'button', onClick: onOpenReview }, 'Palette: Review Desk'),
+        h('button', { type: 'button', onClick: onReviewRiskiest }, 'Palette: Review the riskiest item'),
+      ),
   };
 });
 // The old chat sheet is stubbed: this test is about the host in the cockpit, not the sheet.
@@ -429,6 +456,44 @@ describe('CockpitApp main view precedence', () => {
     expect(mainText()).toContain('SETTINGS VIEW');
     clickButton('Settings back');
     expect(mainText()).toBe('SPAWN VIEW');
+  });
+});
+
+describe('CockpitApp Review Desk wiring', () => {
+  it('the sidebar button opens the desk over the pane; Close returns to the pane', () => {
+    clickButton('Review');
+    expect(mainText()).toContain('REVIEW VIEW first=false');
+    clickButton('Close review');
+    expect(mainText()).toBe('PANE VIEW p1');
+  });
+
+  it('gives the desk a detail renderer', () => {
+    clickButton('Review');
+    expect(mainText()).toContain('detail=true');
+  });
+
+  it('opening an agent from the desk shows that pane', () => {
+    clickButton('Review');
+    clickButton('Review open pane');
+    expect(mainText()).toBe('PANE VIEW p2');
+  });
+
+  it('the palette opens the desk, and "Review the riskiest item" opens it on the first row', () => {
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true })));
+    clickButton('Palette: Review Desk');
+    expect(mainText()).toContain('REVIEW VIEW first=false');
+    clickButton('pane p1');
+    clickButton('Palette: Review the riskiest item');
+    expect(mainText()).toContain('REVIEW VIEW first=true');
+  });
+
+  it('the last click wins: the desk replaces Set up agents, and the inbox leaves the desk', () => {
+    clickButton('Set up agents');
+    clickButton('Review');
+    expect(mainText()).toContain('REVIEW VIEW');
+    clickButton('Inbox');
+    expect(mainText()).toContain('INBOX VIEW');
+    expect(mainText()).not.toContain('REVIEW VIEW');
   });
 });
 

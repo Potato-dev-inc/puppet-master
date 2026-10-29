@@ -177,6 +177,10 @@
   background: var(--fill);
   color: var(--label);
 }
+.cockpit .ck-side-count {
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
 .cockpit .ck-icon-btn {
   display: inline-grid;
   place-items: center;

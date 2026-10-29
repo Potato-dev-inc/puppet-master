@@ -12,8 +12,16 @@ const sources = readdirSync(dir)
   .map((file) => ({ file, text: readFileSync(`${dir}${file}`, 'utf8').replace(/\r\n/g, '\n') }));
 
 describe('Review Desk source', () => {
-  it('has at least the desk, the row and the keys', () => {
-    expect(sources.map((s) => s.file).sort()).toEqual(['ReviewDesk.tsx', 'ReviewRow.tsx', 'review-keys.ts']);
+  it('has the desk, the row, the detail, its two sheets, the keys and the count hook', () => {
+    expect(sources.map((s) => s.file).sort()).toEqual([
+      'FixSheet.tsx',
+      'KeepSheet.tsx',
+      'ReviewDesk.tsx',
+      'ReviewDetail.tsx',
+      'ReviewRow.tsx',
+      'review-keys.ts',
+      'useReviewCount.ts',
+    ]);
   });
 
   it('injects no markup: no dangerouslySetInnerHTML, innerHTML, marked or a Markdown renderer', () => {

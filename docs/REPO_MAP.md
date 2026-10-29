@@ -570,6 +570,53 @@ Desktop only: the Tauri commands have no bridge route and no MCP tool.
 
 Tests: `cargo test --lib agent_store` (and `agent_store::check` for the catalog); `npx vitest run src/components/store src/lib/agent-store src/lib/agentStoreCheck`; `node --test scripts/gen-store-catalog.test.mjs scripts/store-verify-publishers.test.mjs`.
 
+### 3.14 Review Desk (`review_desk/`, `commands/review_desk.rs`)
+
+One list of finished agent work (separate copies and missions, Night Shift tasks, issue runs waiting for the push, turns in
+the person's own folder), riskiest first, with Keep, Ask to fix and Throw away (feature page
+`docs/features/review-desk.md`). Desktop only: the seven Tauri commands have no bridge route and no MCP tool. Nothing merges,
+pushes or throws work away without the person's click. The order is one fixed table (`risk.rs`), never a model's opinion.
+
+| File | What |
+|---|---|
+| `review_desk/mod.rs` | module doc: the invariants S1-S15 (SPEC n33 section 4) |
+| `review_desk/model.rs` | the types (`Item`, `Facts`, `Risk`, `Keep`, `Throw`, `Marks`); every limit as a constant (`WINDOW_MS` 14 days, `ITEMS_CAP` 200, `BIG_FILES` 20, `BIG_LINES` 400, `PATCH_SCAN_MAX` 256 KiB, `NOTE_MAX` 1,000); `ItemKey::parse` (the four exact forms, strict); `Clean` |
+| `review_desk/risk.rs` | the seven-tier table: `flags`, `risk`, `order`, `fingerprint`; `PACKAGE_FILES`. Pure, imports only `model` and `tamper::Role` |
+| `review_desk/sources/night.rs`, `issues.rs`, `copies.rs`, `folder.rs`, `group.rs` | pure converters: Night Shift tasks, issue runs (`AskPush` and `Held`), unreviewed copies and missions, in-folder turns with the Throw away rules, helper groups |
+| `review_desk/live.rs` | the `DeskIo` trait (every read and write) and `LiveIo`, the real adapter over `worktrees`, `night_shift::review`, `issue_intake::live::act`, `checkpoints`, the point draft and the audit log; `TtlCache` (facts, 60 s); `scan_patch` (skipped above 256 KiB); `redact_patch`, `clean_line` |
+| `review_desk/gather.rs` | reads every source through `DeskIo`, fills what only the live layer knows, finishes each item (pane liveness, group, risk, fingerprint), orders; a failing source adds one plain note and the rest still show |
+| `review_desk/act.rs` | Keep, Throw away, unmark, Ask to fix and the detail. Parses the key, re-reads the one item, refuses `REVIEW_ITEM_CHANGED` on a different fingerprint, one action per key (`REVIEW_BUSY`), audits without titles or paths |
+| `review_desk/fix.rs` | pure: the Ask to fix draft (fixed sentences and the person's note) |
+| `review_desk/marks.rs` | `<app data>/review-desk/marks.json`: "Looks good" marks per folder pane; private, atomic; a corrupt file counts as no marks |
+| `review_desk/view.rs` | what leaves Rust: `DeskView`, `ItemView`, `DetailView`, `ActView` (camelCase); `phone_view` (built, no route yet) |
+| `review_desk/guard_tests.rs`, `review_desk/engine_tests.rs` | source scans (S1, S7/S8, S11, S12); end-to-end `gather` and `act` on a fake `DeskIo` |
+| `commands/review_desk.rs` | the seven Tauri commands (`review_desk_list`, `_count`, `_detail`, `_keep`, `_throw_away`, `_unmark`, `_fix`); each runs on a blocking thread; event `review-desk://changed` |
+| UI: `components/cockpit/review/` (`ReviewDesk.tsx`, `ReviewRow.tsx`, `ReviewDetail.tsx`, `KeepSheet.tsx`, `FixSheet.tsx`, `review-keys.ts`), `lib/review-desk.ts`, `lib/review-desk-pending.ts` (the 10 s Undo store), `styles/review-desk.css` | built, not mounted: `MainView`, the sidebar count and the palette entries are UI-4 (in progress) |
+| In progress: `bridge/routes/review_desk.rs` (RD-11) | `GET /review-desk`, read only, behind `authorize_caller`; MCP sessions 403. Not on this branch yet |
+| In progress: `components/mobile/ReviewSummary.tsx` (UI-5) | the phone card under the Night summary in `PwaApp.tsx`. Not on this branch yet |
+
+Invariants (each is named in `review_desk/mod.rs`):
+
+- S1: actions are Tauri commands only; the guard test `no_remote_surface_names_the_desk_actions` scans `bridge/`, `tool_registry/`, `mcp_shim/`, `companion/`, `channels/`, `team/`, `push/`.
+- S2: no timer or bulk path merges or pushes; `merge`, `keep_with` and `act("push")` are called only from `review_desk_keep`; no bulk action in v1.
+- S3: every action takes the fingerprint; `fresh()` refuses a changed item before any call (`a_stale_fingerprint_is_refused_and_nothing_is_called`).
+- S4: titles, reasons and file names are plain text; `strip_controls` removes control and bidi characters; the window renders text nodes only.
+- S5: patches and strings pass `redact::strict_with` and home to `~` before they leave Rust; the phone view cleans again (route pending, RD-11).
+- S6: Throw away has a 10 s Undo in the window (`review-desk-pending.ts`, `UNDO_MS`); folder restores go through `checkpoints` `restore`, which takes the "Before undo" safety point, and are checked again at the call.
+- S7: Ask to fix only calls `put_chat_draft`; nothing is sent or typed.
+- S8: the desk never writes to a pane and starts no agent (`the_desk_never_writes_to_a_pane`).
+- S9: an issue Keep is only `issue_intake::live::act(run, "push")`; a `Held` run has `Keep::No` (`keep_on_a_held_issue_is_refused_and_a_pushable_one_only_pushes`).
+- S10: `ItemKey::parse` is strict and runs before any read (`bad_keys_are_refused_before_anything_is_read`).
+- S11: `risk.rs` reads nothing but `model` and `tamper::Role` (`the_risk_table_imports_only_the_model_and_path_roles`).
+- S12: generic code never names an agent (`generic_code_names_no_agent`, which also scans the non-test window files).
+- S13: marks and audit hold ids, counts and tiers only; fixtures use `C:\Users\you\...`.
+- S14: the phone route sits behind the normal bridge auth and is GET only. In progress (RD-11); no route on this branch.
+- S15: git work runs in `spawn_blocking`; per-copy facts cached 60 s (`TtlCache`); patches above 256 KiB are not scanned (`lines_scanned = false`).
+
+Known gap: the sidebar count command `review_desk_count` runs the full gather (cached facts), not the cheaper cached total the spec describes.
+
+Tests: `cargo test --lib review_desk` (also `cargo test --lib commands::review_desk`); `npx vitest run src/components/cockpit/review src/lib/review-desk src/styles/review-desk src/styles/review-detail src/dev/review-desk-fixtures`.
+
 ---
 
 ## 4. "Where do I change X?"

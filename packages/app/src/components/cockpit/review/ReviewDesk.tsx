@@ -1,8 +1,8 @@
 // The Review Desk (SPEC n33 section 3.8): one calm list of finished work, riskiest first, in the order the
 // backend gave. Rows are read-only text. The keys (review-keys.ts) and the detail's buttons drive the actions.
-//   - Keep: "Looks good" (in-folder rows) runs at once with a 10 s Undo. Other rows call `onKeep`; the confirm
-//     sheet belongs to the caller, so nothing is merged from here by itself.
-//   - Ask to fix: calls `onFix`; the sheet belongs to the caller.
+//   - Keep: "Looks good" (in-folder rows) runs at once with a 10 s Undo. Other rows open the confirm sheet
+//     (KeepSheet), so nothing is merged by a key press alone. A caller that passes `onKeep` shows its own sheet.
+//   - Ask to fix: opens the Ask to fix sheet (FixSheet), or calls `onFix` when the caller passes one.
 //   - Throw away: waits in a 10 s Undo window (review-desk-pending.ts) before the call is made.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -10,6 +10,7 @@ import {
   reviewDeskApi,
   reviewDeskErrorText,
   type ReviewDesk as ReviewList,
+  type ReviewAct,
   type ReviewItem,
   type ReviewLevel,
 } from '../../../lib/review-desk';
@@ -22,11 +23,24 @@ import {
   type PendingThrow,
 } from '../../../lib/review-desk-pending';
 import '../../../styles/review-desk.css';
+import { FixSheet } from './FixSheet';
+import { KeepSheet } from './KeepSheet';
 import { ReviewRow } from './ReviewRow';
 import { handleReviewKey, REVIEW_ROW, type ReviewAction, type ReviewKeyHooks } from './review-keys';
 
 /** The backend calls the desk makes. A test passes its own. */
-export type ReviewDeskSlice = Pick<typeof reviewDeskApi, 'list' | 'keep' | 'throwAway' | 'unmark' | 'fix'>;
+export type ReviewDeskSlice = Pick<typeof reviewDeskApi, 'list' | 'keep' | 'throwAway' | 'unmark' | 'fix'> &
+  Partial<Pick<typeof reviewDeskApi, 'detail'>>;
+
+/** What the desk hands to the detail it renders, so the detail's buttons do what the keys do. */
+export interface ReviewDetailControls {
+  /** Keep on a row that needs the confirm sheet. */
+  keep: (item: ReviewItem) => void;
+  /** Throw away: starts the 10 s Undo window. */
+  throwAway: (item: ReviewItem) => void;
+  /** Keep or "Looks good" worked in the detail. */
+  kept: (act: ReviewAct, item: ReviewItem) => void;
+}
 
 export interface ReviewDeskProps {
   api?: ReviewDeskSlice;
@@ -35,11 +49,13 @@ export interface ReviewDeskProps {
   /** Esc with no detail open. Absent: Esc does nothing. */
   onClose?: () => void;
   /** The detail of the selected row (ReviewDetail). Absent: no detail pane. */
-  renderDetail?: (item: ReviewItem) => ReactNode;
-  /** Y on a row that needs the confirm sheet (Merge, Night Shift, Push as draft). The sheet is the caller's. */
+  renderDetail?: (item: ReviewItem, controls: ReviewDetailControls) => ReactNode;
+  /** Y on a row that needs the confirm sheet (Merge, Night Shift, Push as draft). Absent: the desk shows its own sheet. */
   onKeep?: (item: ReviewItem) => void;
-  /** F on a row. The Ask to fix sheet is the caller's. */
+  /** F on a row. Absent: the desk shows its own Ask to fix sheet. */
   onFix?: (item: ReviewItem) => void;
+  /** Open on the first row (the riskiest item) as soon as the list is read. */
+  openFirst?: boolean;
 }
 
 /** "Looks good" on one pane, with the time its Undo ends. */
@@ -54,7 +70,7 @@ const short = (title: string): string => (title.length > 40 ? `${title.slice(0, 
 
 const EMPTY_TEXT = 'Nothing to review. Finished work from your agents shows up here.';
 
-export function ReviewDesk({ api = reviewDeskApi, onOpenPane, onClose, renderDetail, onKeep, onFix }: ReviewDeskProps) {
+export function ReviewDesk({ api = reviewDeskApi, onOpenPane, onClose, renderDetail, onKeep, onFix, openFirst = false }: ReviewDeskProps) {
   const [list, setList] = useState<ReviewList | null>(null);
   const [loadError, setLoadError] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -64,6 +80,10 @@ export function ReviewDesk({ api = reviewDeskApi, onOpenPane, onClose, renderDet
   const [going, setGoing] = useState<ReadonlySet<string>>(() => new Set());
   const [throwing, setThrowing] = useState<PendingThrow | null>(() => currentThrow());
   const [looked, setLooked] = useState<LookedMark | null>(null);
+  // The sheet that is open, if any, and (for a push) the push-check reasons it lists.
+  const [sheet, setSheet] = useState<{ kind: 'keep' | 'fix'; item: ReviewItem } | null>(null);
+  const [sheetExtra, setSheetExtra] = useState<string[] | null>(null);
+  const openedFirst = useRef(false);
   const [, setTick] = useState(0);
   const rootRef = useRef<HTMLElement>(null);
   const apiRef = useRef(api);
@@ -89,6 +109,33 @@ export function ReviewDesk({ api = reviewDeskApi, onOpenPane, onClose, renderDet
   }, [load]);
 
   useEffect(() => subscribeThrow(setThrowing), []);
+
+  // "Review the riskiest item": the first row opens once, when the list first has one.
+  useEffect(() => {
+    if (!openFirst || openedFirst.current || !list || list.items.length === 0) return;
+    openedFirst.current = true;
+    setSelectedKey(list.items[0].key);
+    setDetailOpen(true);
+  }, [openFirst, list]);
+
+  // A push sheet lists the push-check reasons, which come with the item's detail.
+  useEffect(() => {
+    setSheetExtra(null);
+    if (sheet?.kind !== 'keep' || sheet.item.keep.kind !== 'issue_push') return;
+    const read = apiRef.current.detail;
+    if (!read) {
+      setSheetExtra([]);
+      return;
+    }
+    let live = true;
+    read(sheet.item.key).then(
+      (view) => live && setSheetExtra(view.extra),
+      () => live && setSheetExtra([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [sheet]);
 
   // The Undo countdown ticks while a throw waits.
   useEffect(() => {
@@ -141,7 +188,8 @@ export function ReviewDesk({ api = reviewDeskApi, onOpenPane, onClose, renderDet
       return;
     }
     if (item.keep.kind !== 'mark') {
-      onKeep?.(item);
+      if (onKeep) onKeep(item);
+      else setSheet({ kind: 'keep', item });
       return;
     }
     setNotice('');
@@ -152,6 +200,13 @@ export function ReviewDesk({ api = reviewDeskApi, onOpenPane, onClose, renderDet
       setNotice(reviewDeskErrorText(err));
     }
     await load();
+  };
+
+  // The detail's Keep or "Looks good" worked: a mark gets its Undo here, and the list is read again.
+  const kept = (act: ReviewAct, item: ReviewItem): void => {
+    setNotice(item.keep.kind === 'mark' ? '' : act.sentence);
+    if (item.keep.kind === 'mark' && item.paneId) setLooked({ key: item.key, paneId: item.paneId, endsAt: Date.now() + UNDO_MS });
+    void load();
   };
 
   // Z: the pending throw first, then the last "Looks good".
@@ -182,8 +237,9 @@ export function ReviewDesk({ api = reviewDeskApi, onOpenPane, onClose, renderDet
     if (action === 'keep') void keepItem(item);
     else if (action === 'throw') throwItem(item);
     else if (action === 'fix') {
-      if (item.fixPaneId) onFix?.(item);
-      else setNotice(item.fixWhyNot ?? "The agent's pane is closed.");
+      if (!item.fixPaneId) setNotice(item.fixWhyNot ?? "The agent's pane is closed.");
+      else if (onFix) onFix(item);
+      else setSheet({ kind: 'fix', item });
     } else if (item.paneId) onOpenPane?.(item.paneId);
     else setNotice("The agent's pane is closed.");
   };
@@ -293,10 +349,34 @@ export function ReviewDesk({ api = reviewDeskApi, onOpenPane, onClose, renderDet
         </div>
         {showDetail && selected && renderDetail && (
           <section className="ck-rd-detail" data-rd-detail tabIndex={-1} aria-label="Detail">
-            {renderDetail(selected)}
+            {renderDetail(selected, { keep: (i) => void keepItem(i), throwAway: throwItem, kept })}
           </section>
         )}
       </div>
+      {sheet?.kind === 'keep' && (
+        <KeepSheet
+          item={sheet.item}
+          extra={sheet.item.keep.kind === 'issue_push' ? sheetExtra : []}
+          api={apiRef.current}
+          onCancel={() => setSheet(null)}
+          onDone={(act) => {
+            setSheet(null);
+            setNotice(act.sentence);
+            void load();
+          }}
+        />
+      )}
+      {sheet?.kind === 'fix' && (
+        <FixSheet
+          item={sheet.item}
+          api={apiRef.current}
+          onCancel={() => setSheet(null)}
+          onDone={(paneId) => {
+            setSheet(null);
+            onOpenPane?.(paneId);
+          }}
+        />
+      )}
       <p className="ck-rd-keys">
         J K move · Enter open · Y keep · F ask to fix · X throw away · Z undo · P open pane · Esc close
       </p>
