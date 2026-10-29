@@ -270,11 +270,15 @@ mod tests {
 
     /// A paired phone with `caps`, paired the same way the night route tests pair one.
     fn pair(caps: Caps) -> String {
-        if pairing_store().is_none() {
+        // The tests run in parallel and the store is one global. A racing check-then-init lets
+        // two tests write the same file at once, so the loser's load fails and nothing is set.
+        // `Once` makes the first caller build it and the rest wait for it.
+        static STORE: std::sync::Once = std::sync::Once::new();
+        STORE.call_once(|| {
             let dir = std::env::temp_dir().join(format!("pm-focus-bridge-{}", std::process::id()));
             let _ = std::fs::create_dir_all(&dir);
-            let _ = init_pairing_store(dir.join("pairing.json"));
-        }
+            init_pairing_store(dir.join("pairing.json")).expect("a pairing store for the focus tests");
+        });
         let store = pairing_store().unwrap();
         let mut guard = store.lock();
         let s = guard.create_pairing_session_with_caps("http://127.0.0.1:1".into(), caps);
