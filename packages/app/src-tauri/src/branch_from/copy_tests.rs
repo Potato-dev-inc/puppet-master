@@ -4,7 +4,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use sha2::{Digest, Sha256};
 
@@ -54,7 +53,7 @@ impl Drop for Dir {
 }
 
 fn git_run(dir: &Path, args: &[&str]) -> std::process::Output {
-    Command::new("git")
+    crate::proc_util::hidden_command("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
