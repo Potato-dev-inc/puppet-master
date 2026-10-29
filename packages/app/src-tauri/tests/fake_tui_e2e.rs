@@ -1241,3 +1241,8 @@ mod night;
 
 #[path = "fake_tui_issue_intake.rs"]
 mod issue_intake;
+
+// ---- Red to Green: CI fails on a PM pull request, a card, a guarded fix pane, a push card, a fast-forward push (fake gh, local bare remote, zero tokens) ----
+
+#[path = "fake_tui_ci_fix.rs"]
+mod ci_fix;

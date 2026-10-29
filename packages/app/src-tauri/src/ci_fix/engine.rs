@@ -385,6 +385,16 @@ impl<I: Io + 'static> Engine<I> {
         }
         let default_branch = self.default_branch(&watch, &copy, now);
         if let Err((code, message)) = filter::owns(&watch, me, &pull, default_branch.as_deref()) {
+            // Our own push can land while this look is under way: the pull request then shows a commit that the
+            // record (read when the look began) does not hold yet. Read the record again, and do not call it
+            // someone else's push while our push is still being recorded; look again soon.
+            if code == CI_FIX_HEAD_MOVED && self.own_push_landing(&watch.id, me, &pull, default_branch.as_deref()) {
+                self.with_poll(&watch.id, |poll| {
+                    poll.last_poll_ms = 0;
+                    poll.pending = true;
+                });
+                return None;
+            }
             let why = if code == CI_FIX_HEAD_MOVED { "Someone else pushed to this branch".to_string() } else { message };
             self.pause(&watch, code, &why);
             return None;
@@ -424,6 +434,17 @@ impl<I: Io + 'static> Engine<I> {
             poll.error = None;
         });
         self.act_on_checks(&watch, &pull.head_sha, &github::read_ci(&checks), s, now, force)
+    }
+
+    /// The pull request's head is not in the record this look started with, but it is one of ours: the record
+    /// holds it now, or a push of ours is still being recorded.
+    fn own_push_landing(&self, watch_id: &str, me: &str, pull: &ApiPull, default_branch: Option<&str>) -> bool {
+        let recorded = self
+            .io
+            .store()
+            .watch_by_id(watch_id)
+            .is_some_and(|fresh| filter::owns(&fresh, me, pull, default_branch).is_ok());
+        recorded || self.io.store().fixes().iter().any(|fix| fix.watch_id == watch_id && fix.state == FixState::Pushing)
     }
 
     /// What the checks of the pull request's head say, and what that leads to.
