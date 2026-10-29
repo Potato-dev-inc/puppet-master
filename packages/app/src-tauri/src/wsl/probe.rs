@@ -282,7 +282,8 @@ impl Cache {
         self.list = Some((now, status.clone()));
     }
 
-    fn cached_facts(&self, distro: &str, programs: &[String], now: u64, max_age: u64) -> Option<DistroFacts> {
+    /// The cached facts of `distro` when fresh and covering `programs`. Runs nothing: a miss is `None`.
+    pub fn cached_facts(&self, distro: &str, programs: &[String], now: u64, max_age: u64) -> Option<DistroFacts> {
         let facts = self.facts.get(distro)?;
         let covered = programs.iter().all(|program| facts.programs.contains_key(program));
         (covered && fresh(facts.checked_at_ms, now, max_age)).then(|| facts.clone())
@@ -328,6 +329,14 @@ impl PlaceProbe for LiveCache {
 
     fn facts(&self, distro: &str, max_age_ms: u64) -> Result<DistroFacts, OperationError> {
         facts(distro, max_age_ms)
+    }
+}
+
+impl LiveCache {
+    /// The facts of `distro` already cached (fresh, covering `asked_programs()`). Cache only: it never
+    /// starts `wsl.exe` and never boots a distro. `None` means "not checked", so Settings can show it.
+    pub fn cached_facts(&self, distro: &str, max_age_ms: u64) -> Option<DistroFacts> {
+        lock().cached_facts(distro, &asked_programs(), now_ms(), max_age_ms)
     }
 }
 

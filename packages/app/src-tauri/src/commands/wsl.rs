@@ -15,8 +15,8 @@ use crate::pty::registry_spawn_pane;
 use crate::pty::SpawnPaneArgs;
 use crate::tui;
 use crate::wsl::model::{
-    AgentPlaceRow, Distro, DistroFacts, DistroName, WslStatus, LIST_FRESH_MS, WSL_AGENT_NOT_SUPPORTED,
-    WSL_DISTRO_MISSING, WSL_DISTRO_NOT_V2, WSL_NOT_INSTALLED, WSL_NO_DISTRO, WSL_START_FAILED,
+    AgentPlaceRow, Distro, DistroFacts, DistroName, WslStatus, FACTS_FRESH_MS, LIST_FRESH_MS, WSL_AGENT_NOT_FOUND,
+    WSL_AGENT_NOT_SUPPORTED, WSL_DISTRO_MISSING, WSL_DISTRO_NOT_V2, WSL_NOT_INSTALLED, WSL_NO_DISTRO, WSL_START_FAILED,
 };
 use crate::wsl::place::{self, Ask, Decision, Headless};
 use crate::wsl::probe;
@@ -79,13 +79,21 @@ pub async fn wsl_check(distro: String) -> Result<DistroView, OperationError> {
 /// The Linux-capable agents and where each one runs. Served from the settings file: it never boots a distro.
 #[tauri::command]
 pub async fn wsl_places_get() -> Result<Vec<AgentPlaceRow>, OperationError> {
-    off_ui(|| places_view(&live_store())).await
+    off_ui(|| places_view(&live_store(), live_cached)).await
 }
 
 /// Saves where one agent runs. `distro: null` sets it back to Windows and is always accepted.
 #[tauri::command]
 pub async fn wsl_place_set(agent_id: String, distro: Option<String>) -> Result<AgentPlaceRow, OperationError> {
-    off_ui(move || place_set_with(&live_store(), || probe::status_cached(LIST_FRESH_MS), &agent_id, distro.as_deref())).await?
+    off_ui(move || {
+        place_set_with(&live_store(), || probe::status_cached(LIST_FRESH_MS), live_cached, &agent_id, distro.as_deref())
+    })
+    .await?
+}
+
+/// The facts of one distro that a check already cached (fresh). Cache only: it never starts `wsl.exe`.
+fn live_cached(distro: &str) -> Option<DistroFacts> {
+    probe::cache().cached_facts(distro, FACTS_FRESH_MS)
 }
 
 /// Starts one agent in a Linux distro, whatever the saved setting says. Used from the Phase 2 UI.
@@ -208,24 +216,31 @@ fn distro_view(listed: &Distro, facts: &DistroFacts, store: &Store) -> DistroVie
     }
 }
 
-/// Every Linux-capable agent, where it runs. `found` is None: nothing was checked yet.
-fn places_view(store: &Store) -> Vec<AgentPlaceRow> {
+/// Whether the cached facts (when there are any) show the agent's program in the distro.
+fn found_in(agent: &LinuxAgent, facts: Option<DistroFacts>) -> Option<bool> {
+    facts.map(|facts| program_found(&facts, &agent.program))
+}
+
+/// Every Linux-capable agent, where it runs. `found` comes from the cached facts of its distro only
+/// (`cached` never boots one): None when the agent runs on Windows or the distro was not checked yet.
+fn places_view(store: &Store, cached: impl Fn(&str) -> Option<DistroFacts>) -> Vec<AgentPlaceRow> {
     linux_agents()
         .into_iter()
-        .map(|agent| AgentPlaceRow {
-            distro: store.get(&agent.id),
-            found: None,
-            why_not: None,
-            agent_id: agent.id,
-            label: agent.label,
+        .map(|agent| {
+            let distro = store.get(&agent.id);
+            let found = distro.as_deref().and_then(|name| found_in(&agent, cached(name)));
+            AgentPlaceRow { distro, found, why_not: None, agent_id: agent.id, label: agent.label }
         })
         .collect()
 }
 
-/// `wsl_place_set`. `status` is read only when a distro is named (so `null` never runs `wsl.exe`).
+/// `wsl_place_set`. `status` is read only when a distro is named (so `null` never runs `wsl.exe`), and
+/// `cached` is read only then too. A distro whose cached facts lack the agent is refused
+/// (`WSL_AGENT_NOT_FOUND`); an unchecked distro is accepted, and the row says `found: None`.
 fn place_set_with(
     store: &Store,
     status: impl FnOnce() -> WslStatus,
+    cached: impl Fn(&str) -> Option<DistroFacts>,
     agent_id: &str,
     distro: Option<&str>,
 ) -> Result<AgentPlaceRow, OperationError> {
@@ -236,25 +251,38 @@ fn place_set_with(
             let agent = linux_agent(agent_id)?;
             let listed = listed_distro(text, &status())?;
             let name = DistroName::parse(&listed.name).ok_or_else(|| distro_missing(text))?;
-            Some((agent.id, name))
+            let found = found_in(&agent, cached(&listed.name));
+            if found == Some(false) {
+                return Err(agent_not_found(&agent.label, &listed.name));
+            }
+            Some((agent.id, name, found))
         }
     };
-    let key = saved.as_ref().map(|(id, _)| id.clone()).unwrap_or_else(|| agent_id.trim().to_ascii_lowercase());
+    let key = saved.as_ref().map(|(id, _, _)| id.clone()).unwrap_or_else(|| agent_id.trim().to_ascii_lowercase());
     if key.is_empty() {
         return Err(OperationError::new("INVALID_ARGUMENT", "Pick an agent first.", true));
     }
     store
-        .set(&key, saved.as_ref().map(|(_, name)| name))
+        .set(&key, saved.as_ref().map(|(_, name, _)| name))
         .map_err(|error| OperationError::new("STORAGE_ERROR", error, true))?;
     let now = store.get(&key);
     audit_place(&key, previous.as_deref(), now.as_deref());
     Ok(AgentPlaceRow {
         label: tui::descriptor_for(&key).map(|descriptor| descriptor.label).unwrap_or_else(|| key.clone()),
         distro: now,
-        found: None,
+        found: saved.and_then(|(_, _, found)| found),
         why_not: None,
         agent_id: key,
     })
+}
+
+/// The refusal for a checked distro that lacks the agent. Same code and sentence as `wsl::place`.
+fn agent_not_found(label: &str, distro: &str) -> OperationError {
+    OperationError::new(
+        WSL_AGENT_NOT_FOUND,
+        format!("{label} is not installed in {distro}. Install it inside Linux, then try again."),
+        false,
+    )
 }
 
 /// The audit line of a change ("Runs on" setting). Never written by tests (the app's audit log).
@@ -332,10 +360,46 @@ mod tests {
         result.err().expect("the change should be refused").code
     }
 
+    /// No distro has been checked: the cache answers nothing.
+    fn no_cache(_distro: &str) -> Option<DistroFacts> {
+        None
+    }
+
+    /// Facts of a checked distro named `Ubuntu`, where the given agent ids are found or not.
+    fn facts_with(agents: &[(&str, bool)]) -> DistroFacts {
+        let mut programs = BTreeMap::new();
+        for (id, here) in agents {
+            let program = tui::linux_program(id).unwrap();
+            let path = (*here).then(|| format!("/usr/bin/{program}"));
+            programs.insert(program, path);
+        }
+        DistroFacts {
+            distro: "Ubuntu".into(),
+            checked_at_ms: 1_000,
+            uid: 1000,
+            home: "/home/you".into(),
+            home_windows: r"\\wsl.localhost\Ubuntu\home\you".into(),
+            mount_root: "/mnt/".into(),
+            path: "/usr/bin".into(),
+            git: None,
+            interop: true,
+            networking: None,
+            programs,
+        }
+    }
+
+    /// A cache that holds `facts` for the distro `Ubuntu` only, and counts its reads (never a probe).
+    fn one_checked<'a>(facts: DistroFacts, reads: &'a std::cell::Cell<usize>) -> impl Fn(&str) -> Option<DistroFacts> + 'a {
+        move |distro: &str| {
+            reads.set(reads.get() + 1);
+            (distro == "Ubuntu").then(|| facts.clone())
+        }
+    }
+
     #[test]
     fn wsl_place_set_rejects_an_unknown_distro() {
         let store = scratch_store("unknown-distro");
-        let result = place_set_with(&store, || ready(&[("Ubuntu", 2)]), "claude", Some("Debian"));
+        let result = place_set_with(&store, || ready(&[("Ubuntu", 2)]), no_cache, "claude", Some("Debian"));
         assert_eq!(code_of(result), WSL_DISTRO_MISSING);
         assert_eq!(store.get("claude"), None);
     }
@@ -343,7 +407,7 @@ mod tests {
     #[test]
     fn wsl_place_set_rejects_a_wsl1_distro() {
         let store = scratch_store("wsl1");
-        let result = place_set_with(&store, || ready(&[("Debian", 1)]), "claude", Some("Debian"));
+        let result = place_set_with(&store, || ready(&[("Debian", 1)]), no_cache, "claude", Some("Debian"));
         assert_eq!(code_of(result), WSL_DISTRO_NOT_V2);
         assert_eq!(store.get("claude"), None);
     }
@@ -352,7 +416,7 @@ mod tests {
     fn wsl_place_set_rejects_an_agent_without_a_linux_launch() {
         let store = scratch_store("not-capable");
         for agent in ["opencode_native", "shell", "no-such-agent"] {
-            let result = place_set_with(&store, || ready(&[("Ubuntu", 2)]), agent, Some("Ubuntu"));
+            let result = place_set_with(&store, || ready(&[("Ubuntu", 2)]), no_cache, agent, Some("Ubuntu"));
             assert_eq!(code_of(result), WSL_AGENT_NOT_SUPPORTED, "{agent} must be refused");
         }
         assert_eq!(store.all().len(), 0);
@@ -361,19 +425,92 @@ mod tests {
     #[test]
     fn wsl_place_set_accepts_null_for_any_state() {
         let store = scratch_store("null");
-        place_set_with(&store, || ready(&[("Ubuntu", 2)]), "claude", Some("Ubuntu")).unwrap();
-        // WSL is off now, and null still goes through without looking at WSL.
-        let row = place_set_with(&store, || WslStatus::NotWindows, "claude", None).unwrap();
+        place_set_with(&store, || ready(&[("Ubuntu", 2)]), no_cache, "claude", Some("Ubuntu")).unwrap();
+        // WSL is off now, and null still goes through without looking at WSL or the cache.
+        let status_reads = std::cell::Cell::new(0);
+        let cache_reads = std::cell::Cell::new(0);
+        let row = place_set_with(
+            &store,
+            || {
+                status_reads.set(status_reads.get() + 1);
+                WslStatus::NotWindows
+            },
+            |distro: &str| {
+                cache_reads.set(cache_reads.get() + 1);
+                no_cache(distro)
+            },
+            "claude",
+            None,
+        )
+        .unwrap();
         assert_eq!(row.distro, None);
+        assert_eq!(row.found, None);
         assert_eq!(store.get("claude"), None);
-        let row = place_set_with(&store, || WslStatus::NotWindows, "opencode_native", None).unwrap();
+        let row = place_set_with(&store, || WslStatus::NotWindows, no_cache, "opencode_native", None).unwrap();
         assert_eq!(row.distro, None);
+        assert_eq!((status_reads.get(), cache_reads.get()), (0, 0), "null never reads WSL or the cache");
+    }
+
+    #[test]
+    fn wsl_place_set_refuses_an_agent_missing_from_a_checked_distro() {
+        let store = scratch_store("missing-agent");
+        let reads = std::cell::Cell::new(0);
+        let cached = facts_with(&[("claude", true), ("codex", false)]);
+        let result = place_set_with(&store, || ready(&[("Ubuntu", 2)]), one_checked(cached, &reads), "codex", Some("Ubuntu"));
+        let refused = result.err().expect("codex is known to be missing in Ubuntu");
+        assert_eq!(refused.code, WSL_AGENT_NOT_FOUND);
+        assert_eq!(refused.message, "Codex CLI is not installed in Ubuntu. Install it inside Linux, then try again.");
+        assert_eq!(store.get("codex"), None, "a refused change saves nothing");
+        assert_eq!(reads.get(), 1, "the cache was read once");
+    }
+
+    #[test]
+    fn wsl_place_set_saves_an_agent_found_in_a_checked_distro_with_found_true() {
+        let store = scratch_store("found-true");
+        let reads = std::cell::Cell::new(0);
+        let cached = facts_with(&[("claude", true)]);
+        let row = place_set_with(&store, || ready(&[("Ubuntu", 2)]), one_checked(cached, &reads), "claude", Some("Ubuntu")).unwrap();
+        assert_eq!(row.found, Some(true));
+        assert_eq!(store.get("claude").as_deref(), Some("Ubuntu"));
+    }
+
+    #[test]
+    fn wsl_place_set_accepts_an_unchecked_distro_with_found_none() {
+        let store = scratch_store("unchecked");
+        let row = place_set_with(&store, || ready(&[("Ubuntu", 2)]), no_cache, "codex", Some("Ubuntu")).unwrap();
+        assert_eq!(row.found, None, "nothing was checked, so the row says so");
+        assert_eq!(store.get("codex").as_deref(), Some("Ubuntu"));
+    }
+
+    #[test]
+    fn places_get_fills_found_from_cached_facts_only() {
+        let store = scratch_store("places-found");
+        store.set("claude", DistroName::parse("Ubuntu").as_ref()).unwrap();
+        store.set("codex", DistroName::parse("Ubuntu").as_ref()).unwrap();
+        let reads = std::cell::Cell::new(0);
+        let cached = facts_with(&[("claude", true), ("codex", false)]);
+        let rows = places_view(&store, one_checked(cached, &reads));
+        let row = |id: &str| rows.iter().find(|row| row.agent_id == id).unwrap();
+        assert_eq!(row("claude").found, Some(true), "cached facts say it is there");
+        assert_eq!(row("codex").found, Some(false), "cached facts say it is missing");
+        assert_eq!(row("opencode").found, None, "a Windows agent has no distro to check");
+        assert_eq!(reads.get(), 2, "the cache was asked once per Linux agent set to a distro, and no more");
+    }
+
+    #[test]
+    fn places_get_without_a_cache_entry_gives_found_none() {
+        let store = scratch_store("places-none");
+        store.set("claude", DistroName::parse("Ubuntu").as_ref()).unwrap();
+        let rows = places_view(&store, no_cache);
+        let claude = rows.iter().find(|row| row.agent_id == "claude").unwrap();
+        assert_eq!(claude.distro.as_deref(), Some("Ubuntu"));
+        assert_eq!(claude.found, None, "not checked yet");
     }
 
     #[test]
     fn wsl_place_set_saves_a_listed_wsl2_distro_with_its_own_spelling() {
         let store = scratch_store("saved");
-        let row = place_set_with(&store, || ready(&[("Ubuntu", 2)]), "Claude", Some("ubuntu")).unwrap();
+        let row = place_set_with(&store, || ready(&[("Ubuntu", 2)]), no_cache, "Claude", Some("ubuntu")).unwrap();
         assert_eq!(row.agent_id, "claude");
         assert_eq!(row.distro.as_deref(), Some("Ubuntu"));
         assert_eq!(store.get("claude").as_deref(), Some("Ubuntu"));
@@ -382,7 +519,7 @@ mod tests {
     #[test]
     fn places_get_lists_only_linux_capable_agents() {
         let store = scratch_store("places");
-        let ids: Vec<String> = places_view(&store).into_iter().map(|row| row.agent_id).collect();
+        let ids: Vec<String> = places_view(&store, no_cache).into_iter().map(|row| row.agent_id).collect();
         for id in ["claude", "codex", "opencode"] {
             assert!(ids.iter().any(|x| x == id), "{id} should be listed");
         }

@@ -345,3 +345,26 @@ fn check_always_probes_even_when_the_facts_are_fresh() {
     cache.check(&fake, "Ubuntu-Test", &asked, 1).unwrap();
     assert_eq!(fake.total(), 2);
 }
+
+#[test]
+fn cache_only_read_answers_from_the_cache_and_never_runs_wsl() {
+    let fake = Fake::new(no_wsl(), no_wsl(), ok(PROBE_OK));
+    let mut cache = Cache::default();
+    let asked = programs();
+    assert!(cache.cached_facts("Ubuntu-Test", &asked, 0, FACTS_FRESH_MS).is_none(), "nothing cached yet");
+    assert_eq!(fake.total(), 0, "a miss runs no wsl.exe call");
+
+    cache.facts(&fake, "Ubuntu-Test", &asked, 1_000, FACTS_FRESH_MS).unwrap();
+    assert_eq!(fake.total(), 1);
+    let hit = cache.cached_facts("Ubuntu-Test", &asked, 1_000, FACTS_FRESH_MS).expect("cached facts are read back");
+    assert_eq!(hit.programs["fake-tui"].as_deref(), Some("/usr/local/bin/fake-tui"));
+    assert!(cache.cached_facts("Ubuntu-Test", &asked, 1_001 + FACTS_FRESH_MS, FACTS_FRESH_MS).is_none(), "expired");
+    assert!(cache.cached_facts("Debian-Test", &asked, 1_000, FACTS_FRESH_MS).is_none(), "another distro is not cached");
+    assert_eq!(fake.total(), 1, "the cache-only reads never ran wsl.exe");
+}
+
+#[test]
+fn live_cache_only_read_is_none_for_an_unchecked_distro_without_running_wsl() {
+    // No runner is involved: the live read goes through the process cache only.
+    assert!(cache().cached_facts("No-Such-Distro-Test", FACTS_FRESH_MS).is_none());
+}
