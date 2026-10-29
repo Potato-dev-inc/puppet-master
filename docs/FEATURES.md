@@ -142,6 +142,14 @@ Full page: [`features/agent-store.md`](features/agent-store.md). Entry points: "
 | Known gap: built-in cards (Claude Code, Codex, Cursor Agent, OpenCode) show the vendor name as the title; the four also show the Tested chip with `windows_tested = false` | `agent_store/catalog.rs` (`label`), `catalog/agents/{claude,codex,cursor_agent,opencode}/entry.toml` | gap |
 | Not in the catalog: Amp, Grok CLI, Codebuff (vendor facts not confirmed), Antigravity CLI (no confirmed install source) | `catalog/agents/` | gap |
 
+## 1h. What broke it ("What broke the tests?")
+
+Limits, guards and error codes: the feature page.
+
+| Feature | Where | Status |
+|---|---|---|
+| What broke it: find the first agent turn after which your declared test command fails (halving the save points, runs in a separate copy), name the turn and agent, undo only that turn (all or nothing, safety save point first), Check it again, Keep looking, Stop. Shows in Scores as "Broke the tests N times" (counts culprits, including ones later undone) | `checkpoints/bisect/` (`live.rs`, `job.rs`, `revert.rs`), `scores/gather.rs`, `components/cockpit/WhatBrokeIt*.tsx`, `lib/what-broke-it.ts` ([`features/what-broke-it.md`](features/what-broke-it.md)) | **experimental**: engine and sheets have unit tests; **not reachable in the app yet** (no `wb_*` commands, no History or palette button on this branch) |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.
