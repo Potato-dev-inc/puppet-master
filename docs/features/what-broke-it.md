@@ -1,12 +1,13 @@
 # What broke it ("What broke the tests?")
 
-Branch `feat/wb-docs` (built on `feat/wb-live`). Finds the first agent turn after which the person's own test command
-fails, names the turn and the agent, and can undo only that turn. Spec: `SPEC-n33-what-broke-it` (section 3 and 4).
-Code map: [`REPO_MAP.md`](../REPO_MAP.md) section 3.14.
+Branch `feat/wb-phase5`. Finds the first agent turn after which the person's own test command fails, names the turn and
+the agent, and can undo only that turn. Spec: `SPEC-n33-what-broke-it` (section 3 and 4). Code map:
+[`REPO_MAP.md`](../REPO_MAP.md) section 3.14.
 
-**Status: not reachable from the app yet.** The engine, the saved results, the scores count and the sheet and result
-card exist and are tested. The Tauri commands (`wb_*`, WB-16), the History button and palette item (WB-17) and the
-end-to-end test (WB-18) are not on this branch. Until they land, the sheet is only seen in the dev scenarios.
+**Status: experimental, not live-checked yet.** The whole feature is on this branch: the engine, the saved results, the
+scores count, the sheet and result card, the Tauri commands (`wb_*`, WB-16), the History button and palette item and the
+sheet mount (WB-17), and the end-to-end test (WB-18). Each part has tests. Nobody has run the feature in the running app
+yet. The end-to-end test is the only run through the real engine; it uses a fake pane list and fake agent turns.
 
 ## 1. What and why
 
@@ -98,7 +99,7 @@ From `checkpoints/bisect/mod.rs`. Every file of the feature keeps them.
 
 | What | Value |
 |---|---|
-| Runs per job | default 16, range 1 to 30 |
+| Runs per job | default 16, range 1 to 30. In practice a narrowed range needs at least 4 runs: a probe reserves 2 runs for its confirm run. The end-to-end run-cap scenario uses 4 |
 | Minutes per job | default 20, range 1 to 60 |
 | Save points searched | newest 100 |
 | Copy size | refused above 1.5 GiB |
@@ -108,7 +109,7 @@ From `checkpoints/bisect/mod.rs`. Every file of the feature keeps them.
 | Failing test names | at most 5, each at most 120 characters |
 | Saved results | newest 100 per app |
 | Jobs kept in memory for `status` | last 20 |
-| Old copies | `sweep_stale` removes copies older than 1 hour that this process does not hold. It is not called at app start on this branch (wired in WB-16) |
+| Old copies | `sweep_stale` removes copies older than 1 hour that this process does not hold. It runs once at app start (desktop build only, not in tests; `lib.rs`, WB-16) |
 
 ## 6. Error codes
 
@@ -145,11 +146,28 @@ reason, is counted. The count shows "the search blamed this agent", not "this ag
 Only `Culprit` findings with a known agent id count. A finding without an agent (the turn summary was gone) is never
 counted.
 
-## 8. What is v2 (not in this branch)
+## 8. What is not done
 
-- Wiring: `commands/what_broke_it.rs` (`wb_*` commands), the registration in `lib.rs`, the History button and the
-  palette item, and `CockpitApp.tsx` mounting the sheet (WB-16, WB-17).
-- The end-to-end test with a real project, a real `node check.mjs` and a real shadow repository (WB-18).
+- A live check in the running app (test plan, section 2.12).
 - The Scores count excludes undone culprits (section 7).
 - Undo for `Several` (no single turn to undo) and for more than one turn at once.
 - No phone or MCP path, by design (S2).
+
+## 9. Tests
+
+- Unit: `cargo test --lib checkpoints::bisect` (the engine loop with a fake `LiveIo`, search, blame, points, redaction,
+  the undo cases), `cargo test --lib scores` (the count), `cargo test --lib commands::what_broke_it` (the `wb_*`
+  commands: error shape, id checks, limits), and
+  `npx vitest run src/components/cockpit/WhatBrokeIt src/components/cockpit/Palette.whatbroke.test.tsx src/lib/what-broke-it src/lib/agent-scores`.
+  The History button is tested in `History.test.tsx`.
+- End to end: `cargo test --features dev-fake-tui --test what_broke_it_e2e -- --test-threads=1` in
+  `packages/app/src-tauri`. Windows only (the file is `cfg(windows)`). It needs `node`; without it each scenario prints a
+  note and passes. The feature roots app data in a temp folder, so the real app data is not touched. Six scenarios:
+  1. culprit named: turn 4 of the second agent (`pane-claude`), found by running the declared `node check.mjs` in a copy;
+  2. undo only that turn keeps the later lines, and the recheck passes;
+  3. a later edit to the same line refuses the undo (`WB_UNDO_CONFLICT`);
+  4. a flaky check is "not sure", never a culprit;
+  5. a run cap of 4 gives a narrowed range, and "Keep looking" finds the turn;
+  6. Stop ends a long run in under 3 seconds and kills only its own process.
+  The test writes the agents' files, save points and turn summaries itself (the runtime writes them in the app), so it
+  does not prove the live agent hooks.

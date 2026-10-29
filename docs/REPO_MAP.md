@@ -578,9 +578,9 @@ Tests: `cargo test --lib agent_store` (and `agent_store::check` for the catalog)
 the save points and running the command in a throw-away copy; undo only that turn, all or nothing (feature page
 `docs/features/what-broke-it.md`). Invariants S1 to S14 are listed in the module doc of `checkpoints/bisect/mod.rs`.
 
-**Not on this branch yet:** `commands/what_broke_it.rs` and its `lib.rs` registration (WB-16), the History button and
-palette item (`History.tsx`, `Palette.tsx`) and the `CockpitApp.tsx` mount (WB-17), `tests/what_broke_it_e2e.rs` (WB-18).
-So the engine and the sheet run only in tests and dev scenarios; no `wb_*` command exists yet.
+**Status: experimental, not live-checked yet.** The commands and their `lib.rs` registration (WB-16), the History button,
+the palette row and the `CockpitApp.tsx` mount (WB-17), and the end-to-end test (WB-18) are on `feat/wb-phase5`; the rows
+below list them. Nobody has run the feature in the running app yet.
 
 | File | What |
 |---|---|
@@ -610,9 +610,14 @@ So the engine and the sheet run only in tests and dev scenarios; no `wb_*` comma
 | UI: `styles/cockpit-whatbrokeit.css` | monochrome styles of the sheet and card |
 | UI: `dev/what-broke-it-fixtures.ts`, `dev/what-broke-it-result-fixtures.ts`, `dev/scenarios/what-broke-it-*.ts` | harness scenarios (setup, running, culprit, several, not sure, undo refused; `-light` variants) |
 | UI: `lib/agent-scores.ts` (`brokeTestsText`), `components/cockpit/AgentScores.tsx` | the line "Broke the tests N times" (singular "1 time") under the agent name, only when above zero; no colour |
+| `commands/what_broke_it.rs` | the thirteen `wb_*` Tauri commands (`wb_overview`, `wb_declare`, `wb_start`, `wb_status`, `wb_stop`, `wb_finding`, `wb_findings`, `wb_diff`, `wb_undo_plan`, `wb_undo`, `wb_recheck`, `wb_settings_get`, `wb_settings_set`); thin wrappers over `Live`; ids are checked before the registry; errors reach the window as `CODE: message` |
+| `lib.rs` | registers the `wb_*` commands; `checkpoints::bisect::live::live().sweep_stale()` at startup (`#[cfg(not(test))]`, desktop build only) |
+| UI: `components/cockpit/History.tsx`, `PaneView.tsx`, `Palette.tsx`, `CockpitApp.tsx` | History button "What broke the tests?" (shown only when the pane passes `onWhatBroke`); palette row "Find what broke the tests…" (`act:whatbroke`); `CockpitApp` keeps `whatBrokePane` and mounts `WhatBrokeItSheet` |
+| `tests/what_broke_it_e2e.rs` | six end-to-end scenarios: a temp project, a real shadow repository, the declared `node check.mjs` run in a copy. Windows only, feature `dev-fake-tui`; `lib.rs` exposes the modules it reaches as `pub` (feature page, section 9) |
 
-Tests: `cargo test --lib checkpoints::bisect` (plus the filter of the file touched); `cargo test --lib scores`;
-`npx vitest run src/components/cockpit/WhatBrokeIt src/lib/what-broke-it src/lib/agent-scores`.
+Tests: `cargo test --lib checkpoints::bisect` (plus the filter of the file touched); `cargo test --lib scores`; `cargo test --lib commands::what_broke_it`;
+`npx vitest run src/components/cockpit/WhatBrokeIt src/components/cockpit/Palette.whatbroke.test.tsx src/lib/what-broke-it src/lib/agent-scores`.
+End to end (Windows, needs `node`): `cargo test --features dev-fake-tui --test what_broke_it_e2e -- --test-threads=1`.
 
 ---
 
