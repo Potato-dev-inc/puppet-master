@@ -84,6 +84,10 @@ pub struct Engine {
     turns_done: usize,
     last_prompt: String,
     last_typed: Option<u64>,
+    /// When the key being handled was read from the terminal. A key handled late (a loaded machine takes input a
+    /// few keys per turn) keeps the time it arrived at, so keys that came in together stay one burst however long
+    /// the process took to get to them: the "too quick" tests (paste burst) read this, not the time of the turn.
+    arrival: u64,
     /// The burst of text being typed or pasted now: where it starts in the composer, when its last
     /// text arrived.
     burst: Option<(usize, u64)>,
@@ -155,6 +159,7 @@ impl Engine {
             turns_done: 0,
             last_prompt: String::new(),
             last_typed: None,
+            arrival: 0,
             burst: None,
             pastes: Vec::new(),
             pastes_made: 0,
@@ -286,6 +291,12 @@ impl Engine {
     // ---- keys -------------------------------------------------------------------------------
 
     pub fn on_key(&mut self, key: Key, now: u64) {
+        self.on_key_arrived(key, now, now);
+    }
+
+    /// `on_key` for a key that was read at `arrived` (at or before `now`).
+    pub fn on_key_arrived(&mut self, key: Key, now: u64, arrived: u64) {
+        self.arrival = arrived;
         // Typed characters are not logged one by one (the `prompt` event carries the submitted text).
         if !matches!(key, Key::Char(_) | Key::Paste(_)) {
             self.log(now, "key", json!({ "key": format!("{key:?}") }));
@@ -395,7 +406,7 @@ impl Engine {
             Key::Char(c) => {
                 self.take_text(c.encode_utf8(&mut [0; 4]), now);
                 self.suggestion = None;
-                self.last_typed = Some(now);
+                self.last_typed = Some(self.arrival);
             }
             Key::Paste(text) => {
                 self.take_text(&text.replace("\r\n", "\n").replace('\r', "\n"), now);
@@ -432,11 +443,11 @@ impl Engine {
     /// input). The other layouts show all of it.
     fn take_text(&mut self, text: &str, now: u64) {
         let start = match self.burst {
-            Some((start, at)) if now.saturating_sub(at) <= PASTE_GAP_MS => start,
+            Some((start, at)) if self.arrival.saturating_sub(at) <= PASTE_GAP_MS => start,
             _ => self.composer.len(),
         };
         self.composer.push_str(text);
-        self.burst = Some((start, now));
+        self.burst = Some((start, self.arrival));
         if self.layout != Layout::Claude || self.script.no_paste_collapse {
             return;
         }
@@ -479,7 +490,7 @@ impl Engine {
         match key {
             Key::Enter => {
                 let burst = self.script.burst_ms();
-                let quick = burst > 0 && self.last_typed.is_some_and(|at| now.saturating_sub(at) < burst);
+                let quick = burst > 0 && self.last_typed.is_some_and(|at| self.arrival.saturating_sub(at) < burst);
                 if quick {
                     match self.script.burst_effect() {
                         BurstEffect::Newline => self.take_text("\n", now),
@@ -1170,6 +1181,27 @@ mod tests {
         assert_eq!(e.composer(), "Mission: one\ntwo\nthree\nfour");
         e.on_key(Key::Enter, 1200);
         assert_eq!(e.last_prompt, "Mission: one\ntwo\nthree\nfour");
+    }
+
+    /// A starved process handles keys long after they were read. Keys that were read together are one burst
+    /// whenever they are handled, and an Enter read long after the text is a submit, however soon it is handled.
+    #[test]
+    fn keys_read_together_stay_one_burst_when_they_are_handled_late() {
+        let mut e = engine("agent = \"claude\"
+paste_burst_ms = 40
+paste_burst_effect = \"newline\"
+no_paste_collapse = true");
+        // Read at 1000, handled 500 ms apart: the Enter between them is a line break, not a submit.
+        e.on_key_arrived(Key::Char('a'), 1000, 1000);
+        e.on_key_arrived(Key::Enter, 1500, 1000);
+        e.on_key_arrived(Key::Char('b'), 2000, 1000);
+        assert_eq!(e.composer(), "a
+b");
+        assert_eq!(e.last_prompt, "");
+        // An Enter that arrived 500 ms after the text submits it, though it is handled the instant it is read.
+        e.on_key_arrived(Key::Enter, 1500, 1500);
+        assert_eq!(e.last_prompt, "a
+b");
     }
 
     #[test]
