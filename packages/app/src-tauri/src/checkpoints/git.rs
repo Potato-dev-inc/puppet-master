@@ -48,6 +48,20 @@ fn forbid_pty_reader_thread() {
     }
 }
 
+/// `path` without the Windows extended-length prefix: `\\?\C:\x` becomes `C:\x` and
+/// `\\?\UNC\host\share` becomes `\\host\share`. Any other path comes back unchanged.
+pub(super) fn without_verbatim_prefix(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match text.strip_prefix(r"\\?\") {
+        // Drive-letter paths only: `\\?\Volume{...}` has no plain spelling.
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path.to_path_buf(),
+    }
+}
+
 /// One shadow repository: a private git dir plus the project folder used as the work tree.
 #[derive(Debug, Clone)]
 pub struct Shadow {
@@ -68,10 +82,11 @@ impl Out {
 
 impl Shadow {
     pub fn new(work_tree: &Path) -> Self {
-        Self {
-            work_tree: work_tree.to_path_buf(),
-            git_dir: work_tree.join(".puppet-master").join("checkpoints.git"),
-        }
+        // Git for Windows cannot open `\\?\C:\...` paths: a config file named that way fails with
+        // "unknown error occurred while reading the configuration files", so no save point would
+        // ever be taken. A folder that went through `canonicalize` has that spelling.
+        let work_tree = without_verbatim_prefix(work_tree);
+        Self { git_dir: work_tree.join(".puppet-master").join("checkpoints.git"), work_tree }
     }
 
     fn empty_config(&self) -> PathBuf {
