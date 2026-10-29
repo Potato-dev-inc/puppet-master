@@ -33,6 +33,7 @@ import { SegTabs } from './SegTabs';
 import { Sheet } from './Sheet';
 import { paneHeading } from './titles';
 import { helperOfLabel } from '../../lib/pane-helpers';
+import { placeLabel, placeTooltip } from '../../lib/wsl-place';
 import { isProseStream, transcriptSpeaker } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
 import { BudgetChip } from './BudgetChip';
@@ -283,6 +284,11 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             {projectLine}
           </span>
           {info.account_label && <span className="ck-sub-inline" data-testid="pane-account">{info.account_label}</span>}
+          {placeLabel(info.place) && (
+            <span className="ck-sub-inline" data-testid="pane-place" title={placeTooltip(info.place)}>
+              {placeLabel(info.place)}
+            </span>
+          )}
           {helperOf && (
             <button type="button" className="ck-helper-of" onClick={() => c.select(helperOf.parentId)} title="Open the pane that started this one">
               {helperOf.text}
