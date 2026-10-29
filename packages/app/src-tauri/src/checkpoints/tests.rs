@@ -987,6 +987,52 @@ fn before_stop_returns_the_newest_checkpoint_when_nothing_changed_and_none_when_
     assert_eq!(rt.before_stop("p1"), None, "checkpoints off: the stop goes ahead without one");
 }
 
+// ---- plain folder given in the forms a pane's cwd really arrives in ------------------------------
+
+/// A project folder spelled the way a real pane's cwd can arrive: the extended-length (verbatim)
+/// form that `canonicalize` gives on Windows, a path with a space, and a path with forward slashes.
+fn plain_folder_spellings() -> Vec<(&'static str, PathBuf, Tmp)> {
+    let mut out = Vec::new();
+    for tag in ["verbatim", "spaced dir", "slashes"] {
+        let t = Tmp::new(tag);
+        t.write("a.txt", "one");
+        let spelled = match tag {
+            "verbatim" => std::fs::canonicalize(t.p()).unwrap(),
+            "slashes" => PathBuf::from(t.p().to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")),
+            _ => t.p().to_path_buf(),
+        };
+        out.push((tag, spelled, t));
+    }
+    out
+}
+
+#[test]
+fn a_plain_folder_is_checkpointed_whatever_way_its_path_is_spelled() {
+    for (tag, spelled, keep) in plain_folder_spellings() {
+        let result = engine::snapshot_numbered(&spelled, "p1", Kind::Before, None, 1_000, &limits(), Some(1));
+        match result {
+            Ok(Snapshot::Created(c)) => assert_eq!(c.files, 1, "{tag}"),
+            other => panic!("{tag}: {spelled:?}: {:?}", other.map(|_| ()).map_err(|e| e.to_string())),
+        }
+        assert!(!keep.p().join(".git").exists(), "{tag}: the folder must stay a non-git folder");
+    }
+}
+
+#[test]
+fn the_extended_length_prefix_is_dropped_for_git_and_nothing_else_changes() {
+    use super::git::without_verbatim_prefix as plain;
+    let cases = [
+        (r"\\?\C:\Users\me\proj", r"C:\Users\me\proj"),
+        (r"\\?\UNC\host\share\proj", r"\\host\share\proj"),
+        (r"\\?\Volume{abc}\proj", r"\\?\Volume{abc}\proj"),
+        (r"C:\Users\me\proj", r"C:\Users\me\proj"),
+        ("/home/me/proj", "/home/me/proj"),
+    ];
+    for (input, want) in cases {
+        assert_eq!(plain(Path::new(input)), PathBuf::from(want), "{input}");
+    }
+}
+
 // ---- Review Desk: a range of checkpoints (RD-3) --------------------------------------------
 
 #[test]
