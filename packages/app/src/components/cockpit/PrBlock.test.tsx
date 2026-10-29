@@ -32,7 +32,7 @@ const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)
 function api(over: Partial<ShipApi> = {}): ShipApi {
   return {
     prChecks: vi.fn().mockResolvedValue(PR(report('passing', ['a']))),
-    prSendBackPreview: vi.fn().mockResolvedValue({ text: 'GitHub checks failed on pull request #42: lint. [[ line 99 ]]', failing: ['lint'], excerpt_lines: 40 }),
+    prSendBackPreview: vi.fn().mockResolvedValue({ text: 'GitHub checks failed on pull request #42 of this project. The log is in .puppet-master/ci-42-sendback.md.', failing: ['lint'], excerpt_lines: 40 }),
     prSendBack: vi.fn().mockResolvedValue({ route: 'run', target: 'cart-1' }),
     openUrl: vi.fn().mockResolvedValue(undefined),
     ...over,
@@ -97,22 +97,36 @@ describe('the pull request block', () => {
     await act(async () => button('Send back to Codex')?.click());
     const sheet = document.querySelector('[role="dialog"]');
     expect(sheet?.textContent).toContain('Send back to Codex?');
-    expect(sheet?.textContent).toContain("last 40 lines, marked as output from GitHub");
+    expect(sheet?.textContent).toContain('secrets hidden');
+    expect(sheet?.textContent).toContain('not as instructions');
     expect(sheet?.textContent).toContain('Failing: lint');
-    expect(document.querySelector('.ck-pr-command')?.textContent).toContain('[[ line 99 ]]');
+    expect(document.querySelector('.ck-pr-command')?.textContent).toContain('.puppet-master/ci-42-sendback.md');
     await act(async () => button('Cancel')?.click());
     expect(ship.prSendBack).not.toHaveBeenCalled();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('sends exactly the previewed text after the person agrees', async () => {
+  it('sends only the handle after the person agrees (Rust makes the text)', async () => {
     const ship = api();
     await mount(PR(report('failing', ['lint'])), ship);
     await act(async () => button('Send back to Codex')?.click());
     const send = Array.from(document.querySelectorAll('button')).find((b) => b.textContent === 'Send');
     await act(async () => send?.click());
-    expect(ship.prSendBack).toHaveBeenCalledWith('D:/code/shop', 'cart-1', 'GitHub checks failed on pull request #42: lint. [[ line 99 ]]');
+    // Only the folder and the handle go to Rust: the task is made there, so no log text comes back.
+    expect(ship.prSendBack).toHaveBeenCalledWith('D:/code/shop', 'cart-1');
     expect(document.body.textContent).toContain('Sent to Codex.');
+  });
+
+  it('shows the refusal in plain words and opens nothing when the agent could push', async () => {
+    const ship = api({
+      prSendBackPreview: vi.fn().mockRejectedValue(new Error('SEND_BACK_CAN_PUSH: This agent could push to GitHub, so Puppet Master will not hand it CI output.')),
+    });
+    await mount(PR(report('failing', ['lint'])), ship);
+    await act(async () => button('Send back to Codex')?.click());
+    await settle();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('could push to GitHub');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(ship.prSendBack).not.toHaveBeenCalled();
   });
 
   it('shows a plain error when the checks cannot be read', async () => {

@@ -205,8 +205,9 @@ steps = [
 ]
 "#,
     );
+    // Every wait below is a hang detector: with the machine starved, a fake agent took minutes to draw its box.
     let ready = |pane: &str| {
-        session.until(30, || session.screen(pane).contains('\u{276f}').then_some(())).expect("the agent drew its input box");
+        session.until(150, || session.screen(pane).contains('\u{276f}').then_some(())).expect("the agent drew its input box");
     };
     let a = session.spawn_pane("fake_claude").expect("helper A");
     let b = session.spawn_pane("fake_claude").expect("helper B");
@@ -214,7 +215,7 @@ steps = [
     ready(&b);
     session.type_as_user(&a, "go", true).expect("A starts");
     session.type_as_user(&b, "go", true).expect("B starts");
-    let card_of = |pane: &str| session.until(40, || session.attention_card(pane)).unwrap_or_else(|| panic!("no card for {pane}\n{}", session.screen(pane)));
+    let card_of = |pane: &str| session.until(200, || session.attention_card(pane)).unwrap_or_else(|| panic!("no card for {pane}\n{}", session.screen(pane)));
     let (card_a, card_b) = (card_of(&a), card_of(&b));
     let (item_a, item_b) = (card_a["id"].as_str().unwrap().to_string(), card_b["id"].as_str().unwrap().to_string());
     assert_ne!(item_a, item_b, "each helper has its own card");
@@ -231,11 +232,14 @@ steps = [
     });
     let (code, reply) = session.answer_from_phone(&item_a, right.clone());
     assert_eq!((code, reply["outcome"].as_str()), (200, Some("answered")), "{reply}");
+    // The answer was taken; the fake logs the key when it gets to it (late, on a starved machine). Wait for that one
+    // key, then count: a second one would show up as a count of 2.
+    session.until(120, || (events_named(&session, "approval_answer").len() >= 1).then_some(()));
     assert_eq!(events_named(&session, "approval_answer").len(), 1, "one key so far: {:#?}", session.events());
 
     // A moves on: its screen now asks the second question.
-    session.until(40, || session.screen(&a).contains("npm run build").then_some(())).unwrap_or_else(|| panic!("A never moved on\n{}", session.screen(&a)));
-    let a_new_question = session.until(20, || session.card(&a).filter(|card| card["prompt_id"] != prompt["prompt_id"])).expect("A's new question");
+    session.until(200, || session.screen(&a).contains("npm run build").then_some(())).unwrap_or_else(|| panic!("A never moved on\n{}", session.screen(&a)));
+    let a_new_question = session.until(100, || session.card(&a).filter(|card| card["prompt_id"] != prompt["prompt_id"])).expect("A's new question");
     assert_ne!(a_new_question["prompt_id"], prompt["prompt_id"], "A's second question has another id");
 
     // The old card answered again (a new tap on a stale phone screen, a second window): nothing is pressed.
@@ -261,12 +265,13 @@ steps = [
     assert!(session.attention_card(&b).is_some_and(|card| card["id"] == item_b.as_str()), "B's card is still open and its own");
 
     // Each helper is then answered through its own, current card, once.
-    let new_a = session.until(20, || session.attention_card(&a).filter(|card| card["prompt"]["prompt_id"] != prompt["prompt_id"])).expect("A's new card");
+    let new_a = session.until(100, || session.attention_card(&a).filter(|card| card["prompt"]["prompt_id"] != prompt["prompt_id"])).expect("A's new card");
     for (pane, card, key) in [(&a, new_a, "tap-a-4"), (&b, session.attention_card(&b).unwrap(), "tap-b-1")] {
         let p = &card["prompt"];
         let body = json!({ "choice": "allow_once", "prompt_id": p["prompt_id"], "occurrence": p["occurrence"], "fingerprint": p["fingerprint"], "answer_key": key });
         let (code, reply) = session.answer_from_phone(card["id"].as_str().unwrap(), body);
         assert_eq!((code, reply["outcome"].as_str()), (200, Some("answered")), "{pane}: {reply}");
     }
+    session.until(120, || (events_named(&session, "approval_answer").len() >= 3).then_some(()));
     assert_eq!(events_named(&session, "approval_answer").len(), 3, "A's first, A's second, B's first: {:#?}", session.events());
 }

@@ -11,6 +11,7 @@ use pm_relay_protocol::room::{FrameKind, RoomFrame, RoomStatus};
 use serde::Serialize;
 
 use super::client::ClientError;
+use super::pin::{note_for, ChatShare};
 use super::seal::Sealer;
 use super::view::{clean, pane_view, to_live, LiveItem, LivePane, LiveState};
 use super::{CLOCK_JUMP, IDLE_STOP, SCREEN_HOLD_BACK, SNAPSHOT_EVERY};
@@ -34,6 +35,10 @@ const STATE_EVERY_MS: u64 = 2_000;
 /// This many failed calls in a row, spanning at least `RELAY_LOST_MS`, stop the room.
 const RELAY_LOST_CALLS: u32 = 3;
 const RELAY_LOST_MS: u64 = 30_000;
+/// When no call to the relay was tried for this long, the room asks the relay for its status. In a quiet room no frame
+/// goes out, so without it a lost relay would only be noticed at the next snapshot (up to 60 s) and then take another
+/// `RELAY_LOST_MS`. With it the room stops about 30 to 40 s after the relay is lost.
+const HEARTBEAT_MS: u64 = 10_000;
 /// The room title when the cleaned title is empty.
 const DEFAULT_TITLE: &str = "Live Room";
 const TITLE_CHARS: usize = 60;
@@ -60,6 +65,8 @@ pub struct PaneNow {
     pub pending_card: bool,
     /// The chat comes off the screen (not a session file), so it can hold a dialog.
     pub screen_source: bool,
+    /// Whether the pane's chat may be shared (it is the pane's own session). Not shared: no rows, and one note.
+    pub chat: ChatShare,
 }
 
 /// Reads the shared panes and their chat. The app implements it over `Watchers`.
@@ -74,6 +81,9 @@ pub trait Source {
 pub trait Sink {
     fn snapshot(&mut self, frame: &RoomFrame) -> Result<RoomStatus, ClientError>;
     fn frame(&mut self, frame: &RoomFrame) -> Result<RoomStatus, ClientError>;
+    /// Asks the relay for the room's status (a call that carries no frame). It tells the publisher the relay still
+    /// answers when the room is quiet.
+    fn ping(&mut self) -> Result<RoomStatus, ClientError>;
     /// Called once, when the room stops.
     fn end(&mut self);
 }
@@ -162,6 +172,11 @@ struct Slot {
     shown: Option<LivePane>,
     /// Screen-read rows are held back until this time (after a card).
     hold_until_ms: u64,
+    /// Viewers were told once that the chat is not shared (cannot be tied to the pane / its session changed).
+    told_unpinned: bool,
+    told_changed: bool,
+    /// The last turn row is an end: a second end with nothing between is the same turn's late length line.
+    turn_ended: bool,
 }
 
 impl Slot {
@@ -177,6 +192,9 @@ impl Slot {
             now,
             shown: None,
             hold_until_ms: 0,
+            told_unpinned: false,
+            told_changed: false,
+            turn_ended: false,
         }
     }
 }
@@ -187,6 +205,9 @@ struct Gathered {
     rev: Option<u64>,
     rows: VecDeque<LiveItem>,
     screen: bool,
+    told_unpinned: bool,
+    told_changed: bool,
+    turn_ended: bool,
 }
 
 pub struct Publisher<S: Source, K: Sink> {
@@ -217,6 +238,8 @@ pub struct Publisher<S: Source, K: Sink> {
     last_activity_ms: u64,
     last_snapshot_ms: u64,
     last_state_ms: u64,
+    /// The last time a call to the relay was tried (it worked or not).
+    last_call_ms: u64,
     failed_calls: u32,
     first_failure_ms: u64,
 }
@@ -249,6 +272,7 @@ impl<S: Source, K: Sink> Publisher<S, K> {
             last_activity_ms: now_ms,
             last_snapshot_ms: now_ms,
             last_state_ms: now_ms.saturating_sub(STATE_EVERY_MS),
+            last_call_ms: now_ms,
             failed_calls: 0,
             first_failure_ms: 0,
         }
@@ -266,6 +290,9 @@ impl<S: Source, K: Sink> Publisher<S, K> {
             slot.screen = got.screen;
             slot.ring = got.rows;
             slot.now = got.pane;
+            slot.told_unpinned = got.told_unpinned;
+            slot.told_changed = got.told_changed;
+            slot.turn_ended = got.turn_ended;
         }
         let (panes, rows) = self.snapshot_body();
         self.send_frame(FrameKind::Snap, &panes, &rows)?;
@@ -301,6 +328,9 @@ impl<S: Source, K: Sink> Publisher<S, K> {
         }
         if self.stopped.is_none() {
             self.send(now_ms);
+        }
+        if self.stopped.is_none() {
+            self.heartbeat(now_ms);
         }
         self.verdict()
     }
@@ -366,12 +396,30 @@ impl<S: Source, K: Sink> Publisher<S, K> {
         }
     }
 
+    /// Asks the relay for the room's status when no call was tried for `HEARTBEAT_MS`, so a quiet room still notices
+    /// a relay that is gone. A failure counts like a failed frame; an answer carries the viewer count.
+    fn heartbeat(&mut self, now_ms: u64) {
+        if now_ms.saturating_sub(self.last_call_ms) < HEARTBEAT_MS {
+            return;
+        }
+        match self.sink.ping() {
+            Ok(status) => {
+                self.viewers = status.viewers;
+                self.settle(Ok(()), now_ms);
+            }
+            Err(error) => {
+                self.settle(Err(error), now_ms);
+            }
+        }
+    }
+
     /// Reads every planned pane: its line now, and activity when its state changed (not while paused).
     fn read_panes(&mut self, now_ms: u64) {
         let panes = self.source.panes();
-        for slot in self.slots.iter_mut() {
+        let mut shares = Vec::new();
+        for (index, slot) in self.slots.iter_mut().enumerate() {
             let found = panes.iter().find(|pane| pane.pane_id == slot.pane_id);
-            let next = match found {
+            let mut next = match found {
                 Some(pane) => {
                     slot.screen = pane.screen_source;
                     pane_view(
@@ -395,8 +443,43 @@ impl<S: Source, K: Sink> Publisher<S, K> {
             if next.state != slot.now.state && !self.paused {
                 self.last_activity_ms = now_ms;
             }
+            // A pane that closed keeps the name it had: an empty one never replaces a known one.
+            if next.label.is_empty() {
+                next.label = slot.now.label.clone();
+            }
+            if next.title.is_empty() && next.state == LiveState::Gone {
+                next.title = slot.now.title.clone();
+            }
             slot.now = next;
+            if let Some(pane) = found {
+                shares.push((index, pane.chat));
+            }
         }
+        for (index, share) in shares {
+            self.tell_chat_share(index, share);
+        }
+    }
+
+    /// A pane whose chat is not shared gets one note for viewers (per reason), as a row of its own.
+    fn tell_chat_share(&mut self, index: usize, share: ChatShare) {
+        let slot = &mut self.slots[index];
+        let told = match share {
+            ChatShare::Shared => return,
+            ChatShare::NotPinned => &mut slot.told_unpinned,
+            ChatShare::SessionChanged => &mut slot.told_changed,
+        };
+        if std::mem::replace(told, true) {
+            return;
+        }
+        let Some(text) = note_for(share) else { return };
+        let row = LiveItem::Note { id: self.next_id, pane: slot.key.clone(), text: text.to_string() };
+        self.next_id += 1;
+        if self.paused {
+            self.hidden += 1;
+            return;
+        }
+        push_ring(&mut slot.ring, row.clone());
+        self.outbox.push_back(row);
     }
 
     /// Reads the new chat of every pane that is not gone. Rows are queued, held back or thrown away.
@@ -417,12 +500,18 @@ impl<S: Source, K: Sink> Publisher<S, K> {
                 continue;
             };
             self.slots[index].rev = Some(next_rev);
-            if reset && !self.paused {
-                self.slots[index].ring.clear();
-                self.reset_pending = true;
+            if reset {
+                self.slots[index].turn_ended = false;
+                if !self.paused {
+                    self.slots[index].ring.clear();
+                    self.reset_pending = true;
+                }
             }
             let drop_all = self.paused || held;
             for item in &items {
+                if !turn_gate(&mut self.slots[index].turn_ended, item) {
+                    continue;
+                }
                 let Some(row) = to_live(item, &key, &mut self.next_id, &self.ctx) else {
                     continue;
                 };
@@ -559,6 +648,7 @@ impl<S: Source, K: Sink> Publisher<S, K> {
 
     /// Books the outcome of one call: a success clears the failure run, an error may stop the room.
     fn settle(&mut self, result: Result<(), ClientError>, now_ms: u64) -> bool {
+        self.last_call_ms = now_ms;
         match result {
             Ok(()) => {
                 self.failed_calls = 0;
@@ -596,6 +686,7 @@ impl<S: Source, K: Sink> Publisher<S, K> {
         self.need_snapshot = false;
         self.reset_pending = false;
         self.last_snapshot_ms = now_ms;
+        self.last_call_ms = now_ms;
     }
 
     /// The panes and rows of a snapshot: every pane, and the rings' rows (oldest dropped until it fits).
@@ -671,19 +762,45 @@ fn gather<S: Source>(source: &mut S, pane_ids: &[String], ctx: &RedactContext, n
         let screen = found.is_some_and(|pane| pane.screen_source);
         let mut rows = VecDeque::new();
         let mut rev = None;
+        let mut turn_ended = false;
+        let (mut told_unpinned, mut told_changed) = (false, false);
+        if let Some(share) = found.map(|pane| pane.chat).filter(|share| *share != ChatShare::Shared) {
+            if let Some(text) = note_for(share) {
+                push_ring(&mut rows, LiveItem::Note { id: *next_id, pane: key.clone(), text: text.to_string() });
+                *next_id += 1;
+            }
+            told_unpinned = share == ChatShare::NotPinned;
+            told_changed = share == ChatShare::SessionChanged;
+        }
         if found.is_some_and(|pane| pane.status.is_some()) {
             if let Some((next, _, items)) = source.items_since(pane_id, None) {
                 rev = Some(next);
                 for item in &items {
+                    if !turn_gate(&mut turn_ended, item) {
+                        continue;
+                    }
                     if let Some(row) = to_live(item, &key, next_id, ctx) {
                         push_ring(&mut rows, row);
                     }
                 }
             }
         }
-        out.push(Gathered { pane, rev, rows, screen });
+        out.push(Gathered { pane, rev, rows, screen, told_unpinned, told_changed, turn_ended });
     }
     out
+}
+
+/// Whether a chat item is shown. A turn end that follows another turn end with nothing between is the same turn's
+/// late length line (an agent writes the end, then the real length): the first one is shown, the second is dropped.
+fn turn_gate(ended: &mut bool, item: &ChatItem) -> bool {
+    match item {
+        ChatItem::TurnEnd { .. } => !std::mem::replace(ended, true),
+        ChatItem::User { .. } | ChatItem::Assistant { .. } | ChatItem::ToolCall { .. } => {
+            *ended = false;
+            true
+        }
+        _ => true,
+    }
 }
 
 fn push_ring(ring: &mut VecDeque<LiveItem>, row: LiveItem) {

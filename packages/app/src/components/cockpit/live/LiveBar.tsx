@@ -16,14 +16,16 @@ export function LiveBar({
   onStopped?: () => void;
 }) {
   const { status, refresh } = useLiveRoom({ api, subscribe });
-  const [now, setNow] = useState(() => Date.now());
+  // Only a heartbeat to redraw: the minutes are read from the clock at render time. A time kept in state would be
+  // as old as the bar (it is mounted long before a room starts) and show one minute too many.
+  const [, setBeat] = useState(0);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The minutes left count down while the bar is up. A tick every 15 s keeps it close enough.
+  // The minutes left count down while the bar is up. A redraw every 15 s keeps it close enough.
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    const timer = setInterval(() => setBeat((n) => n + 1), 15_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -70,7 +72,7 @@ export function LiveBar({
         <>
           <span className="ck-live-text">Live Room</span>
           <span className="ck-live-text">{watchingText(status)}</span>
-          <span className="ck-live-text">{`${minutesLeft(status.endsAtMs, now)} min left`}</span>
+          <span className="ck-live-text">{`${minutesLeft(status.endsAtMs, Date.now())} min left`}</span>
         </>
       )}
       {error && (
