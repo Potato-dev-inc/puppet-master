@@ -1241,3 +1241,8 @@ mod night;
 
 #[path = "fake_tui_issue_intake.rs"]
 mod issue_intake;
+
+// ---- Focus: a turn held back, one summary at the end, approvals quiet or through (SPEC n33 FT-12) ------------------
+
+#[path = "fake_tui_focus.rs"]
+mod focus;
