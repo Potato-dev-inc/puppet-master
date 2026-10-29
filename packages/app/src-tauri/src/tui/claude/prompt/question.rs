@@ -37,14 +37,14 @@ const MAX_OPTIONS: usize = 9;
 /// Most rows of the question above the options.
 const MAX_QUESTION_ROWS: usize = 3;
 
-struct Row {
-    n: usize,
-    label: String,
-    pointer: bool,
+pub(super) struct Row {
+    pub(super) n: usize,
+    pub(super) label: String,
+    pub(super) pointer: bool,
 }
 
 /// `❯ 2. Blue` / `  2. Blue` -> (pointer, 2, "Blue").
-fn option_row(row: &str) -> Option<Row> {
+pub(super) fn option_row(row: &str) -> Option<Row> {
     let trimmed = row.trim();
     let (pointer, rest) = match trimmed.strip_prefix(POINTER) {
         Some(rest) => (true, rest.trim_start()),

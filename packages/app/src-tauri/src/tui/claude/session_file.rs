@@ -211,6 +211,12 @@ fn tool_result(block: &Value, out: &mut Line) {
     out.push(|id, at| ChatItem::ToolResult { id, at, call_id, ok, output });
 }
 
+/// The name Claude Code writes on a message it made itself (an API error such as "Login expired"). It is not a model:
+/// the view must keep the last real one (or none).
+fn is_synthetic_model(name: &str) -> bool {
+    name.trim().eq_ignore_ascii_case("<synthetic>")
+}
+
 fn assistant_line(value: &Value, out: &mut Line) {
     if flag(value, "isSidechain") {
         return;
@@ -218,7 +224,7 @@ fn assistant_line(value: &Value, out: &mut Line) {
     let Some(message) = value.get("message") else {
         return;
     };
-    let model = message.get("model").and_then(Value::as_str).map(str::to_string);
+    let model = message.get("model").and_then(Value::as_str).filter(|m| !is_synthetic_model(m)).map(str::to_string);
     // `requestedModel` is the name the session asked for, with a `[1m]` suffix when it uses the 1M window.
     let requested = value.get("requestedModel").and_then(Value::as_str);
     let ended = message.get("stop_reason").and_then(Value::as_str) == Some("end_turn");

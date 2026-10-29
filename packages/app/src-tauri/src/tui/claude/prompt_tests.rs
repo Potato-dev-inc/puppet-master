@@ -188,3 +188,70 @@ fn a_crlf_checkout_of_the_captures_reads_the_same() {
         }
     }
 }
+
+// ---- the sign-in menu (`/login`) ----
+
+const LOGIN_MENU: &str = include_str!("fixtures/login_menu_2_1_312.txt");
+
+#[test]
+fn the_sign_in_menu_is_a_card_with_its_three_options_and_a_way_out() {
+    let prompt = detect(LOGIN_MENU, false);
+    assert_eq!(prompt["kind"], "question");
+    assert_eq!(prompt["summary"], "Claude Code needs you to sign in");
+    assert_eq!(prompt["note"], "Pick how you sign in. A browser window opens.");
+    assert_eq!(prompt["choices"], json!(["1", "2", "3", "cancel"]));
+    assert_eq!(prompt["labels"]["1"], "Claude account with subscription");
+    assert_eq!(prompt["labels"]["2"], "Anthropic Console account");
+    assert_eq!(prompt["labels"]["3"], "3rd-party platform");
+    assert_eq!(prompt["menu"]["selected"], 1);
+    assert_eq!(prompt["menu"]["options"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn picking_a_sign_in_option_moves_the_pointer_and_cancel_is_escape() {
+    let prompt = detect(LOGIN_MENU, false);
+    assert_eq!(key(&prompt, "1", false), "", "the pointer is already on option 1; the route adds Enter");
+    assert_eq!(key(&prompt, "2", false), DOWN);
+    assert_eq!(key(&prompt, "3", false), format!("{DOWN}{DOWN}"));
+    assert_eq!(key(&prompt, "cancel", false), "\u{1b}");
+    assert!(prompt_reply(&prompt, "4", false).is_err());
+}
+
+#[test]
+fn the_sign_in_menu_keeps_its_pointer_row_when_the_person_moved_it() {
+    let moved = LOGIN_MENU.replace("❯ 1.", "  1.").replace("  2. Anthropic", "❯ 2. Anthropic");
+    let prompt = detect(&moved, false);
+    assert_eq!(prompt["menu"]["selected"], 2);
+    assert_eq!(key(&prompt, "1", false), UP);
+    assert_eq!(key(&prompt, "3", false), DOWN);
+}
+
+#[test]
+fn the_sign_in_menu_is_a_waiting_pane_but_only_while_it_is_the_last_thing_drawn() {
+    assert_eq!(profile_for("claude").classify_screen(LOGIN_MENU), Some(crate::pty::status::PaneStatus::WaitingInput));
+    // Anything drawn under it means it was answered or cancelled.
+    let later = format!("{LOGIN_MENU}\nOpening your browser to sign in...\n");
+    assert!(detect_prompt("claude", &later, false).is_none());
+    assert_eq!(profile_for("claude").classify_screen(&later), None);
+}
+
+#[test]
+fn text_that_only_looks_like_the_sign_in_menu_is_not_a_card() {
+    // A reply that quotes the title and a numbered list, with no pointer and no footer.
+    let quoted = "The CLI says: Select login method:\n1. Claude account\n2. Console account\nthen asks for a browser.";
+    assert!(detect_prompt("claude", quoted, false).is_none());
+    // Options that do not count 1, 2, 3.
+    let skipped = LOGIN_MENU.replace("2. Anthropic", "5. Anthropic");
+    assert!(detect_prompt("claude", &skipped, false).is_none());
+}
+
+#[test]
+fn the_sign_in_card_leads_with_its_own_line_and_keeps_the_agents_words() {
+    let card = crate::pane_prompt::detect_in_screen("claude", LOGIN_MENU, false).expect("a card");
+    assert_eq!(card["risk"]["reasons"][0], "Pick how you sign in. A browser window opens.");
+    let ui = crate::pane_prompt::PanePrompt::from_detected(&card).expect("a prompt for the UI");
+    assert_eq!(ui.summary.as_deref(), Some("Claude Code needs you to sign in"));
+    let labels: Vec<&str> = ui.choices.iter().map(|c| c.label.as_str()).collect();
+    assert_eq!(labels, ["Claude account with subscription", "Anthropic Console account", "3rd-party platform", "Cancel"]);
+    assert!(ui.choices.iter().all(|c| !c.broad), "no sign-in answer is a broad approval");
+}

@@ -78,6 +78,8 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 const tabs = () => [...host.querySelectorAll<HTMLElement>('[role="tab"]')].map((t) => t.textContent);
 const tab = (name: string) => [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === name)!;
 
+const SCREEN_TEXT = ['Select a thing:', ' ❯ 1. Alpha', '   2. Beta'].join('\n');
+
 describe('pane Chat tab', () => {
   it('is shown for an agent pane, right after Terminal', async () => {
     await act(async () => root.render(<PaneView c={cockpit('claude')} paneId="p1" />));
@@ -208,7 +210,7 @@ describe('the docked question in the Chat tab', () => {
     await act(async () => tab('Chat').click());
     await flush();
     expect(dockOnChat()).not.toBeNull();
-    await renderPane(waitingCockpit(null));
+    await renderPane(cockpit('claude'));
     await flush();
     expect(dockOnChat()).toBeNull();
     expect(tab('Chat').getAttribute('aria-selected')).toBe('true');
@@ -223,17 +225,30 @@ describe('the docked question in the Chat tab', () => {
     expect(dockOnChat()!.querySelector('[data-kind="stuck"]')).not.toBeNull();
   });
 
-  it('keeps a question with no choices as a compact bar that goes to the terminal', async () => {
+  it('shows a question with no choices as "Agent is asking", read off the screen, with a way to the terminal', async () => {
+    invoke.mockImplementation(async (cmd: string) => (cmd === 'read_pane_snapshot' ? SCREEN_TEXT : null));
     await renderPane(waitingCockpit({ ...question, choices: [] }));
     await flush();
     await act(async () => tab('Chat').click());
     await flush();
     const dock = dockOnChat()!;
-    expect(dock.querySelector('[data-ib-card]')).toBeNull();
-    const bar = dock.querySelector<HTMLElement>('.ck-dock-bar')!;
-    expect(bar.textContent).toBe('Needs you · Run testsOpen terminal ›');
-    await act(async () => bar.click());
+    expect(dock.querySelector('.ck-dock-bar')).toBeNull();
+    const card = dock.querySelector<HTMLElement>('[data-screen-question]')!;
+    expect(card.textContent).toContain('Agent is asking');
+    expect(card.textContent).toContain('Select a thing:');
+    expect(Array.from(card.querySelectorAll('button')).map((b) => b.textContent)).toEqual(expect.arrayContaining(['Alpha', 'Beta']));
+    await act(async () => Array.from(card.querySelectorAll('button')).find((b) => b.textContent === 'Open Terminal')!.click());
     expect(tab('Terminal').getAttribute('aria-selected')).toBe('true');
+    invoke.mockImplementation(async (cmd: string) => (cmd === 'checkpoints_list' ? { state: 'ok', message: '', items: [] } : null) as unknown);
+  });
+
+  it('does not add that card when a proper card already answers the question', async () => {
+    await renderPane(waitingCockpit(question));
+    await flush();
+    await act(async () => tab('Chat').click());
+    await flush();
+    expect(dockOnChat()!.querySelector('[data-kind="approval"]')).not.toBeNull();
+    expect(dockOnChat()!.querySelector('[data-screen-question]')).toBeNull();
   });
 
   it('cycles the docked cards with "N more ›"', async () => {

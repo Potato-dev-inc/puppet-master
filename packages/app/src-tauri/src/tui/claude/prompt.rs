@@ -23,6 +23,7 @@ use serde_json::{json, Value};
 
 use crate::tui::{generic, Reply};
 
+mod login;
 mod question;
 
 /// Kind of the folder-trust dialog. Generic code treats this kind as a startup gate: a run parks
@@ -464,11 +465,17 @@ pub(super) fn detect_prompt(agent_type: &str, screen: &str, allow_broad: bool) -
     trust_gate(agent_type, screen)
         .or_else(|| permission_menu(agent_type, screen, allow_broad))
         .or_else(|| question::question_menu(agent_type, screen))
+        .or_else(|| login::login_menu(agent_type, screen))
 }
 
 /// Whether Claude's own question menu (AskUserQuestion) is on screen: a pane waiting for the person.
 pub(super) fn shows_question_menu(screen: &str) -> bool {
     question::shows_question_menu(screen)
+}
+
+/// Whether Claude's sign-in menu (`/login`) is on screen: a pane waiting for the person.
+pub(super) fn shows_login_menu(screen: &str) -> bool {
+    login::shows_login_menu(screen)
 }
 
 /// Arrow keys that move the pointer from `from` to `to` (1-based rows).
@@ -488,6 +495,13 @@ pub(super) fn prompt_reply(prompt: &Value, choice: &str, allow_broad: bool) -> R
     };
     if matches!(choice, "allow_all" | "allow_broad" | "always") && !allow_broad {
         return Err("broad approval requires explicit allow_broad".into());
+    }
+    // A card that names its own way out (the sign-in menu: Esc). The route adds an Enter after it, which does nothing
+    // on the empty input box Claude returns to.
+    if choice == "cancel" {
+        if let Some(key) = prompt.get("cancel_key").and_then(Value::as_str) {
+            return Ok(Reply::key(key));
+        }
     }
     let options = menu.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
     let target = options
