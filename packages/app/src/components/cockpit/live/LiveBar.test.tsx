@@ -87,6 +87,27 @@ describe('LiveBar', () => {
     expect(text).toContain('41 min left');
   });
 
+  it('shows 30 min left for a room that just started, even when the bar was mounted a while before', async () => {
+    const T0 = 1_700_000_000_000;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(T0);
+    let push: (status: LiveStatus) => void = () => {};
+    const subscribe = vi.fn(async (cb: (status: LiveStatus) => void) => {
+      push = cb;
+      return () => {};
+    });
+    await act(async () => {
+      root.render(<LiveBar api={fakeApi(null)} subscribe={subscribe} />);
+    });
+    await settle();
+    // Fourteen seconds later a 30 minute room starts; the bar's own 15 s redraw has not run yet.
+    clock.mockReturnValue(T0 + 14_000);
+    await act(async () => {
+      push(live({ endsAtMs: T0 + 14_000 + 30 * 60_000 }));
+    });
+    expect(host.textContent ?? '').toContain('30 min left');
+    expect(host.textContent ?? '').not.toContain('31 min left');
+  });
+
   it('stays hidden when no room is live', async () => {
     await mount(fakeApi(live({ live: false })));
     expect(host.querySelector('.ck-live-bar')).toBeNull();

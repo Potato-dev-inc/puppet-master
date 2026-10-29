@@ -36,12 +36,12 @@ static CLOSING: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Zero-width characters, bidi overrides and isolates, word joiners and the byte order mark.
-fn is_invisible(c: char) -> bool {
+pub(crate) fn is_invisible(c: char) -> bool {
     matches!(c as u32, 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064 | 0x2066..=0x2069 | 0xFEFF)
 }
 
 /// Control characters other than the line feed and the tab.
-fn is_stray_control(c: char) -> bool {
+pub(crate) fn is_stray_control(c: char) -> bool {
     c.is_control() && c != '\n' && c != '\t'
 }
 
@@ -270,13 +270,13 @@ pub fn card_context(s: &IssueSnapshot, forced: &[String]) -> String {
 /// What PM writes into a pull request before it leaves the PC: known secrets and token shapes masked
 /// (strict, which keeps addresses), every e-mail address as `<email>` (`mask_emails`, as the other
 /// outbound sinks do), then the home folder as `~`.
-fn publish_text(text: &str, ctx: &RedactContext, home: Option<&str>) -> String {
+pub(crate) fn publish_text(text: &str, ctx: &RedactContext, home: Option<&str>) -> String {
     let masked = redact::mask_emails(redact::strict_with(text, ctx).as_str());
     home_to_tilde(&masked, home)
 }
 
 /// [`publish_text`] with the saved secrets and the real home folder.
-fn publish_clean(text: &str) -> String {
+pub(crate) fn publish_clean(text: &str) -> String {
     let home = home_dir();
     publish_text(text, &known::context(), home.as_deref().and_then(|p| p.to_str()))
 }

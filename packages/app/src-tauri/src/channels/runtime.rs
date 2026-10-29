@@ -61,8 +61,8 @@ pub struct Runtime {
     pub(super) code: Mutex<Option<ShownCode>>,
     /// The channel is on and a chat is paired (so a poller that is alive may speak).
     pub(super) armed: AtomicBool,
-    /// Turn ends before this time were already looked at by the 5 s tick.
-    pub(super) turns_seen_ms: Mutex<u64>,
+    /// Which finished turns the 5 s tick already looked at (see `feed::TurnsSeen`).
+    pub(super) turns_seen: Mutex<super::feed::TurnsSeen>,
 }
 
 impl Runtime {
@@ -77,7 +77,7 @@ impl Runtime {
             live: Mutex::new(None),
             code: Mutex::new(None),
             armed: AtomicBool::new(false),
-            turns_seen_ms: Mutex::new(start),
+            turns_seen: Mutex::new(super::feed::TurnsSeen::new(start)),
         }
     }
 

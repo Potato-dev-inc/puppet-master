@@ -12,6 +12,7 @@ use pm_relay_protocol::b64;
 use pm_relay_protocol::room::RoomFrame;
 
 use super::*;
+use crate::live_room::pin::ChatShare;
 use crate::live_room::publisher::PaneNow;
 use crate::live_room::seal::open;
 use crate::pty::status::PaneStatus;
@@ -82,6 +83,7 @@ impl Source for FakeSource {
             activity: None,
             pending_card: false,
             screen_source: false,
+            chat: ChatShare::Shared,
         }]
     }
 
@@ -287,7 +289,8 @@ fn a_room_whose_panes_all_closed_ends_by_itself_and_frees_the_slot() {
     wait_until("the room to end", || seen.lock().last().is_some_and(|s| s.stopped.as_deref() == Some("all_panes_closed")));
     // Until the next start the status still says why.
     assert_eq!(state.status().stopped.as_deref(), Some("all_panes_closed"));
-    assert!(state.link().is_err(), "the link is dropped when the room ends");
+    // The last event goes out just before the slot moves to its ended state, so wait for that step.
+    wait_until("the link to drop", || state.link().is_err());
     assert!(state.pause().is_err());
     wait_until("active.json gone", || !active::path(&dir).exists());
     source.0.lock().gone = false;

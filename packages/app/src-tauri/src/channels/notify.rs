@@ -78,6 +78,12 @@ pub struct Notifier {
 }
 
 impl Notifier {
+    /// A pane's status changed. Once it is no longer waiting, the next identical prompt is a new
+    /// occurrence and may be told again (the duplicate check only covers one uninterrupted wait).
+    pub fn pane_status(&self, pane_id: &str, status: &str) {
+        self.gate.lock().entered(pane_id, status);
+    }
+
     /// A candidate that happened on the desktop. `question` is the `ask_user` question behind a
     /// `Kind::Question` candidate (its choices become buttons); `None` for everything else.
     pub fn offer(

@@ -259,6 +259,50 @@ fn a_turn_that_ends_in_a_pane_the_chat_texted_is_reported_with_its_sentence() {
 }
 
 #[test]
+fn a_summary_that_shows_up_after_the_tick_that_could_have_seen_the_turn_is_still_reported_once() {
+    let r = on();
+    r.host.pane("p1", "auth refactor", "Codex", "idle");
+    r.rt.apply();
+    wait_for("listening", || r.rt.listening());
+    r.rt.engine.refs().lock().open_window(&Target::Pane("p1".into()), T0);
+    // The turn ended at T0+1 s, but its summary is only published at T0+10 s (settle step).
+    r.host.set_now(T0 + 5_000);
+    r.rt.tick();
+    std::thread::sleep(Duration::from_millis(40));
+    assert!(r.bot.texts().is_empty(), "no summary yet");
+    r.host.set_now(T0 + 7_000);
+    r.rt.tick();
+    r.turns.lock().push(turn("p1", T0 + 1_000, "Ran the tests, 42 passed."));
+    r.host.set_now(T0 + 10_000);
+    r.rt.tick();
+    wait_for("the done line", || !r.bot.texts().is_empty());
+    assert_eq!(r.bot.texts()[0], "Done · auth refactor: Ran the tests, 42 passed.");
+    // The same turn is not reported again by later ticks.
+    r.host.set_now(T0 + 15_000);
+    r.rt.tick();
+    r.host.set_now(T0 + 20_000);
+    r.rt.tick();
+    std::thread::sleep(Duration::from_millis(40));
+    assert_eq!(r.bot.texts().len(), 1, "{:?}", r.bot.texts());
+    r.rt.stop();
+}
+
+#[test]
+fn a_turn_older_than_the_lookback_is_never_reported() {
+    let r = on();
+    r.host.pane("p1", "auth refactor", "Codex", "idle");
+    r.rt.apply();
+    wait_for("listening", || r.rt.listening());
+    r.rt.engine.refs().lock().open_window(&Target::Pane("p1".into()), T0);
+    r.turns.lock().push(turn("p1", T0 + 1_000, "Ran the tests, 42 passed."));
+    r.host.set_now(T0 + 300_000);
+    r.rt.tick();
+    std::thread::sleep(Duration::from_millis(40));
+    assert!(r.bot.texts().is_empty());
+    r.rt.stop();
+}
+
+#[test]
 fn a_turn_in_a_pane_the_chat_never_texted_is_not_reported() {
     let r = on();
     r.host.pane("p1", "auth refactor", "Codex", "idle");

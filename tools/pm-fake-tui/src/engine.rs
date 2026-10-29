@@ -37,6 +37,14 @@ struct Sleep {
     until: u64,
 }
 
+/// A `run` step in flight. The command runs on its own thread so this agent keeps its clock going
+/// (the spinner moves) the way a real agent does while its tool works; a frozen screen reads as a
+/// finished pane to anything watching it.
+struct RunningCommand {
+    command: String,
+    done: std::sync::mpsc::Receiver<(i32, String)>,
+}
+
 /// Claude Code collapses a paste longer than this many characters into `[Pasted text #N +M lines]`
 /// (2.1.302: `C.length>800`), however few lines it has.
 const PASTE_COLLAPSE_CHARS: usize = 800;
@@ -70,6 +78,7 @@ pub struct Engine {
     fresh: bool,
     queue: VecDeque<Step>,
     sleep: Option<Sleep>,
+    running: Option<RunningCommand>,
     verb: String,
     turn_started: u64,
     turns_done: usize,
@@ -144,6 +153,7 @@ impl Engine {
             fresh: true,
             queue: VecDeque::new(),
             sleep: None,
+            running: None,
             verb: "Generating".into(),
             turn_started: 0,
             turns_done: 0,
@@ -238,6 +248,12 @@ impl Engine {
             Phase::Busy if self.sleep.as_ref().is_some_and(|s| now >= s.until) => {
                 self.sleep = None;
                 self.run_queue(now);
+            }
+            Phase::Busy if self.running.is_some() => {
+                if let Some((code, tail)) = self.command_result() {
+                    self.finish_command(code, tail, now);
+                    self.run_queue(now);
+                }
             }
             Phase::Warming { until, .. } if now >= *until => {
                 if let Phase::Warming { held, warm_after, .. } = std::mem::replace(&mut self.phase, Phase::Ready) {
@@ -628,7 +644,7 @@ impl Engine {
     }
 
     fn run_queue(&mut self, now: u64) {
-        while matches!(self.phase, Phase::Busy) && self.sleep.is_none() {
+        while matches!(self.phase, Phase::Busy) && self.sleep.is_none() && self.running.is_none() {
             let Some(step) = self.queue.pop_front() else {
                 self.finish_turn(now, true);
                 return;
@@ -708,7 +724,7 @@ impl Engine {
                 }
                 Step::Run { command } => {
                     let command = self.fill(&command);
-                    self.run_command(&command, now)
+                    self.run_command(&command)
                 }
                 Step::Suggest { text } => self.pending_suggestion = Some(text),
                 Step::Limit { text, reset, auto_continue } => {
@@ -785,32 +801,52 @@ impl Engine {
         }
     }
 
-    /// `Step::Run`: the command runs to its end here (a script's commands are short: git, a test run).
-    fn run_command(&mut self, command: &str, now: u64) {
-        #[cfg(windows)]
-        let mut cmd = {
-            // The command line goes to cmd.exe as it is written: no argument quoting in between.
-            use std::os::windows::process::CommandExt;
-            let mut c = std::process::Command::new("cmd");
-            c.arg("/C").raw_arg(command);
-            c
-        };
-        #[cfg(not(windows))]
-        let mut cmd = {
-            let mut c = std::process::Command::new("sh");
-            c.args(["-c", command]);
-            c
-        };
-        let out = cmd.current_dir(&self.base_dir).stdin(std::process::Stdio::null()).output();
-        let (code, tail) = match &out {
-            Ok(o) => {
-                let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
-                let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-                let from = lines.len().saturating_sub(5);
-                (o.status.code().unwrap_or(-1), lines[from..].join("\n"))
-            }
-            Err(e) => (-1, e.to_string()),
-        };
+    /// `Step::Run`: starts the command on a thread of its own (the queue waits for it in `tick`).
+    fn run_command(&mut self, command: &str) {
+        let (send, done) = std::sync::mpsc::channel();
+        let (line, dir) = (command.to_string(), self.base_dir.clone());
+        std::thread::spawn(move || {
+            #[cfg(windows)]
+            let mut cmd = {
+                // The command line goes to cmd.exe as it is written: no argument quoting in between.
+                use std::os::windows::process::CommandExt;
+                let mut c = std::process::Command::new("cmd");
+                c.arg("/C").raw_arg(&line);
+                c
+            };
+            #[cfg(not(windows))]
+            let mut cmd = {
+                let mut c = std::process::Command::new("sh");
+                c.args(["-c", &line]);
+                c
+            };
+            let out = cmd.current_dir(dir).stdin(std::process::Stdio::null()).output();
+            let _ = send.send(match &out {
+                Ok(o) => {
+                    let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+                    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+                    let from = lines.len().saturating_sub(5);
+                    (o.status.code().unwrap_or(-1), lines[from..].join("
+"))
+                }
+                Err(e) => (-1, e.to_string()),
+            });
+        });
+        self.running = Some(RunningCommand { command: command.to_string(), done });
+    }
+
+    /// The finished command's exit code and output tail, once there is one.
+    fn command_result(&mut self) -> Option<(i32, String)> {
+        use std::sync::mpsc::TryRecvError;
+        match self.running.as_ref()?.done.try_recv() {
+            Ok(result) => Some(result),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some((-1, "the command thread ended without an answer".into())),
+        }
+    }
+
+    fn finish_command(&mut self, code: i32, tail: String, now: u64) {
+        let Some(RunningCommand { command, .. }) = self.running.take() else { return };
         self.log(now, "run", json!({ "command": command, "code": code, "output": tail }));
         let (label, detail) = match self.layout {
             Layout::Claude => (format!("Bash({command})"), format!("exit {code}")),
@@ -824,6 +860,7 @@ impl Engine {
         self.log(now, "interrupted", json!({}));
         self.queue.clear();
         self.sleep = None;
+        self.running = None;
         self.blocks.push(Block::Note(match self.layout {
             Layout::Claude => "Interrupted \u{b7} What should Claude do instead?".into(),
             Layout::Codex => "Conversation interrupted - tell the model what to do differently.".into(),
@@ -868,6 +905,7 @@ impl Engine {
         self.exit = Some(code);
         self.queue.clear();
         self.sleep = None;
+        self.running = None;
         self.phase = Phase::Exited { frozen };
     }
 
@@ -1247,9 +1285,46 @@ steps = [{{ do = \"run\", command = {command:?} }}, {{ do = \"run\", command = \
         let mut e = Engine::new(script, dir.clone(), 100, 30, 0);
         type_text(&mut e, "x", 0);
         e.on_key(Key::Enter, 100);
+        let t = wait_for_turn(&mut e, 100);
         assert!(dir.join("ran.txt").is_file(), "the command ran in the working directory");
-        let screen = e.plain(100);
+        let screen = e.plain(t);
         assert!(screen.contains("Bash(echo ran") && screen.contains("exit 0") && screen.contains("exit 3"), "{screen}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Ticks (a real clock, 10 ms apart) until the turn is over; returns the last `now`.
+    fn wait_for_turn(e: &mut Engine, from: u64) -> u64 {
+        let mut t = from;
+        for _ in 0..3000 {
+            if !e.plain(t).contains("esc to interrupt") {
+                return t;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            t += 10;
+            e.tick(t);
+        }
+        panic!("the turn did not end: {}", e.plain(t));
+    }
+
+    #[test]
+    fn a_running_command_does_not_freeze_the_screen() {
+        let dir = std::env::temp_dir().join(format!("pm-fake-tui-runbusy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let command = if cfg!(windows) { "ping -n 3 127.0.0.1 > nul" } else { "sleep 2" };
+        let script = Script::parse(&format!("[[turn]]
+steps = [{{ do = \"run\", command = {command:?} }}, {{ do = \"say\", text = \"Done.\" }}]"), false).unwrap();
+        let mut e = Engine::new(script, dir.clone(), 100, 30, 0);
+        type_text(&mut e, "x", 0);
+        let started = std::time::Instant::now();
+        e.on_key(Key::Enter, 100);
+        // `on_key` came back while the command still runs: the turn is open, the spinner is drawn and moves.
+        assert!(started.elapsed() < std::time::Duration::from_millis(1500), "on_key waited for the command");
+        let first = e.plain(100);
+        assert!(first.contains("esc to interrupt") && !first.contains("Done."), "{first}");
+        let moves = (1..8).any(|n| e.plain(100 + n * 130) != first);
+        assert!(moves, "the spinner moves while the command runs");
+        let t = wait_for_turn(&mut e, 100);
+        assert!(e.plain(t).contains("Done."), "{}", e.plain(t));
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -150,6 +150,10 @@ export class Board {
 
     els.title.textContent = model.room?.title || 'Live Room';
     els.live.hidden = model.status !== 'live' && model.status !== 'reconnecting';
+    // The pill follows the room: while the owner has paused it, it must not say LIVE.
+    const paused = model.room?.paused === true;
+    els.live.textContent = paused ? 'PAUSED' : 'LIVE';
+    els.live.toggleAttribute('data-paused', paused);
     const notice = noticeFor(model);
     els.notice.textContent = notice;
     els.notice.hidden = notice === '';

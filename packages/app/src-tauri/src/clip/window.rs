@@ -80,9 +80,37 @@ pub fn window_for(turn: &Turn, summaries: &[TurnSummary]) -> Result<(u64, u64, O
         })
         .max_by_key(|(overlap, started, _)| (*overlap, *started));
     match best {
-        Some((_, _, s)) => Ok((s.started_at_ms, s.ended_at_ms, Some(s.clone()))),
+        Some((_, _, s)) => Ok((s.started_at_ms, end_with_answer(s, turn, summaries), Some(s.clone()))),
         None => Ok((first, last, None)),
     }
+}
+
+/// The most the window may grow past the summary's end to reach the agent's last item.
+const ANSWER_GRACE_MS: u64 = 120_000;
+
+/// The summary ends when the pane first rests (its status turns idle). An agent can rest on the screen a
+/// moment before it draws its answer, so the clip used to stop on a spinner line and skip the answer.
+/// The chat's own times are the agent's record of when the turn really ended: the window reaches the last
+/// item of the turn when that is later. It stops at the start of the next summary of the pane, and at
+/// `ANSWER_GRACE_MS` past the summary's end.
+fn end_with_answer(chosen: &TurnSummary, turn: &Turn, summaries: &[TurnSummary]) -> u64 {
+    let last_item = turn
+        .items
+        .iter()
+        .filter(|item| matches!(item, ChatItem::TurnEnd { .. } | ChatItem::Assistant { .. } | ChatItem::ToolCall { .. } | ChatItem::ToolResult { .. }))
+        .filter_map(item_ms)
+        .max()
+        .unwrap_or(0);
+    let mut end = chosen.ended_at_ms.max(last_item.min(chosen.ended_at_ms.saturating_add(ANSWER_GRACE_MS)));
+    let next_start = summaries
+        .iter()
+        .filter(|s| s.started_at_ms >= chosen.ended_at_ms && s.started_at_ms > chosen.started_at_ms)
+        .map(|s| s.started_at_ms)
+        .min();
+    if let Some(next) = next_start {
+        end = end.min(next.max(chosen.ended_at_ms));
+    }
+    end
 }
 
 /// The unix time of a chat item in milliseconds. `None` when the item has no time or it does not parse.
@@ -202,8 +230,44 @@ mod tests {
         let main = summary(ms("2026-10-28T10:00:00Z"), ms("2026-10-28T10:00:24Z")); // 24 s overlap
         let summaries = vec![early, main.clone()];
         let (start, end, chosen) = window_for(&turn, &summaries).unwrap();
-        assert_eq!((start, end), (main.started_at_ms, main.ended_at_ms));
+        // The window reaches the turn end item (25 s), a second after the summary's end.
+        assert_eq!((start, end), (main.started_at_ms, ms("2026-10-28T10:00:25Z")));
         assert_eq!(chosen, Some(main));
+    }
+
+    #[test]
+    fn the_window_reaches_the_last_item_when_the_summary_ended_before_it() {
+        let items = vec![
+            user("u1", Some("2026-10-28T10:00:00Z")),
+            reply("a1", Some("2026-10-28T10:00:12Z")),
+            end("e1", Some("2026-10-28T10:00:13Z")),
+        ];
+        let turn = find_turn(&items, None).unwrap();
+        let s = summary(ms("2026-10-28T10:00:00Z"), ms("2026-10-28T10:00:10Z"));
+        let (start, end_ms, _) = window_for(&turn, std::slice::from_ref(&s)).unwrap();
+        assert_eq!(start, s.started_at_ms);
+        assert_eq!(end_ms, ms("2026-10-28T10:00:13Z"));
+    }
+
+    #[test]
+    fn the_window_never_runs_into_the_next_turn_or_past_the_grace() {
+        let items = vec![
+            user("u1", Some("2026-10-28T10:00:00Z")),
+            end("e1", Some("2026-10-28T10:00:30Z")),
+        ];
+        let turn = find_turn(&items, None).unwrap();
+        let first = summary(ms("2026-10-28T10:00:00Z"), ms("2026-10-28T10:00:10Z"));
+        let next = summary(ms("2026-10-28T10:00:20Z"), ms("2026-10-28T10:00:25Z"));
+        let (_, end_ms, _) = window_for(&turn, &[first.clone(), next]).unwrap();
+        assert_eq!(end_ms, ms("2026-10-28T10:00:20Z"), "stops where the next summary starts");
+        let (_, end_ms, _) = window_for(&turn, &[first]).unwrap();
+        assert_eq!(end_ms, ms("2026-10-28T10:00:30Z"));
+        // A turn end hours later is not followed.
+        let far = vec![user("u1", Some("2026-10-28T10:00:00Z")), end("e1", Some("2026-10-28T14:00:00Z"))];
+        let turn = find_turn(&far, None).unwrap();
+        let s = summary(ms("2026-10-28T10:00:00Z"), ms("2026-10-28T10:00:10Z"));
+        let (_, end_ms, _) = window_for(&turn, std::slice::from_ref(&s)).unwrap();
+        assert_eq!(end_ms, s.ended_at_ms + ANSWER_GRACE_MS);
     }
 
     #[test]

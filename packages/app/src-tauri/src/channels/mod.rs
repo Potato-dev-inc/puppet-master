@@ -41,7 +41,7 @@ pub mod setup;
 pub mod feed;
 pub mod status;
 mod live;
-pub use live::{companion_reply, current, listening, offer, start};
+pub use live::{companion_reply, current, listening, offer, pane_status, start};
 #[cfg(test)]
 pub use live::install_for_test;
 #[cfg(test)]

@@ -234,6 +234,28 @@ fn a_refused_token_or_bot_stops_with_its_own_state() {
 }
 
 #[test]
+fn the_desktop_hears_when_the_link_goes_on_but_not_for_every_poll() {
+    let r = rig(vec![Poll::Batch(vec![]), Poll::Batch(vec![]), Poll::Batch(vec![])]);
+    assert_eq!(run(&r), Outcome::Stopped);
+    assert_eq!(r.link.lock().unwrap().state, LinkState::On);
+    assert_eq!(r.host.changed_times(), 1, "connecting to on once; the later polls only move the clock");
+}
+
+#[test]
+fn the_desktop_hears_when_the_link_drops_and_comes_back() {
+    let r = rig(vec![Poll::Batch(vec![]), Poll::Fail(ApiError::Network), Poll::Batch(vec![])]);
+    assert_eq!(run(&r), Outcome::Stopped);
+    assert_eq!(r.host.changed_times(), 3, "on, connecting, on");
+}
+
+#[test]
+fn a_conflict_is_announced_once() {
+    let r = rig(vec![Poll::Fail(ApiError::Conflict)]);
+    assert_eq!(run(&r), Outcome::Failed(LinkError::Conflict));
+    assert_eq!(r.host.changed_times(), 1);
+}
+
+#[test]
 fn a_batch_fetched_after_a_restart_is_dropped() {
     let r = rig(vec![Poll::BumpReal(vec![text_update(7, "/stop")])]);
     assert_eq!(run(&r), Outcome::Stopped);

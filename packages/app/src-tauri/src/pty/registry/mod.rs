@@ -415,4 +415,6 @@ mod kill_tests;
 #[cfg(test)]
 mod live_permit_tests;
 #[cfg(test)]
+mod resize_order_tests;
+#[cfg(test)]
 mod tests;

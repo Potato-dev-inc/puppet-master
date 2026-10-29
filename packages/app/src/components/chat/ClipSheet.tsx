@@ -39,10 +39,16 @@ function megabytes(bytes: number): string {
   return `${Math.max(0.1, Math.round(bytes / 105_000) / 10)} MB`;
 }
 
+/** The length as the video has it, to a tenth of a second: 28.5 s stays 28.5 s, 23 s stays 23 s. */
+export function clipSeconds(totalMs: number): string {
+  const tenths = Math.round(Math.max(0, totalMs) / 100);
+  const whole = Math.floor(tenths / 10);
+  return tenths % 10 === 0 ? `${whole} s` : `${whole}.${tenths % 10} s`;
+}
+
 /** The length and size line under the video. */
 export function clipFacts(made: MadeClip): string {
-  const seconds = Math.round(made.timeline.totalMs / 1000);
-  return `${seconds} s · ${made.ext.toUpperCase()} · ${megabytes(made.blob.size)}`;
+  return `${clipSeconds(made.timeline.totalMs)} · ${made.ext.toUpperCase()} · ${megabytes(made.blob.size)}`;
 }
 
 export function ClipSheet({
