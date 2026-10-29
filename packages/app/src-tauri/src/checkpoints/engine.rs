@@ -154,7 +154,7 @@ pub struct RestoreReport {
 
 static LOCKS: Lazy<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-fn lock_for(shadow: &Shadow) -> Arc<Mutex<()>> {
+pub(super) fn lock_for(shadow: &Shadow) -> Arc<Mutex<()>> {
     LOCKS.lock().entry(shadow.git_dir.clone()).or_default().clone()
 }
 
@@ -199,20 +199,62 @@ pub fn list(project: &Path, pane: &str) -> Result<Vec<Checkpoint>, CheckpointErr
     list_in(&shadow, pane)
 }
 
-fn list_in(shadow: &Shadow, pane: &str) -> Result<Vec<Checkpoint>, CheckpointError> {
+pub(crate) fn list_in(shadow: &Shadow, pane: &str) -> Result<Vec<Checkpoint>, CheckpointError> {
     let prefix = format!("refs/pm/{}/", pane_key(pane));
+    let mut items = Vec::new();
+    for (name, commit, tree, body) in read_refs(shadow, &prefix)? {
+        let id = name.strip_prefix(&prefix).unwrap_or(name.as_str()).to_string();
+        if id.parse::<u64>().is_err() {
+            continue;
+        }
+        items.push(parse_message(id, &commit, &tree, pane, &body));
+    }
+    items.sort_by_key(|c| c.id.parse::<u64>().unwrap_or(0));
+    Ok(items)
+}
+
+/// Every checkpoint of every pane key in this folder (`refs/pm/*`, so the `wb-` and `mission-`
+/// series too), oldest first. `pane_id` is the ref's key. A folder never snapshotted: empty.
+// The What-broke-it engine (`checkpoints/bisect/`) is the first caller of the `pub fn`s below;
+// until it lands, a non-test build has no user for them.
+#[allow(dead_code)]
+pub fn list_all(project: &Path) -> Result<Vec<Checkpoint>, CheckpointError> {
+    if !git_available() {
+        return Err(CheckpointError::GitMissing);
+    }
+    let shadow = Shadow::new(project);
+    if !shadow.exists() {
+        return Ok(Vec::new());
+    }
+    let mut items = Vec::new();
+    for (name, commit, tree, body) in read_refs(&shadow, "refs/pm/")? {
+        // `refs/pm/<key>/<n>`: the key is already ref-safe (`pane_key`), so it has no `/`.
+        let Some((key, id)) = name.strip_prefix("refs/pm/").and_then(|rest| rest.split_once('/')) else {
+            continue;
+        };
+        if key.is_empty() || id.parse::<u64>().is_err() {
+            continue;
+        }
+        items.push(parse_message(id.to_string(), &commit, &tree, key, &body));
+    }
+    items.sort_by_key(|c| (c.at_ms, c.id.parse::<u64>().unwrap_or(0)));
+    Ok(items)
+}
+
+/// Refs under `prefix` as `(refname, commit, tree, message)`, in refname order.
+fn read_refs(shadow: &Shadow, prefix: &str) -> Result<Vec<(String, String, String, String)>, CheckpointError> {
     let out = shadow.run(
         &[
             "for-each-ref".to_string(),
             "--format=%(refname)%1f%(objectname)%1f%(tree)%1f%(contents)%1e".to_string(),
-            prefix.clone(),
+            prefix.to_string(),
         ],
         None,
         None,
         &[],
     )?;
     let text = String::from_utf8_lossy(&out.stdout).to_string();
-    let mut items = Vec::new();
+    let mut rows = Vec::new();
     for record in text.split('\u{1e}') {
         let record = record.trim_matches(|c| c == '\n' || c == '\r');
         if record.is_empty() {
@@ -224,14 +266,111 @@ fn list_in(shadow: &Shadow, pane: &str) -> Result<Vec<Checkpoint>, CheckpointErr
         else {
             continue;
         };
-        let id = name.strip_prefix(&prefix).unwrap_or(name).to_string();
-        if id.parse::<u64>().is_err() {
+        rows.push((name.to_string(), commit.to_string(), tree.to_string(), body.to_string()));
+    }
+    Ok(rows)
+}
+
+/// A full 40-character lowercase object id (what `write-tree` prints). Anything else never
+/// reaches a git command line.
+fn is_object_id(text: &str) -> bool {
+    text.len() == 40 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// The shadow repository of `project`, once every tree id is a valid object id and the repository exists.
+/// Read-only: nothing is created (unlike `prepare`).
+fn shadow_at(project: &Path, trees: &[&str]) -> Result<Shadow, CheckpointError> {
+    if !git_available() {
+        return Err(CheckpointError::GitMissing);
+    }
+    if trees.iter().any(|t| !is_object_id(t)) {
+        return Err(CheckpointError::Other("That save point is not valid.".into()));
+    }
+    let shadow = Shadow::new(project);
+    if !shadow.exists() {
+        return Err(CheckpointError::NotFound);
+    }
+    Ok(shadow)
+}
+
+/// Bytes of the files in `tree`, from the object store (the folder itself is not read).
+#[allow(dead_code)] // first caller: `checkpoints/bisect/` (see `list_all`)
+pub fn tree_bytes(project: &Path, tree: &str) -> Result<u64, CheckpointError> {
+    let shadow = shadow_at(project, &[tree])?;
+    let out = shadow.run(&["ls-tree", "-r", "-l", "-z", tree], None, None, &[])?;
+    let mut total = 0_u64;
+    for record in out.stdout.split(|b| *b == 0) {
+        // `<mode> <type> <object> <size>\t<path>`; a submodule shows `-` and counts as 0.
+        let line = String::from_utf8_lossy(record);
+        let Some((meta, _)) = line.split_once('\t') else { continue };
+        let size = meta.split_whitespace().last().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        total = total.saturating_add(size);
+    }
+    Ok(total)
+}
+
+/// Largest file `file_at` reads.
+const FILE_AT_MAX_BYTES: u64 = 20 * 1024 * 1024;
+
+/// The bytes of the file `path` in `tree`. `None` when the tree has no regular file of that
+/// name (absent, a folder, a submodule). A file over 20 MiB is refused, not read.
+#[allow(dead_code)] // first caller: `checkpoints/bisect/` (see `list_all`)
+pub fn file_at(project: &Path, tree: &str, path: &str) -> Result<Option<Vec<u8>>, CheckpointError> {
+    let shadow = shadow_at(project, &[tree])?;
+    if safe_relative(path).is_none() {
+        return Err(CheckpointError::Other("That file name is not allowed.".into()));
+    }
+    let listing = shadow.run(&["ls-tree", "-z", "-l", tree, "--", path], None, None, &[])?;
+    for record in listing.stdout.split(|b| *b == 0) {
+        let line = String::from_utf8_lossy(record);
+        let Some((meta, name)) = line.split_once('\t') else { continue };
+        if name != path {
             continue;
         }
-        items.push(parse_message(id, commit, tree, pane, body));
+        // `<mode> <type> <object> <size>`
+        let mut fields = meta.split_whitespace();
+        let (Some(_mode), Some(kind), Some(object), Some(size)) = (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        if kind != "blob" {
+            return Ok(None);
+        }
+        if size.parse::<u64>().unwrap_or(0) > FILE_AT_MAX_BYTES {
+            return Err(CheckpointError::Other("That file is too big to read here (over 20 MB).".into()));
+        }
+        return Ok(Some(shadow.run(&["cat-file", "blob", object], None, None, &[])?.stdout));
     }
-    items.sort_by_key(|c| c.id.parse::<u64>().unwrap_or(0));
-    Ok(items)
+    Ok(None)
+}
+
+/// The unified diff of one file between two trees, cut at `max_bytes` on a character boundary.
+/// The bool says whether it was cut. A file that did not change gives an empty patch.
+#[allow(dead_code)] // first caller: `checkpoints/bisect/` (see `list_all`)
+pub fn patch_between_trees(project: &Path, from: &str, to: &str, path: &str, max_bytes: usize) -> Result<(String, bool), CheckpointError> {
+    let shadow = shadow_at(project, &[from, to])?;
+    if safe_relative(path).is_none() {
+        return Err(CheckpointError::Other("That file name is not allowed.".into()));
+    }
+    let out = shadow.run(&["diff", "--no-color", "--no-renames", "-U3", from, to, "--", path], None, None, &[])?;
+    let mut patch = String::from_utf8_lossy(&out.stdout).into_owned();
+    let truncated = patch.len() > max_bytes;
+    if truncated {
+        let mut end = max_bytes;
+        while end > 0 && !patch.is_char_boundary(end) {
+            end -= 1;
+        }
+        patch.truncate(end);
+    }
+    Ok((patch, truncated))
+}
+
+/// Whether `tree` is a tree object in this folder's save points. Any problem reads as `false`.
+#[allow(dead_code)] // first caller: `checkpoints/bisect/` (see `list_all`)
+pub fn tree_exists(project: &Path, tree: &str) -> bool {
+    let Ok(shadow) = shadow_at(project, &[tree]) else { return false };
+    let spec = format!("{tree}^{{tree}}");
+    shadow.run(&["cat-file", "-e", spec.as_str()], None, None, &[]).is_ok()
 }
 
 fn parse_message(id: String, commit: &str, tree: &str, pane: &str, body: &str) -> Checkpoint {
@@ -281,7 +420,7 @@ fn label_for(kind: Kind, turn: u32) -> String {
 
 /// Untracked + modified files (per the pane index): those over the per-file limit, and a guard
 /// on the total size of the rest.
-fn scan(shadow: &Shadow, index: &Path, limits: &Limits) -> Result<Vec<String>, CheckpointError> {
+pub(super) fn scan(shadow: &Shadow, index: &Path, limits: &Limits) -> Result<Vec<String>, CheckpointError> {
     let out = shadow.run(&["ls-files", "-z", "-o", "-m", "--exclude-standard"], Some(index), None, &[])?;
     let mut big = Vec::new();
     let mut total = 0_u64;
@@ -306,7 +445,7 @@ fn scan(shadow: &Shadow, index: &Path, limits: &Limits) -> Result<Vec<String>, C
     Ok(big)
 }
 
-fn stage_all(shadow: &Shadow, index: &Path, big: &[String]) -> Result<(), CheckpointError> {
+pub(super) fn stage_all(shadow: &Shadow, index: &Path, big: &[String]) -> Result<(), CheckpointError> {
     let run = || -> Result<(), GitError> {
         if big.is_empty() {
             shadow.run(&["add", "-A"], Some(index), None, &[])?;
@@ -336,7 +475,7 @@ fn stage_all(shadow: &Shadow, index: &Path, big: &[String]) -> Result<(), Checkp
     }
 }
 
-fn numstat(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(String, u32, u32, bool)>, CheckpointError> {
+pub(crate) fn numstat(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(String, u32, u32, bool)>, CheckpointError> {
     let out = shadow.run(&["diff-tree", "-r", "-z", "--numstat", "--no-renames", from, to], None, None, &[])?;
     let mut rows = Vec::new();
     for rec in out.stdout.split(|b| *b == 0) {
@@ -499,7 +638,7 @@ fn prune_locked(shadow: &Shadow, pane: &str, keep: usize) -> usize {
     removed
 }
 
-fn find(items: &[Checkpoint], id: &str) -> Result<usize, CheckpointError> {
+pub(crate) fn find(items: &[Checkpoint], id: &str) -> Result<usize, CheckpointError> {
     items.iter().position(|c| c.id == id).ok_or(CheckpointError::NotFound)
 }
 
@@ -519,7 +658,7 @@ pub fn diff(project: &Path, pane: &str, id: &str) -> Result<Vec<FileChange>, Che
 }
 
 /// Files that differ between two trees, with line counts, sorted by path.
-fn changes_between(shadow: &Shadow, prev: &str, tree: &str) -> Result<Vec<FileChange>, CheckpointError> {
+pub(crate) fn changes_between(shadow: &Shadow, prev: &str, tree: &str) -> Result<Vec<FileChange>, CheckpointError> {
     let stats: HashMap<String, (u32, u32, bool)> = numstat(shadow, prev, tree)?
         .into_iter()
         .map(|(p, a, d, b)| (p, (a, d, b)))
@@ -672,7 +811,7 @@ pub fn latest_after(items: &[Checkpoint]) -> Option<&Checkpoint> {
     items.iter().rev().find(|c| c.kind == "after")
 }
 
-fn name_status(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(char, String)>, CheckpointError> {
+pub(crate) fn name_status(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(char, String)>, CheckpointError> {
     let out = shadow.run(&["diff-tree", "-r", "-z", "--name-status", "--no-renames", from, to], None, None, &[])?;
     let parts: Vec<String> = out.stdout.split(|b| *b == 0).map(|p| String::from_utf8_lossy(p).to_string()).collect();
     let mut rows = Vec::new();
@@ -686,7 +825,7 @@ fn name_status(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(char, Strin
     Ok(rows)
 }
 
-fn safe_relative(path: &str) -> Option<PathBuf> {
+pub(crate) fn safe_relative(path: &str) -> Option<PathBuf> {
     let p = Path::new(path);
     if !path.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_))) {
         Some(p.to_path_buf())
@@ -695,7 +834,7 @@ fn safe_relative(path: &str) -> Option<PathBuf> {
     }
 }
 
-fn remove_file_forced(path: &Path) -> std::io::Result<()> {
+pub(crate) fn remove_file_forced(path: &Path) -> std::io::Result<()> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -794,4 +933,192 @@ pub fn restore(
         }
     }
     Ok(report)
+}
+
+#[cfg(test)]
+mod all_tests {
+    use super::*;
+    use crate::checkpoints::test_snapshot;
+
+    /// A throw-away folder under the temp dir (its own copy of the checkpoint tests' helper).
+    /// Git objects are read-only on Windows, so drop makes them writable before removing them.
+    struct Dir(PathBuf);
+
+    impl Dir {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("pm-ckpt-engine-{tag}-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Dir(dir)
+        }
+        fn p(&self) -> &Path {
+            &self.0
+        }
+        fn write(&self, rel: &str, text: &str) {
+            let path = self.0.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        fn read(&self, rel: &str) -> String {
+            std::fs::read_to_string(self.0.join(rel)).unwrap()
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            fn unlock(dir: &Path) {
+                if let Ok(rd) = std::fs::read_dir(dir) {
+                    for e in rd.flatten() {
+                        let p = e.path();
+                        if p.is_dir() {
+                            unlock(&p);
+                        } else if let Ok(m) = std::fs::metadata(&p) {
+                            let mut perms = m.permissions();
+                            #[allow(clippy::permissions_set_readonly_false)]
+                            perms.set_readonly(false);
+                            let _ = std::fs::set_permissions(&p, perms);
+                        }
+                    }
+                }
+            }
+            unlock(&self.0);
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const T0: u64 = 1_000;
+
+    fn snap(d: &Dir, pane: &str, kind: Kind, at: u64) -> Checkpoint {
+        match test_snapshot(d.p(), pane, kind, None, at, &Limits::default()).expect("snapshot") {
+            Snapshot::Created(c) => c,
+            Snapshot::Unchanged(_) => panic!("expected a new checkpoint"),
+        }
+    }
+
+    #[test]
+    fn list_all_returns_every_pane_key_oldest_first() {
+        let d = Dir::new("listall");
+        d.write("a.txt", "1");
+        snap(&d, "p1", Kind::Before, 1_000);
+        d.write("b.txt", "2");
+        let p2 = snap(&d, "p2", Kind::Before, 2_000);
+        d.write("a.txt", "3");
+        let wb = snap(&d, "wb-abc", Kind::After, 2_500);
+        d.write("a.txt", "4");
+        let p1b = snap(&d, "p1", Kind::After, 3_000);
+
+        let all = list_all(d.p()).unwrap();
+        let got: Vec<(&str, &str, u64)> = all.iter().map(|c| (c.pane_id.as_str(), c.id.as_str(), c.at_ms)).collect();
+        assert_eq!(got, vec![("p1", "1", 1_000), ("p2", "1", 2_000), ("wb-abc", "1", 2_500), ("p1", "2", 3_000)]);
+        assert_eq!(all[1].tree, p2.tree);
+        assert_eq!(all[2].tree, wb.tree);
+        assert_eq!(all[3].tree, p1b.tree);
+        assert_eq!(all[3].kind, "after");
+        assert_eq!(list(d.p(), "p1").unwrap().len(), 2, "the per-pane list is unchanged");
+        assert!(list_all(Dir::new("listall-none").p()).unwrap().is_empty(), "a folder never snapshotted");
+    }
+
+    #[test]
+    fn tree_bytes_adds_up_the_files_of_a_tree() {
+        let d = Dir::new("treebytes");
+        d.write("a.txt", "12345");
+        d.write("sub/b.txt", "xyz");
+        d.write("node_modules/skip.txt", "not in a save point");
+        let c = snap(&d, "p1", Kind::Before, T0);
+        assert_eq!(tree_bytes(d.p(), &c.tree).unwrap(), 8);
+        assert_eq!(tree_bytes(d.p(), EMPTY_TREE).unwrap(), 0);
+        assert!(tree_bytes(d.p(), &"0".repeat(40)).is_err(), "a tree that does not exist");
+        assert!(tree_bytes(d.p(), "a.txt; rm").is_err(), "only object ids reach git");
+    }
+
+    #[test]
+    fn file_at_reads_present_files_and_says_none_for_the_rest() {
+        let d = Dir::new("fileat");
+        d.write("a.txt", "12345");
+        d.write("sub/b.txt", "xyz");
+        let first = snap(&d, "p1", Kind::Before, T0);
+        d.write("a.txt", "changed");
+        snap(&d, "p1", Kind::After, 2_000);
+
+        assert_eq!(file_at(d.p(), &first.tree, "a.txt").unwrap(), Some(b"12345".to_vec()), "the old tree keeps the old bytes");
+        assert_eq!(file_at(d.p(), &first.tree, "sub/b.txt").unwrap(), Some(b"xyz".to_vec()));
+        assert_eq!(file_at(d.p(), &first.tree, "missing.txt").unwrap(), None);
+        assert_eq!(file_at(d.p(), &first.tree, "sub").unwrap(), None, "a folder is not a file");
+        assert!(file_at(d.p(), &first.tree, "../a.txt").is_err());
+        assert!(file_at(d.p(), &first.tree, "").is_err());
+    }
+
+    #[test]
+    fn file_at_refuses_a_file_over_20_mib() {
+        let d = Dir::new("fileatbig");
+        let big = vec![b'x'; 21 * 1024 * 1024];
+        std::fs::write(d.p().join("big.bin"), &big).unwrap();
+        let roomy = Limits { max_file_bytes: 64 * 1024 * 1024, ..Limits::default() };
+        let Snapshot::Created(c) = test_snapshot(d.p(), "p1", Kind::Before, None, T0, &roomy).unwrap() else {
+            panic!("expected a checkpoint");
+        };
+        assert_eq!(tree_bytes(d.p(), &c.tree).unwrap(), big.len() as u64);
+        assert!(file_at(d.p(), &c.tree, "big.bin").is_err(), "over the 20 MiB read cap");
+    }
+
+    #[test]
+    fn patch_between_cuts_on_a_character_boundary_and_says_so() {
+        let d = Dir::new("patchcut");
+        d.write("a.txt", "one\ntwo\nthree\n");
+        let before = snap(&d, "p1", Kind::Before, T0);
+        d.write("a.txt", "one\ntwo\nthree\nfour é ü\n");
+        let after = snap(&d, "p1", Kind::After, 2_000);
+
+        let (full, cut) = patch_between_trees(d.p(), &before.tree, &after.tree, "a.txt", 1_000_000).unwrap();
+        assert!(!cut);
+        assert!(full.contains("+four é ü"));
+        // `é` is two bytes: a cut at the middle of it steps back to the character start.
+        let at = full.find('é').unwrap();
+        for (max, want) in [(0, 0), (at, at), (at + 1, at)] {
+            let (short, cut) = patch_between_trees(d.p(), &before.tree, &after.tree, "a.txt", max).unwrap();
+            assert!(cut, "{max} bytes is less than the whole patch");
+            assert_eq!(short.len(), want, "cut at {max} bytes");
+            assert!(full.starts_with(&short));
+        }
+        let (none, cut) = patch_between_trees(d.p(), &before.tree, &after.tree, "other.txt", 100).unwrap();
+        assert_eq!((none.as_str(), cut), ("", false), "a file that did not change");
+        assert!(patch_between_trees(d.p(), &before.tree, &after.tree, "../a.txt", 100).is_err());
+    }
+
+    #[test]
+    fn tree_exists_is_true_only_for_a_save_point_tree_in_this_folder() {
+        let d = Dir::new("treeexists");
+        d.write("a.txt", "1");
+        let c = snap(&d, "p1", Kind::Before, T0);
+        assert!(tree_exists(d.p(), &c.tree));
+        assert!(!tree_exists(d.p(), &"0".repeat(40)));
+        assert!(!tree_exists(d.p(), "not a tree"));
+        assert!(!tree_exists(Dir::new("treeexists-none").p(), &c.tree), "a folder with no save points");
+    }
+
+    #[test]
+    fn object_ids_must_be_40_lowercase_hex() {
+        assert!(is_object_id(EMPTY_TREE));
+        assert!(!is_object_id(&EMPTY_TREE.to_uppercase()));
+        assert!(!is_object_id("4b825dc6"));
+        assert!(!is_object_id("--output=/tmp/x"));
+    }
+
+    #[test]
+    fn with_work_tree_checks_out_into_the_copy_and_never_the_project() {
+        let d = Dir::new("worktree");
+        d.write("a.txt", "saved");
+        let c = snap(&d, "p1", Kind::Before, T0);
+        d.write("a.txt", "edited since");
+        let copy = Dir::new("worktree-copy");
+        let scratch = Dir::new("worktree-index");
+        let index = scratch.p().join("copy.idx");
+        let shadow = Shadow::new(d.p());
+        let on_copy = shadow.with_work_tree(copy.p());
+        assert_eq!(on_copy.git_dir, shadow.git_dir, "the same repository");
+        on_copy.run(&["read-tree", c.tree.as_str()], Some(index.as_path()), None, &[]).unwrap();
+        on_copy.run(&["checkout-index", "-a", "-f"], Some(index.as_path()), None, &[]).unwrap();
+        assert_eq!(copy.read("a.txt"), "saved");
+        assert_eq!(d.read("a.txt"), "edited since", "the project folder is untouched");
+        assert_eq!(list_all(d.p()).unwrap().len(), 1, "no save point was added");
+    }
 }

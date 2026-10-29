@@ -41,6 +41,8 @@ export interface ScoreRow {
   /** Only with 3 or more merged runs. */
   perMerged?: ScorePerMerged | null;
   waitingReview: number;
+  /** Turns that "What broke the tests?" blamed on this agent. 0 when none. A plain count: never in `ahead`. */
+  brokeTests: number;
   turnMsMedian?: number | null;
   linesMedian?: number | null;
   ahead: ScoreAheadKey[];
@@ -123,6 +125,12 @@ function plural(n: number, one: string, many: string): string {
 export function perMergedText(pm: ScorePerMerged | null | undefined): string | null {
   if (!pm) return null;
   return `${plural(pm.turnsMedian, 'turn', 'turns')} · ${formatBusy(pm.busyMsMedian)}`;
+}
+
+/** "Broke the tests 2 times", "Broke the tests 1 time". Null when the count is 0 (nothing to say). */
+export function brokeTestsText(row: Pick<ScoreRow, 'brokeTests'>): string | null {
+  if (!(row.brokeTests > 0)) return null;
+  return `Broke the tests ${plural(row.brokeTests, 'time', 'times')}`;
 }
 
 /** "Not enough runs yet. 3 turns so far." */

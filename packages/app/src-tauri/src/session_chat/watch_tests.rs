@@ -85,6 +85,7 @@ fn facts() -> PaneFacts {
         provider_session_id: None,
         home: None,
         launch: Default::default(),
+        linux: None,
     }
 }
 

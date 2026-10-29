@@ -201,6 +201,11 @@ fn issue_intake_has_its_own_audit_kind() {
 }
 
 #[test]
+fn red_to_green_has_its_own_audit_kind() {
+    assert_eq!(Kind::CiFix.as_str(), "ci.fix");
+}
+
+#[test]
 fn a_channel_actor_is_its_name() {
     assert_eq!(Who::Channel("telegram".into()).parts(), ("channel", Some("telegram".to_string())));
     assert_eq!(Who::Desktop.parts(), ("desktop", None), "other actors are unchanged");
@@ -236,6 +241,11 @@ fn review_desk_kind_has_a_stable_name() {
 #[test]
 fn focus_kind_has_a_stable_name() {
     assert_eq!(Kind::Focus.as_str(), "focus");
+}
+
+#[test]
+fn what_broke_it_kind_has_a_stable_name() {
+    assert_eq!(Kind::WhatBrokeIt.as_str(), "what_broke_it.undone");
 }
 
 #[test]

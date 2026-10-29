@@ -67,6 +67,24 @@ impl ChatProbe {
         ChatProbe { watchers, viewer }
     }
 
+    /// The Chat tab of a pane that writes a session file: the app's own pane lookup (`RegistryPanes`, the facts a Linux
+    /// pane carries) and the session source of `source_agent` (the real agent whose file format the fake writes).
+    pub(super) fn open_files(registry: Arc<Mutex<PaneRegistry>>, pane_id: &str, source_agent: &str) -> Self {
+        let source = crate::tui::profile_for(source_agent)
+            .session_chat()
+            .unwrap_or_else(|| panic!("{source_agent} has no session file source"));
+        let viewer = Arc::new(Mutex::new(Viewer::default()));
+        let watchers = Watchers::new(viewer.clone(), Arc::new(crate::commands::RegistryPanes(registry)));
+        let first = watchers.open(pane_id, "w", source);
+        {
+            let mut shown = viewer.lock();
+            if shown.batches == 0 {
+                shown.items = first;
+            }
+        }
+        ChatProbe { watchers, viewer }
+    }
+
     /// The items the viewer shows now, as the UI receives them (camelCase JSON).
     pub fn items(&self) -> Vec<Value> {
         self.viewer.lock().items.iter().map(|item| serde_json::to_value(item).expect("an item serialises")).collect()

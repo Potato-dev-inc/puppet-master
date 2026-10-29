@@ -58,7 +58,7 @@ pub fn verify(text: &str, lines: &[String], check: &Check) -> Result<(), String>
         }
     }
     let names = Names { home: check.homes.home.as_deref(), cwd: check.cwd, env: &|_| None };
-    let pane = PaneFacts { cwd: check.cwd.to_path_buf(), started_at: check.since, provider_session_id: None, home: None, launch: Default::default() };
+    let pane = PaneFacts { cwd: check.cwd.to_path_buf(), started_at: check.since, provider_session_id: None, home: None, launch: Default::default(), linux: None };
     let real = std::fs::canonicalize(check.file).map(|p| crate::session_chat::plain_path(&p.to_string_lossy())).unwrap_or_default();
     match source.locate_with(&pane, &names) {
         Located::Found(found) if crate::session_chat::plain_path(&found.to_string_lossy()).eq_ignore_ascii_case(&real) => Ok(()),

@@ -13,7 +13,7 @@
 //! through `stats::ahead`.
 
 use super::model::{
-    CopyState, End, PerMerged, Rate, Sample, ScoreRow, ScoreRun, ScoreTurn, MIN_MERGED_FOR_TYPICAL,
+    BrokeFact, CopyState, End, PerMerged, Rate, Sample, ScoreRow, ScoreRun, ScoreTurn, MIN_MERGED_FOR_TYPICAL,
 };
 use super::stats;
 use std::collections::BTreeMap;
@@ -142,6 +142,7 @@ fn row_of(agent: &str, account: &Option<String>, mut t: Tally, labels: &Labels) 
         turn_ms_median: stats::median_u64(&mut t.turn_ms),
         lines_median: stats::median_u32(&mut t.lines),
         ahead: Vec::new(),
+        broke_tests: 0,
     }
 }
 
@@ -213,6 +214,18 @@ pub fn aggregate(
     });
     mark_ahead(&mut rows);
     rows
+}
+
+/// Count the What broke it facts into `broke_tests` of the matching row (same agent and account).
+/// Only that field is written. `ahead`, the rates and `enough` are already set, and none of them reads it.
+/// A fact of another project, before `since_ms`, or with no row here is not counted.
+pub fn count_broke(rows: &mut [ScoreRow], facts: &[BrokeFact], project: Option<&str>, since_ms: u64) {
+    let in_scope = |fact: &&BrokeFact| project.map_or(true, |p| p == fact.project) && fact.at_ms >= since_ms;
+    for fact in facts.iter().filter(in_scope) {
+        if let Some(row) = rows.iter_mut().find(|r| r.agent_id == fact.agent_id && r.account_id == fact.account) {
+            row.broke_tests = row.broke_tests.saturating_add(1);
+        }
+    }
 }
 
 #[cfg(test)]

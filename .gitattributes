@@ -53,6 +53,8 @@ packages/app/src-tauri/src/tui/*/fixtures/history/** text eol=lf
 packages/app/src-tauri/src/tui/*/fixtures/history/**/*.db binary
 # Keep-going brief golden fixtures are compared byte for byte: keep them LF on every checkout.
 packages/app/src-tauri/src/handoff/keep_going/fixtures/*.txt text eol=lf
+# Branch-from brief golden fixtures are compared byte for byte (SPEC n33 BF-5): keep them LF.
+packages/app/src-tauri/src/branch_from/fixtures/*.txt text eol=lf
 # Text Your Agents golden messages (TG-9) are compared byte for byte: keep them LF on every checkout.
 packages/app/src-tauri/src/channels/golden/*.txt text eol=lf
 
@@ -69,3 +71,16 @@ packages/app/src-tauri/src/issue_intake/fixtures/gh/*.json text eol=lf
 packages/app/src-tauri/src/issue_intake/fixtures/text/*.txt text eol=lf
 # Package check top lists (SPEC-n33 PC-2): read by include_str! and split on newlines; keep LF.
 packages/app/src-tauri/src/prompt_risk/packages/popular/*.txt text eol=lf
+
+# Linux Inside wsl.exe list and probe samples (spec n33 WSL-6): the UTF-16LE list sample is binary and never
+# converted; the text samples are read line by line and compared by value, keep them LF.
+packages/app/src-tauri/src/wsl/fixtures/*.utf16 -text
+packages/app/src-tauri/src/wsl/fixtures/*.txt text eol=lf
+
+# What Broke It test-runner output fixtures (failing-name parsing): read line by line, keep them LF.
+packages/app/src-tauri/src/checkpoints/bisect/fixtures/fail_*.txt text eol=lf
+
+# Red to Green GitHub fixtures are parsed as JSON; keep them LF on every checkout.
+packages/app/src-tauri/src/ci_fix/fixtures/gh/*.json text eol=lf
+# Red to Green log fixtures and their golden log files are compared byte for byte: keep them LF.
+packages/app/src-tauri/src/ci_fix/fixtures/logs/* text eol=lf

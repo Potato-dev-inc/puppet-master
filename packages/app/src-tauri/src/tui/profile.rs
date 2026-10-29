@@ -109,6 +109,14 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// Program and arguments for a pane that runs inside WSL (`wsl/`). The program is a bare name
+    /// (`claude`): the distro finds it on its own PATH, so it is never a Windows path or an
+    /// `.exe`/`.cmd`/`.ps1` name. `request.cwd` is the Linux folder (`/mnt/d/...`). The same
+    /// read-only flags as on Windows apply. `None` (the default) means the profile has no Linux launch.
+    fn linux_launch(&self, _request: &SpawnRequest) -> Option<LinuxLaunch> {
+        None
+    }
+
     /// Re-checked at every spawn (APR-4, SEC-4): a definition-backed profile verifies that its file
     /// still has the approved fingerprint and that the binary is still the pinned one, and returns
     /// the reference to record on the run. Code profiles have nothing to check (`Ok(None)`).

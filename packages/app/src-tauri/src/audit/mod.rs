@@ -79,6 +79,9 @@ pub enum Kind {
     /// Assign an issue (`crate::issue_intake`): `issue.asked`, `issue.auto_approved`, `issue.started`,
     /// `issue.pr_opened`, `issue.held`, `issue.thrown_away`, `issue.settings`. The detail carries `event`.
     IssueIntake,
+    /// Red to Green (`crate::ci_fix`): `ci.fix`. The detail carries `event` (`watched`, `asked`, `started`,
+    /// `asked_push`, `held`, `pushed`, `green`, ...).
+    CiFix,
     /// Night Shift (`crate::night_shift`): one kind for the night's own lines (start, task, stop).
     NightShift,
     /// Review Desk (`crate::review_desk`): one `review_desk.action` line per Keep, Throw away or unmark the
@@ -86,6 +89,10 @@ pub enum Kind {
     ReviewDesk,
     /// Focus (`crate::attention::focus`): one kind for its lines (start, change, end). Counts only.
     Focus,
+    /// What broke it (`crate::checkpoints::bisect`): the person undid one agent turn.
+    WhatBrokeIt,
+    /// Branch from here (`crate::branch_from`): `branch.started`.
+    Branch,
 }
 
 impl Kind {
@@ -121,9 +128,12 @@ impl Kind {
             Self::ChannelStranger => "channel.stranger",
             Self::ChannelError => "channel.error",
             Self::IssueIntake => "issue.intake",
+            Self::CiFix => "ci.fix",
             Self::NightShift => "night_shift",
             Self::ReviewDesk => "review_desk.action",
             Self::Focus => "focus",
+            Self::WhatBrokeIt => "what_broke_it.undone",
+            Self::Branch => "branch.started",
         }
     }
 }

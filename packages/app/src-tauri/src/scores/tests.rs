@@ -515,7 +515,7 @@ fn build_reads_a_seeded_project_end_to_end() {
 
     let mut project_names = BTreeMap::new();
     project_names.insert(comparable_project_path(&folder), project.clone());
-    let inputs = Inputs { turns, runs, undo_since_ms: None, project_names, unreadable_records: unreadable };
+    let inputs = Inputs { turns, runs, undo_since_ms: None, project_names, unreadable_records: unreadable, broke: Vec::new() };
     let now = T + HOUR;
     let report = build(&inputs, None, None, now, &labels());
 

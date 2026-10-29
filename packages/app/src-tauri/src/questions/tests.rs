@@ -478,3 +478,73 @@ fn a_phone_may_dismiss_an_issue_card_and_loopback_dismiss_of_other_cards_is_unch
         .unwrap();
     assert_eq!(status, 200);
 }
+
+// ---- Person-only cards: a CI card (`ci_fix`, `ci_push`) ----------------------------------------
+
+#[test]
+fn a_ci_card_is_person_only_and_may_wait_a_day_and_no_longer() {
+    assert!(PERSON_ONLY_KINDS.contains(&CI_KIND_FIX) && PERSON_ONLY_KINDS.contains(&CI_KIND_PUSH));
+    let store = QuestionStore::new();
+    for kind in [CI_KIND_FIX, CI_KIND_PUSH] {
+        let day = NewQuestion {
+            question: format!("{kind} day"),
+            choices: choices(),
+            kind: Some(kind.into()),
+            timeout_s: Some(24 * 3600),
+            ..Default::default()
+        };
+        assert!(store.create(day.clone(), 0).is_ok(), "{kind}: 24 hours is accepted");
+        let too_long = NewQuestion { timeout_s: Some(24 * 3600 + 1), ..day };
+        let refused = store.create(too_long, 0).unwrap_err();
+        assert_eq!(refused.code, "INVALID_ARGUMENT", "{kind}: 25 hours is refused");
+    }
+}
+
+#[test]
+fn an_agent_cannot_ask_for_a_ci_card_over_ask_user() {
+    // `ask_user` never sets a kind: an agent cannot raise a card that is only the person's to answer.
+    for kind in [CI_KIND_FIX, CI_KIND_PUSH] {
+        let body = json!({ "question": "CI failed on #61. Ask Codex to fix it?", "choices": [{"id": "fix", "label": "Ask Codex to fix"}], "kind": kind, "wait_ms": 1 });
+        let (status, reply) = routes::handle("POST", &["questions", "ask"], &body, Some("agent-ci-kind"), false, &|| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, 200, "{kind}");
+        let id = reply["question_id"].as_str().unwrap().to_string();
+        assert_eq!(store().get(&id, now_ms()).unwrap().kind, None, "{kind}");
+    }
+}
+
+#[test]
+fn only_the_person_answers_or_dismisses_a_ci_card_over_the_bridge() {
+    for kind in [CI_KIND_FIX, CI_KIND_PUSH] {
+        let card = issue_card(store(), kind, &format!("CI card {kind} [loopback]"));
+        let answer = json!({ "choice_id": "yes" });
+        // Plain loopback HTTP (an agent's shell, a companion, any local program): refused, the card stays pending.
+        let (status, body) = routes::handle("POST", &["questions", &card.id, "answer"], &answer, None, false, &|| {})
+            .unwrap()
+            .unwrap_err();
+        assert_eq!((status, body["code"].as_str()), (403, Some("CI_FIX_NEEDS_PERSON")), "{kind}");
+        assert_eq!(store().get(&card.id, now_ms()).unwrap().state, QuestionState::Pending, "{kind}");
+        let (status, body) = routes::handle("POST", &["questions", &card.id, "dismiss"], &json!({}), None, false, &|| {})
+            .unwrap()
+            .unwrap_err();
+        assert_eq!((status, body["code"].as_str()), (403, Some("CI_FIX_NEEDS_PERSON")), "{kind}");
+        assert_eq!(store().get(&card.id, now_ms()).unwrap().state, QuestionState::Pending, "{kind}");
+        // A paired phone is the person: it may answer.
+        let (status, _) = routes::handle("POST", &["questions", &card.id, "answer"], &answer, None, true, &|| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, 200, "{kind}");
+        assert_eq!(store().get(&card.id, now_ms()).unwrap().state, QuestionState::Answered, "{kind}");
+    }
+}
+
+#[test]
+fn a_phone_may_dismiss_a_ci_card() {
+    let card = issue_card(store(), CI_KIND_PUSH, "Push the fix to #61? [dismiss]");
+    let (status, _) = routes::handle("POST", &["questions", &card.id, "dismiss"], &json!({}), None, true, &|| {})
+        .unwrap()
+        .unwrap();
+    assert_eq!(status, 200);
+    assert_eq!(store().get(&card.id, now_ms()).unwrap().state, QuestionState::Cancelled);
+}

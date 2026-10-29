@@ -8,8 +8,7 @@
 //!   never to the base branch), then `gh pr create --draft` with a title and body made from the
 //!   receipt ([`render_body`]). Called again for a branch that has a PR, it only pushes.
 //! - [`checks`]: `gh pr checks` as a [`ChecksReport`], optionally polled for a bounded time.
-//! - [`failure_excerpt`]: the failing jobs' last lines (`gh run view --log-failed`), RAW and
-//!   untrusted. They never go into a task: `sendback` cleans them and writes them to a file.
+//!   CI logs are read by `ci_fix` (Red to Green), never here.
 //!
 //! Safety, in code and in tests:
 //! - only branches named `pm/...` are pushed, and never the base branch or `main`/`master`;
@@ -27,12 +26,6 @@ use std::time::Duration;
 const GH_QUICK: Duration = Duration::from_secs(30);
 const GH_SLOW: Duration = Duration::from_secs(120);
 const PUSH_LIMIT: Duration = Duration::from_secs(180);
-/// Lines of a failing job's log kept for the agent, after cleaning (see `sendback`).
-pub const EXCERPT_LINES: usize = 40;
-/// Lines read raw before cleaning, so a secret that spans lines is masked before the cut.
-pub const RAW_EXCERPT_LINES: usize = 200;
-/// Failing runs whose logs are read (each is one `gh` call).
-const MAX_RUNS_READ: usize = 3;
 
 // ------------------------------------------------------------------------------------- records
 
@@ -382,6 +375,45 @@ pub(super) fn push_branch(
     Err(err("PUSH_FAILED", message))
 }
 
+/// Push a fix (new commits) to the copy's own `pm/` branch, after the person said yes (Red to
+/// Green, spec n33 §3.4). It is a plain fast-forward push: the remote branch must still be exactly
+/// `expected_remote` (the commit whose checks failed), or nothing is pushed. Refused: a branch that
+/// [`guard_branch`] refuses, the repo's default branch, and the PR base. `git_env` must be the
+/// hardened env of PM's git calls on the copy. Returns the new head commit.
+pub fn push_update(
+    worktree: &WorktreeRef,
+    base: &str,
+    default_branch: Option<&str>,
+    expected_remote: &str,
+    env: &ToolEnv,
+    git_env: &[(String, String)],
+) -> Result<String, OperationError> {
+    guard_branch(worktree, base)?;
+    if default_branch.is_some_and(|d| d.eq_ignore_ascii_case(&worktree.branch)) {
+        return Err(err(
+            "PR_BRANCH_REFUSED",
+            format!("Puppet Master never pushes the repository's default branch ({}).", worktree.branch),
+        ));
+    }
+    if !super::harden::is_sha(expected_remote) {
+        return Err(err("INVALID_ARGUMENT", "the failing commit must be a full commit id"));
+    }
+    let dir = Path::new(&worktree.path);
+    let remote = remote_name(dir);
+    let on_remote = super::harden::remote_branch_sha(dir, &remote, &worktree.branch, git_env)?;
+    if on_remote.as_deref() != Some(expected_remote) {
+        return Err(err(
+            "CI_FIX_REMOTE_MOVED",
+            format!(
+                "Someone changed {} on GitHub after the failed checks, so nothing was pushed. Look at the branch first.",
+                worktree.branch
+            ),
+        ));
+    }
+    push_branch(worktree, env, git_env)?;
+    super::harden::head_sha(dir, git_env)
+}
+
 /// Push the branch and open (or update) the pull request. The caller has already made sure the
 /// agent is idle and committed its loose edits.
 pub fn create(
@@ -561,34 +593,4 @@ pub fn poll_checks(
         polls += 1;
     }
     Ok(last)
-}
-
-// ------------------------------------------------------------------------------- send back
-
-fn run_id_of(link: &str) -> Option<String> {
-    let tail = link.split("/actions/runs/").nth(1)?;
-    let id: String = tail.chars().take_while(char::is_ascii_digit).collect();
-    (!id.is_empty()).then_some(id)
-}
-
-/// The last [`RAW_EXCERPT_LINES`] lines of the failing jobs' logs, read with `gh run view --log-failed`.
-/// RAW and untrusted: it can hold secrets and planted instructions, so it is never put in a task
-/// or shown as is (`sendback::build` cleans it). Empty when GitHub has no log to give.
-pub fn failure_excerpt(worktree: &WorktreeRef, report: &ChecksReport, env: &ToolEnv) -> String {
-    let dir = Path::new(&worktree.path);
-    let mut seen: Vec<String> = Vec::new();
-    let mut logs: Vec<String> = Vec::new();
-    for item in report.failing() {
-        let Some(id) = item.link.as_deref().and_then(run_id_of) else { continue };
-        if seen.contains(&id) || seen.len() >= MAX_RUNS_READ {
-            continue;
-        }
-        seen.push(id.clone());
-        if let Ok(ran) = run_str("gh", &["run", "view", &id, "--log-failed"], dir, env, GH_SLOW) {
-            if !ran.stdout.trim().is_empty() {
-                logs.push(ran.stdout);
-            }
-        }
-    }
-    tail_lines(&logs.join("\n"), RAW_EXCERPT_LINES)
 }

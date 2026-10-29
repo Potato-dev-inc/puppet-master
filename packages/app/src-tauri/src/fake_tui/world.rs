@@ -17,9 +17,9 @@ const WHOLE_LOG: usize = 10_000_000;
 
 /// Everything shared by the tests of one process: one app handle, one pane registry, one fake build.
 pub struct World {
-    registry: Arc<Mutex<PaneRegistry>>,
-    app: AppHandle,
-    exe: PathBuf,
+    pub(super) registry: Arc<Mutex<PaneRegistry>>,
+    pub(super) app: AppHandle,
+    pub(super) exe: PathBuf,
     script: Arc<Mutex<Option<PathBuf>>>,
     /// One session at a time: the agent registry and the global pane observers are process-wide.
     serial: Mutex<()>,
@@ -85,6 +85,8 @@ impl World {
                 }
             }
         }
+        // No test in this process may reach the real `wsl.exe` (Linux Inside; see `linux.rs`).
+        super::linux::block_real_wsl();
         let exe = locate_fake_exe();
         assert!(exe.is_file(), "pm-fake-tui is not built at {}", exe.display());
 
@@ -180,11 +182,11 @@ fn git(dir: &Path, args: &[&str]) {
 
 /// One test's view of the world.
 pub struct Session {
-    world: &'static World,
+    pub(super) world: &'static World,
     _serial: MutexGuard<'static, ()>,
     root: PathBuf,
-    project: PathBuf,
-    aux: PathBuf,
+    pub(super) project: PathBuf,
+    pub(super) aux: PathBuf,
     saved: Arc<Vec<Arc<dyn TuiProfile>>>,
 }
 
@@ -718,6 +720,7 @@ impl Drop for Session {
             let _ = crate::agent_run_mode::set_for_agent(agent, crate::agent_run_mode::RunMode::Visible);
             crate::agent_run_mode::e2e::force(agent, None);
         }
+        super::linux::end();
         crate::tui::registry::registry().swap(self.saved.iter().cloned().collect());
         *self.world.script.lock() = None;
         super::set_hold_output(None);
@@ -915,5 +918,45 @@ impl Session {
     /// The night rig for this session's project.
     pub fn night(&self) -> super::NightRig {
         super::NightRig::new(self.world.registry.clone(), self.project.clone())
+    }
+}
+
+/// Collision Alert (SPEC n33 CA-16): what the Inbox card, the phone item and the settings row read, off the real
+/// watch thread (`collision::live`) and the real attention list.
+impl Session {
+    /// `collision_list`: the alerts the window shows, as the window gets them (camelCase JSON), newest first.
+    pub fn collision_list(&self) -> Vec<Value> {
+        crate::collision::live::views().iter().filter_map(|v| serde_json::to_value(v).ok()).collect()
+    }
+
+    /// `collision_ignore` (the command validates the id first; ids here come from `collision_list`).
+    pub fn collision_ignore(&self, id: &str) -> Result<(), String> {
+        crate::collision::live::ignore(id)
+    }
+
+    /// Settings > Agents > "Warn me when two agents change the same file".
+    pub fn collision_set_enabled(&self, enabled: bool) {
+        crate::collision::live::set_settings(crate::collision::model::Settings { enabled }).expect("save collision.json");
+    }
+
+    /// The git calls the watch thread's probe has made so far.
+    pub fn collision_probe_calls(&self) -> u64 {
+        crate::collision::live::probe_calls_for_e2e()
+    }
+
+    /// The open attention items a paired phone gets for Collision Alert (key contains `collision:`), as JSON.
+    pub fn collision_attention_items(&self) -> Vec<Value> {
+        crate::attention::snapshot_now()
+            .items
+            .iter()
+            .filter(|item| item.state == crate::attention::model::State::Open && item.key.contains("collision:"))
+            .filter_map(|item| serde_json::to_value(item).ok())
+            .collect()
+    }
+
+    /// The numbers on the Inbox and the phone: (needs you now, ready for you).
+    pub fn attention_counts(&self) -> (u32, u32) {
+        let counts = crate::attention::snapshot_now().counts;
+        (counts.blocking, counts.ready)
     }
 }

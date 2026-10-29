@@ -1250,3 +1250,19 @@ mod package_check;
 
 #[path = "fake_tui_focus.rs"]
 mod focus;
+// ---- Linux Inside: an agent in a fake WSL distro (pm-fake-wsl stands in for wsl.exe, zero tokens) ------------------
+
+#[path = "fake_tui_wsl.rs"]
+mod wsl;
+// ---- Red to Green: CI fails on a PM pull request, a card, a guarded fix pane, a push card, a fast-forward push (fake gh, local bare remote, zero tokens) ----
+
+#[path = "fake_tui_ci_fix.rs"]
+mod ci_fix;
+// ---- Branch from here: a separate copy of a save point, a fenced brief, another agent (zero tokens) ---------------------
+
+#[path = "fake_tui_branch.rs"]
+mod branch;
+// ---- Collision Alert: two agents, one file, an early heads-up (fake agents, real git, zero tokens) -----------------
+
+#[path = "fake_tui_collision.rs"]
+mod collision;

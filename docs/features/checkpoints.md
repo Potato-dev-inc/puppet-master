@@ -3,6 +3,8 @@
 Branch `feat/checkpoints`. Automatic file snapshots at every agent turn, and "Restore" per checkpoint, for **every
 agent, in any folder, including folders that are not git repos**.
 
+See also [What broke it](what-broke-it.md): finds the turn that broke your test command, using these save points, and can undo only that turn.
+
 ## 1. What and why
 
 - **Personas:** B (vibecoders) and C (non-technical) lose work and cannot roll back; A (developers) get a safety net

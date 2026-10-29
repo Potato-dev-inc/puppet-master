@@ -13,6 +13,7 @@ import { Palette, type PaletteMode } from './components/cockpit/Palette';
 import { NeedsYouContext, useNeedsYouSource } from './hooks/useNeedsYou';
 import { useMissions } from './lib/missions';
 import { UndoSheet } from './components/cockpit/UndoSheet';
+import { WhatBrokeItSheet } from './components/cockpit/WhatBrokeItSheet';
 import { panesSharingFolder } from './components/cockpit/history-model';
 import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
@@ -110,6 +111,8 @@ export default function CockpitApp() {
   const settings = useInlineSettings<MainView>({ mode: c.mode, view, setView, home: homeView(c.spawn !== null, c.selectedId), openWindow: c.openSettings });
   // Pane whose last turn the person is being asked to undo (opened from the palette).
   const [undoPane, setUndoPane] = useState<string | null>(null);
+  // Pane whose "What broke the tests?" sheet is open (from History or the palette).
+  const [whatBrokePane, setWhatBrokePane] = useState<string | null>(null);
   const loop = useLoopSignals();
   // Companions (SPEC section 8): the sidebar rows, the page that opens from one, and the setup sheet. Without a
   // companion backend the list is null and the palette and sidebar show no companion entries.
@@ -425,7 +428,7 @@ export default function CockpitApp() {
         ) : view === 'pane' && c.selectedId && splitOn && split ? (
           <SplitView c={nav} leftId={c.selectedId} rightId={split} focus={side} ratio={ratio} onFocus={setSide} onRatio={setRatio} onClose={toggleSplit} />
         ) : view === 'pane' && c.selectedId ? (
-          <PaneView c={c} paneId={c.selectedId} key={c.selectedId} />
+          <PaneView c={c} paneId={c.selectedId} key={c.selectedId} onWhatBroke={setWhatBrokePane} />
         ) : (
           <Inbox
             c={nav}
@@ -472,6 +475,7 @@ export default function CockpitApp() {
           onReviewRiskiest={() => openReview(true)}
           onOpenStore={openStore}
           onUndoLastTurn={setUndoPane}
+          onWhatBroke={setWhatBrokePane}
           onOpenWelcome={welcome.reopen}
           onStartCrew={() => setCrewOpen(true)}
           onOpenShortcuts={() => setShortcutsOpen(true)}
@@ -517,6 +521,14 @@ export default function CockpitApp() {
           sharedWith={panesSharingFolder(c.registry.paneList, c.names, undoPane)}
           notify={c.notify}
           onClose={() => setUndoPane(null)}
+        />
+      )}
+      {whatBrokePane && (
+        <WhatBrokeItSheet
+          paneId={whatBrokePane}
+          sharedWith={panesSharingFolder(c.registry.paneList, c.names, whatBrokePane)}
+          notify={c.notify}
+          onClose={() => setWhatBrokePane(null)}
         />
       )}
       {welcome.open && c.mode !== 'individual' && <FirstRun key={welcome.openKey} c={nav} seed={welcome.seed} onFinish={welcome.finish} />}

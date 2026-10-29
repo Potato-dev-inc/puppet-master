@@ -1,0 +1,20 @@
+   Compiling mathx v0.1.0 (C:\Users\you\proj)
+     Running unittests src/lib.rs (target\debug\deps\mathx-1a2b3c.exe)
+
+running 4 tests
+test math::add_works ... ok
+test math::sub_fails ... FAILED
+test strings::trim ... FAILED
+test strings::case ... ok
+
+failures:
+
+---- math::sub_fails stdout ----
+thread 'math::sub_fails' panicked at src\lib.rs:9:5:
+assertion `left == right` failed
+
+failures:
+    math::sub_fails
+    strings::trim
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

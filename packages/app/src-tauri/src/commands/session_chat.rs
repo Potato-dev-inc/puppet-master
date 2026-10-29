@@ -117,20 +117,33 @@ impl Sink for EventSink {
 }
 
 /// A pane's facts from the registry, the hook ledger (agent session id) and the accounts store.
-struct RegistryPanes(Arc<Mutex<PaneRegistry>>);
+pub(crate) struct RegistryPanes(pub(crate) Arc<Mutex<PaneRegistry>>);
 
 impl PaneLookup for RegistryPanes {
     fn facts(&self, pane_id: &str) -> Option<PaneFacts> {
-        let (info, others) = {
+        let (info, others, exited) = {
             let registry = self.0.lock();
-            let info = registry.get(pane_id)?.info.clone();
+            let pane = registry.get(pane_id)?;
+            let info = pane.info.clone();
+            let exited = *pane.exited.lock();
             let others: Vec<(String, String)> = registry
                 .panes
                 .iter()
                 .filter(|(id, pane)| id.as_str() != pane_id && !*pane.exited.lock())
                 .map(|(_, pane)| (pane.info.agent_type.clone(), pane.info.cwd.clone()))
                 .collect();
-            (info, others)
+            (info, others, exited)
+        };
+        // A pane that runs inside Linux: the chat reads only that Linux home, and stops looking once
+        // the pane's process is gone (a read there can start a stopped distro).
+        let linux = match info.place.as_ref() {
+            Some(place) => {
+                if !crate::wsl::chat::reader_may_look(pane_id, exited) {
+                    return None;
+                }
+                Some(crate::wsl::chat::facts_of(place)?)
+            }
+            None => None,
         };
         let account = info.account.as_deref();
         // A hook-reported id (it follows `/clear` and resumes) wins; until one arrives, the id the pane was launched with.
@@ -149,6 +162,7 @@ impl PaneLookup for RegistryPanes {
             home: account
                 .and_then(|id| crate::accounts::Store::default_location().get(id))
                 .map(|account| PathBuf::from(account.home)),
+            linux,
         })
     }
 

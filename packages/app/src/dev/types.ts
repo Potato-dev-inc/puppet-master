@@ -107,12 +107,22 @@ export interface HarnessScenario {
   keepGoing?: import('./keep-going-fixtures').KeepGoingScenario;
   /** Focus Time: start with a Focus running, or a just-ended summary; the mocked `focus_*` commands then start, extend and end it (see focus-fixtures.ts). */
   focus?: import('./focus-fixtures').FocusScenario;
+  /** Branch from here: what the mocked `branch_lineage` and `branch_brief` commands answer (see branch-fixtures.ts). */
+  branch?: import('./branch-fixtures').BranchScenario;
+  /** Collision Alert: the alerts and the switch the mocked `collision_*` commands answer (see collision-fixtures.ts). */
+  collision?: import('./collision-fixtures').CollisionScenario;
   /** Night Shift: what the state, plans and checks the mocked `night_*` commands answer (see night-fixtures.ts). */
   night?: import('./night-fixtures').NightScenario;
   /** Package check: the packages the mocked approval carries and what the mocked `package_check_*` commands answer. */
   packageCheck?: import('./package-check-fixtures').PackageCheckScenario;
   /** Review Desk: what the mocked `review_desk_*` commands answer (see review-desk-fixtures.ts). */
   reviewDesk?: import('./review-desk-fixtures').ReviewDeskScenario;
+  /** Linux Inside: what the mocked `wsl_*` commands answer (Settings > Agents > Run agents in Linux). Absent = the block stays hidden. */
+  wsl?: import('./wsl-fixtures').WslScenario;
+  /** What broke the tests?: what the mocked `wb_*` commands answer (see what-broke-it-fixtures.ts). */
+  whatBroke?: import('./what-broke-it-fixtures').WhatBrokeItScenario;
+  /** What broke it: the result card. What the mocked `wb_*` result commands answer (see what-broke-it-result-fixtures.ts). */
+  whatBrokeItResult?: import('./what-broke-it-result-fixtures').WhatBrokeItResultScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */
   teamConfig?: Partial<import('../lib/team').TeamConfigView>;
   /** Set up agents > Install: what the mocked `agents_install_*` commands answer. */

@@ -307,6 +307,8 @@ Per agent: `cursor/` (`mod.rs`, `launch.rs`, `headless.rs`, `screen.rs`, `chrome
 | `attention/` | One list of what needs the person, and the one number every surface shows (`counts.blocking`). `derive.rs` ports `deriveNeedsYou` exactly (shared corpus `packages/shared/fixtures/attention/`, run by vitest and cargo); `store.rs` applies lanes, rank, one pane-state item per pane, occurrences, tombstones, `raise` / `clear` and a `rev`. `GET /attention`, `event: attention` (full snapshot) and `attention://changed`. Tray badge, away digest, phone counter and push read it. `answer.rs` is `POST /attention/{id}/answer` (a paired person's answer: ability, idempotency ledger, prompt id + occurrence + fingerprint re-checked on the live screen under the answer lock, typed through the current answer route under an `AnswerPermit` from `agent_runs/readiness.rs`); `layout.rs` and `fingerprint.rs` back it. The phone card is `components/mobile/ApprovalCard.tsx` (pure view `lib/approval-card.ts`), the queue `NeedsYouList.tsx`, the docked card over the open agent `DockedCard.tsx`, and a push tap opens `/?item=<id>` through the service worker's intent cache (`pwa/push-intent.ts`, `hooks/usePushIntents.ts`). See `docs/features/attention.md`. |
 | `attention/focus/` (Focus Time, feature page `docs/features/focus-time.md`; section 3.11a) | The quiet window: `policy.rs` (the three tiers Hold / Quiet / Through, pure, no wildcard arms), `live.rs` (the engine over `Io`, the one `Mutex<State>`, `LiveIo`, the free hooks `gate_push` / `quiet_for` / `hold` / `hold_push`, the `focus-tick` and `focus-notes` threads), `scan.rs` + `nudge.rs` (new waiting cards, the one 20 minute reminder), `summary.rs` (the end summary), `view.rs` (`FocusView` for the desktop, `PhoneView` for the phone: counts only), `model.rs` (types, limits, error codes), `store.rs` (`<app data>/focus/state.json`, `.bad` on damage), `mod.rs` (`is_on()`, the fast flag: deadline checked on every call). Routes `bridge/routes/focus.rs`; commands `commands/focus.rs`; push `push/focus.rs`; tray `tray.rs` (`focus:` ids). Never names an agent (test) and never writes to a pane (test). |
 | `turn_summary/`, `checkpoints/`, `pty/resize_clock.rs` (round 7) | Turn boundaries. `checkpoints/runtime.rs`: `decide` (status -> before/after snapshot), `capture` (one capture at a time per pane, 10 s debounce), `note_dispatched` / `before_dispatch` (called by `bridge/dispatch.rs::send_task_prompt` for EVERY run: a fresh pane never reads `idle` before its first task, so it gets no `running` event). `turn_summary/tracker.rs` (turns from pane status + `note_dispatched`), `settle.rs` (a summary waits for ITS OWN "after" capture by ticket, never an earlier rest point's), `store.rs` (a stale summary of an earlier rest point never replaces a later one). `pty/resize_clock.rs`: the redraw a resize causes is not work (`status::settle_status_after_resize`). |
+| `checkpoints/export.rs` | Writes one save point's files into a copy folder (used by Branch from here; `export_into(project, pane, id, dest, limits) -> ExportReport`). Refuses a destination that is not a copy of the project's origin, the source folder, a folder above it, the copy the source works in, or a link to any of them. Writes and removes files only inside the copy (`safe_relative`, `inside_copy`); a temp index is removed on every path. It does add unreferenced objects (blobs, trees) to the source's shadow store, but no ref, no per-pane index, no source file. Tests: `checkpoints/export_tests.rs`. |
+| `branch_from/` | Branch from here (SPEC n33): from a chat turn or a History save point, a separate copy of the files at that save point, and an agent started in it with a fenced brief. Invariants: the source folder and old pane are never written, stopped or typed into; chat text reaches the brief only inside fences after cleaning, and no tool call, tool output, diff, terminal or environment is read; the brief and message stay in `<app data>/branches/` (views carry no path, message or brief); no bridge, push, team or phone path touches it; only the desktop window starts a branch (`commands/branch_from.rs`); the new run has trust and shell off, a fresh context, `NO_PUSH`, and runs in the copy. `model.rs` (`BranchFrom`, `When`, `Branch`, `State`, consts, error codes `BRANCH_*`), `store.rs` (`records.json`, newest 200, `briefs/`, `hooks/`; file names only from `id_ok`), `point.rs` (resolves the save point again on every start; `Cut`), `brief.rs` (pure brief, 6 KiB, trim order `replies`, `turns`, `drop_replies`, `drop_turns`), `offers.rs` (`rank`: the same agent first; limits disabled), `copy.rs` (`make`: create copy, `export_into`, one start commit; a failure throws the copy away), `live_io.rs` (`LiveIo` trait, `FlightGuard` per pane), `live.rs` (`preview`, `start` = guards, brief, `Preparing` record, then thread `branch-from`: copy, `Starting`, run, `set_parent`, `Running`, audit), `live_app.rs` (the real app behind the trait; `to_run_request`), `view.rs` (`BranchView`, `Preview`, `Lineage`). Tests: `store_tests.rs`, `point_tests.rs`, `brief_tests.rs` (+ `fixtures/`), `copy_tests.rs`, `engine_tests.rs` (fake `LiveIo`; source-only-read scan; no-write-path scan), and the agent-name scan in `offers.rs`. Not on this branch: the fake-agent e2e (`tests/fake_tui_branch.rs`). UI: `components/cockpit/BranchSheet.tsx`, `components/chat/BranchBanner.tsx`, `lib/branch-from.ts`. Feature page: `docs/features/branch-from-here.md`. |
 | `pane_wait/` + `pane_wait_notify.rs` | Long-poll waits. `mod.rs`: `wait_for_panes`, `WaitUntil`, `WaitForPanesRequest/Result`; `check.rs`: `check_pane`, settled/state/model/key-swap conditions and hints (`agent_hint_for_reason`); `model_task.rs`: `wait_for_model`, `wait_for_task`; `worker.rs`: `wait_for_worker`, spawn-readiness checks (`worker_settled_reason` lives in `check.rs`). `pane_wait_notify.rs`: `bump_waiters`, `wait_for_change[_ms]`. |
 | `pane_outbox/` | The Chat tab's message box: messages a person wrote for the agent in a pane they started by hand, sent when the agent can take them. Generic (no agent names). `mod.rs`: `Outbox` (`send`, `cancel`, `list`; per pane a FIFO of at most 5 waiting messages, text 1..8000 chars, finished ones kept 2 min, failed ones 10 min), `Timing`; `model.rs`: `OutboxMessage` (camelCase JSON `{id, text, createdAt, state: queued|sending|sent|failed|cancelled, waitingFor, error}`), the sentences shown to the person; `worker.rs`: one thread per pane with messages, a look every ~400 ms, `decide` (deliver only when `readiness::assess` says `Ready`, the input box is empty or unreadable and the pane status is idle; a gate is waited for and never answered; host shell fails; 2 h gives up); `confirm.rs`: after "submitted, no turn seen" it checks whether the box still holds the text (then the message fails with a plain sentence instead of reading as sent); `target_block` (in `worker.rs`): why a pane is not a Point target (dialog, question, no input box); `draft_guard.rs`: `DeliveryIo` wrapper that refuses the first text write when the box holds text (a message never clears or types over what the person typed in the terminal); `host.rs`: `Host` trait (fakes in `outbox_tests.rs`); `live.rs`: `LiveHost` over the pane registry, delivery through `agent_runs/delivery.rs::deliver_text` with no clear sequence, event `pane-outbox` (Tauri) and SSE `pane-outbox` (watch-only, text redacted). Refused at send time: shell panes, protocol agents, panes an open `run_agent` operation controls (`bridge::pane_has_open_run`). Wiring: Tauri `pane_message_send/cancel`, `pane_messages_list` (`commands/pane_outbox.rs`); bridge `POST/GET /panes/{id}/messages`, `DELETE /panes/{id}/messages/{messageId}` (`bridge/routes/panes.rs`; caps `type`/`watch`, `mobile_pairing/caps.rs`). UI: `components/chat/{ChatComposer,PendingMessages,SessionChatPanel}.tsx`, `hooks/{usePaneOutbox,usePendingBubbles}.ts`, `lib/paneOutbox.ts` (the `OutboxTransport` shape plus the Tauri one). The phone uses the same components through `lib/paneOutbox-bridge.ts` (bridge send/cancel/list, `publishBridgeOutbox` fed by the `pane-outbox` SSE event in `PwaApp.tsx`, a list read every 3 s while visible) inside `components/mobile/PhoneChatView.tsx`. Tests: `pane_outbox/outbox_tests.rs`, `tests/fake_tui_chat_reply.rs`, `components/chat/*.test.tsx`. |
 | `chat_index/` | Search across all chats (Ctrl+Shift+F in the palette). Generic (no agent names). SQLite with FTS5 (`rusqlite` with `bundled`), file `<app data of the profile>/chat-index.sqlite`, newest 50 000 live items kept (old chats have their own cap, 150 000 items; see `chat_index/import/`). `entry.rs`: what is kept of a `ChatItem` (user and assistant text, tool name + summary; never tool output or notices), every string through `redact::text`, cut to 4000 chars, with the pane's agent id, folder NAME (not path) and session id (`PaneContext::of`). `entry_of_with(.., Strength::Strict, imported, max)` is the one function imports go through (`strict_with`, e-mails masked, `~`, cut to 2000 chars). `imported.rs`: `ImportedChatRow` (one old chat: folder name, `cwd` as `~/...` for resuming on this PC only, title, stamp, items, `cut_short`). Old chats are rows with `imported = 1` and pane id `import:<agent>`, plus one `import_chats` record per chat; `Store::replace_chat` writes one chat in one transaction; a live write of the same agent and session removes the imported copy; `search_in` never matches imported rows; `Hit.imported`. `store.rs`: schema (`chat_items` + external-content `chat_fts`), upsert by (pane, session, item) that keeps the first time, the cap, `search` (newest first, `snippet()` marks). `filter.rs`: the chips' filters (`Filters`: agent, folder, `since_ms`, `Role` you/agent/tool) as bound `?N` parameters only (`clauses`, `bind`), and `Facets` (agents and folders in the index for the menus). `store.rs` `search_filtered` with filters and no typed words lists the newest items that pass them. `query.rs`: typed text -> quoted prefix FTS5 query, marked snippet -> text + UTF-16 ranges. `feeder.rs`: `ChatIndex` = the store plus a writer thread; it is the `session_chat::ItemObserver` that `Watchers::with_observer` calls for every batch (also the first look), so a reader never waits on the disk; a damaged file is moved aside (`.bad-<ms>`). Only chats that were read (a Chat tab or the phone had the pane open) are indexed. Wiring: `commands/session_chat.rs` (`SessionChatState::index`, `RegistryPanes` as `ContextLookup`, Tauri `chat_search(query, limit, filters?)` and `chat_search_facets`). UI: `components/cockpit/Palette.tsx` (`PaletteMode` `commands`/`chats`, the "Search all chats" row, `CockpitApp.tsx` keys), `ChatHits.tsx` (rows, read-only card for a closed pane), `ChatFilterChips.tsx` (Agent / Folder / When / Who chips), `hooks/useChatSearch.ts`, `hooks/useChatFacets.ts`, `lib/chatSearch.ts`, `lib/chatFilters.ts` (chip values, typed `agent:` `in:` `from:` shortcuts -> filters), `lib/chatJump.ts` (`requestChatJump` -> `PaneView` opens the Chat tab -> `SessionChatView` scrolls to the turn, `is-found` wash). Tests: `chat_index/tests.rs` (incl. `imported_tests`), `chat_index/import_api_tests.rs`, `session_chat/watch_tests.rs` (observer), `Palette.chats.test.tsx`, `SessionChatView.jump.test.tsx`, `lib/chatJump.test.tsx`, `lib/chatSearch.test.ts`, `lib/chatFilters.test.ts`, `ChatFilterChips.test.tsx`, `chat_index/filter_tests.rs`, `CockpitApp.test.tsx`. |
@@ -645,6 +647,221 @@ Invariants (each is named in `review_desk/mod.rs`):
 Known gap: the sidebar count command `review_desk_count` runs the full gather (cached facts), not the cheaper cached total the spec describes.
 
 Tests: `cargo test --lib review_desk` (also `cargo test --lib commands::review_desk`); `npx vitest run src/components/cockpit/review src/lib/review-desk src/styles/review-desk src/styles/review-detail src/dev/review-desk-fixtures`.
+
+### 3.15 Linux Inside (`wsl/`, the Linux place for an agent)
+
+An agent can run inside a WSL 2 distro. Settings > Agents > "Run agents in Linux (WSL)" picks the place per agent
+(`Windows` or `Linux · <distro>`), and every spawn path follows it. Feature page: `docs/features/linux-inside.md`
+(Phase 1 only: Claude Code, Codex and OpenCode TUI). The UI says "Linux"; "WSL" appears in code names and in the
+commands a person must type. Desktop only: the Tauri commands have no bridge route and no MCP tool.
+
+Flow of one Linux pane: `pty/registry/spawn.rs` calls `pty/registry/linux.rs::plan` -> `wsl::place::plan_spawn`
+(setting + one-shot request, then the cached probe facts) -> `LinuxPlace`; `linux::pane_command` asks the profile's
+`linux_launch` for the program and args, and `wsl::launch::wrap` builds `wsl.exe -d <distro> --cd <linux cwd> --exec
+/bin/sh -c LAUNCHER puppet-master <program> <args>`; `PaneInfo.place` gets `wsl::place::pane_place`. Stop: `pty/registry/mod.rs::shutdown_pane`
+and `pty/agent_stop.rs` kill the `wsl.exe` tree by pid, then `wsl::live::stop_pane` runs `STOP_SCRIPT` in the distro.
+
+| File | What |
+|---|---|
+| `wsl/mod.rs` | the module doc: the rules and the invariants in one place |
+| `wsl/model.rs` | timing and size limits, the 14 error codes (`ERROR_CODES`), `DistroName`, `WslStatus`, `Distro`, `DistroFacts` (probe facts, never serialised), `LinuxPlace`, `PanePlace` (the `PaneInfo.place` JSON), `AgentPlaceRow` |
+| `wsl/settings.rs` | `Store`: `<app data>/wsl.json` (`{version, agents: {<id>: {distro}}}`), tolerant reads, unknown fields kept on write, `secure_file::write_private`. Only `commands/wsl.rs` writes it |
+| `wsl/path.rs` | pure path mapping: `to_linux` (`C:\x` -> `/mnt/c/x`, `mount_root` from the probe), `to_windows`, `distro_path` (`\\wsl.localhost\<d>\...`, refused in v1) |
+| `wsl/parse.rs` (+ `parse_tests.rs`) | `decode` (UTF-16LE or UTF-8), `list` (`wsl --list --verbose`), `PROBE_SCRIPT` (fixed POSIX sh, prints `PM1:<nonce>:<key>=<value>` lines only), `probe` |
+| `wsl/probe.rs` (+ `probe_tests.rs`) | `wsl_exe()` (`%SystemRoot%\System32\wsl.exe`), `Runner` trait, `LiveRunner` (flag allowlist, `WSL_UTF8=1`, stdin null, 64 KiB cap, kills its own child on timeout), `status`, `probe_distro`, `Cache` and the process-wide `cache()` (a `PlaceProbe`), `check`, `invalidate`, `asked_programs` |
+| `wsl/launch.rs` | pure: `LAUNCHER`, `ARGV0`, `BOTH_WAYS`, `wrap` (argv and env of the launch), `crossing` (the only env that crosses), `wslenv` (always set). Its tests run hostile argv through `CommandLineToArgvW` |
+| `wsl/stop.rs` (+ `live_tests.rs`, ignored) | `STOP_SCRIPT` (fixed; `$1` = pane id; signals only same-uid processes whose environ has the exact `PUPPET_MASTER_PANE_ID=<pane>` line), `stop_args`, `parse_stopped`, `stop_in`. The live test (`wsl::stop::live_tests`) needs `PM_WSL_LIVE_DISTRO` and `--ignored` |
+| `wsl/place.rs` (+ `place` tests) | `decide` (Windows or Linux, and the refusals), `resolve` (distro listed and WSL 2, folder mapped, program found), `plan_spawn`/`plan_with`, `check_run`/`check_run_with` (the early check for `run_agent`), `agent_runs_in_linux`, `pane_place`, the one-shot distro map (`request_once` / `take_once`, 60 s TTL) |
+| `wsl/chat.rs` | `facts_of` (the Linux cwd and home as Windows reads them; `None` = read nothing), `reader_may_look` (after the pane's process exits, one 2 s grace window, then no reads) |
+| `wsl/live.rs` | `stop_pane` (the live call, through `LiveRunner`, `STOP_TIMEOUT_MS`); tests record the call and start nothing |
+| `wsl/guard_tests.rs` | source-scan guards over the non-test `wsl/` files: S2 (no credential file names), S3 (no shutdown, terminate, pkill, taskkill), S5 (no `wsl --install` and friends; the install text is only shown), S7 (no pane writes), S11 (no agent names) |
+| `pty/registry/linux.rs` (+ `linux_tests.rs`) | the Linux branch of `spawn_pane`: `plan`, `pane_command` (Windows = `launch_command`, unchanged), `linux_command` (`profile.linux_launch` + `launch::wrap`), `watch_fast_exit` (a pane that ends within 3 s drops its distro's cached facts), `launch_refusal` (an env problem = `WSL_ENV_REFUSED`) |
+| `pty/registry/spawn.rs` | calls `linux::plan`, `linux::pane_command` and sets `PaneInfo.place`; a Linux pane gets no hooks in v1 |
+| `pty/registry/mod.rs`, `pty/agent_stop.rs` | `shutdown_pane` and `stop_agent` call `wsl::live::stop_pane` after the pid kill |
+| `commands/wsl.rs` (+ tests) | the five Tauri commands: `wsl_status`, `wsl_check` (boots one distro), `wsl_places_get`, `wsl_place_set`, `spawn_pane_in_linux`; `DistroView` (no PATH, uid or home); the audit line for a changed place; `check_linux_spawn` (refusals before any pane exists; the one-shot request) |
+| `lib.rs` | `generate_handler!` entries for the five commands |
+| `tui/claude/mod.rs`, `tui/codex/mod.rs`, `tui/opencode/mod.rs` | `linux_launch` (the same program and flags as Windows, via `pty/agents.rs::linux_command`). `tui/mod.rs::linux_program` reads it. Default `TuiProfile::linux_launch` is `None`. `opencode_native` has none |
+| `agent_runs/headless/entry.rs` | `check_run` before any operation: a one-task run in Linux runs visible instead (`fallback` reason `linux`); an explicit `headless: true` is refused (`WSL_HEADLESS_NOT_YET`) |
+| `agent_runs/headless/fallback.rs` | `agent_runs_in_linux` keeps a Linux run from falling back to Windows |
+| `standby/host.rs`, `standby/mod.rs` | a Linux agent is never warmed or handed out from standby |
+| `commands/session_chat.rs` | the chat reader uses `wsl::chat` for a Linux pane (Linux cwd and home only); `session_chat/home_path.rs` maps `/mnt/<d>/Users/<n>`, `\\wsl.localhost\<d>\home\<n>`, `/home/<n>` to `~` |
+| `bridge/dispatch.rs` (`ready_budget_ms`) | a Linux pane gets `STARTUP_EXTRA_MS` (20 s) more for its first ready screen |
+| UI: `src/lib/wsl.ts` (+ `wsl-place.ts`) | Tauri client and the pure place rules |
+| UI: `src/components/settings/sections/LinuxRows.tsx` | the Settings block (mounted by `AgentsSection.tsx`): status, `Check <distro>`, one `Runs on` select per agent, footer |
+| UI: `src/components/cockpit/PaneView.tsx` | pane chip `data-testid="pane-place"` (`Linux · <distro>`, tooltip with the Linux folder) |
+| UI: `src/dev/wsl-fixtures.ts` | dev-only fixtures for the Settings block |
+
+Invariants (spec section 4; "where" is the enforcing code, "test" the guard or unit test):
+
+| # | Rule | Where | Test |
+|---|---|---|---|
+| S1 | Only names PM lists cross into Linux; `WSLENV` is always set; Windows-path values refused | `launch.rs` (`crossing`, `wrap`, `wslenv`) | `launch.rs` tests (inherited `WSLENV` replaced) |
+| S2 | No credential file is copied or read across the boundary; readers open session files only | `wsl/` (no copy code), `chat.rs` | `guard_tests.rs` `s2_*` |
+| S3 | Stop signals only processes with this pane's marker and the same uid; no shutdown, terminate or name kill | `stop.rs` (`STOP_SCRIPT`), `live.rs` (`LiveRunner`) | `guard_tests.rs` `s3_*`; `live_tests.rs` (ignored, live) |
+| S4 | Argv only after `--exec`; no shell parses text; pane id and distro name checked | `launch.rs`, `stop.rs` (`valid_pane_id`), `model.rs` (`DistroName`) | `launch.rs` hostile argv round trip |
+| S5 | PM never runs `wsl --install`, `--set-version`, `--import`, `--unregister`, `--set-default`, `--shutdown`, `--terminate`, `--update`, never edits config | `probe.rs` (`ALLOWED_FLAGS`, `refused`); install text only in `model.rs` | `guard_tests.rs` `s5_*`; `probe_tests.rs` refuses admin flags before any process |
+| S6 | Nothing wakes a stopped distro: `--list` never boots; the probe runs only on a click, a pick or a spawn; chat reads stop at pane exit | `probe.rs`, `chat.rs` (`reader_may_look`) | `chat.rs` tests (one 2 s window after exit); probe tests |
+| S7 | PM never answers a trust, permission or login screen in a Linux pane | no pane writes in `wsl/` | `guard_tests.rs` `s7_*` |
+| S8 | Only Tauri commands change the place; no bridge route, MCP tool or phone field; the one-shot request is a Rust-side map, not JSON | `commands/wsl.rs`, `place.rs` (`request_once`) | review (no test yet) |
+| S9 | A Linux process can call the bridge like any local process; companions and hidden panes never run in Linux | `place.rs` (`decide`: companion and hidden = Windows) | `place.rs` `companion_and_hidden_panes_stay_on_windows` |
+| S10 | Personal folders and homes in chat, search and exports read as `~` (Linux forms too) | `session_chat/home_path.rs`; `DistroView` has no home | `redact/tests.rs` (WSL home path), `chat_index/tests.rs` (WSL mount user folder) |
+| S11 | No agent name in non-test `wsl/` code | `wsl/` uses `tui::linux_program` and profile labels | `guard_tests.rs` `s11_*` |
+| S12 | No git config change; copies refused in v1 | `place.rs` (`WSL_COPY_NOT_YET`) | review (no git-config code in `wsl/`) |
+
+Error codes: see section 7 ("Linux Inside").
+
+Tests: `cargo test --lib wsl` (the module), `cargo test --lib pty::registry::linux`, `cargo test --lib commands::wsl`
+(full `cargo test --lib` when `spawn.rs`, `session_chat/source.rs`, `pty/registry/mod.rs` or `lib.rs` change). The
+live stop check: `PM_WSL_LIVE_DISTRO=<distro> cargo test --lib wsl::stop::live_tests -- --ignored`. UI:
+`npx vitest run src/lib/wsl src/components/settings/sections/LinuxRows src/components/cockpit/PaneView.place`. The end-to-end
+test with a fake `wsl.exe` (WSL-17, `tests/fake_tui_wsl.rs`) is in progress on `feat/wsl-e2e`; it is not on `main` yet.
+
+---
+
+### 3.16 What broke it (`checkpoints/bisect/`, `scores/` count, UI)
+
+"What broke the tests?": find the first agent turn after which the person's declared test command fails, by halving
+the save points and running the command in a throw-away copy; undo only that turn, all or nothing (feature page
+`docs/features/what-broke-it.md`). Invariants S1 to S14 are listed in the module doc of `checkpoints/bisect/mod.rs`.
+
+**Status: experimental, not live-checked yet.** The commands and their `lib.rs` registration (WB-16), the History button,
+the palette row and the `CockpitApp.tsx` mount (WB-17), and the end-to-end test (WB-18) are on `feat/wb-phase5`; the rows
+below list them. Nobody has run the feature in the running app yet.
+
+| File | What |
+|---|---|
+| `checkpoints/bisect/mod.rs` | module doc with the invariants; declares the modules; `engine_tests` is test-only |
+| `checkpoints/bisect/model.rs` | the types and limits: `Verdict`, `UnsureWhy`, `Outcome`, `Suspect`, `Narrowed`, `Finding`, `Limits` (runs 1 to 30, minutes 1 to 60; `Limits::clamped`), serde tags pinned by golden tests |
+| `checkpoints/bisect/store.rs` | `<app data>/what-broke-it/`: `findings.json` (newest first, 100), `settings.json`, `copies/`. `valid_id` (`wb-` plus 12 hex) is checked before any path. An unparsable file reads as empty and is never overwritten |
+| `checkpoints/bisect/words.rs` | every user-facing string; a test rejects the words `bisect`, `commit`, `ref`, `tree`, `HEAD`, `sentinel` |
+| `checkpoints/bisect/points.rs` | pure: save points -> `Timeline` (`points` = turn ends plus "now", `spans` = before..after per turn). Ignores `wb-` panes; newest 100 |
+| `checkpoints/bisect/blame.rs` | pure: a bad range -> `Blame::{Turn, Several, Outside}`; `needs_refine` (start tree of a single turn), `after_refine`; `join_summaries` matches turn summaries by pane key and turn number, "An agent" when gone |
+| `checkpoints/bisect/search.rs` | pure state machine `Search` (`next`, `record`, `range`): "now" first, picked or gallop back, halve, recheck the good point; `Done` values. Never runs anything |
+| `checkpoints/bisect/failnames.rs` | failing test names from Jest, Vitest, pytest, `go test`, `cargo test` and TAP output (fixtures in `bisect/fixtures/`); at most 5 names, 120 characters; ANSI stripped first |
+| `checkpoints/bisect/exec.rs` | `run_test`: one declared argv in the copy, stdin closed, `GIT_`/`PUPPET_MASTER`/`PM_` variables dropped, `CI=1`, below-normal priority on Windows; head and tail buffers; cancel or time limit kills the tree by PID (`pty::proc_tree`) |
+| `checkpoints/bisect/copy.rs` | `Copy`: the throw-away folder `copies/<8 hex>/` filled from the shadow repo (`set_tree` writes only differing paths), private index, setup steps via `preset::apply`, refused for unsafe roots and links, removed by `finish`; `sweep_stale` (older than 1 hour, not held) |
+| `checkpoints/bisect/revert.rs` | undo: `plan` (B, A, C per path), `decide` (the S8 case table, pure), `apply` (safety save point `wb-undo` first, then all-or-nothing writes); text merged with `git merge-file`; files over 20 MiB are conflicts |
+| `checkpoints/bisect/job.rs` | the search loop on thread `what-broke-it`: steps 1 to 8, `Probing` (budget, cache, one confirm run, flaky), `CopyGuard` (removes the copy on every exit, also on panic), `tail_of` and `failure_facts` (redacted) |
+| `checkpoints/bisect/live.rs` | `Live` (the one entry point): `LiveIo` trait, `RealIo` (desktop only), one job at a time (`WB_BUSY`), `overview`, `declare`, `start`, `recheck`, `status`, `stop`, `findings`, `finding`, `diff`, `undo_plan`, `undo` (audit, `undone_ms`), settings; `WB_*` codes |
+| `checkpoints/bisect/views.rs` | the shapes the window reads (`Overview`, `JobView`, `FindingView`, `DiffView`, `UndoPlanView`, `UndoReportView`), built from a saved `Finding`; never a folder path or argv |
+| `checkpoints/bisect/engine_tests.rs` | the whole loop with a fake `LiveIo`, a virtual clock and a scripted 8-turn history; S2, S13, S14 source scans |
+| `checkpoints/engine.rs` (`list_all`, `tree_bytes`, `file_at`, `patch_between`, `tree_exists`), `checkpoints/git.rs` (`with_work_tree`) | the read helpers the feature needs; the shadow repo is never the person's `.git` |
+| `scores/gather.rs` (`broke_facts`, `broke_facts_in`) | reads `findings.json`: only `Outcome::Culprit` with a known agent id, as `BrokeFact`s. A missing or bad file gives none |
+| `scores/aggregate.rs` (`count_broke`), `scores/mod.rs` | adds the count to each row (same agent and account, same project, in window) after ranking. Never read by `ahead`, rates or `enough` |
+| `scores/model.rs` | `BrokeFact`; `ScoreRow.broke_tests` (camelCase `brokeTests`, default 0) |
+| `scores/broke_tests.rs` | tests of the count: per row, zero, bad file, `ahead` unchanged, project and window |
+| UI: `components/cockpit/WhatBrokeItSheet.tsx` | the sheet: set up, running (one status line, Stop), result by finding id. Props `paneId`, `notify`, `onClose`, `sharedWith`, `api` |
+| UI: `components/cockpit/WhatBrokeItResult.tsx`, `what-broke-it-result-text.ts` | the result card for every kind; undo confirm (names the files, warns about `sharedWith`), refusal text, "Check it again", "Keep looking", "Copy details" (no folder path) |
+| UI: `lib/what-broke-it.ts` | types mirroring the views, `wb*` wrappers over `invoke` (names `wb_overview` ... `wb_settings_set`), `onWhatBrokeItChanged` (`what-broke-it://changed`), `kindOf` |
+| UI: `styles/cockpit-whatbrokeit.css` | monochrome styles of the sheet and card |
+| UI: `dev/what-broke-it-fixtures.ts`, `dev/what-broke-it-result-fixtures.ts`, `dev/scenarios/what-broke-it-*.ts` | harness scenarios (setup, running, culprit, several, not sure, undo refused; `-light` variants) |
+| UI: `lib/agent-scores.ts` (`brokeTestsText`), `components/cockpit/AgentScores.tsx` | the line "Broke the tests N times" (singular "1 time") under the agent name, only when above zero; no colour |
+| `commands/what_broke_it.rs` | the thirteen `wb_*` Tauri commands (`wb_overview`, `wb_declare`, `wb_start`, `wb_status`, `wb_stop`, `wb_finding`, `wb_findings`, `wb_diff`, `wb_undo_plan`, `wb_undo`, `wb_recheck`, `wb_settings_get`, `wb_settings_set`); thin wrappers over `Live`; ids are checked before the registry; errors reach the window as `CODE: message` |
+| `lib.rs` | registers the `wb_*` commands; `checkpoints::bisect::live::live().sweep_stale()` at startup (`#[cfg(not(test))]`, desktop build only) |
+| UI: `components/cockpit/History.tsx`, `PaneView.tsx`, `Palette.tsx`, `CockpitApp.tsx` | History button "What broke the tests?" (shown only when the pane passes `onWhatBroke`); palette row "Find what broke the tests…" (`act:whatbroke`); `CockpitApp` keeps `whatBrokePane` and mounts `WhatBrokeItSheet` |
+| `tests/what_broke_it_e2e.rs` | six end-to-end scenarios: a temp project, a real shadow repository, the declared `node check.mjs` run in a copy. Windows only, feature `dev-fake-tui`; `lib.rs` exposes the modules it reaches as `pub` (feature page, section 9) |
+
+Tests: `cargo test --lib checkpoints::bisect` (plus the filter of the file touched); `cargo test --lib scores`; `cargo test --lib commands::what_broke_it`;
+`npx vitest run src/components/cockpit/WhatBrokeIt src/components/cockpit/Palette.whatbroke.test.tsx src/lib/what-broke-it src/lib/agent-scores`.
+End to end (Windows, needs `node`): `cargo test --features dev-fake-tui --test what_broke_it_e2e -- --test-threads=1`.
+
+---
+
+### 3.17 Red to Green (`ci_fix/`, with hooks in `worktrees/`, `questions/`, `audit/`)
+
+Puppet Master watches CI on a pull request it opened from one of its own copies. When checks fail and you say yes, the same
+agent fixes them in that copy. The agent cannot push, and every push is asked first. Feature page:
+`docs/features/red-to-green.md`. Spec: n33. In code the module is `ci_fix`; the UI says "Red to Green". Generic code never
+names an agent: labels come from `crews::live::label_of`. Desktop only: no bridge route, no SSE event, no MCP tool.
+
+**Status on this branch.** Wired end to end: `lib.rs` setup calls `ci_fix::live::start`, the six `ci_fix_*` Tauri commands
+are registered (RG-10), the PR block has "Fix with <agent>" and "Watch CI" (UI-4), and the old "Send back to <agent>" path
+is removed (RG-11; only `pane_if_guarded` is left). The end-to-end test is RG-12. Labs only, experimental, not live-checked
+yet. The feature page lists what is still missing.
+
+| File | What |
+|---|---|
+| `ci_fix/mod.rs` | the module map and the invariants S1-S16 (one line each) |
+| `ci_fix/model.rs` | the Labs `Settings` (clamped), `Watch` and `WatchState`, `FailedCheck`, `LogNotes`, `LogSnapshot`, `FixFacts`, `FixState` and `FixRun` (state tags), the id and sha validators, the caps, the `CI_FIX_*` error codes |
+| `ci_fix/store.rs` | `<app data>/ci-fix/`: `settings.json`, `watches.json` (200 records, 30 active), `fixes.json` (300 records, newest first); `write_private`; a bad id finds nothing |
+| `ci_fix/github.rs` | `gh api` reads only: pull request and check-run parsing; `read_ci` (failure, timed_out and startup_failure fail; action_required is shown, never acted on); `job_id` only for GitHub Actions; cleaned names and links; `WRITE_PATHS_NEVER` |
+| `ci_fix/filter.rs` | `owns` (open, not a fork, our author, base repo, `pm/` branch, pushed head); `should_offer` (one card per watch and sha, tries, day cap); `due` (60 s while checks run, 300 s otherwise, backoff); `expired` (14 days); `one_running`; `day_count`; `shown_checks` |
+| `ci_fix/logs.rs` | log cleaning in four steps (escape sequences, invisible and bidi characters, redaction through `issue_intake::text::publish_text`, then the cut); `log_file` (one `context_pack::fence`, one JSON object); `sha8` |
+| `ci_fix/text.rs` | the task (no log byte, no check name), the card texts, the notices, the row text, the push card text (no log lines) |
+| `ci_fix/fixcheck.rs` | the push check extras: skipped and deleted tests (added lines only), CI-run files, web addresses, the over-cap note; `reasons` (held causes last) |
+| `ci_fix/live.rs` | the `Io` trait and `LiveIo` (gh, git through `worktrees::harden`, `pushcheck`, `service::pr_push_fix`, `agent_runs::send_agent` and `run_agent`, the question store, audit); `start` (called from `lib.rs` setup), `on_pr_opened`, `on_resolved`, `offer`, `act`, `view`, `log`, `poll_now`, `save_settings` |
+| `ci_fix/engine.rs` | `Engine`: the 20 s loop (`run_loop`, `tick`), `poll_watch`, `act_on_checks`, `raise_offer` (reads up to 3 job logs and stores the snapshot), `tries_used`, `resume`, `route_a_ok` |
+| `ci_fix/flows.rs` | D start (checks, log file, `start_agent`: route A or route B, `build_request` with `no_push`), E finish (commit, facts, held, ask or no change), F push (fresh reads, `push_fix`, `pushed`), restart (`resolve_pushing`), G stop |
+| `ci_fix/answers.rs` | `on_resolved` and `apply_card_answer` (question ids stored in a fix only), follow-up cards, the queue (`drive_queue`), the row buttons (`act`), `watch_view_of` |
+| `ci_fix/view.rs` | the view shapes: `CiFixView`, `WatchView`, `FixView`, `FixLogView` |
+| `ci_fix/*_tests.rs`, `ci_fix/fixtures/` | `engine_tests.rs` (fake `Io`, virtual clock), `store_tests.rs`, `fixcheck_tests.rs`; recorded `gh` answers (`fixtures/gh`), plain and hostile logs with golden files (`fixtures/logs`), the task golden (`fixtures/text`). Other tests sit next to their code. `tests/fake_tui_ci_fix.rs` (RG-12): six end-to-end scenarios, included by `tests/fake_tui_e2e.rs` as module `ci_fix` (not its own test binary) |
+| `commands/ci_fix.rs`, `commands/mod.rs`, `lib.rs` | six thin Tauri commands: `ci_fix_view`, `ci_fix_save_settings`, `ci_fix_offer` (`projectPath`, `handle`), `ci_fix_act` (a watch or fix id and an action), `ci_fix_log`, `ci_fix_poll_now`. Declared in `commands/mod.rs`, registered in the invoke handler; `ci_fix::live::start` in setup |
+| `worktrees/harden.rs` | adds `remote_branch_sha`, `head_sha`, `current_branch`, `is_ancestor`, `name_status`, `commit_count` |
+| `worktrees/pr.rs` | `push_update`: the branch guard, the default branch refused, the expected remote commit checked, then `push_branch` (explicit refspec, no force) |
+| `worktrees/service.rs` | `pr_push_fix` (commit the pending edits, `push_update`, clear the stored checks); `pr_create_with` calls `ci_fix::live::on_pr_opened` |
+| `worktrees/sendback.rs` | only `pane_if_guarded` is left (the "Send back" command and its file path were removed in RG-11): the pane must run under the `no_push` guard and be inside the copy. `ci_fix/live.rs` reuses it |
+| `questions/mod.rs`, `questions/routes.rs`, `push/mod.rs`, `attention/answer.rs` | `CI_KIND_FIX` and `CI_KIND_PUSH` in `PERSON_ONLY_KINDS`; a plain loopback answer gets 403 `CI_FIX_NEEDS_PERSON`; the push card copy for CI cards; chat answers refused by the same list; `on_resolved` called from `answer` and `dismiss` |
+| `audit/mod.rs` | `Kind::CiFix` = `ci.fix` |
+| `issue_intake/text.rs`, `issue_intake/pushcheck.rs` | `strip_hidden`, `is_invisible`, `publish_text` and `publish_clean` are `pub(crate)`; the push check is reused as it is |
+| UI: `components/settings/blocks/CiFixSettings.tsx`, `components/cockpit/CiFixCard.tsx` (+ `styles/ci-fix-card.css`), `components/settings/sections/GeneralSection.tsx` (Labs row `red-to-green`), `lib/ci-fix.ts`, `lib/questions.ts` (`isCiFix`, `isCiPush`, `isCiCard`) | the Labs block, the card, the typed client |
+| UI: `components/cockpit/PrBlock.tsx` (UI-4) | "Fix with <agent>" when the checks failed, "Watch CI" otherwise. Both call `ciFixOffer` (watch only, no fix). No "Send back" |
+
+**Invariants S1-S16** (SPEC n33 section 4; each one is tested where it is built, and `ci_fix/mod.rs` has the one-line list).
+**S1**: CI log text is only in `.puppet-master/ci-<pr>-try<n>.md`, as one JSON object inside one fence; the task has no log
+byte and no check name. **S2**: `publish_text` redacts before anything is stored; a finished fix keeps only `sha8`; the push
+card text has no log lines. **S3**: `filter::owns` on every poll; a fork, another author or a foreign head raises no card.
+**S4**: route A only into a `no_push` guarded pane; route B is always a new `no_push` run in the copy. **S5**:
+`pr::guard_branch`, the default branch and the PR base are refused, explicit refspec, no force. **S6**: every push is asked;
+CI files, git settings, `.puppet-master/`, a moved remote, rewritten history or a wrong branch hold it. **S7**: `harden::git_env`;
+the fingerprint is taken at start, before the card and before the push. **S8**: `ci_fix` and `ci_push` are person-only; loopback
+gets 403; chat answers are refused; the engine acts only on stored question ids. **S9**: GitHub is read only (`WRITE_PATHS_NEVER`);
+the only write is the fast-forward push. **S10**: tries per pull request, fixes a day, one fix at a time, 30 watches, 14 days.
+**S11**: start and push re-check the remote commit and the copy. **S12**: nothing in `ci_fix/` writes to a pane. **S13**: logs
+stay local and redacted. **S14**: labels from `crews::live::label_of`. **S15**: no bridge route, no MCP tool. **S16**: the raw-log
+path is removed (RG-11). `worktrees/sendback.rs` keeps only `pane_if_guarded`. `worktrees/tests_ship.rs`
+(`no_raw_ci_log_read_is_left_outside_tests`) fails if non-test code contains `log-failed`.
+
+Tests (counted from source, not run in the docs pass): `cargo test --lib ci_fix` (about 190 test functions in `ci_fix/`:
+`engine_tests` 78, `filter` 30, `github` 21, `fixcheck_tests` 18, `logs` 18, `store_tests` 11, `text` 13, `view` 1);
+`cargo test --lib worktrees::tests_cifix` (13); the end-to-end scenarios run with
+`cargo test --features dev-fake-tui --test fake_tui_e2e ci_fix -- --test-threads=1` (six). The UI tests are in
+`npx vitest run src/lib/ci-fix src/lib/questions.test.ts src/components/cockpit/CiFixCard src/components/settings/blocks/CiFixSettings src/components/cockpit/PrBlock src/components/cockpit/Changes.ship`.
+
+### 3.18 Collision Alert (`collision/`, experimental, not live-checked yet)
+
+Tells the person early when two agent panes change the same work: the same file in two separate copies of one repo, or two
+agents in one folder. It only tells. Feature page `docs/features/collision-alert.md` (status, cost, rules, words, limits).
+One watch thread (`collision-watch`, started from `pane_activity::init`) owns a pure `Engine`. Nothing is written to disk
+except `collision.json`. The phone does not draw the Ready-lane item (desktop only for now).
+
+| File | What |
+|---|---|
+| `collision/mod.rs` | the module doc: the list of modules and the invariants C1-C13 (SPEC-n33 section 4) |
+| `collision/model.rs` | every limit as a named const (`POLL_MS`, `CLASH_GAP_LINES`, `MAX_ALERTS`, ...), `poll_ms()` (`PM_FAKE_COLLISION_POLL_MS` only under test or `dev-fake-tui`), `Relation`, `Level`, `How`, `Alert`, `AlertView`, `AlertId::of` |
+| `collision/settings.rs` | `Store` for `collision.json` (`{"enabled": true}` by default; bad file = default; `write_private` on save) |
+| `collision/repo.rs` | `repo_of(cwd)`: finds `.git` (16 parents at most), reads a worktree pointer and its `commondir` (4 KiB at most); no process |
+| `collision/noise.rs` | `clean_rel` (through `turn_summary::blame::normalise`; drops control and bidi marks, paths over 400 bytes), `is_noise` (fixed folder, name and suffix lists), `display` |
+| `collision/hunks.rs` | `parse_u0` (`git diff -U0` headers to spans; binary and cut flags), `clash` (touching lines clash), `span_text` |
+| `collision/advice.rs` | `advise` (the three rules), `advice_text` (the advice sentences), `FOOTER` |
+| `collision/groups.rs` | `groups` (2+ panes per repo; at most 4 groups and 6 panes each), `relation`, `Schedule` (first look 8 s, then 20 s with backoff, slow-look parking, turn-end looks) |
+| `collision/compare.rs` | `belongs` (the person's own changes only), `copies` (same name, same start, hunks), `shared` (the same-folder window), `level_of` |
+| `collision/alerts.rs` | `Alerts`: one alert per pair, in-place updates, two misses resolve, ignore remembers the files, at most 6 |
+| `collision/copy.rs` | every card, detail, place, file-label, banner and footer sentence (`format!`, never a template) |
+| `collision/view.rs` | `view(alert, clean)`: sanitize, home folder to `~`, redact, mask e-mails, one line, cut; `attention_title_sentence` for the Ready-lane item |
+| `collision/probe.rs` | the `Probe` trait, `GitProbe` (every call through `worktrees::harden::read`: `diff-index`, `ls-files`, `rev-parse`, and one `diff -U0` per shared file), `FakeProbe` (tests) |
+| `collision/engine.rs` | `Engine::step` (commands, panes, groups, due looks, findings, alerts); pure, takes a `Probe` and `now_ms` |
+| `collision/live.rs` | `start` (the thread), `LiveProbe` (copies' start commit from the worktree records), `pane_facts` (agent panes only; headings over all panes), `Shared` (snapshot `RwLock`, command queue), `views`, `ignore`, `settings`, `set_settings`, `Watch::tick` (attention raise, withdraw and clear; `collision://changed` event through `LiveSink`) |
+| `collision/tests.rs` | 8 source-scan guards (CA-15): `no_write_path`, `not_reachable_from_agents`, `no_agent_names`, `no_network_symbols`, `git_only_through_harden_read`, `strings_have_no_pause_words`, `view_has_no_private_text`, and `the_scans_skip_only_test_items` (the scanner's own check) |
+| `commands/collision.rs` | the four Tauri commands (CA-14): `collision_list`, `collision_ignore`, `collision_settings_get`, `collision_settings_set`, with the `^ca-[0-9a-f]{12}$` id check (`COLLISION_BAD_ID`, `COLLISION_NOT_FOUND`). Registered in `generate_handler!` in `lib.rs`; the file is re-exported from `commands/mod.rs` |
+| `tests/fake_tui_collision.rs` | the fake-agent end-to-end test (CA-16, 8 scenarios), included from `tests/fake_tui_e2e.rs` as `mod collision` |
+| UI | `components/cockpit/CollisionSection.tsx` (Inbox cards and quiet rows), `components/chat/CollisionBanner.tsx` (row above the two chats, mounted in `SessionChatPanel.tsx`), `components/settings/blocks/CollisionSettings.tsx` (mounted in `sections/AgentsSection.tsx`), `lib/collision.ts` (invoke names and the event), `styles/cockpit-collision.css` |
+
+Event: `collision://changed` (payload `{}`); the windows then call `collision_list`. Desktop only: no bridge route, no MCP
+tool, and nothing in `tool_registry/`, `team/`, `live_room/`, `push/` or `channels/` names `collision::` (checked by grep
+checked by the guard test `not_reachable_from_agents`). The attention item is `Kind::Review` (Ready lane), key `collision:<id>`, no
+actions. The phone's Needs you list draws only the Blocking lane, so the item is not drawn there.
+
+Tests: `cargo test --lib collision` and `cargo test --features dev-fake-tui --test fake_tui_e2e collision:: -- --test-threads=1` (not run in the docs pass); `npx vitest run src/lib/collision.test.ts src/components/cockpit/CollisionSection.test.tsx src/components/chat/CollisionBanner.test.tsx src/components/settings/blocks/CollisionSettings.test.tsx src/styles/cockpit-collision.css.test.ts src/components/mobile/NeedsYouList.collision.test.tsx src/dev/collision-fixtures.test.ts`.
 
 ---
 
@@ -1056,6 +1273,19 @@ validation unless noted.
 - `WAIT_TIMEOUT` - foreground wait ended with the turn still running; response includes `watch_command`; retry with the same idempotency key.
 - `BRIDGE_UNAVAILABLE` - no bridge/port file; `BRIDGE_ERROR` - bridge returned an unparseable/failed reply; `SCHEMA_DRIFT` - shim vs bridge catalog mismatch; `REQUEST_CANCELLED`, `RATE_LIMITED`, `NOT_FOUND`, `CONFLICT` - HTTP-status-derived fallbacks.
 - `STATE_UNAVAILABLE` - read models unavailable - `bridge/`.
+
+**Linux Inside** (`wsl/`; `wsl::model::ERROR_CODES`, 14 codes, all start with `WSL_`; section 3.15)
+- `WSL_NOT_INSTALLED` - no `wsl.exe`, or WSL not installed; the sentence names `wsl --install` as text only - `wsl/place.rs` (`listed_distro`), `wsl/probe.rs` (`live_runner`, `run_failure`), `commands/wsl.rs`, `pty/registry/linux.rs`.
+- `WSL_NO_DISTRO` - WSL installed, no distro listed - `wsl/place.rs`, `commands/wsl.rs`.
+- `WSL_DISTRO_MISSING` - the named distro is not listed, or its name is not valid - `wsl/place.rs` (`distro_missing`), `commands/wsl.rs`.
+- `WSL_DISTRO_NOT_V2` - the distro is WSL 1 - `wsl/place.rs`, `commands/wsl.rs`.
+- `WSL_AGENT_NOT_FOUND` - the agent's program is not on the distro's login PATH (probe) - `wsl/place.rs` (`resolve`).
+- `WSL_AGENT_NOT_SUPPORTED` - the agent has no Linux launch - `wsl/place.rs` (`decide`), `commands/wsl.rs` (`not_supported`, `check_linux_spawn`).
+- `WSL_PATH_NOT_MAPPABLE` - folder is not on a Windows drive (inside a distro, a network share, relative, `..`) - `wsl/place.rs` (`path_refusal`).
+- `WSL_COPY_NOT_YET`, `WSL_HEADLESS_NOT_YET`, `WSL_ACCOUNT_NOT_YET`, `WSL_GUARD_NOT_SUPPORTED` - the v1 refusals (separate copy, explicit one-task run, saved login, env guard) - `wsl/place.rs` (`decide`).
+- `WSL_ENV_REFUSED` - a name or value cannot cross into Linux (bad name, reserved name, Windows-path value); the message never shows the value - `pty/registry/linux.rs` (`launch_refusal`) from `wsl/launch.rs`.
+- `WSL_PROBE_TIMEOUT` - the distro did not answer within `PROBE_TIMEOUT_MS` (recoverable) - `wsl/probe.rs` (`run_failure`).
+- `WSL_START_FAILED` - the probe answer was not usable, the distro reported broken, or the place was not usable (recoverable for probe and broken status) - `wsl/probe.rs` (`start_failed`), `wsl/place.rs` (`listed_distro`), `commands/wsl.rs`, `pty/registry/linux.rs`.
 
 ---
 

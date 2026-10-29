@@ -24,6 +24,7 @@ mod probe;
 pub(crate) use probe::{spawn_probe, ProbePty};
 mod pane_io;
 pub(crate) use pane_io::snapshot_text;
+mod linux;
 mod spawn;
 
 pub use command::*;
@@ -84,6 +85,10 @@ pub struct PaneInfo {
     /// when the pane is proven to hold the caller (`bridge::pane_parent`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_pane_id: Option<String>,
+    /// Where a Linux pane runs (`wsl::model::PanePlace`, WSL-11). Windows panes keep `None`, and the
+    /// field is then left out of the JSON, so their JSON stays byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<crate::wsl::model::PanePlace>,
 }
 
 /// Internal handle — owns the PTY master and the reader thread handle.
@@ -216,6 +221,10 @@ pub(crate) fn shutdown_pane(mut pane: PaneState) {
         super::proc_tree::kill_process_tree(pid);
     }
     let _ = pane.child.kill();
+    // A pane that ran inside Linux: its `wsl.exe` tree is gone, now stop what it left in the distro.
+    if let Some(place) = pane.info.place.as_ref() {
+        crate::wsl::live::stop_pane(&place.distro, &pane.info.id);
+    }
 }
 
 /// How long the release of a closed pane's worktree, and the app's exit, wait for pending kills.
@@ -387,6 +396,7 @@ impl PaneRegistry {
             account_label: None,
             title: None,
             parent_pane_id: None,
+            place: None,
         };
         PaneState {
             info,

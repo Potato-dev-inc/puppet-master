@@ -66,11 +66,21 @@ export interface SessionChatViewProps {
   onMakeClip?: (userItemId: string) => void;
   /** An old chat with no live pane behind it: the "Messages wait…" note would be wrong there, so it is left out. */
   readOnly?: boolean;
+  /** Show `Branch` on finished turns (desktop Chat tab only). Needs `onBranch`. Never shown when `readOnly`. */
+  canBranch?: boolean;
+  /** `Branch` was pressed on the turn that the message with this id starts. */
+  onBranch?: (userItemId: string) => void;
 }
 
 /** The button on a finished turn's end line. `always`: shown without hover (the newest finished turn). */
 interface TurnClip {
   onMake: () => void;
+  always: boolean;
+}
+
+/** The `Branch` button on a finished turn's end line. Same rules as `TurnClip`. */
+interface TurnBranch {
+  onBranch: () => void;
   always: boolean;
 }
 
@@ -97,7 +107,7 @@ function TextStep({ step, markdown, mode }: { step: Extract<TurnStep, { kind: 't
   return <div className="whitespace-pre-wrap break-words ck-chat-text">{step.item.text}</div>;
 }
 
-function TurnEndDivider({ turn, clip }: { turn: ChatTurn; clip?: TurnClip }) {
+function TurnEndDivider({ turn, clip, branch }: { turn: ChatTurn; clip?: TurnClip; branch?: TurnBranch }) {
   const parts: string[] = [];
   if (turn.outcome === 'interrupted' || turn.outcome === 'failed') parts.push(turn.outcome);
   if (turn.durationMs !== null) parts.push(`Worked for ${formatDuration(turn.durationMs)}`);
@@ -106,6 +116,11 @@ function TurnEndDivider({ turn, clip }: { turn: ChatTurn; clip?: TurnClip }) {
       <span className="h-px flex-1 bg-pm-border ck-chat-rule" />
       {parts.length > 0 && <span className="ck-chat-end-text">{parts.join(' · ')}</span>}
       <span className="h-px flex-1 bg-pm-border ck-chat-rule" />
+      {branch && (
+        <button type="button" className={`ck-chat-branch-btn${branch.always ? ' is-always' : ''}`} onClick={branch.onBranch}>
+          Branch
+        </button>
+      )}
       {clip && (
         <button type="button" className={`ck-chat-clip-btn${clip.always ? ' is-always' : ''}`} onClick={clip.onMake}>
           Make clip
@@ -115,7 +130,7 @@ function TurnEndDivider({ turn, clip }: { turn: ChatTurn; clip?: TurnClip }) {
   );
 }
 
-function TurnView({ turn, fromScreen, markdown, mode, clip }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean; mode: ChatViewMode; clip?: TurnClip }) {
+function TurnView({ turn, fromScreen, markdown, mode, clip, branch }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean; mode: ChatViewMode; clip?: TurnClip; branch?: TurnBranch }) {
   const verbose = mode === 'verbose';
   // A turn with no end yet is still running: its rows without a result are live.
   const live = turn.end === null;
@@ -145,12 +160,12 @@ function TurnView({ turn, fromScreen, markdown, mode, clip }: { turn: ChatTurn; 
         }
         return <TextStep key={step.id} step={step} markdown={markdown} mode={mode} />;
       })}
-      {turn.end && <TurnEndDivider turn={turn} clip={clip} />}
+      {turn.end && <TurnEndDivider turn={turn} clip={clip} branch={branch} />}
     </section>
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, banner, overlay, jump, readOnly, canClip, onMakeClip }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, banner, overlay, jump, readOnly, canClip, onMakeClip, canBranch, onBranch }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
   const markdown = source === 'file' || source === 'api';
@@ -158,6 +173,9 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
   const plan = useMemo(() => currentPlan(turns), [turns]);
   // The newest finished turn that a message started keeps its `Make clip` button in view; the others show it on hover.
   const newestClippable = useMemo(() => (canClip && onMakeClip ? lastClippableId(turns) : null), [canClip, onMakeClip, turns]);
+  // The same rule for `Branch`.
+  const showBranch = !!canBranch && !!onBranch && !readOnly;
+  const newestBranchable = useMemo(() => (showBranch ? lastClippableId(turns) : null), [showBranch, turns]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
 
@@ -255,6 +273,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
               markdown={markdown}
               mode={mode}
               clip={canClip && onMakeClip && isClippable(turn) ? { onMake: () => onMakeClip(turn.user.id), always: turn.id === newestClippable } : undefined}
+              branch={canBranch && !readOnly && onBranch && isClippable(turn) ? { onBranch: () => onBranch(turn.user.id), always: turn.id === newestBranchable } : undefined}
             />
           ))}
         {state !== 'unavailable' && pending}

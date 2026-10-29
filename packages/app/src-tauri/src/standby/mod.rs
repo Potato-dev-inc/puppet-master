@@ -324,6 +324,10 @@ pub fn key_for_run(
     if model.is_some_and(|model| !model.trim().is_empty()) {
         return None;
     }
+    // An agent set to Linux has no standby, so no run can claim one (SPEC WSL-15).
+    if crate::wsl::place::agent_runs_in_linux(agent_type) {
+        return None;
+    }
     let support = crate::tui::profile_for(agent_type).standby_support();
     let supported = if headless { support.headless } else { support.visible };
     supported.then(|| PoolKey::new(agent_type, project, model, read_only, allow_shell, headless).with_account(account))

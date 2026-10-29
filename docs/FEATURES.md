@@ -123,6 +123,7 @@ Full page: [`features/night-shift.md`](features/night-shift.md). Off by default 
 | Feature | Where | Status |
 |---|---|---|
 | Assign an issue: a GitHub label from you or someone on your list starts an agent in a separate copy, after you say yes. The agent cannot push. Puppet Master opens a draft PR (`gh`, your own sign-in) and never merges. Held runs and risky changes always ask. ([`features/assign-an-issue.md`](features/assign-an-issue.md)) | `issue_intake/`, `commands/issue_intake.rs`, `pty/env_guard.rs`, `worktrees/harden.rs`, `components/settings/blocks/AssignIssueSettings.tsx`, `components/cockpit/IssueCard.tsx` | **experimental**: unit tests with a fake GitHub and a fake world; no run against real GitHub yet |
+| Red to Green: when CI fails on a pull request Puppet Master opened from its own copy, the same agent can fix it after you say yes. The agent works in the copy and cannot push. Every push is asked; CI and git-settings changes hold it. Puppet Master uses your `gh` sign-in and never merges or re-runs CI. ([`features/red-to-green.md`](features/red-to-green.md)) | `ci_fix/`, `commands/ci_fix.rs`, `worktrees/service.rs` (`pr_push_fix`, the `on_pr_opened` hook), `worktrees/harden.rs`, `questions/`, `components/settings/blocks/CiFixSettings.tsx`, `components/cockpit/CiFixCard.tsx`, `components/cockpit/PrBlock.tsx` | **Labs, experimental, not live-checked yet**: wired into the app (the watcher starts in `lib.rs`, the six `ci_fix_*` commands are registered, the PR block has "Fix with <agent>" and "Watch CI"). Nothing is watched until the Labs switch is on. Tests use a fake GitHub, fake git, a bare remote and a fake agent only; no real GitHub or real agent run is recorded |
 
 ## 1g. Agent Store ("More agents", Windows only)
 
@@ -159,6 +160,56 @@ without a buzz. One summary at the end. A person starts it; no agent can.
 | Phone bar at the top of the All view: start, `End`, the end summary with `Got it`; the phone reads counts only | `components/mobile/FocusBar.tsx`, `bridge/routes/focus.rs` (`GET /focus`, `POST /focus/start|extend|end`) | experimental |
 | Settings > General > Focus Time: default length and the quiet switch | `components/settings/blocks/FocusSettings.tsx`, `commands/focus.rs` | experimental |
 | Restart: resumes inside the window; the summary waits after the end; a damaged state file means Focus off | `attention/focus/live.rs`, `store.rs` | experimental |
+
+## 1i. Linux Inside (run agents in Linux, WSL 2, Phase 1)
+
+Full page: [`features/linux-inside.md`](features/linux-inside.md). Settings > Agents > Run agents in Linux (WSL). File map: `REPO_MAP.md` section 3.15. Not run live yet; end-to-end test (WSL-17) in progress on `feat/wsl-e2e`.
+
+| Feature | Where | Status |
+|---|---|---|
+| Per-agent `Runs on` setting (Windows default, or a WSL 2 distro); saved in `<app data>/wsl.json`; changed only in the desktop window | `wsl/settings.rs`, `commands/wsl.rs`, `components/settings/sections/LinuxRows.tsx` | experimental |
+| Distro list (`wsl --list --verbose`, cached 30 s, never starts a distro); Check boots one distro and reads its facts (git, interop, programs), cached 10 min | `wsl/probe.rs`, `wsl/parse.rs` | experimental |
+| Linux pane for Claude Code, Codex and OpenCode TUI: `wsl.exe --exec` with a fixed launcher, the folder on a Windows drive mapped to `/mnt/<d>/...`, pane chip `Linux · <distro>` | `wsl/launch.rs`, `wsl/place.rs`, `pty/registry/linux.rs`, `components/cockpit/PaneView.tsx` | experimental |
+| Only the pane id and the login PATH cross into Linux; Windows-path values and saved logins refused | `wsl/launch.rs` (`crossing`), `wsl/place.rs` | experimental |
+| Chat reads the Linux agent's session files from the Linux home; reads stop when the pane ends | `wsl/chat.rs`, `commands/session_chat.rs` | experimental |
+| Close and Keep going stop only the processes that carry this pane's id, same Linux user | `wsl/stop.rs`, `wsl/live.rs`, `pty/registry/mod.rs` | experimental |
+| A one-task run in Linux runs visible instead, with a `linux` fallback record; explicit one-task refused | `agent_runs/headless/entry.rs`, `agent_runs/headless/fallback.rs` | experimental |
+| Refused in v1: folders inside the distro, separate copies, saved logins, env guards, Hook Lane, companions, standby, WSL 1 | `wsl/place.rs` (`decide`, `resolve`), `standby/host.rs` | gap |
+| Not built yet: per-pane switch, phone chip, doctor row, old chats from Linux, PM's MCP tools for Linux agents, `run_agent` place input | Planned for Phases 2 and 3 (see the feature page) | gap |
+
+## 1j. What broke it ("What broke the tests?")
+
+Limits, guards and error codes: the feature page.
+
+| Feature | Where | Status |
+|---|---|---|
+| What broke it: find the first agent turn after which your declared test command fails (halving the save points, runs in a separate copy), name the turn and agent, undo only that turn (all or nothing, safety save point first), Check it again, Keep looking, Stop. Shows in Scores as "Broke the tests N times" (counts culprits, including ones later undone) | `checkpoints/bisect/` (`live.rs`, `job.rs`, `revert.rs`), `commands/what_broke_it.rs`, `scores/gather.rs`, `components/cockpit/WhatBrokeIt*.tsx`, `components/cockpit/History.tsx`, `Palette.tsx`, `CockpitApp.tsx`, `lib/what-broke-it.ts`, `tests/what_broke_it_e2e.rs` ([`features/what-broke-it.md`](features/what-broke-it.md)) | **experimental, not live-checked yet**: the `wb_*` commands, the History button, the palette row and the sheet mount are wired; unit tests and a six-scenario end-to-end test (Windows, `dev-fake-tui`) exist; nothing has been run in the running app |
+
+## 1k. Branch from here
+
+Full page: [`features/branch-from-here.md`](features/branch-from-here.md). Entry points: the Branch button on a finished chat turn, and Branch from here on a History row. Unit tests only; the fake-agent e2e and the live check are not on this branch.
+
+| Feature | Where | Status |
+|---|---|---|
+| Separate copy of the files at a save point (before or after a turn, or a History save point), with one start commit; the chat's own folder and pane are not changed | `branch_from/` (`live.rs`, `copy.rs`, `point.rs`), `checkpoints/export.rs` | experimental |
+| Fenced brief of the chat up to the save point (6 KiB, cleaned, tool output and diffs never read); shown with "Show what the agent gets" | `branch_from/brief.rs`, `branch_from/store.rs` (`briefs/`, private) | experimental |
+| Pick any installed agent (the same agent first); rows show why they cannot be picked (not installed, not runnable, out of usage) | `branch_from/offers.rs`, `components/cockpit/BranchSheet.tsx` | experimental |
+| New run with trust and shell off, no push, fresh context; a trust or login screen parks it, PM answers nothing | `branch_from/live_app.rs` (`to_run_request`) | experimental |
+| Keep warning above Merge: merging does not bring in the original chat's later work | `lib/branch-from.ts` (`branchKeepWarning`), `components/cockpit/Changes.tsx` | experimental |
+| Banners: "Branched from ..." on the new pane, "Branches: ..." on the old one | `components/chat/BranchBanner.tsx` | experimental |
+| Limits: one branch in flight per pane, 5 open copies per pane, 200 records kept | `branch_from/live.rs`, `branch_from/model.rs` | experimental |
+| Desktop only: four Tauri commands; no bridge route, no MCP tool, no phone path | `commands/branch_from.rs` | experimental |
+| Known limit: Changes (and Merge) diff against the commit before the start commit, so the save point's files are listed too | `worktrees/mod.rs` (`base_commit`) | gap |
+| Known limit: the save-point write adds unreferenced objects to the source's shadow store (spec said reads only) | `checkpoints/export.rs` | gap |
+| Not in v1: plain-folder copies, old chats, retry after a failed start, MCP / phone branches, diff of only the new agent's work | [`features/branch-from-here.md`](features/branch-from-here.md) ("Not done yet") | gap |
+
+## 1l. Collision Alert (experimental, not live-checked yet)
+
+Full page: [`features/collision-alert.md`](features/collision-alert.md). Status: the engine, the watch thread, the four Tauri commands, the 8 source-scan guard tests and the fake-agent end-to-end test (8 scenarios) are all in. No live run with real agents yet.
+
+| Feature | Where | Status |
+|---|---|---|
+| Collision Alert: tells you early when two agents change the same file in separate copies, or work in one folder. A card in the Inbox, a row above the two chats, a switch in Settings > Agents. Never pauses, stops, types into or merges anything. Desktop only: the phone does not draw its Ready-lane item | `collision/`, `components/cockpit/CollisionSection.tsx`, `components/chat/CollisionBanner.tsx`, `components/settings/blocks/CollisionSettings.tsx`, `lib/collision.ts` ([`features/collision-alert.md`](features/collision-alert.md)) | **experimental**: the commands are registered and the window and switch use them; not live-checked yet. Alerts can come late on a very busy PC (cost backoff). Desktop only |
 
 ## 2. Orchestrator sidebar and coordination
 

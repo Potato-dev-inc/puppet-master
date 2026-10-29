@@ -12,10 +12,13 @@
 //! No bridge port is bound, no port file is written, and the process runs as the app profile
 //! `fake-tui-e2e` (its own app-data folder), so a running Puppet Master is never touched.
 
+mod branch;
 mod canary_rig;
 mod chat;
 mod focus_rig;
+mod ci_fix;
 mod issue_intake;
+mod linux;
 mod night;
 mod package_rig;
 mod profile;
@@ -24,9 +27,11 @@ mod team;
 mod wizard_rig;
 mod world;
 
+pub use branch::{BranchRig, Chat};
 pub use canary_rig::CanaryRig;
 pub use chat::ChatProbe;
 pub use focus_rig::FocusRig;
+pub use ci_fix::CiFixRig;
 pub use issue_intake::IssueRig;
 pub use night::NightRig;
 pub use package_rig::{PackageRig, Seen};

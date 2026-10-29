@@ -7,6 +7,7 @@ import {
   AHEAD_TITLE,
   type ScoreRate,
   type ScoreRow,
+  brokeTestsText,
   detailLine,
   notEnoughText,
   percentText,
@@ -35,6 +36,7 @@ function row(over: Partial<ScoreRow> = {}): ScoreRow {
     undone: empty,
     askedYou: empty,
     waitingReview: 0,
+    brokeTests: 0,
     ahead: [],
     ...over,
   };
@@ -111,6 +113,22 @@ describe('detailLine', () => {
     expect(detailLine({ turnMsMedian: null, linesMedian: null, waitingReview: 0 })).toBe('');
     expect(detailLine({ turnMsMedian: 60_000, linesMedian: null, waitingReview: 0 })).toBe('Typical turn 1 min');
     expect(detailLine({ turnMsMedian: null, linesMedian: 1, waitingReview: 1 })).toBe('1 line · 1 waiting for review');
+  });
+});
+
+describe('brokeTestsText', () => {
+  it('says how many times the agent broke the tests, with singular and plural', () => {
+    expect(brokeTestsText(row({ brokeTests: 2 }))).toBe('Broke the tests 2 times');
+    expect(brokeTestsText(row({ brokeTests: 1 }))).toBe('Broke the tests 1 time');
+  });
+
+  it('is empty when the count is 0', () => {
+    expect(brokeTestsText(row({ brokeTests: 0 }))).toBeNull();
+  });
+
+  it('is empty for a missing or negative count', () => {
+    expect(brokeTestsText({ brokeTests: undefined as unknown as number })).toBeNull();
+    expect(brokeTestsText(row({ brokeTests: -1 }))).toBeNull();
   });
 });
 

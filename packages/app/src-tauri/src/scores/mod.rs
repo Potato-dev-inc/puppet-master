@@ -26,14 +26,16 @@ pub mod pick;
 pub mod stats;
 pub mod undo_log;
 #[cfg(test)]
+mod broke_tests;
+#[cfg(test)]
 mod build_tests;
 #[cfg(test)]
 mod tests;
 
 use crate::plans_report;
-use aggregate::{aggregate, Labels};
+use aggregate::{aggregate, count_broke, Labels};
 use chrono::TimeZone;
-use model::{ProjectInfo, ScoreRun, ScoreTurn, ScoresReport, MIN_SAMPLE};
+use model::{BrokeFact, ProjectInfo, ScoreRun, ScoreTurn, ScoresReport, MIN_SAMPLE};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -56,6 +58,8 @@ pub struct Inputs {
     pub project_names: BTreeMap<String, String>,
     /// Operation records that could not be read (skipped, so their turns are not counted).
     pub unreadable_records: usize,
+    /// What broke it findings that blamed a turn (`gather::broke_facts`). Only counted, never ranked.
+    pub broke: Vec<BrokeFact>,
 }
 
 fn plural(n: usize, one: &str, many: &str) -> String {
@@ -163,7 +167,10 @@ pub fn build_in<Tz: TimeZone>(
     let nothing = chosen.as_ref().is_some_and(|c| c.key.is_none());
     let (turns, runs): (&[ScoreTurn], &[ScoreRun]) = if nothing { (&[], &[]) } else { (&inputs.turns, &inputs.runs) };
     let key = chosen.as_ref().and_then(|c| c.key.as_deref());
-    let rows = aggregate(turns, runs, key, since_ms, labels);
+    let mut rows = aggregate(turns, runs, key, since_ms, labels);
+    // Counted after the rows are ranked and marked: the count never feeds `ahead`, a rate or `enough`.
+    let broke: &[BrokeFact] = if nothing { &[] } else { &inputs.broke };
+    count_broke(&mut rows, broke, key, since_ms);
     let scoped: Vec<&ScoreTurn> =
         turns.iter().filter(|t| key.map_or(true, |k| k == t.project) && t.started_ms >= since_ms).collect();
 

@@ -63,7 +63,7 @@ pub trait Gh: Send + Sync {
 /// The real `gh` on PATH (`PUPPET_MASTER_GH` overrides it, for a demo fake).
 pub struct GhCli;
 
-fn gh_command() -> Command {
+pub(crate) fn gh_command() -> Command {
     let program = std::env::var("PUPPET_MASTER_GH").ok().filter(|p| !p.trim().is_empty()).unwrap_or_else(|| "gh".into());
     let mut cmd = crate::proc_util::hidden_command(program);
     cmd.env("GH_PROMPT_DISABLED", "1")

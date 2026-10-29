@@ -284,3 +284,33 @@ fn guard_env_is_not_written_out_with_a_request() {
     let back: AgentRunRequest = serde_json::from_value(out).unwrap();
     assert_eq!(back.guard_env, None);
 }
+
+/// SPEC WSL-15: a run of an agent set to Linux gets its coded refusal, or a one-task run becomes a
+/// visible run (`FromRunMode`), before any operation exists. Pure: `wsl::place::decide` with the
+/// setting passed in.
+#[test]
+fn a_linux_agent_run_gets_its_coded_refusal_or_runs_visible_instead_of_one_task() {
+    use crate::tui::Kind;
+    use crate::wsl::model::{WSL_ACCOUNT_NOT_YET, WSL_COPY_NOT_YET, WSL_HEADLESS_NOT_YET};
+    use crate::wsl::place::{decide, Ask, Decision, Headless};
+    let ask = |headless: Headless, copy: bool, account: Option<&'static str>| Ask {
+        agent_type: "fake-cli",
+        pane_id: "",
+        account,
+        guard_env: None,
+        hidden: false,
+        copy,
+        headless,
+        kind: Kind::Cli,
+        linux_program: Some("fake-cli".to_string()),
+    };
+    let code = |ask: &Ask| decide(ask, Some("Ubuntu"), None).unwrap_err().code;
+    assert_eq!(code(&ask(Headless::Explicit, false, None)), WSL_HEADLESS_NOT_YET);
+    assert_eq!(code(&ask(Headless::No, true, None)), WSL_COPY_NOT_YET);
+    assert_eq!(code(&ask(Headless::No, false, Some("work"))), WSL_ACCOUNT_NOT_YET);
+    let linux = |visible: bool| Decision::Linux { distro: "Ubuntu".to_string(), visible_instead_of_one_task: visible };
+    assert_eq!(decide(&ask(Headless::No, false, None), Some("Ubuntu"), None).unwrap(), linux(false));
+    assert_eq!(decide(&ask(Headless::FromRunMode, false, None), Some("Ubuntu"), None).unwrap(), linux(true));
+    // No setting: the same run is not refused and stays on Windows.
+    assert_eq!(decide(&ask(Headless::Explicit, true, Some("work")), None, None).unwrap(), Decision::Windows);
+}

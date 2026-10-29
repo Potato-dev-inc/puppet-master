@@ -47,7 +47,7 @@ pub(crate) fn is_stray_control(c: char) -> bool {
 
 /// The text with line breaks as LF, the invisible and control characters and the HTML comments
 /// taken out. Returns the text, the comment count and the invisible character count.
-fn strip_hidden(raw: &str) -> (String, u32, u32) {
+pub(crate) fn strip_hidden(raw: &str) -> (String, u32, u32) {
     let mut kept = String::with_capacity(raw.len());
     let mut invisible = 0;
     let mut chars = raw.chars().peekable();

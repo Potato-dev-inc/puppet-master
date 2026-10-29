@@ -1,0 +1,15 @@
+2026-10-29T10:00:00.1234567Z ##[group]Run cargo test --lib ci_fix
+2026-10-29T10:00:00.2000000Z Compiling billing v0.4.2 (/work/billing)
+2026-10-29T10:00:01.0000000Z [32m   Compiling[0m serde v1.0.0
+2026-10-29T10:00:02.0000000Z running 4 tests
+2026-10-29T10:00:02.5000000Z test cart::total_is_sum ... ok
+2026-10-29T10:00:03.0000000Z test cart::discount_never_negative ... ok
+2026-10-29T10:00:04.0000000Z test cart::tax_rounds_half_up ... ok
+2026-10-29T10:00:05.0000000Z test sum::adds_two_numbers ... FAILED
+2026-10-29T10:00:05.1000000Z ##[group]failures:
+2026-10-29T10:00:05.2000000Z ---- sum::adds_two_numbers stdout ----
+2026-10-29T10:00:05.3000000Z ]8;;https://example.com/run/1assertion failed]8;;: sum(2, 2) returns 5
+2026-10-29T10:00:05.4000000Z   left: 5
+2026-10-29T10:00:05.5000000Z  right: 4
+2026-10-29T10:00:06.0000000Z test result: FAILED. 3 passed; 1 failed
+2026-10-29T10:00:06.1000000Z ##[error]Process completed with exit code 101.

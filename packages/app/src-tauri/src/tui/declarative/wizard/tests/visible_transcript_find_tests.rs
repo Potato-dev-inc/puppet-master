@@ -81,7 +81,7 @@ fn read_back(written: &str, cwd: &Path, home: Option<&Path>, file: &Path) -> Vec
     let table = def.session_chat.expect("the written definition has the table");
     let source = DeclaredSource::new(table).expect("the table is valid");
     let names = Names { home, cwd, env: &|_| None };
-    let pane = PaneFacts { cwd: cwd.to_path_buf(), started_at: std::time::SystemTime::now() - std::time::Duration::from_secs(60), provider_session_id: None, home: None, launch: Default::default() };
+    let pane = PaneFacts { cwd: cwd.to_path_buf(), started_at: std::time::SystemTime::now() - std::time::Duration::from_secs(60), provider_session_id: None, home: None, launch: Default::default(), linux: None };
     let Located::Found(found) = source.locate_with(&pane, &names) else { panic!("the table does not lead to the file") };
     assert_eq!(std::fs::canonicalize(found).unwrap(), std::fs::canonicalize(file).unwrap());
     let text = std::fs::read_to_string(file).unwrap();

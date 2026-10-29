@@ -1,5 +1,7 @@
 // Payload/result shapes exchanged with the Rust side over Tauri invoke/events.
 
+import type { PanePlace } from './wsl';
+
 export type PaneInfo = {
   id: string;
   agent_type: string;
@@ -21,6 +23,8 @@ export type PaneInfo = {
   title?: string | null;
   /** The pane of the agent that started this one over MCP (a helper); display-only, absent for the person's own panes. */
   parent_pane_id?: string | null;
+  /** Where a Linux (WSL) pane runs; absent for a Windows pane. Display only. */
+  place?: PanePlace;
 };
 
 export type TerminalSnapshotEvent = { pane_id: string; snapshot: string };

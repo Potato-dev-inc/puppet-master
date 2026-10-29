@@ -1,0 +1,7 @@
+  NAME                   STATE           VERSION
+* Ubuntu-Test            Running         2
+  docker-desktop         Running         2
+  docker-desktop-data    Stopped         2
+  Docker-Desktop-Extra   Stopped         2
+  rancher-desktop        Running         2
+  Debian-Test            Stopped         2

@@ -183,10 +183,18 @@ describe('Agents: every row renders', () => {
     expect(buttonByText(m.host, 'Save changes')).toBeUndefined();
   });
 
-  it('groups the rows: Logins, Speed, Updates, Live updates, Keep going, then Definitions (whose own block carries the title)', async () => {
+  it('groups the rows: Logins, Speed, Updates, Live updates, Keep going, Linux, Same file, then Definitions (whose own block carries the title)', async () => {
     await mount();
     const heads = [...m.host.querySelectorAll('section.st-group')].map((g) => g.querySelector(':scope > h2')?.textContent?.trim() ?? '');
-    expect(heads).toEqual(['Logins', 'Speed', 'Updates', 'Live updates', 'Keep going', '']);
+    expect(heads).toEqual(['Logins', 'Speed', 'Updates', 'Live updates', 'Keep going', 'Linux', 'Same file', '']);
+  });
+
+  it('mounts the same-file switch under Same file and it is found by search', async () => {
+    await mount();
+    const row = rowOf('collision');
+    expect(row?.textContent).toContain('Warn me when two agents change the same file');
+    expect(row?.textContent).toContain('It never pauses or stops an agent.');
+    expect(rowMatches(agentsRows.find((r) => r.id === 'collision')!, 'same file')).toBe(true);
   });
 
   it('Keep going: the block mounts under its own row with the saved order', async () => {

@@ -140,6 +140,7 @@ mod tests {
             agent_label: "fake_a".into(),
             account_id: Some("acc_1".into()),
             account_label: "Work".into(),
+            broke_tests: 0,
             turns: 12,
             enough: true,
             ended_ok: rate(11, 12),

@@ -33,6 +33,7 @@ import { SegTabs } from './SegTabs';
 import { Sheet } from './Sheet';
 import { paneHeading } from './titles';
 import { helperOfLabel } from '../../lib/pane-helpers';
+import { placeLabel, placeTooltip } from '../../lib/wsl-place';
 import { isProseStream, transcriptSpeaker } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
 import { BudgetChip } from './BudgetChip';
@@ -114,7 +115,16 @@ function Empty({ title, body }: { title: string; body: string }) {
   );
 }
 
-export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
+export function PaneView({
+  c,
+  paneId,
+  onWhatBroke,
+}: {
+  c: CockpitApi;
+  paneId: string;
+  /** Opens "What broke the tests?" for this pane (History tab). Absent: no button. */
+  onWhatBroke?: (paneId: string) => void;
+}) {
   const pane = c.registry.panes.get(paneId);
   const [tab, setTab] = useState<Tab>('terminal');
   const [menu, setMenu] = useState(false);
@@ -283,6 +293,11 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             {projectLine}
           </span>
           {info.account_label && <span className="ck-sub-inline" data-testid="pane-account">{info.account_label}</span>}
+          {placeLabel(info.place) && (
+            <span className="ck-sub-inline" data-testid="pane-place" title={placeTooltip(info.place)}>
+              {placeLabel(info.place)}
+            </span>
+          )}
           {helperOf && (
             <button type="button" className="ck-helper-of" onClick={() => c.select(helperOf.parentId)} title="Open the pane that started this one">
               {helperOf.text}
@@ -522,6 +537,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
               notify={c.notify}
               agentName={name}
               sharedWith={panesSharingFolder(c.registry.paneList, c.names, paneId)}
+              onWhatBroke={onWhatBroke}
             />
           )}
           {tab === 'receipt' && (

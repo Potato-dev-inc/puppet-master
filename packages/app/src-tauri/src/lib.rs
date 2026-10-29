@@ -16,12 +16,13 @@ mod agent_store;
 pub mod agent_hooks;
 mod app_lifecycle;
 mod autostart;
-mod app_paths;
+pub mod app_paths;
 mod bridge;
 mod budgets;
 mod canary;
 mod channels;
-mod checkpoints;
+mod branch_from;
+pub mod checkpoints;
 mod clip;
 mod commands;
 mod context_pack;
@@ -29,6 +30,7 @@ mod event_log;
 mod git_exclude;
 mod handoff;
 mod issue_intake;
+mod ci_fix;
 mod events;
 mod mcp_hints;
 mod mcp_install;
@@ -38,7 +40,7 @@ mod mcp_status;
 mod missions;
 mod mobile_pairing;
 mod mobile_tunnel;
-mod night_shift;
+pub mod night_shift;
 mod tunnel_config;
 mod one_brain;
 mod companion;
@@ -111,13 +113,15 @@ pub mod tool_registry;
 mod toolbelt;
 mod agent_pack;
 mod tui;
-mod turn_summary;
+pub mod turn_summary;
 mod worker_launch;
 pub mod worktrees;
 pub mod watch_command;
 pub mod env_probe;
 mod webview_service_worker;
 mod live_room;
+mod wsl;
+mod collision;
 
 use commands::AppState;
 use std::path::{Path, PathBuf};
@@ -216,6 +220,10 @@ pub fn run() {
             commands::package_check_lookup,
             commands::package_check_settings_get,
             commands::package_check_settings_set,
+            commands::branch_preview,
+            commands::branch_start,
+            commands::branch_lineage,
+            commands::branch_brief,
             commands::pane_message_send,
             commands::pane_message_cancel,
             commands::pane_messages_list,
@@ -254,6 +262,11 @@ pub fn run() {
             team::commands::team_job_start,
             team::commands::team_member_confirm_github,
             commands::spawn_pane,
+            commands::wsl_status,
+            commands::wsl_check,
+            commands::wsl_places_get,
+            commands::wsl_place_set,
+            commands::spawn_pane_in_linux,
             commands::kill_pane_cmd,
             commands::kill_all_panes,
             commands::write_pane_input,
@@ -446,6 +459,19 @@ pub fn run() {
             commands::checkpoint_diff,
             commands::checkpoint_restore,
             commands::checkpoint_undo_last,
+            commands::wb_overview,
+            commands::wb_declare,
+            commands::wb_start,
+            commands::wb_status,
+            commands::wb_stop,
+            commands::wb_finding,
+            commands::wb_findings,
+            commands::wb_diff,
+            commands::wb_undo_plan,
+            commands::wb_undo,
+            commands::wb_recheck,
+            commands::wb_settings_get,
+            commands::wb_settings_set,
             commands::tamper_check,
             commands::mission_list,
             commands::mission_get,
@@ -498,6 +524,16 @@ pub fn run() {
             commands::review_desk_throw_away,
             commands::review_desk_unmark,
             commands::review_desk_fix,
+            commands::ci_fix_view,
+            commands::ci_fix_save_settings,
+            commands::ci_fix_offer,
+            commands::ci_fix_act,
+            commands::ci_fix_log,
+            commands::ci_fix_poll_now,
+            commands::collision_list,
+            commands::collision_ignore,
+            commands::collision_settings_get,
+            commands::collision_settings_set,
             commands::worktree_list,
             commands::worktree_diff,
             commands::second_opinion_agents,
@@ -536,8 +572,6 @@ pub fn run() {
             commands::worktree_pr_prepare,
             commands::worktree_pr_create,
             commands::worktree_pr_checks,
-            commands::worktree_pr_send_back_preview,
-            commands::worktree_pr_send_back,
             commands::pane_transcript,
             commands::questions_list,
             commands::question_answer,
@@ -702,6 +736,9 @@ pub fn run() {
             let registry_for_panes = app.state::<AppState>().registry.clone();
             pane_windows::init(app.handle(), registry_for_panes.clone());
             secrets::migrate_on_startup();
+            // What broke it: remove test copies an earlier run left behind (SPEC n33 section 3.4).
+            #[cfg(not(test))]
+            checkpoints::bisect::live::live().sweep_stale();
             settings_store::load_saved_public_settings(app.handle());
             ui_mode::load_saved();
             // Panes-first: no main window. A standalone worker host (`--worker`) is the one
@@ -736,6 +773,7 @@ pub fn run() {
             askbar::glue::init(app.handle());
             team::init(app.handle().clone(), registry_for_panes.clone());
             issue_intake::live::start(registry_for_panes.clone(), app.handle().clone());
+            ci_fix::live::start(registry_for_panes.clone(), app.handle().clone());
             companion::live::start(app.handle().clone(), registry_for_panes.clone());
             // A room a crash left on the relay is ended now (its own thread: it may wait for the network).
             live_room::service::cleanup_at_boot(app_paths::app_data_dir());

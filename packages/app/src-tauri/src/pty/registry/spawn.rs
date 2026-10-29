@@ -162,6 +162,16 @@ pub fn spawn_pane(
     let rows = args.rows.unwrap_or(30);
     let pane_id = args.pane_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
+    // Linux Inside: where this pane runs. `None` = Windows, and then nothing below differs from a
+    // build without the feature. A refusal fails the spawn before any pane is replaced.
+    let linux = linux::plan(
+        profile.as_ref(),
+        &pane_id,
+        args.account.as_deref().map(str::trim).filter(|a| !a.is_empty()),
+        args.guard_env.as_deref(),
+        &cwd,
+    )?;
+
     let replaced = {
         let mut reg = registry.lock();
         // Not `take`: a replaced id keeps its hidden mark (a standby is spawned under a pre-hidden id).
@@ -187,7 +197,12 @@ pub fn spawn_pane(
     // Hook Lane (shadow): a per-pane token in env and, for a launch-flag agent, its flag. Empty when
     // the agent has no hooks or they are off, so such a pane starts exactly as before.
     let user_args = args.extra_args.clone().unwrap_or_default();
-    let hooks = crate::agent_hooks::prepare_spawn(profile.id(), &pane_id, &cwd, &user_args);
+    // A Linux pane has no hooks in v1: nothing is installed or recorded for it.
+    let hooks = if linux.is_some() {
+        crate::agent_hooks::HookLaunch::default()
+    } else {
+        crate::agent_hooks::prepare_spawn(profile.id(), &pane_id, &cwd, &user_args)
+    };
     // Names the pane to any MCP shim the agent starts, so a helper it starts can be nested under it.
     let account_env = compose_pane_env(account_env, hooks.env, &pane_id, guard_env);
     // An agent that serves its session over a local API is told where (the chat view reads it from there).
@@ -200,7 +215,7 @@ pub fn spawn_pane(
     };
     let extra_args: Vec<String> =
         user_args.into_iter().chain(hooks.extra_args).chain(api_args).chain(session_args).collect();
-    let cmd = launch_command(
+    let cmd = linux::pane_command(
         profile.as_ref(),
         &crate::tui::SpawnRequest {
             cwd: &cwd,
@@ -210,6 +225,7 @@ pub fn spawn_pane(
             read_only: args.read_only,
         },
         &account_env,
+        linux.as_ref(),
     )?;
     let PtyChild { master, child, pid } = open_pty_child(cmd, rows, cols)?;
     crate::pty::launch_session::set(&pane_id, session_id);
@@ -254,6 +270,7 @@ pub fn spawn_pane(
         account_label,
         title: None,
         parent_pane_id: None,
+        place: linux.as_ref().map(crate::wsl::place::pane_place),
     };
 
     let pane = PaneState {
@@ -527,6 +544,10 @@ pub fn spawn_pane(
                 }
             })
             .map_err(|e| format!("spawn idle thread: {e}"))?;
+    }
+
+    if let Some(place) = &linux {
+        linux::watch_fast_exit(place.distro.clone(), exited.clone());
     }
 
     let id = pane.info.id.clone();

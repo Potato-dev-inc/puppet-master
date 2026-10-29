@@ -1,0 +1,135 @@
+/* Collision alerts: a card in the Inbox, a quiet "No clash yet" group, and a row in the chat banner.
+   Dense monochrome, like the Inbox items in cockpit.css and the mission rows. Cockpit tokens only, no colour literals. */
+.cockpit .ck-collision-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.cockpit .ck-collision-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.cockpit .ck-collision-glyph {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--label-2);
+  color: var(--label-2);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+.cockpit .ck-collision-title {
+  margin: 0;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-collision-place {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--label-3);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-collision-detail {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--label-2);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-collision-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-collision-files li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-collision-advice {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-collision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.cockpit .ck-collision-actions button:focus-visible {
+  outline: 2px solid var(--label-2);
+  outline-offset: 1px;
+}
+.cockpit .ck-collision-footer {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--label-3);
+  overflow-wrap: anywhere;
+}
+/* Same-file alerts: no clash yet, so the card stays muted and carries no advice or loud glyph. */
+.cockpit .ck-collision-card.ck-collision-quiet {
+  gap: 4px;
+}
+.cockpit .ck-collision-card.ck-collision-quiet .ck-collision-title {
+  font-weight: 500;
+  color: var(--label-2);
+}
+.cockpit .ck-collision-card.ck-collision-quiet .ck-collision-glyph {
+  box-shadow: inset 0 0 0 1px var(--sep);
+  color: var(--label-4);
+}
+/* Chat banner for the open pane: one thin row above the chat, under the pane header. */
+.cockpit .ck-collision-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--sep);
+  background: var(--fill);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--label-2);
+}
+.cockpit .ck-collision-banner .ck-collision-title {
+  flex: 1 1 200px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--label);
+}
+.cockpit .ck-collision-banner .ck-collision-actions {
+  margin-top: 0;
+  margin-left: auto;
+}
+@media (max-width: 640px) {
+  .cockpit .ck-collision-banner {
+    padding: 8px 16px;
+  }
+  .cockpit .ck-collision-banner .ck-collision-actions {
+    margin-left: 0;
+  }
+}

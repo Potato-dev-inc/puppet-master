@@ -14,6 +14,8 @@ import {
 } from "./history-model";
 import { RestoreSheet } from "./RestoreSheet";
 import { restoreWithUndo, type Notify } from "./restore-flow";
+import { BranchSheet } from "./BranchSheet";
+import type { BranchFrom } from "../../lib/branch-from";
 
 const errText = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
@@ -30,6 +32,7 @@ export function History({
   api = cockpitApi,
   sharedWith = [],
   agentName = "the agent",
+  onWhatBroke,
 }: {
   paneId: string;
   status: string;
@@ -40,12 +43,16 @@ export function History({
   sharedWith?: string[];
   /** The agent's name, for "Before Claude Code's question". */
   agentName?: string;
+  /** Opens "What broke the tests?" for this pane. Absent: no button. */
+  onWhatBroke?: (paneId: string) => void;
 }) {
   const [listing, setListing] = useState<CheckpointList | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [diffs, setDiffs] = useState<Record<string, FileChange[] | string>>({});
   const [pending, setPending] = useState<Checkpoint | null>(null);
+  // The "Branch from here" sheet, opened from a row's save point.
+  const [branchFrom, setBranchFrom] = useState<BranchFrom | null>(null);
   // The primary "Undo last turn" asks with its own title; a row's Restore names the row.
   const [undoing, setUndoing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -76,6 +83,7 @@ export function History({
     setDiffs({});
     setPending(null);
     setUndoing(false);
+    setBranchFrom(null);
   }, [paneId]);
 
   // A turn starting or ending is what creates checkpoints, so reload on every status change.
@@ -186,6 +194,15 @@ export function History({
               Undo last turn
             </button>
           )}
+          {onWhatBroke && (
+            <button
+              type="button"
+              className="ck-btn ck-btn--sm ck-btn--secondary"
+              onClick={() => onWhatBroke(paneId)}
+            >
+              What broke the tests?
+            </button>
+          )}
         </div>
         <ol className="ck-hist" aria-label="Checkpoints">
           {listing.items.map((item) => {
@@ -227,6 +244,13 @@ export function History({
                     }}
                   >
                     Restore
+                  </button>
+                  <button
+                    type="button"
+                    className="ck-btn ck-btn--sm ck-btn--secondary ck-hist-branch"
+                    onClick={() => setBranchFrom({ kind: "save_point", checkpoint_id: item.id })}
+                  >
+                    Branch from here
                   </button>
                 </div>
                 {expanded && (
@@ -271,6 +295,15 @@ export function History({
             setUndoing(false);
           }}
           onConfirm={() => void confirmRestore()}
+        />
+      )}
+
+      {branchFrom && (
+        <BranchSheet
+          paneId={paneId}
+          from={branchFrom}
+          onClose={() => setBranchFrom(null)}
+          onStarted={(view) => notify(`Branch started. ${view.toLabel} works in a separate copy.`)}
         />
       )}
     </>

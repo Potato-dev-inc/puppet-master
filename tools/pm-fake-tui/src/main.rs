@@ -11,6 +11,8 @@ fn main() {
     let mut agent: Option<Layout> = None;
     let mut check = false;
     let mut version = false;
+    // Arguments of a real agent's command line (a Linux pane starts `--session-id <id>`): kept for `{arg:--flag}`.
+    let mut extra: Vec<String> = Vec::new();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--script" => script_path = args.next(),
@@ -34,12 +36,10 @@ fn main() {
                 println!("pm-fake-tui [--agent claude|codex|nimbus] [--script FILE.toml|FILE.json] [--check FILE] [--version]\nSee tools/pm-fake-tui/README.md for the script format.");
                 return;
             }
-            other => {
-                eprintln!("unknown argument {other}");
-                std::process::exit(2);
-            }
+            other => extra.push(other.to_string()),
         }
     }
+    pm_fake_tui::transcript::set_program_args(extra);
     let mut script = match script_path {
         Some(path) => match Script::load(std::path::Path::new(&path)) {
             Ok(script) => script,

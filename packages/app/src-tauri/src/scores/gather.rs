@@ -4,11 +4,51 @@
 //! The same sources as "Your plans" (`plans_report`), with one difference: a copy keeps its own
 //! ring file, so a ring is read from the folder it lives in, while operation records are read from
 //! the ORIGIN project. `join` maps every folder to its origin project.
+//!
+//! What broke it findings (`checkpoints::bisect`) are read here too, as plain facts: only a culprit
+//! turn with a known agent is kept, and only as a count.
 
 use super::join::{join, ProjectSummary};
+use super::model::BrokeFact;
 use super::{last_name, undo_log, Inputs};
+use crate::checkpoints::bisect::model::{Finding, Outcome};
+use crate::checkpoints::bisect::store::Store;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+/// The facts of the findings that blamed a turn. Only `Outcome::Culprit` counts, and only when the
+/// suspect has an agent id (no id = no row to join). Every other outcome is skipped.
+pub fn broke_facts(findings: &[Finding]) -> Vec<BrokeFact> {
+    findings
+        .iter()
+        .filter_map(|finding| match &finding.outcome {
+            Outcome::Culprit { suspect, .. } => Some(BrokeFact {
+                project: finding.project.clone(),
+                agent_id: suspect.agent_id.clone()?,
+                account: suspect.account.clone(),
+                at_ms: finding.finished_ms,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The facts saved in one store. A missing or unreadable `findings.json` gives none: the store reads
+/// it as empty and never fails here.
+pub fn broke_facts_in(store: &Store) -> Vec<BrokeFact> {
+    broke_facts(&store.findings())
+}
+
+/// The app's own What broke it facts. Tests never read the app's folder, so they get none.
+#[cfg(not(test))]
+fn live_broke() -> Vec<BrokeFact> {
+    broke_facts_in(&Store::live())
+}
+
+#[cfg(test)]
+fn live_broke() -> Vec<BrokeFact> {
+    Vec::new()
+}
 
 /// Every record this computer keeps, joined into turns and runs. Slow-ish (it reads each
 /// project's operation records): call it off the UI thread.
@@ -64,5 +104,12 @@ pub fn live_inputs(_now: u64) -> Inputs {
     let agent_of_label = |label: &str| descriptors.iter().find(|d| d.label == label).map(|d| d.id.to_string());
     let entries = undo_log::read(&undo_log::default_path());
     let (turns, runs) = join(&ops, &summaries, &undo_log::marks(&entries), undo_log::counting_since(&entries), &agent_of_label);
-    Inputs { turns, runs, undo_since_ms: undo_log::counting_since(&entries), project_names, unreadable_records }
+    Inputs {
+        turns,
+        runs,
+        undo_since_ms: undo_log::counting_since(&entries),
+        project_names,
+        unreadable_records,
+        broke: live_broke(),
+    }
 }

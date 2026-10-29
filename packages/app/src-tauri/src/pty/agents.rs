@@ -112,6 +112,12 @@ fn resolve_macos(agent: AgentType) -> (&'static str, Vec<&'static str>) {
     }
 }
 
+/// The program and base arguments an agent runs with inside Linux (WSL). Same flags as Windows where the
+/// agent has them; the program is a bare name, found on the distro's PATH.
+pub fn linux_command(agent: AgentType) -> (&'static str, Vec<&'static str>) {
+    resolve_linux(agent)
+}
+
 fn resolve_linux(agent: AgentType) -> (&'static str, Vec<&'static str>) {
     match agent {
         AgentType::Claude => ("claude", vec![]),

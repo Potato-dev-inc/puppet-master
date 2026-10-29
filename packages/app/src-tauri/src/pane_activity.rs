@@ -129,6 +129,7 @@ pub fn init(registry: Arc<Mutex<PaneRegistry>>, app: tauri::AppHandle) {
         let _ = sink_app.emit("pty://preview", serde_json::json!({ "pane_id": id, "urls": urls }));
         crate::bridge::push_pane_preview_sse(id, urls);
     }));
+    crate::collision::live::start(registry.clone(), app.clone());
     std::thread::Builder::new()
         .name("pane-activity".into())
         .spawn(move || loop {

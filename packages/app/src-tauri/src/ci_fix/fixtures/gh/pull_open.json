@@ -1,0 +1,21 @@
+{
+  "url": "https://api.github.com/repos/acme/billing/pulls/61",
+  "html_url": "https://github.com/acme/billing/pull/61",
+  "number": 61,
+  "state": "open",
+  "title": "Fix cart totals",
+  "draft": true,
+  "merged": false,
+  "merged_at": null,
+  "user": { "login": "you" },
+  "head": {
+    "ref": "pm/issue-42-a1b2",
+    "sha": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+    "repo": { "full_name": "acme/billing", "fork": false }
+  },
+  "base": {
+    "ref": "main",
+    "sha": "9f8e7d6c5b4a39281716151413121110f0e0d0c0",
+    "repo": { "full_name": "acme/billing", "fork": false }
+  }
+}

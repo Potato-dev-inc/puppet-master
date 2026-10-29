@@ -1,0 +1,10 @@
+npm WARN config production Use `--omit=dev` instead.
+> mathx@0.1.0 test
+> vite-node --run
+
+x-ray scan finished, 0 issues
+Build failed in the old cache, retrying
+error TS2304: Cannot find name 'foo'.
+    x = compute(3)
+3 passed, 0 failed
+Exit code: 1
