@@ -1241,3 +1241,8 @@ mod night;
 
 #[path = "fake_tui_issue_intake.rs"]
 mod issue_intake;
+
+// ---- Linux Inside: an agent in a fake WSL distro (pm-fake-wsl stands in for wsl.exe, zero tokens) ------------------
+
+#[path = "fake_tui_wsl.rs"]
+mod wsl;

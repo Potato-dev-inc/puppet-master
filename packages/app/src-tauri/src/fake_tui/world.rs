@@ -17,9 +17,9 @@ const WHOLE_LOG: usize = 10_000_000;
 
 /// Everything shared by the tests of one process: one app handle, one pane registry, one fake build.
 pub struct World {
-    registry: Arc<Mutex<PaneRegistry>>,
-    app: AppHandle,
-    exe: PathBuf,
+    pub(super) registry: Arc<Mutex<PaneRegistry>>,
+    pub(super) app: AppHandle,
+    pub(super) exe: PathBuf,
     script: Arc<Mutex<Option<PathBuf>>>,
     /// One session at a time: the agent registry and the global pane observers are process-wide.
     serial: Mutex<()>,
@@ -85,6 +85,8 @@ impl World {
                 }
             }
         }
+        // No test in this process may reach the real `wsl.exe` (Linux Inside; see `linux.rs`).
+        super::linux::block_real_wsl();
         let exe = locate_fake_exe();
         assert!(exe.is_file(), "pm-fake-tui is not built at {}", exe.display());
 
@@ -180,11 +182,11 @@ fn git(dir: &Path, args: &[&str]) {
 
 /// One test's view of the world.
 pub struct Session {
-    world: &'static World,
+    pub(super) world: &'static World,
     _serial: MutexGuard<'static, ()>,
     root: PathBuf,
-    project: PathBuf,
-    aux: PathBuf,
+    pub(super) project: PathBuf,
+    pub(super) aux: PathBuf,
     saved: Arc<Vec<Arc<dyn TuiProfile>>>,
 }
 
@@ -718,6 +720,7 @@ impl Drop for Session {
             let _ = crate::agent_run_mode::set_for_agent(agent, crate::agent_run_mode::RunMode::Visible);
             crate::agent_run_mode::e2e::force(agent, None);
         }
+        super::linux::end();
         crate::tui::registry::registry().swap(self.saved.iter().cloned().collect());
         *self.world.script.lock() = None;
         super::set_hold_output(None);

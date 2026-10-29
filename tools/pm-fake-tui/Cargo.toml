@@ -3,6 +3,7 @@ name = "pm-fake-tui"
 version = "0.1.0"
 edition = "2021"
 publish = false
+autobins = false
 description = "A scriptable fake agent TUI for Puppet Master's end-to-end tests: real ConPTY, real screens, zero tokens. Dev only."
 
 # Deliberately its own workspace root (an empty table): it has nothing to do with the app's build, is never shipped,
@@ -16,6 +17,11 @@ path = "src/lib.rs"
 [[bin]]
 name = "pm-fake-tui"
 path = "src/main.rs"
+
+# A stand-in for `wsl.exe` (Linux Inside end-to-end tests): it answers list, probe, launch and stop calls.
+[[bin]]
+name = "pm-fake-wsl"
+path = "src/bin/fake_wsl.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
