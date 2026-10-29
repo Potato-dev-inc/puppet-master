@@ -142,6 +142,14 @@ Full page: [`features/agent-store.md`](features/agent-store.md). Entry points: "
 | Known gap: built-in cards (Claude Code, Codex, Cursor Agent, OpenCode) show the vendor name as the title; the four also show the Tested chip with `windows_tested = false` | `agent_store/catalog.rs` (`label`), `catalog/agents/{claude,codex,cursor_agent,opencode}/entry.toml` | gap |
 | Not in the catalog: Amp, Grok CLI, Codebuff (vendor facts not confirmed), Antigravity CLI (no confirmed install source) | `catalog/agents/` | gap |
 
+## 1h. Collision Alert (experimental, not wired yet)
+
+Full page: [`features/collision-alert.md`](features/collision-alert.md). Status: the engine and the watch thread are on the branch; the Tauri commands, guard tests and fake-agent end-to-end test are not.
+
+| Feature | Where | Status |
+|---|---|---|
+| Collision Alert: tells you early when two agents change the same file in separate copies, or work in one folder. A card in the Inbox, a row above the two chats, a switch in Settings > Agents. Never pauses, stops, types into or merges anything. Desktop only: the phone does not draw its Ready-lane item | `collision/`, `components/cockpit/CollisionSection.tsx`, `components/chat/CollisionBanner.tsx`, `components/settings/blocks/CollisionSettings.tsx`, `lib/collision.ts` ([`features/collision-alert.md`](features/collision-alert.md)) | **experimental**: the three Tauri commands are not registered yet, so the windows cannot read or change it; no live run |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.
