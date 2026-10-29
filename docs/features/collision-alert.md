@@ -5,18 +5,20 @@ from `pane_activity::init`. Desktop UI: `components/cockpit/CollisionSection.tsx
 `components/chat/CollisionBanner.tsx` (row above a chat), `components/settings/blocks/CollisionSettings.tsx`
 (Settings > Agents), and `lib/collision.ts`. The file-by-file map is in `docs/REPO_MAP.md` section 3.14.
 
-Status: **experimental, not wired into the app yet.** Read this first.
+Status: **experimental, not live-checked yet.** Read this first.
 
-- On this branch: the pure parts (limits, hunks, finish-first rules, noise, repo detection, comparing, alert life,
-  words, view, git reads, one engine step), the watch thread, and the desktop cards, banner and switch.
-- Not on this branch: the three Tauri commands (`collision_list`, `collision_ignore`, `collision_settings_get`,
-  `collision_settings_set`). They are not in `commands/` and not in `generate_handler!` in `lib.rs`. So the windows get
-  an error from every call: the card and the banner stay empty, and the switch cannot save.
-- Not on this branch: the guard tests (`collision/tests.rs` is a stub) and the fake-agent end-to-end test.
-- Already live: the watch thread starts with the app. When two agent panes share a repo and one is working, it can
-  raise a Ready-lane attention item (`collision:<id>`, no buttons). With no command, there is no way to ignore it
-  or switch the feature off from the window. To switch it off now, set `"enabled": false` in `collision.json` in the
-  app data folder and restart.
+- The whole feature is on the branch: the pure parts (limits, hunks, finish-first rules, noise, repo detection,
+  comparing, alert life, words, view, git reads, one engine step), the watch thread, and the desktop cards, banner
+  and switch.
+- The four Tauri commands are in `commands/collision.rs` and registered in `generate_handler!` in `lib.rs`:
+  `collision_list`, `collision_ignore`, `collision_settings_get` and `collision_settings_set`. So the card and the
+  banner read alerts, `Ignore` works, and the Settings switch saves `collision.json`.
+- The guard tests are in `collision/tests.rs` (8 source scans). The fake-agent end-to-end test is in
+  `tests/fake_tui_collision.rs` (8 scenarios).
+- Not checked yet: nothing has been run in the live app. The cost figures below are design targets, not measurements.
+- The watch thread starts with the app. When two agent panes share a repo and one is working, it can raise a
+  Ready-lane attention item (`collision:<id>`, no buttons). Turn the feature off with the Settings switch, or set
+  `"enabled": false` in `collision.json` in the app data folder by hand.
 
 ## What and why
 
@@ -173,14 +175,15 @@ view holds no folder and no process text.
 ## What it never does
 
 - Never pauses, stops, interrupts, types into, presses keys in, merges, or discards anything. The collision code has
-  no write path to an agent. Checked by a guard test, which is not on this branch yet.
+  no write path to an agent. Checked by the guard test `no_write_path`.
 - Never reads file content. Only file names, modified times, kinds and line numbers come from git.
 - Never runs a repo's own git hooks, config, filters or text converters. Every git call goes through the hardened read
   (`worktrees::harden::read`), which allows only `diff-index`, `ls-files`, `rev-parse` and `diff`, and refuses the
   rest.
 - Never takes `.git/index.lock`. It sets `GIT_OPTIONAL_LOCKS=0` on every call.
 - Never sends anything to another agent. No bridge route, no MCP tool, no team, no live room, no push, no Telegram.
-  On this branch, only `pane_activity.rs` and the module itself mention `collision::` (checked by grep).
+  Outside the module, only `pane_activity.rs` (starts the thread), the Tauri command file and `lib.rs` (registers the
+  four commands) name it. The guard test `not_reachable_from_agents` checks this.
 - Never names who wrote a change in a shared folder.
 - Never keeps alerts on disk. Only `collision.json` (`{"enabled": true}`) is saved.
 
@@ -189,8 +192,11 @@ view holds no folder and no process text.
 - **Desktop only for now. The phone has no "Ready for you" list.** The phone's Needs you list draws only the Blocking
   lane. A Ready-lane item is never drawn there and never counted (`NeedsYouList.collision.test.tsx` pins this). So no
   clash card reaches the phone, and nothing is pushed.
-- **Not wired yet.** See the status at the top. The window cannot read alerts, ignore one or change the switch until the
-  three commands are registered.
+- **Not live-checked yet.** The commands, the window and the switch are wired, but no run has been done with two real
+  agents. See the status at the top.
+- **Alerts can come late on a very busy PC.** When looks are slow, the watch backs off (the next look waits longer,
+  up to 120 s, and after three slow looks only turn-end looks run for 30 minutes). A clash can then show after the
+  agents have already edited the same lines.
 - **Git repos only.** A folder without git is not watched. Folders without git are a v2 item.
 - **Agent panes only.** Edits made by hand in an editor are not seen. Helpers and crew members count like any pane.
 - **Same folder cannot say who wrote what.** It says "changed while both worked" and lists the files.
@@ -220,12 +226,18 @@ view holds no folder and no process text.
 Not run in the docs pass. Run from `packages/app/src-tauri` (set `CARGO_TARGET_DIR` as in `docs/TEST-PLAN.md`):
 
 - `cargo test --lib collision`: the module tests (model, hunks, advice, noise, repo, groups, compare, alerts, copy,
-  view, probe, engine, live). The guard file `collision/tests.rs` is a stub until CA-15.
+  view, probe, engine, live), the command tests in `commands/collision.rs` (id check, unknown id, list, settings round
+  trip), and the 8 source-scan guards in `collision/tests.rs`.
+- `cargo test --features dev-fake-tui --test fake_tui_e2e collision:: -- --test-threads=1`: the fake-agent end-to-end
+  test (`tests/fake_tui_collision.rs`, 8 scenarios, included from `tests/fake_tui_e2e.rs`). Two fake agents
+  (`pm-fake-tui`) run in real panes with the real watch thread and git probe. The scenarios cover: two copies that
+  change the same line (one clash, nothing paused); the same file in different places (quiet row); different files
+  (no alert); the advice when one agent ends its turn; two agents in one folder; Ignore and its return; the switch off;
+  and a hostile `.git/config`, which must never run.
 
 Run from `packages/app`:
 
 - `npx vitest run src/lib/collision.test.ts src/components/cockpit/CollisionSection.test.tsx src/components/chat/CollisionBanner.test.tsx src/components/settings/blocks/CollisionSettings.test.tsx src/styles/cockpit-collision.css.test.ts src/components/mobile/NeedsYouList.collision.test.tsx src/dev/collision-fixtures.test.ts`
 
-Not written yet: the source guards (`no_write_path`, `not_reachable_from_agents`, `no_agent_names`,
-`git_only_through_harden_read`, `view_has_no_private_text`) and the fake-agent end-to-end test
-(`tests/fake_tui_collision.rs`).
+None of these were run in the docs pass. The live check (two demo agents, CPU and git process count over two minutes,
+the `index.lock` check, a hostile `.git/config`) is still to do.

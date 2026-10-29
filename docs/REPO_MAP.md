@@ -570,7 +570,7 @@ Desktop only: the Tauri commands have no bridge route and no MCP tool.
 
 Tests: `cargo test --lib agent_store` (and `agent_store::check` for the catalog); `npx vitest run src/components/store src/lib/agent-store src/lib/agentStoreCheck`; `node --test scripts/gen-store-catalog.test.mjs scripts/store-verify-publishers.test.mjs`.
 
-### 3.14 Collision Alert (`collision/`, experimental, not wired yet)
+### 3.14 Collision Alert (`collision/`, experimental, not live-checked yet)
 
 Tells the person early when two agent panes change the same work: the same file in two separate copies of one repo, or two
 agents in one folder. It only tells. Feature page `docs/features/collision-alert.md` (status, cost, rules, words, limits).
@@ -594,16 +594,17 @@ except `collision.json`. The phone does not draw the Ready-lane item (desktop on
 | `collision/probe.rs` | the `Probe` trait, `GitProbe` (every call through `worktrees::harden::read`: `diff-index`, `ls-files`, `rev-parse`, and one `diff -U0` per shared file), `FakeProbe` (tests) |
 | `collision/engine.rs` | `Engine::step` (commands, panes, groups, due looks, findings, alerts); pure, takes a `Probe` and `now_ms` |
 | `collision/live.rs` | `start` (the thread), `LiveProbe` (copies' start commit from the worktree records), `pane_facts` (agent panes only; headings over all panes), `Shared` (snapshot `RwLock`, command queue), `views`, `ignore`, `settings`, `set_settings`, `Watch::tick` (attention raise, withdraw and clear; `collision://changed` event through `LiveSink`) |
-| `collision/tests.rs` | a stub until CA-15 (source guards) |
-| Not in the tree yet | `commands/collision.rs` (CA-14: `collision_list`, `collision_ignore`, `collision_settings_get`, `collision_settings_set`, with the `^ca-[0-9a-f]{12}$` id check) and their entries in `generate_handler!` in `lib.rs`. Until then the windows get an error from each call |
+| `collision/tests.rs` | 8 source-scan guards (CA-15): `no_write_path`, `not_reachable_from_agents`, `no_agent_names`, `no_network_symbols`, `git_only_through_harden_read`, `strings_have_no_pause_words`, `view_has_no_private_text`, and `the_scans_skip_only_test_items` (the scanner's own check) |
+| `commands/collision.rs` | the four Tauri commands (CA-14): `collision_list`, `collision_ignore`, `collision_settings_get`, `collision_settings_set`, with the `^ca-[0-9a-f]{12}$` id check (`COLLISION_BAD_ID`, `COLLISION_NOT_FOUND`). Registered in `generate_handler!` in `lib.rs`; the file is re-exported from `commands/mod.rs` |
+| `tests/fake_tui_collision.rs` | the fake-agent end-to-end test (CA-16, 8 scenarios), included from `tests/fake_tui_e2e.rs` as `mod collision` |
 | UI | `components/cockpit/CollisionSection.tsx` (Inbox cards and quiet rows), `components/chat/CollisionBanner.tsx` (row above the two chats, mounted in `SessionChatPanel.tsx`), `components/settings/blocks/CollisionSettings.tsx` (mounted in `sections/AgentsSection.tsx`), `lib/collision.ts` (invoke names and the event), `styles/cockpit-collision.css` |
 
 Event: `collision://changed` (payload `{}`); the windows then call `collision_list`. Desktop only: no bridge route, no MCP
 tool, and nothing in `tool_registry/`, `team/`, `live_room/`, `push/` or `channels/` names `collision::` (checked by grep
-on this branch; the guard test is CA-15). The attention item is `Kind::Review` (Ready lane), key `collision:<id>`, no
+checked by the guard test `not_reachable_from_agents`). The attention item is `Kind::Review` (Ready lane), key `collision:<id>`, no
 actions. The phone's Needs you list draws only the Blocking lane, so the item is not drawn there.
 
-Tests: `cargo test --lib collision` (not run in the docs pass); `npx vitest run src/lib/collision.test.ts src/components/cockpit/CollisionSection.test.tsx src/components/chat/CollisionBanner.test.tsx src/components/settings/blocks/CollisionSettings.test.tsx src/styles/cockpit-collision.css.test.ts src/components/mobile/NeedsYouList.collision.test.tsx src/dev/collision-fixtures.test.ts`.
+Tests: `cargo test --lib collision` and `cargo test --features dev-fake-tui --test fake_tui_e2e collision:: -- --test-threads=1` (not run in the docs pass); `npx vitest run src/lib/collision.test.ts src/components/cockpit/CollisionSection.test.tsx src/components/chat/CollisionBanner.test.tsx src/components/settings/blocks/CollisionSettings.test.tsx src/styles/cockpit-collision.css.test.ts src/components/mobile/NeedsYouList.collision.test.tsx src/dev/collision-fixtures.test.ts`.
 
 ---
 

@@ -142,13 +142,13 @@ Full page: [`features/agent-store.md`](features/agent-store.md). Entry points: "
 | Known gap: built-in cards (Claude Code, Codex, Cursor Agent, OpenCode) show the vendor name as the title; the four also show the Tested chip with `windows_tested = false` | `agent_store/catalog.rs` (`label`), `catalog/agents/{claude,codex,cursor_agent,opencode}/entry.toml` | gap |
 | Not in the catalog: Amp, Grok CLI, Codebuff (vendor facts not confirmed), Antigravity CLI (no confirmed install source) | `catalog/agents/` | gap |
 
-## 1h. Collision Alert (experimental, not wired yet)
+## 1h. Collision Alert (experimental, not live-checked yet)
 
-Full page: [`features/collision-alert.md`](features/collision-alert.md). Status: the engine and the watch thread are on the branch; the Tauri commands, guard tests and fake-agent end-to-end test are not.
+Full page: [`features/collision-alert.md`](features/collision-alert.md). Status: the engine, the watch thread, the four Tauri commands, the 8 source-scan guard tests and the fake-agent end-to-end test (8 scenarios) are all in. No live run with real agents yet.
 
 | Feature | Where | Status |
 |---|---|---|
-| Collision Alert: tells you early when two agents change the same file in separate copies, or work in one folder. A card in the Inbox, a row above the two chats, a switch in Settings > Agents. Never pauses, stops, types into or merges anything. Desktop only: the phone does not draw its Ready-lane item | `collision/`, `components/cockpit/CollisionSection.tsx`, `components/chat/CollisionBanner.tsx`, `components/settings/blocks/CollisionSettings.tsx`, `lib/collision.ts` ([`features/collision-alert.md`](features/collision-alert.md)) | **experimental**: the three Tauri commands are not registered yet, so the windows cannot read or change it; no live run |
+| Collision Alert: tells you early when two agents change the same file in separate copies, or work in one folder. A card in the Inbox, a row above the two chats, a switch in Settings > Agents. Never pauses, stops, types into or merges anything. Desktop only: the phone does not draw its Ready-lane item | `collision/`, `components/cockpit/CollisionSection.tsx`, `components/chat/CollisionBanner.tsx`, `components/settings/blocks/CollisionSettings.tsx`, `lib/collision.ts` ([`features/collision-alert.md`](features/collision-alert.md)) | **experimental**: the commands are registered and the window and switch use them; not live-checked yet. Alerts can come late on a very busy PC (cost backoff). Desktop only |
 
 ## 2. Orchestrator sidebar and coordination
 
