@@ -208,6 +208,7 @@ pub fn spawn_native_pane(
         account_label: None,
         title: None,
         parent_pane_id: None,
+        place: None,
     };
 
     let opencode = OpenCodeLink::new(

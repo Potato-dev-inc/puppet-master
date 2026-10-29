@@ -160,6 +160,22 @@ without a buzz. One summary at the end. A person starts it; no agent can.
 | Settings > General > Focus Time: default length and the quiet switch | `components/settings/blocks/FocusSettings.tsx`, `commands/focus.rs` | experimental |
 | Restart: resumes inside the window; the summary waits after the end; a damaged state file means Focus off | `attention/focus/live.rs`, `store.rs` | experimental |
 
+## 1i. Linux Inside (run agents in Linux, WSL 2, Phase 1)
+
+Full page: [`features/linux-inside.md`](features/linux-inside.md). Settings > Agents > Run agents in Linux (WSL). File map: `REPO_MAP.md` section 3.15. Not run live yet; end-to-end test (WSL-17) in progress on `feat/wsl-e2e`.
+
+| Feature | Where | Status |
+|---|---|---|
+| Per-agent `Runs on` setting (Windows default, or a WSL 2 distro); saved in `<app data>/wsl.json`; changed only in the desktop window | `wsl/settings.rs`, `commands/wsl.rs`, `components/settings/sections/LinuxRows.tsx` | experimental |
+| Distro list (`wsl --list --verbose`, cached 30 s, never starts a distro); Check boots one distro and reads its facts (git, interop, programs), cached 10 min | `wsl/probe.rs`, `wsl/parse.rs` | experimental |
+| Linux pane for Claude Code, Codex and OpenCode TUI: `wsl.exe --exec` with a fixed launcher, the folder on a Windows drive mapped to `/mnt/<d>/...`, pane chip `Linux · <distro>` | `wsl/launch.rs`, `wsl/place.rs`, `pty/registry/linux.rs`, `components/cockpit/PaneView.tsx` | experimental |
+| Only the pane id and the login PATH cross into Linux; Windows-path values and saved logins refused | `wsl/launch.rs` (`crossing`), `wsl/place.rs` | experimental |
+| Chat reads the Linux agent's session files from the Linux home; reads stop when the pane ends | `wsl/chat.rs`, `commands/session_chat.rs` | experimental |
+| Close and Keep going stop only the processes that carry this pane's id, same Linux user | `wsl/stop.rs`, `wsl/live.rs`, `pty/registry/mod.rs` | experimental |
+| A one-task run in Linux runs visible instead, with a `linux` fallback record; explicit one-task refused | `agent_runs/headless/entry.rs`, `agent_runs/headless/fallback.rs` | experimental |
+| Refused in v1: folders inside the distro, separate copies, saved logins, env guards, Hook Lane, companions, standby, WSL 1 | `wsl/place.rs` (`decide`, `resolve`), `standby/host.rs` | gap |
+| Not built yet: per-pane switch, phone chip, doctor row, old chats from Linux, PM's MCP tools for Linux agents, `run_agent` place input | Planned for Phases 2 and 3 (see the feature page) | gap |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.

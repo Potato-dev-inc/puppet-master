@@ -15,7 +15,8 @@ pub mod read_only;
 mod screen;
 mod transcript;
 
-use super::{Features, InstructionFile, Kind, StandbyScreen, StandbySupport, TuiProfile};
+use super::{Features, InstructionFile, Kind, LinuxLaunch, SpawnRequest, StandbyScreen, StandbySupport, TuiProfile};
+use crate::pty::agents::{linux_command, AgentType};
 
 /// OpenCode reads `AGENTS.md` (falling back to `CLAUDE.md` only when it is missing): opencode.ai/docs/rules.
 fn agents_md() -> Vec<InstructionFile> {
@@ -87,6 +88,11 @@ dir = "~/.agents/skills"
 impl TuiProfile for OpenCode {
     fn id(&self) -> &'static str {
         "opencode"
+    }
+
+    /// The TUI only: `opencode_native` (the HTTP protocol backend) has no Linux launch.
+    fn linux_launch(&self, request: &SpawnRequest) -> Option<LinuxLaunch> {
+        Some(LinuxLaunch::from_command(linux_command(AgentType::Opencode), request.extra_args))
     }
 
     fn is_installed(&self) -> bool {
@@ -236,5 +242,32 @@ mod install_hint_tests {
         assert!(hint.contains("winget") && hint.contains(spec.winget.as_deref().unwrap()), "{hint}");
         let fallback = profile.install_fallback_hint().unwrap();
         assert!(fallback.contains(spec.npm.as_deref().unwrap()), "{fallback}");
+    }
+}
+
+#[cfg(test)]
+mod linux_launch_tests {
+    use super::*;
+
+    fn request<'a>(cwd: &'a str, extra: &'a [String]) -> SpawnRequest<'a> {
+        SpawnRequest { cwd, extra_args: extra, cols: 80, rows: 24, read_only: false }
+    }
+
+    #[test]
+    fn the_tui_runs_as_a_bare_program_with_no_flags() {
+        let launch = OpenCode.linux_launch(&request("/mnt/d/work/shop", &[])).unwrap();
+        assert_eq!(launch, LinuxLaunch { program: "opencode".into(), args: vec![] });
+    }
+
+    #[test]
+    fn extra_args_follow_in_order() {
+        let extra = vec!["--port".to_string(), "4096".to_string()];
+        let launch = OpenCode.linux_launch(&request("/mnt/d/work/shop", &extra)).unwrap();
+        assert_eq!(launch.args, ["--port", "4096"]);
+    }
+
+    #[test]
+    fn the_native_protocol_backend_has_no_linux_launch() {
+        assert!(OpenCodeNative.linux_launch(&request("/mnt/d/work/shop", &[])).is_none());
     }
 }

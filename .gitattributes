@@ -69,3 +69,8 @@ packages/app/src-tauri/src/issue_intake/fixtures/gh/*.json text eol=lf
 packages/app/src-tauri/src/issue_intake/fixtures/text/*.txt text eol=lf
 # Package check top lists (SPEC-n33 PC-2): read by include_str! and split on newlines; keep LF.
 packages/app/src-tauri/src/prompt_risk/packages/popular/*.txt text eol=lf
+
+# Linux Inside wsl.exe list and probe samples (spec n33 WSL-6): the UTF-16LE list sample is binary and never
+# converted; the text samples are read line by line and compared by value, keep them LF.
+packages/app/src-tauri/src/wsl/fixtures/*.utf16 -text
+packages/app/src-tauri/src/wsl/fixtures/*.txt text eol=lf

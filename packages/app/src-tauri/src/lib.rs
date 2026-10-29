@@ -118,6 +118,7 @@ pub mod watch_command;
 pub mod env_probe;
 mod webview_service_worker;
 mod live_room;
+mod wsl;
 
 use commands::AppState;
 use std::path::{Path, PathBuf};
@@ -254,6 +255,11 @@ pub fn run() {
             team::commands::team_job_start,
             team::commands::team_member_confirm_github,
             commands::spawn_pane,
+            commands::wsl_status,
+            commands::wsl_check,
+            commands::wsl_places_get,
+            commands::wsl_place_set,
+            commands::spawn_pane_in_linux,
             commands::kill_pane_cmd,
             commands::kill_all_panes,
             commands::write_pane_input,

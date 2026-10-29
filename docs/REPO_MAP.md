@@ -646,6 +646,74 @@ Known gap: the sidebar count command `review_desk_count` runs the full gather (c
 
 Tests: `cargo test --lib review_desk` (also `cargo test --lib commands::review_desk`); `npx vitest run src/components/cockpit/review src/lib/review-desk src/styles/review-desk src/styles/review-detail src/dev/review-desk-fixtures`.
 
+### 3.15 Linux Inside (`wsl/`, the Linux place for an agent)
+
+An agent can run inside a WSL 2 distro. Settings > Agents > "Run agents in Linux (WSL)" picks the place per agent
+(`Windows` or `Linux · <distro>`), and every spawn path follows it. Feature page: `docs/features/linux-inside.md`
+(Phase 1 only: Claude Code, Codex and OpenCode TUI). The UI says "Linux"; "WSL" appears in code names and in the
+commands a person must type. Desktop only: the Tauri commands have no bridge route and no MCP tool.
+
+Flow of one Linux pane: `pty/registry/spawn.rs` calls `pty/registry/linux.rs::plan` -> `wsl::place::plan_spawn`
+(setting + one-shot request, then the cached probe facts) -> `LinuxPlace`; `linux::pane_command` asks the profile's
+`linux_launch` for the program and args, and `wsl::launch::wrap` builds `wsl.exe -d <distro> --cd <linux cwd> --exec
+/bin/sh -c LAUNCHER puppet-master <program> <args>`; `PaneInfo.place` gets `wsl::place::pane_place`. Stop: `pty/registry/mod.rs::shutdown_pane`
+and `pty/agent_stop.rs` kill the `wsl.exe` tree by pid, then `wsl::live::stop_pane` runs `STOP_SCRIPT` in the distro.
+
+| File | What |
+|---|---|
+| `wsl/mod.rs` | the module doc: the rules and the invariants in one place |
+| `wsl/model.rs` | timing and size limits, the 14 error codes (`ERROR_CODES`), `DistroName`, `WslStatus`, `Distro`, `DistroFacts` (probe facts, never serialised), `LinuxPlace`, `PanePlace` (the `PaneInfo.place` JSON), `AgentPlaceRow` |
+| `wsl/settings.rs` | `Store`: `<app data>/wsl.json` (`{version, agents: {<id>: {distro}}}`), tolerant reads, unknown fields kept on write, `secure_file::write_private`. Only `commands/wsl.rs` writes it |
+| `wsl/path.rs` | pure path mapping: `to_linux` (`C:\x` -> `/mnt/c/x`, `mount_root` from the probe), `to_windows`, `distro_path` (`\\wsl.localhost\<d>\...`, refused in v1) |
+| `wsl/parse.rs` (+ `parse_tests.rs`) | `decode` (UTF-16LE or UTF-8), `list` (`wsl --list --verbose`), `PROBE_SCRIPT` (fixed POSIX sh, prints `PM1:<nonce>:<key>=<value>` lines only), `probe` |
+| `wsl/probe.rs` (+ `probe_tests.rs`) | `wsl_exe()` (`%SystemRoot%\System32\wsl.exe`), `Runner` trait, `LiveRunner` (flag allowlist, `WSL_UTF8=1`, stdin null, 64 KiB cap, kills its own child on timeout), `status`, `probe_distro`, `Cache` and the process-wide `cache()` (a `PlaceProbe`), `check`, `invalidate`, `asked_programs` |
+| `wsl/launch.rs` | pure: `LAUNCHER`, `ARGV0`, `BOTH_WAYS`, `wrap` (argv and env of the launch), `crossing` (the only env that crosses), `wslenv` (always set). Its tests run hostile argv through `CommandLineToArgvW` |
+| `wsl/stop.rs` (+ `live_tests.rs`, ignored) | `STOP_SCRIPT` (fixed; `$1` = pane id; signals only same-uid processes whose environ has the exact `PUPPET_MASTER_PANE_ID=<pane>` line), `stop_args`, `parse_stopped`, `stop_in`. The live test (`wsl::stop::live_tests`) needs `PM_WSL_LIVE_DISTRO` and `--ignored` |
+| `wsl/place.rs` (+ `place` tests) | `decide` (Windows or Linux, and the refusals), `resolve` (distro listed and WSL 2, folder mapped, program found), `plan_spawn`/`plan_with`, `check_run`/`check_run_with` (the early check for `run_agent`), `agent_runs_in_linux`, `pane_place`, the one-shot distro map (`request_once` / `take_once`, 60 s TTL) |
+| `wsl/chat.rs` | `facts_of` (the Linux cwd and home as Windows reads them; `None` = read nothing), `reader_may_look` (after the pane's process exits, one 2 s grace window, then no reads) |
+| `wsl/live.rs` | `stop_pane` (the live call, through `LiveRunner`, `STOP_TIMEOUT_MS`); tests record the call and start nothing |
+| `wsl/guard_tests.rs` | source-scan guards over the non-test `wsl/` files: S2 (no credential file names), S3 (no shutdown, terminate, pkill, taskkill), S5 (no `wsl --install` and friends; the install text is only shown), S7 (no pane writes), S11 (no agent names) |
+| `pty/registry/linux.rs` (+ `linux_tests.rs`) | the Linux branch of `spawn_pane`: `plan`, `pane_command` (Windows = `launch_command`, unchanged), `linux_command` (`profile.linux_launch` + `launch::wrap`), `watch_fast_exit` (a pane that ends within 3 s drops its distro's cached facts), `launch_refusal` (an env problem = `WSL_ENV_REFUSED`) |
+| `pty/registry/spawn.rs` | calls `linux::plan`, `linux::pane_command` and sets `PaneInfo.place`; a Linux pane gets no hooks in v1 |
+| `pty/registry/mod.rs`, `pty/agent_stop.rs` | `shutdown_pane` and `stop_agent` call `wsl::live::stop_pane` after the pid kill |
+| `commands/wsl.rs` (+ tests) | the five Tauri commands: `wsl_status`, `wsl_check` (boots one distro), `wsl_places_get`, `wsl_place_set`, `spawn_pane_in_linux`; `DistroView` (no PATH, uid or home); the audit line for a changed place; `check_linux_spawn` (refusals before any pane exists; the one-shot request) |
+| `lib.rs` | `generate_handler!` entries for the five commands |
+| `tui/claude/mod.rs`, `tui/codex/mod.rs`, `tui/opencode/mod.rs` | `linux_launch` (the same program and flags as Windows, via `pty/agents.rs::linux_command`). `tui/mod.rs::linux_program` reads it. Default `TuiProfile::linux_launch` is `None`. `opencode_native` has none |
+| `agent_runs/headless/entry.rs` | `check_run` before any operation: a one-task run in Linux runs visible instead (`fallback` reason `linux`); an explicit `headless: true` is refused (`WSL_HEADLESS_NOT_YET`) |
+| `agent_runs/headless/fallback.rs` | `agent_runs_in_linux` keeps a Linux run from falling back to Windows |
+| `standby/host.rs`, `standby/mod.rs` | a Linux agent is never warmed or handed out from standby |
+| `commands/session_chat.rs` | the chat reader uses `wsl::chat` for a Linux pane (Linux cwd and home only); `session_chat/home_path.rs` maps `/mnt/<d>/Users/<n>`, `\\wsl.localhost\<d>\home\<n>`, `/home/<n>` to `~` |
+| `bridge/dispatch.rs` (`ready_budget_ms`) | a Linux pane gets `STARTUP_EXTRA_MS` (20 s) more for its first ready screen |
+| UI: `src/lib/wsl.ts` (+ `wsl-place.ts`) | Tauri client and the pure place rules |
+| UI: `src/components/settings/sections/LinuxRows.tsx` | the Settings block (mounted by `AgentsSection.tsx`): status, `Check <distro>`, one `Runs on` select per agent, footer |
+| UI: `src/components/cockpit/PaneView.tsx` | pane chip `data-testid="pane-place"` (`Linux · <distro>`, tooltip with the Linux folder) |
+| UI: `src/dev/wsl-fixtures.ts` | dev-only fixtures for the Settings block |
+
+Invariants (spec section 4; "where" is the enforcing code, "test" the guard or unit test):
+
+| # | Rule | Where | Test |
+|---|---|---|---|
+| S1 | Only names PM lists cross into Linux; `WSLENV` is always set; Windows-path values refused | `launch.rs` (`crossing`, `wrap`, `wslenv`) | `launch.rs` tests (inherited `WSLENV` replaced) |
+| S2 | No credential file is copied or read across the boundary; readers open session files only | `wsl/` (no copy code), `chat.rs` | `guard_tests.rs` `s2_*` |
+| S3 | Stop signals only processes with this pane's marker and the same uid; no shutdown, terminate or name kill | `stop.rs` (`STOP_SCRIPT`), `live.rs` (`LiveRunner`) | `guard_tests.rs` `s3_*`; `live_tests.rs` (ignored, live) |
+| S4 | Argv only after `--exec`; no shell parses text; pane id and distro name checked | `launch.rs`, `stop.rs` (`valid_pane_id`), `model.rs` (`DistroName`) | `launch.rs` hostile argv round trip |
+| S5 | PM never runs `wsl --install`, `--set-version`, `--import`, `--unregister`, `--set-default`, `--shutdown`, `--terminate`, `--update`, never edits config | `probe.rs` (`ALLOWED_FLAGS`, `refused`); install text only in `model.rs` | `guard_tests.rs` `s5_*`; `probe_tests.rs` refuses admin flags before any process |
+| S6 | Nothing wakes a stopped distro: `--list` never boots; the probe runs only on a click, a pick or a spawn; chat reads stop at pane exit | `probe.rs`, `chat.rs` (`reader_may_look`) | `chat.rs` tests (one 2 s window after exit); probe tests |
+| S7 | PM never answers a trust, permission or login screen in a Linux pane | no pane writes in `wsl/` | `guard_tests.rs` `s7_*` |
+| S8 | Only Tauri commands change the place; no bridge route, MCP tool or phone field; the one-shot request is a Rust-side map, not JSON | `commands/wsl.rs`, `place.rs` (`request_once`) | review (no test yet) |
+| S9 | A Linux process can call the bridge like any local process; companions and hidden panes never run in Linux | `place.rs` (`decide`: companion and hidden = Windows) | `place.rs` `companion_and_hidden_panes_stay_on_windows` |
+| S10 | Personal folders and homes in chat, search and exports read as `~` (Linux forms too) | `session_chat/home_path.rs`; `DistroView` has no home | `redact/tests.rs` (WSL home path), `chat_index/tests.rs` (WSL mount user folder) |
+| S11 | No agent name in non-test `wsl/` code | `wsl/` uses `tui::linux_program` and profile labels | `guard_tests.rs` `s11_*` |
+| S12 | No git config change; copies refused in v1 | `place.rs` (`WSL_COPY_NOT_YET`) | review (no git-config code in `wsl/`) |
+
+Error codes: see section 7 ("Linux Inside").
+
+Tests: `cargo test --lib wsl` (the module), `cargo test --lib pty::registry::linux`, `cargo test --lib commands::wsl`
+(full `cargo test --lib` when `spawn.rs`, `session_chat/source.rs`, `pty/registry/mod.rs` or `lib.rs` change). The
+live stop check: `PM_WSL_LIVE_DISTRO=<distro> cargo test --lib wsl::stop::live_tests -- --ignored`. UI:
+`npx vitest run src/lib/wsl src/components/settings/sections/LinuxRows src/components/cockpit/PaneView.place`. The end-to-end
+test with a fake `wsl.exe` (WSL-17, `tests/fake_tui_wsl.rs`) is in progress on `feat/wsl-e2e`; it is not on `main` yet.
+
 ---
 
 ## 4. "Where do I change X?"
@@ -1056,6 +1124,19 @@ validation unless noted.
 - `WAIT_TIMEOUT` - foreground wait ended with the turn still running; response includes `watch_command`; retry with the same idempotency key.
 - `BRIDGE_UNAVAILABLE` - no bridge/port file; `BRIDGE_ERROR` - bridge returned an unparseable/failed reply; `SCHEMA_DRIFT` - shim vs bridge catalog mismatch; `REQUEST_CANCELLED`, `RATE_LIMITED`, `NOT_FOUND`, `CONFLICT` - HTTP-status-derived fallbacks.
 - `STATE_UNAVAILABLE` - read models unavailable - `bridge/`.
+
+**Linux Inside** (`wsl/`; `wsl::model::ERROR_CODES`, 14 codes, all start with `WSL_`; section 3.15)
+- `WSL_NOT_INSTALLED` - no `wsl.exe`, or WSL not installed; the sentence names `wsl --install` as text only - `wsl/place.rs` (`listed_distro`), `wsl/probe.rs` (`live_runner`, `run_failure`), `commands/wsl.rs`, `pty/registry/linux.rs`.
+- `WSL_NO_DISTRO` - WSL installed, no distro listed - `wsl/place.rs`, `commands/wsl.rs`.
+- `WSL_DISTRO_MISSING` - the named distro is not listed, or its name is not valid - `wsl/place.rs` (`distro_missing`), `commands/wsl.rs`.
+- `WSL_DISTRO_NOT_V2` - the distro is WSL 1 - `wsl/place.rs`, `commands/wsl.rs`.
+- `WSL_AGENT_NOT_FOUND` - the agent's program is not on the distro's login PATH (probe) - `wsl/place.rs` (`resolve`).
+- `WSL_AGENT_NOT_SUPPORTED` - the agent has no Linux launch - `wsl/place.rs` (`decide`), `commands/wsl.rs` (`not_supported`, `check_linux_spawn`).
+- `WSL_PATH_NOT_MAPPABLE` - folder is not on a Windows drive (inside a distro, a network share, relative, `..`) - `wsl/place.rs` (`path_refusal`).
+- `WSL_COPY_NOT_YET`, `WSL_HEADLESS_NOT_YET`, `WSL_ACCOUNT_NOT_YET`, `WSL_GUARD_NOT_SUPPORTED` - the v1 refusals (separate copy, explicit one-task run, saved login, env guard) - `wsl/place.rs` (`decide`).
+- `WSL_ENV_REFUSED` - a name or value cannot cross into Linux (bad name, reserved name, Windows-path value); the message never shows the value - `pty/registry/linux.rs` (`launch_refusal`) from `wsl/launch.rs`.
+- `WSL_PROBE_TIMEOUT` - the distro did not answer within `PROBE_TIMEOUT_MS` (recoverable) - `wsl/probe.rs` (`run_failure`).
+- `WSL_START_FAILED` - the probe answer was not usable, the distro reported broken, or the place was not usable (recoverable for probe and broken status) - `wsl/probe.rs` (`start_failed`), `wsl/place.rs` (`listed_distro`), `commands/wsl.rs`, `pty/registry/linux.rs`.
 
 ---
 

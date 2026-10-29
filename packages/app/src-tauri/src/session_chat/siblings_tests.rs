@@ -86,7 +86,7 @@ impl PaneLookup for Panes {
     fn facts(&self, pane_id: &str) -> Option<PaneFacts> {
         let list = self.list.lock();
         let spec = list.get(pane_id)?;
-        Some(PaneFacts { cwd: spec.cwd.clone(), started_at: SystemTime::now() - Duration::from_secs(30), provider_session_id: spec.pin.clone(), home: None, launch: Default::default() })
+        Some(PaneFacts { cwd: spec.cwd.clone(), started_at: SystemTime::now() - Duration::from_secs(30), provider_session_id: spec.pin.clone(), home: None, launch: Default::default(), linux: None })
     }
 
     fn screen(&self, pane_id: &str, _known: Option<u64>) -> Option<ScreenRead> {

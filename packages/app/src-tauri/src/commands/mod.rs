@@ -66,6 +66,7 @@ pub(crate) mod night;
 mod issue_intake;
 mod package_check;
 mod review_desk;
+mod wsl;
 
 pub use agent_install::*;
 pub use agent_store::*;
@@ -126,6 +127,7 @@ pub use night::*;
 pub use issue_intake::*;
 pub use package_check::*;
 pub use review_desk::*;
+pub use wsl::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

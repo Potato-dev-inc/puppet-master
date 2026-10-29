@@ -16,6 +16,7 @@ mod canary_rig;
 mod chat;
 mod focus_rig;
 mod issue_intake;
+mod linux;
 mod night;
 mod package_rig;
 mod profile;

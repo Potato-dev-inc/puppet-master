@@ -168,6 +168,10 @@ impl LiveHost {
 
 impl Host for LiveHost {
     fn spawn(&self, key: &PoolKey, cwd: &str) -> Result<Handle, String> {
+        // A warm standby is always a Windows pane or process: an agent set to Linux gets none (SPEC WSL-15).
+        if crate::wsl::place::agent_runs_in_linux(&key.agent_type) {
+            return Err(format!("{} runs in Linux, so it has no warm standby", key.agent_type));
+        }
         if !std::path::Path::new(cwd).is_dir() {
             return Err(format!("project folder is gone: {cwd}"));
         }
@@ -179,6 +183,10 @@ impl Host for LiveHost {
     }
 
     fn check(&self, key: &PoolKey, handle: &Handle, age_ms: i64) -> Health {
+        // A standby warmed before its agent was set to Linux is discarded, never handed to a run.
+        if crate::wsl::place::agent_runs_in_linux(&key.agent_type) {
+            return Health::Dead;
+        }
         match handle {
             Handle::Pane(id) => self.check_pane(key, id),
             Handle::Process(token) => {
@@ -278,5 +286,31 @@ mod env_tests {
         child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
         let _ = child.wait();
         assert!(out.contains("S=spec-env") && out.contains("A=acct-env"), "{out}");
+    }
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use crate::wsl::model::DistroName;
+    use crate::wsl::place::agent_runs_in_linux_with;
+    use crate::wsl::settings::Store;
+    use std::fs;
+
+    /// SPEC WSL-15: an agent whose place setting is Linux has no standby (no warm pane, no claim).
+    /// The live host and pool need Tauri, so the rule is tested with a fake settings store.
+    #[test]
+    fn an_agent_set_to_linux_has_no_standby_and_going_back_to_windows_allows_one() {
+        let dir = std::env::temp_dir().join(format!("pm-standby-placement-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let store = Store::at(&dir);
+        assert!(!agent_runs_in_linux_with(&store, "claude-code"), "no file: Windows");
+        store.set("claude-code", Some(&DistroName::parse("Ubuntu").unwrap())).unwrap();
+        assert!(agent_runs_in_linux_with(&store, "claude-code"));
+        assert!(agent_runs_in_linux_with(&store, "Claude-Code"), "agent ids are case-insensitive");
+        assert!(!agent_runs_in_linux_with(&store, "codex"), "only the agent set to Linux");
+        store.set("claude-code", None).unwrap();
+        assert!(!agent_runs_in_linux_with(&store, "claude-code"), "back on Windows: standbys allowed again");
+        let _ = fs::remove_dir_all(dir);
     }
 }

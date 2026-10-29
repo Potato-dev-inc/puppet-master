@@ -462,6 +462,19 @@ fn standby_key(operation: &OperationSnapshot, agent_type: &str) -> Option<crate:
     )
 }
 
+/// How long a fresh pane gets for its first ready screen: two minutes, plus the extra a pane that runs
+/// inside Linux needs for a cold distro (`PanePlace::startup_extra_ms`).
+const READY_BUDGET_MS: u64 = 120_000;
+
+fn ready_budget_ms(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> u64 {
+    let extra = registry
+        .lock()
+        .get(pane_id)
+        .and_then(|pane| pane.info.place.as_ref().map(|place| place.startup_extra_ms()))
+        .unwrap_or(0);
+    READY_BUDGET_MS + extra
+}
+
 /// Waits for a freshly spawned worker to reach a safe ready state, parking the run while a
 /// startup permission prompt is unresolved.
 fn await_pane_ready(
@@ -483,7 +496,7 @@ fn await_pane_ready(
     let (readiness, fast_native_status) = match fast_native {
         Some((readiness, status)) => (readiness, Some(status)),
         None => (
-            crate::pane_wait::wait_for_dispatch_ready(registry, pane_id, 120_000).map_err(
+            crate::pane_wait::wait_for_dispatch_ready(registry, pane_id, ready_budget_ms(registry, pane_id)).map_err(
                 |err| crate::operations::OperationError::new("PANE_READINESS_FAILED", err, true),
             )?,
             None,
@@ -1202,6 +1215,43 @@ mod guard_tests {
         assert!(body.contains("guard_env: operation.worker.guard_env.clone()"));
         assert!(body.contains("may_reuse_pane(operation) && eligible(pane)"));
         assert!(body.contains("check_guarded_pane_request(operation)?"));
+    }
+}
+
+#[cfg(test)]
+mod ready_budget_tests {
+    use super::*;
+    use crate::wsl::model::{PanePlace, STARTUP_EXTRA_MS};
+
+    fn registry_with(windows_pane: &str, linux_pane: &str) -> Arc<Mutex<PaneRegistry>> {
+        let registry = Arc::new(Mutex::new(PaneRegistry::default()));
+        let mut linux = PaneRegistry::test_pane_stub(linux_pane);
+        linux.info.place = Some(PanePlace {
+            kind: "linux".into(),
+            distro: "Ubuntu-Test".into(),
+            cwd: "/mnt/d/x".into(),
+            mount_root: "/mnt/".into(),
+            unc_root: r"\\wsl.localhost\Ubuntu-Test".into(),
+            home_windows: String::new(),
+            warnings: Vec::new(),
+        });
+        let windows = PaneRegistry::test_pane_stub(windows_pane);
+        registry.lock().panes.insert(windows_pane.into(), windows);
+        registry.lock().panes.insert(linux_pane.into(), linux);
+        registry
+    }
+
+    #[test]
+    fn a_windows_pane_keeps_the_two_minute_budget() {
+        let registry = registry_with("budget-win", "budget-lin");
+        assert_eq!(ready_budget_ms(&registry, "budget-win"), 120_000);
+        assert_eq!(ready_budget_ms(&registry, "budget-gone"), 120_000);
+    }
+
+    #[test]
+    fn a_linux_pane_gets_the_cold_distro_extra() {
+        let registry = registry_with("budget-win", "budget-lin");
+        assert_eq!(ready_budget_ms(&registry, "budget-lin"), 120_000 + STARTUP_EXTRA_MS);
     }
 }
 

@@ -113,6 +113,8 @@ export interface HarnessScenario {
   packageCheck?: import('./package-check-fixtures').PackageCheckScenario;
   /** Review Desk: what the mocked `review_desk_*` commands answer (see review-desk-fixtures.ts). */
   reviewDesk?: import('./review-desk-fixtures').ReviewDeskScenario;
+  /** Linux Inside: what the mocked `wsl_*` commands answer (Settings > Agents > Run agents in Linux). Absent = the block stays hidden. */
+  wsl?: import('./wsl-fixtures').WslScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */
   teamConfig?: Partial<import('../lib/team').TeamConfigView>;
   /** Set up agents > Install: what the mocked `agents_install_*` commands answer. */

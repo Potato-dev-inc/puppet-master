@@ -2,7 +2,7 @@
 //! (`SessionSource`, implemented under `src/tui/<agent>/`); the watcher only follows the answer.
 
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use super::model::SessionFormat;
 
@@ -19,6 +19,19 @@ pub struct PaneFacts {
     pub home: Option<PathBuf>,
     /// How `provider_session_id` came to be known, and who else writes in the folder.
     pub launch: LaunchFacts,
+    /// The pane runs inside WSL: `cwd` above stays the Windows folder. `None` = the agent runs on Windows.
+    pub linux: Option<LinuxFacts>,
+}
+
+/// Where a pane that runs inside WSL keeps its agent's files, as Windows can reach them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinuxFacts {
+    /// The folder the agent sees inside Linux, e.g. `/mnt/d/work/shop`.
+    pub cwd: String,
+    /// The Linux home as Windows reads it, e.g. `\\wsl.localhost\Ubuntu\home\you`.
+    pub home_windows: PathBuf,
+    /// Extra time the file times may be off by: the WSL clock can drift from Windows' after a sleep.
+    pub clock_slack: Duration,
 }
 
 /// What the app knows from launching a pane (`TuiProfile::launch_session`), which hooks may not have confirmed yet.
