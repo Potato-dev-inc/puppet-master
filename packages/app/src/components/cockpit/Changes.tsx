@@ -12,6 +12,7 @@ import { PrBlock } from './PrBlock';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { shipApi, type PrRef, type ShipApi } from '../../lib/ship-api';
 import { setupLine } from '../../lib/ship-model';
+import { branchKeepWarning, branchLineage, type BranchView } from '../../lib/branch-from';
 import { ChangedFiles } from '../simple/ChangedFiles';
 import '../../styles/cockpit-changes.css';
 
@@ -91,6 +92,8 @@ export function Changes({
   const [sheet, setSheet] = useState<'merge' | 'discard' | null>(null);
   const [prSheet, setPrSheet] = useState(false);
   const [prRound, setPrRound] = useState(0);
+  // The branch this copy was made as, when it is one (Merge warns about it). Null for a normal copy.
+  const [branch, setBranch] = useState<BranchView | null>(null);
   const listing = useAgentRegistry();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -150,6 +153,23 @@ export function Changes({
     return load();
   }, [load, status]);
 
+  useEffect(() => {
+    if (hideActions || plain) return;
+    let cancelled = false;
+    branchLineage(paneId).then(
+      (found) => {
+        // A lookup with no answer reads as no branch (no warning), never as a crash.
+        if (!cancelled) setBranch(found?.from ?? null);
+      },
+      () => {
+        if (!cancelled) setBranch(null);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [paneId, status, hideActions, plain]);
+
   // Open the first file with a note once per review, so the notes are in view when they arrive.
   const openedFor = useRef<string | null>(null);
   useEffect(() => {
@@ -176,6 +196,8 @@ export function Changes({
   const notes = reviewDone?.review ? anchorFindings(reviewDone.review.findings, bodies).byFile : null;
   // A review that found problems: Merge stops being the obvious button and says what it is.
   const concerns = reviewHasConcerns(reviewDone?.review ?? null);
+  // A branch copy: Merge brings in only its own changes, so the later work of the original chat is not in it.
+  const keepWarning = branchKeepWarning(branch);
 
   const setup = item.setup ?? null;
   // A copy whose setup failed could not run its checks: Merge is not the obvious next step.
@@ -399,6 +421,7 @@ export function Changes({
                 ? `Brings ${plural(total?.files_changed ?? 0, 'changed file')} from this separate copy into ${item.base} and closes ${agentName}. If anything conflicts, nothing is merged.`
                 : `Deletes this separate copy and its ${plural(total?.files_changed ?? 0, 'changed file')}, and closes ${agentName}. This cannot be undone.`}
             </p>
+            {sheet === 'merge' && keepWarning && <p className="ck-sub ck-changes-keep-warning">{keepWarning}</p>}
             <div className="ck-sheet-actions">
               <button type="button" className="ck-btn ck-btn--secondary" autoFocus disabled={busy} onClick={() => setSheet(null)}>
                 Cancel

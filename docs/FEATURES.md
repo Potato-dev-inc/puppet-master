@@ -185,6 +185,24 @@ Limits, guards and error codes: the feature page.
 |---|---|---|
 | What broke it: find the first agent turn after which your declared test command fails (halving the save points, runs in a separate copy), name the turn and agent, undo only that turn (all or nothing, safety save point first), Check it again, Keep looking, Stop. Shows in Scores as "Broke the tests N times" (counts culprits, including ones later undone) | `checkpoints/bisect/` (`live.rs`, `job.rs`, `revert.rs`), `commands/what_broke_it.rs`, `scores/gather.rs`, `components/cockpit/WhatBrokeIt*.tsx`, `components/cockpit/History.tsx`, `Palette.tsx`, `CockpitApp.tsx`, `lib/what-broke-it.ts`, `tests/what_broke_it_e2e.rs` ([`features/what-broke-it.md`](features/what-broke-it.md)) | **experimental, not live-checked yet**: the `wb_*` commands, the History button, the palette row and the sheet mount are wired; unit tests and a six-scenario end-to-end test (Windows, `dev-fake-tui`) exist; nothing has been run in the running app |
 
+## 1k. Branch from here
+
+Full page: [`features/branch-from-here.md`](features/branch-from-here.md). Entry points: the Branch button on a finished chat turn, and Branch from here on a History row. Unit tests only; the fake-agent e2e and the live check are not on this branch.
+
+| Feature | Where | Status |
+|---|---|---|
+| Separate copy of the files at a save point (before or after a turn, or a History save point), with one start commit; the chat's own folder and pane are not changed | `branch_from/` (`live.rs`, `copy.rs`, `point.rs`), `checkpoints/export.rs` | experimental |
+| Fenced brief of the chat up to the save point (6 KiB, cleaned, tool output and diffs never read); shown with "Show what the agent gets" | `branch_from/brief.rs`, `branch_from/store.rs` (`briefs/`, private) | experimental |
+| Pick any installed agent (the same agent first); rows show why they cannot be picked (not installed, not runnable, out of usage) | `branch_from/offers.rs`, `components/cockpit/BranchSheet.tsx` | experimental |
+| New run with trust and shell off, no push, fresh context; a trust or login screen parks it, PM answers nothing | `branch_from/live_app.rs` (`to_run_request`) | experimental |
+| Keep warning above Merge: merging does not bring in the original chat's later work | `lib/branch-from.ts` (`branchKeepWarning`), `components/cockpit/Changes.tsx` | experimental |
+| Banners: "Branched from ..." on the new pane, "Branches: ..." on the old one | `components/chat/BranchBanner.tsx` | experimental |
+| Limits: one branch in flight per pane, 5 open copies per pane, 200 records kept | `branch_from/live.rs`, `branch_from/model.rs` | experimental |
+| Desktop only: four Tauri commands; no bridge route, no MCP tool, no phone path | `commands/branch_from.rs` | experimental |
+| Known limit: Changes (and Merge) diff against the commit before the start commit, so the save point's files are listed too | `worktrees/mod.rs` (`base_commit`) | gap |
+| Known limit: the save-point write adds unreferenced objects to the source's shadow store (spec said reads only) | `checkpoints/export.rs` | gap |
+| Not in v1: plain-folder copies, old chats, retry after a failed start, MCP / phone branches, diff of only the new agent's work | [`features/branch-from-here.md`](features/branch-from-here.md) ("Not done yet") | gap |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.

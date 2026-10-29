@@ -1258,3 +1258,7 @@ mod wsl;
 
 #[path = "fake_tui_ci_fix.rs"]
 mod ci_fix;
+// ---- Branch from here: a separate copy of a save point, a fenced brief, another agent (zero tokens) ---------------------
+
+#[path = "fake_tui_branch.rs"]
+mod branch;

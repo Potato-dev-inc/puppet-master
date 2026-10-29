@@ -21,6 +21,7 @@ mod bridge;
 mod budgets;
 mod canary;
 mod channels;
+mod branch_from;
 pub mod checkpoints;
 mod clip;
 mod commands;
@@ -218,6 +219,10 @@ pub fn run() {
             commands::package_check_lookup,
             commands::package_check_settings_get,
             commands::package_check_settings_set,
+            commands::branch_preview,
+            commands::branch_start,
+            commands::branch_lineage,
+            commands::branch_brief,
             commands::pane_message_send,
             commands::pane_message_cancel,
             commands::pane_messages_list,

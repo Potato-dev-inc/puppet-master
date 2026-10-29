@@ -107,6 +107,8 @@ export interface HarnessScenario {
   keepGoing?: import('./keep-going-fixtures').KeepGoingScenario;
   /** Focus Time: start with a Focus running, or a just-ended summary; the mocked `focus_*` commands then start, extend and end it (see focus-fixtures.ts). */
   focus?: import('./focus-fixtures').FocusScenario;
+  /** Branch from here: what the mocked `branch_lineage` and `branch_brief` commands answer (see branch-fixtures.ts). */
+  branch?: import('./branch-fixtures').BranchScenario;
   /** Night Shift: what the state, plans and checks the mocked `night_*` commands answer (see night-fixtures.ts). */
   night?: import('./night-fixtures').NightScenario;
   /** Package check: the packages the mocked approval carries and what the mocked `package_check_*` commands answer. */

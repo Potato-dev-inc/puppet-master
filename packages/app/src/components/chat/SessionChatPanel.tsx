@@ -7,6 +7,8 @@ import { tauriOutboxTransport } from '../../lib/paneOutbox';
 import { useComposerDraft } from '../../lib/composerDraft';
 import { usePendingBubbles } from '../../hooks/usePendingBubbles';
 import { useSessionChat } from '../../hooks/useSessionChat';
+import { BranchSheet } from '../cockpit/BranchSheet';
+import { BranchBanner } from './BranchBanner';
 import { ChatComposer } from './ChatComposer';
 import { ChatExportMenu } from './ChatExportMenu';
 import { ClipSheet, type ClipApi } from './ClipSheet';
@@ -30,7 +32,11 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
   const jump = useChatJump(paneId);
   // "Make clip": the id of the message that started the turn the sheet is open for, or null.
   const [clipFor, setClipFor] = useState<string | null>(null);
+  // "Branch": the id of the message that started the turn the branch sheet is open for, or null.
+  const [branchFor, setBranchFor] = useState<string | null>(null);
   const hasChat = chat.state !== 'unavailable';
+  // A chat with no message box is read-only (the terminal pane's chat): no Branch there.
+  const canBranch = hasChat && !!reply;
   const lastClippable = useMemo(() => lastClippableId(chat.turns), [chat.turns]);
   // The Point and Fix draft ('Edit in Chat') for this pane's box: taken only while the box is shown.
   const draft = useComposerDraft(reply ? paneId : null);
@@ -50,15 +56,25 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
         emptyNote={emptyNote}
         headerExtra={chat.state === 'unavailable' ? undefined : side.button}
         headerMenu={hasChat ? <ChatExportMenu paneId={paneId} onMakeClip={lastClippable ? () => setClipFor(lastClippable) : undefined} /> : undefined}
-        banner={<KeepGoingBanner paneId={paneId} onOpenPane={onOpenPane} />}
+        banner={
+          <>
+            <KeepGoingBanner paneId={paneId} onOpenPane={onOpenPane} />
+            <BranchBanner paneId={paneId} onOpenPane={onOpenPane} />
+          </>
+        }
         canClip={hasChat}
         onMakeClip={setClipFor}
+        canBranch={canBranch}
+        onBranch={setBranchFor}
         overlay={side.box}
         dock={dock}
         pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
         composer={reply ? <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} /> : undefined}
       />
       {clipFor !== null && <ClipSheet paneId={paneId} userItemId={clipFor} api={clipApi} onClose={() => setClipFor(null)} />}
+      {branchFor !== null && (
+        <BranchSheet paneId={paneId} from={{ kind: 'message', user_item_id: branchFor, when: 'after' }} onClose={() => setBranchFor(null)} />
+      )}
     </>
   );
 }

@@ -91,6 +91,8 @@ pub enum Kind {
     Focus,
     /// What broke it (`crate::checkpoints::bisect`): the person undid one agent turn.
     WhatBrokeIt,
+    /// Branch from here (`crate::branch_from`): `branch.started`.
+    Branch,
 }
 
 impl Kind {
@@ -131,6 +133,7 @@ impl Kind {
             Self::ReviewDesk => "review_desk.action",
             Self::Focus => "focus",
             Self::WhatBrokeIt => "what_broke_it.undone",
+            Self::Branch => "branch.started",
         }
     }
 }

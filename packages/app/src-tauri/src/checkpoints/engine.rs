@@ -154,7 +154,7 @@ pub struct RestoreReport {
 
 static LOCKS: Lazy<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-fn lock_for(shadow: &Shadow) -> Arc<Mutex<()>> {
+pub(super) fn lock_for(shadow: &Shadow) -> Arc<Mutex<()>> {
     LOCKS.lock().entry(shadow.git_dir.clone()).or_default().clone()
 }
 
@@ -420,7 +420,7 @@ fn label_for(kind: Kind, turn: u32) -> String {
 
 /// Untracked + modified files (per the pane index): those over the per-file limit, and a guard
 /// on the total size of the rest.
-fn scan(shadow: &Shadow, index: &Path, limits: &Limits) -> Result<Vec<String>, CheckpointError> {
+pub(super) fn scan(shadow: &Shadow, index: &Path, limits: &Limits) -> Result<Vec<String>, CheckpointError> {
     let out = shadow.run(&["ls-files", "-z", "-o", "-m", "--exclude-standard"], Some(index), None, &[])?;
     let mut big = Vec::new();
     let mut total = 0_u64;
@@ -445,7 +445,7 @@ fn scan(shadow: &Shadow, index: &Path, limits: &Limits) -> Result<Vec<String>, C
     Ok(big)
 }
 
-fn stage_all(shadow: &Shadow, index: &Path, big: &[String]) -> Result<(), CheckpointError> {
+pub(super) fn stage_all(shadow: &Shadow, index: &Path, big: &[String]) -> Result<(), CheckpointError> {
     let run = || -> Result<(), GitError> {
         if big.is_empty() {
             shadow.run(&["add", "-A"], Some(index), None, &[])?;

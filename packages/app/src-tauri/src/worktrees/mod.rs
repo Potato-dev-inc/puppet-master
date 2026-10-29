@@ -39,6 +39,7 @@ mod tests_ship;
 mod tests_issue;
 #[cfg(test)]
 mod tests_cifix;
+mod tests_branch;
 
 use crate::operations::OperationError;
 use git::{git_ok, git_raw, git_limited, GitOut};
@@ -896,6 +897,29 @@ pub fn commit_pending_with(reference: &WorktreeRef, env: &[(String, String)]) ->
     commit_all(&wt, &format!("Puppet Master: changes from {}", reference.handle), env)?;
     let after = git_ok(&wt, &["rev-parse", "HEAD"], "GIT_FAILED")?;
     Ok(before != after)
+}
+
+/// The one start commit of a branch copy (spec n33 §3.2, flow B): the copy's files as they were at
+/// the save point, before the new agent does anything. Same staging and hardening as
+/// [`commit_pending_with`], with the given one-line `message` (at most 120 characters, no control
+/// characters). `.puppet-master/` is never included. Returns the new HEAD, or `None` when nothing
+/// differs from HEAD.
+pub fn commit_start(
+    reference: &WorktreeRef,
+    message: &str,
+    env: &[(String, String)],
+) -> Result<Option<String>, OperationError> {
+    let plain = !message.is_empty()
+        && message.chars().count() <= 120
+        && !message.chars().any(char::is_control);
+    if !plain {
+        return Err(err("INVALID_ARGUMENT", "the start commit needs one plain line of at most 120 characters"));
+    }
+    let wt = require_checkout(reference)?;
+    let before = git_ok(&wt, &["rev-parse", "HEAD"], "GIT_FAILED")?;
+    commit_all(&wt, message, env)?;
+    let after = git_ok(&wt, &["rev-parse", "HEAD"], "GIT_FAILED")?;
+    Ok((before != after).then_some(after))
 }
 
 /// The worktree has changes that are not committed yet (`.puppet-master/` aside).
