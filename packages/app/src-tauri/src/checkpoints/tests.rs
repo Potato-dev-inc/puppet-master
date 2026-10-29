@@ -1032,3 +1032,110 @@ fn the_extended_length_prefix_is_dropped_for_git_and_nothing_else_changes() {
         assert_eq!(plain(Path::new(input)), PathBuf::from(want), "{input}");
     }
 }
+
+// ---- Review Desk: a range of checkpoints (RD-3) --------------------------------------------
+
+#[test]
+fn patch_between_holds_only_the_lines_of_the_turns_in_the_range() {
+    let t = Tmp::new("range");
+    t.write("a.txt", "one\n");
+    // Turn 1 edits a.txt; its end is the "after" checkpoint.
+    snap(&t, "p1", Kind::Before, 1_000);
+    t.write("a.txt", "one\nturn1\n");
+    let after1 = snap(&t, "p1", Kind::After, 20_000);
+    // Turn 2 starts where turn 1 ended, so its "before" is skipped: its baseline is turn 1's "after".
+    assert!(matches!(engine::snapshot(t.p(), "p1", Kind::Before, None, 40_000, &limits()).unwrap(), Snapshot::Unchanged(_)));
+    assert_eq!(engine::before_of(&engine::list(t.p(), "p1").unwrap(), 40_000).unwrap().id, after1.id);
+    t.write("b.txt", "turn2\n");
+    snap(&t, "p1", Kind::After, 60_000);
+    // Turn 3 adds c.txt.
+    t.write("c.txt", "turn3\n");
+    let after3 = snap(&t, "p1", Kind::After, 80_000);
+
+    // From before turn 2 to after turn 3: turns 2 and 3, not turn 1. Turn 2's "before" was skipped, so
+    // numbering by history alone keeps the later checkpoints on turn 1; the patch reports the end's turn.
+    let range = engine::patch_between(t.p(), "p1", &after1.id, &after3.id, 1 << 20).unwrap().expect("a patch");
+    assert_eq!(range.turn, after3.turn);
+    assert!(!range.truncated);
+    assert!(range.patch.contains("diff --git a/b.txt b/b.txt") && range.patch.contains("+turn2"));
+    assert!(range.patch.contains("diff --git a/c.txt b/c.txt") && range.patch.contains("+turn3"));
+    assert!(!range.patch.contains("turn1") && !range.patch.contains("a.txt"), "turn 1's change is not in the range");
+    let files = engine::changes_between_ids(t.p(), "p1", &after1.id, &after3.id).unwrap();
+    assert_eq!(files.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), vec!["b.txt", "c.txt"]);
+
+    // Same tree on both ends: nothing to show.
+    assert!(engine::patch_between(t.p(), "p1", &after1.id, &after1.id, 1 << 20).unwrap().is_none());
+    assert!(engine::changes_between_ids(t.p(), "p1", &after1.id, &after1.id).unwrap().is_empty());
+
+    // The cap cuts and says so.
+    let cut = engine::patch_between(t.p(), "p1", &after1.id, &after3.id, 20).unwrap().unwrap();
+    assert!(cut.truncated && cut.patch.len() <= 20);
+
+    // Unknown ids are NotFound, and so is a folder that was never snapshotted.
+    assert!(matches!(engine::patch_between(t.p(), "p1", "999", &after3.id, 1 << 20), Err(CheckpointError::NotFound)));
+    assert!(matches!(engine::changes_between_ids(t.p(), "p1", &after1.id, "999"), Err(CheckpointError::NotFound)));
+    let never = Tmp::new("rangenever");
+    assert!(matches!(engine::patch_between(never.p(), "p1", "1", "2", 1 << 20), Err(CheckpointError::NotFound)));
+}
+
+#[test]
+fn before_of_and_latest_after_pick_the_turn_boundaries() {
+    fn cp(id: &str, kind: &str, at_ms: u64) -> engine::Checkpoint {
+        engine::Checkpoint {
+            id: id.into(),
+            commit: String::new(),
+            pane_id: "p1".into(),
+            turn: 1,
+            kind: kind.into(),
+            label: String::new(),
+            note: String::new(),
+            at_ms,
+            files: 0,
+            added: 0,
+            deleted: 0,
+            tree: String::new(),
+        }
+    }
+    let items = vec![cp("1", "before", 1_000), cp("2", "answer", 5_000), cp("3", "after", 20_000), cp("4", "stop", 30_000)];
+    // The turn that started at 1_500 began from "before" 1 (inside the slack).
+    assert_eq!(engine::before_of(&items, 1_500).unwrap().id, "1");
+    // An "answer" is not a turn boundary: the newest before/after inside the slack wins.
+    assert_eq!(engine::before_of(&items, 4_000).unwrap().id, "1");
+    assert_eq!(engine::before_of(&items, 19_000).unwrap().id, "3");
+    // Nothing taken near the start: no baseline.
+    assert!(engine::before_of(&items[1..], 0).is_none());
+    assert_eq!(engine::latest_after(&items).unwrap().id, "3");
+    assert!(engine::latest_after(&items[3..]).is_none());
+}
+
+#[test]
+fn range_wrappers_go_through_the_pane_folder_and_its_turn_baseline() {
+    let t = Tmp::new("rangewrap");
+    let env = FakeEnv::new(t.p());
+    let rt = Runtime::new(env.clone());
+    t.write("a.txt", "one\n");
+    assert!(matches!(rt.capture("p1", Kind::Before, Some("turn 1")), Outcome::Created(_)));
+    let before = rt.list("p1").unwrap()[0].id.clone();
+    t.write("a.txt", "one\ntwo\n");
+    env.advance(DEBOUNCE_MS + 1);
+    assert!(matches!(rt.capture("p1", Kind::After, None), Outcome::Created(_)));
+    let after = rt.list("p1").unwrap()[1].id.clone();
+    t.write("b.txt", "new\n");
+    env.advance(DEBOUNCE_MS + 1);
+    assert!(matches!(rt.capture("p1", Kind::After, None), Outcome::Created(_)));
+    let last = rt.list("p1").unwrap()[2].id.clone();
+
+    // The turn that started at the fake clock's start began from the "before" checkpoint.
+    assert_eq!(rt.before_of_turns("p1", 100_000).as_deref(), Some(before.as_str()));
+    assert_eq!(rt.last_after_id("p1").as_deref(), Some(last.as_str()), "the newest after");
+    let range = rt.patch_between("p1", &before, &last, 1 << 20).unwrap().expect("a patch");
+    assert!(range.patch.contains("+two") && range.patch.contains("+new"));
+    let files = rt.changes_between_ids("p1", &before, &after).unwrap();
+    assert_eq!(files.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), vec!["a.txt"]);
+
+    // Checkpoints off: no baseline, and the range refuses.
+    env.enabled.store(false, Ordering::SeqCst);
+    assert_eq!(rt.before_of_turns("p1", 100_000), None);
+    assert_eq!(rt.last_after_id("p1"), None);
+    assert!(matches!(rt.patch_between("p1", &before, &last, 1 << 20), Err(CheckpointError::Disabled)));
+}

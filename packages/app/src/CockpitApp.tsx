@@ -20,6 +20,8 @@ import { SettingsView } from './components/cockpit/SettingsView';
 import { PlansMonth } from './components/cockpit/PlansMonth';
 import { MorningPage } from './components/cockpit/night/MorningPage';
 import { AgentScores } from './components/cockpit/AgentScores';
+import { ReviewDesk } from './components/cockpit/review/ReviewDesk';
+import { ReviewDetail } from './components/cockpit/review/ReviewDetail';
 import { StoreHost } from './components/store/StoreHost';
 import { runStoreCheck } from './lib/agentStoreCheck';
 import { useInlineSettings } from './hooks/useInlineSettings';
@@ -95,6 +97,12 @@ export default function CockpitApp() {
   const splitOn = splitStillOn(split, { selectedId: c.selectedId, width, hasPane: (id) => c.registry.panes.has(id) });
   // The split turns off by itself when its pane closes, the selection goes away, or the window gets narrow.
   if (split !== null && !splitOn) setSplit(null);
+  // The Review Desk: `reviewFirst` opens it on its first row ("Review the riskiest item" in the palette).
+  const [reviewFirst, setReviewFirst] = useState(false);
+  const openReview = (first = false) => {
+    setReviewFirst(first);
+    setView('review');
+  };
   const closeOverlay = () => setView(homeView(c.spawn !== null, c.selectedId));
   // The Agent Store: opened from the "+" menu, the palette, Set up agents and Settings > Agents. Back returns to the resting view.
   const openStore = () => setView('store');
@@ -337,6 +345,7 @@ export default function CockpitApp() {
         onOpenPlans={() => setView('plans')}
         onOpenMorning={() => setView('morning')}
         onOpenScores={() => setView('scores')}
+        onOpenReview={() => openReview()}
         onOpenStore={openStore}
         companions={companions.companions}
         openCompanionId={view === 'companion' ? companionId : null}
@@ -378,6 +387,22 @@ export default function CockpitApp() {
             // Same project rule as Project memory: a pane in a separate copy belongs to the project the copy came from.
             project={c.selectedId ? projectOfCwd(c.registry.panes.get(c.selectedId)?.info.cwd) : null}
             onClose={closeOverlay}
+          />
+        ) : view === 'review' ? (
+          <ReviewDesk
+            key={reviewFirst ? 'first' : 'list'}
+            openFirst={reviewFirst}
+            onOpenPane={(id) => nav.select(id)}
+            onClose={closeOverlay}
+            renderDetail={(item, ctl) => (
+              <ReviewDetail
+                item={item}
+                onOpenPane={(id) => nav.select(id)}
+                onKeep={ctl.keep}
+                onKept={ctl.kept}
+                onThrow={ctl.throwAway}
+              />
+            )}
           />
         ) : view === 'settings' ? (
           <SettingsView key={settings.viewKey} {...settings.viewProps} onOpenStore={openStore} />
@@ -443,6 +468,8 @@ export default function CockpitApp() {
           onOpenPlans={() => setView('plans')}
           onOpenMorning={() => setView('morning')}
           onOpenScores={() => setView('scores')}
+          onOpenReview={() => openReview()}
+          onReviewRiskiest={() => openReview(true)}
           onOpenStore={openStore}
           onUndoLastTurn={setUndoPane}
           onOpenWelcome={welcome.reopen}

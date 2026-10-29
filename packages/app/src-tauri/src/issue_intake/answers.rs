@@ -69,18 +69,12 @@ impl<I: Io + 'static> Engine<I> {
                         self.push_job(&run.id);
                     }
                     (Some(CHOICE_LOOK), _) => {
-                        if let Some(id) = self.reraise_push_card(&run, facts) {
-                            run.state = RunState::AskPush { question_id: id, facts: facts.clone() };
-                            self.put(&run);
-                        }
+                        self.reraise_push_card(&mut run, facts);
                     }
                     (Some(CHOICE_THROW), _) => {
                         // Refused while the agent works: the card must not be left pointing at a dead question.
                         if self.throw_away(&mut run).is_err() {
-                            if let Some(id) = self.reraise_push_card(&run, facts) {
-                                run.state = RunState::AskPush { question_id: id, facts: facts.clone() };
-                                self.put(&run);
-                            }
+                            self.reraise_push_card(&mut run, facts);
                         }
                     }
                     _ => {

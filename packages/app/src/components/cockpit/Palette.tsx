@@ -54,6 +54,8 @@ export function Palette({
   onOpenPlans,
   onOpenMorning,
   onOpenScores,
+  onOpenReview,
+  onReviewRiskiest,
   onOpenStore,
   onUndoLastTurn,
   onOpenWelcome,
@@ -75,6 +77,10 @@ export function Palette({
   onOpenMorning?: () => void;
   /** Opens "Scores on your code". Absent: no Scores action. */
   onOpenScores?: () => void;
+  /** Opens the Review Desk. Absent: no Review Desk action. */
+  onOpenReview?: () => void;
+  /** Opens the Review Desk on its first row (the riskiest item). Absent: no such action. */
+  onReviewRiskiest?: () => void;
   /** Opens the Agent Store. Absent: no Agent Store action. */
   onOpenStore?: () => void;
   /** Opens the restore confirmation for the pane's last turn (never restores by itself). */
@@ -344,6 +350,28 @@ export function Palette({
         run: onOpenScores,
       });
     }
+    if (onOpenReview) {
+      out.push({
+        id: 'act:review',
+        group: 'Actions',
+        title: 'Review Desk',
+        desc: 'Finished work from your agents, riskiest first',
+        keywords: 'review desk keep look check finished work changes merge throw away',
+        icon: <IconChart />,
+        run: onOpenReview,
+      });
+    }
+    if (onReviewRiskiest) {
+      out.push({
+        id: 'act:review-riskiest',
+        group: 'Actions',
+        title: 'Review the riskiest item',
+        desc: 'Open the Review Desk on the first item',
+        keywords: 'review riskiest risk first high look check changes',
+        icon: <IconChart />,
+        run: onReviewRiskiest,
+      });
+    }
     if (onOpenStore) {
       out.push({
         id: 'act:store',
@@ -390,7 +418,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onOpenStore, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn, focus]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onOpenReview, onReviewRiskiest, onOpenStore, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn, focus]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

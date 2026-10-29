@@ -940,7 +940,10 @@ fn a_finished_run_with_no_changes_says_so() {
 fn a_clean_change_asks_by_default_then_pushes_on_yes() {
     let (fx, engine) = started_world(true);
     fx.agent_done("completed");
+    let asked_before = fx.0.s.lock().stored_before_card.len();
     engine.tick();
+    // The push card is raised only after the run record says it waits on that card.
+    assert_eq!(fx.0.s.lock().stored_before_card[asked_before..], [true], "the push card was raised before its run was stored");
     let run = the_run(&fx);
     assert!(matches!(&run.state, RunState::AskPush { .. }), "{:?}", run.state);
     let card = fx.only_card();
