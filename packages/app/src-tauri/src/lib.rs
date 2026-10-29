@@ -435,6 +435,19 @@ pub fn run() {
             commands::checkpoint_diff,
             commands::checkpoint_restore,
             commands::checkpoint_undo_last,
+            commands::wb_overview,
+            commands::wb_declare,
+            commands::wb_start,
+            commands::wb_status,
+            commands::wb_stop,
+            commands::wb_finding,
+            commands::wb_findings,
+            commands::wb_diff,
+            commands::wb_undo_plan,
+            commands::wb_undo,
+            commands::wb_recheck,
+            commands::wb_settings_get,
+            commands::wb_settings_set,
             commands::tamper_check,
             commands::mission_list,
             commands::mission_get,
@@ -684,6 +697,9 @@ pub fn run() {
             let registry_for_panes = app.state::<AppState>().registry.clone();
             pane_windows::init(app.handle(), registry_for_panes.clone());
             secrets::migrate_on_startup();
+            // What broke it: remove test copies an earlier run left behind (SPEC n33 section 3.4).
+            #[cfg(not(test))]
+            checkpoints::bisect::live::live().sweep_stale();
             settings_store::load_saved_public_settings(app.handle());
             ui_mode::load_saved();
             // Panes-first: no main window. A standalone worker host (`--worker`) is the one
