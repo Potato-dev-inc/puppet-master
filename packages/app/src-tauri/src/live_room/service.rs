@@ -240,11 +240,12 @@ impl LiveRoomState {
         result
     }
 
-    /// Takes the slot for a start. A room that ended by itself leaves its slot behind; that one is free.
+    /// Takes the slot for a start. A room that ended by itself leaves its slot behind; that one is free, from the moment
+    /// it has told the windows (its thread is then only cleaning up its own `active.json`, which a new room's file survives).
     fn claim(&self) -> Result<(), String> {
         let mut slot = self.inner.slot.lock();
         match &*slot {
-            Slot::Running(running) if !running.shared.is_done() => return Err(ALREADY_RUNNING.to_string()),
+            Slot::Running(running) if !running.shared.is_done() && !running.shared.ending.load(Ordering::SeqCst) => return Err(ALREADY_RUNNING.to_string()),
             Slot::Starting => return Err(ALREADY_RUNNING.to_string()),
             _ => {}
         }

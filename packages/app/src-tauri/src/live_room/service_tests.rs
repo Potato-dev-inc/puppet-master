@@ -318,6 +318,11 @@ fn a_window_that_hears_the_room_has_ended_finds_no_link_and_no_command_taken() {
     source.0.lock().gone = true;
     wait_until("the room to end", || !heard.lock().is_empty());
     assert_eq!(*heard.lock(), [(true, true)], "(no link, pause refused) at the moment of the last event");
+    // The slot is free as soon as the windows heard it, before the room's thread has cleaned up (this start came
+    // back "already running" on a starved machine).
+    source.0.lock().gone = false;
+    state.start_ticking(&env, &request(60, 5), vec![PANE.into()], source, TICK_FAST).expect("a new room at once");
+    state.stop_all(StopReason::Owner);
     wait_until("active.json gone", || !active::path(&dir).exists());
 }
 
