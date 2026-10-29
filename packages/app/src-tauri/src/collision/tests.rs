@@ -309,8 +309,9 @@ const AGENT_REACHABLE: &[&str] = &[
     "one_brain/",
 ];
 
-/// The files that may name `collision::`: the desktop wiring and its window commands only.
-const MAY_NAME_COLLISION: &[&str] = &["lib.rs", "commands/", "pane_activity.rs", "collision/"];
+/// The files that may name `collision::`: the desktop wiring and its window commands only, plus the end-to-end
+/// harness (`fake_tui/world.rs`, compiled only with the `dev-fake-tui` feature; it reads the alert list the way a window does).
+const MAY_NAME_COLLISION: &[&str] = &["lib.rs", "commands/", "pane_activity.rs", "collision/", "fake_tui/world.rs"];
 
 /// Line numbers of the lines of `text` that name `collision::`, outside a comment line.
 fn collision_refs(text: &str) -> Vec<usize> {

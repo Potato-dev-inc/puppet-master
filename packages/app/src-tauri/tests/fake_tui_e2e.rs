@@ -1241,3 +1241,8 @@ mod night;
 
 #[path = "fake_tui_issue_intake.rs"]
 mod issue_intake;
+
+// ---- Collision Alert: two agents, one file, an early heads-up (fake agents, real git, zero tokens) -----------------
+
+#[path = "fake_tui_collision.rs"]
+mod collision;

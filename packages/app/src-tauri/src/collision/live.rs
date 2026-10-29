@@ -246,12 +246,27 @@ impl Probe for LiveProbe {
     }
 
     fn sample(&self, root: &str, start: &str) -> Result<Sample, ProbeError> {
+        #[cfg(feature = "dev-fake-tui")]
+        PROBE_CALLS.fetch_add(1, Ordering::SeqCst);
         self.git.sample(root, start)
     }
 
     fn hunks(&self, root: &str, start: &str, rel: &str) -> Result<FileHunks, ProbeError> {
+        #[cfg(feature = "dev-fake-tui")]
+        PROBE_CALLS.fetch_add(1, Ordering::SeqCst);
         self.git.hunks(root, start, rel)
     }
+}
+
+/// How many times the live probe ran git (a sample or a hunk read), for the end-to-end tests: a count that
+/// stops growing proves no git process is started any more.
+#[cfg(feature = "dev-fake-tui")]
+static PROBE_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The live probe's git calls so far (`dev-fake-tui` builds only).
+#[cfg(feature = "dev-fake-tui")]
+pub fn probe_calls_for_e2e() -> u64 {
+    PROBE_CALLS.load(Ordering::SeqCst)
 }
 
 /// The start commit of the copy whose checkout is `root`: its recorded `base_commit`.
