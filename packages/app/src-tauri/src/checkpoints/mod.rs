@@ -5,7 +5,7 @@
 //! See `docs/features/checkpoints.md`.
 
 pub mod bisect;
-mod engine;
+pub mod engine;
 pub mod http;
 mod git;
 mod runtime;
