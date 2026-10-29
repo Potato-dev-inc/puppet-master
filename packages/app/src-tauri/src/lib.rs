@@ -458,6 +458,7 @@ pub fn run() {
             commands::pane_usage,
             commands::plans_report,
             commands::agent_scores,
+            commands::pick_agent,
             commands::pane_worktree,
             commands::pane_git_branch,
             commands::night_state,

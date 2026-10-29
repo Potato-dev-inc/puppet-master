@@ -115,6 +115,11 @@ impl Drop for Follower {
 }
 
 impl Follower {
+    /// The file this follower reads now (`None`: none found yet).
+    pub(super) fn file(&self) -> Option<&std::path::Path> {
+        self.file.as_deref()
+    }
+
     pub(super) fn new(source: &'static dyn SessionSource) -> Self {
         Follower { source, file: None, tail: None, last_locate: None, ambiguous: false, claim: None, others: Vec::new() }
     }
@@ -265,6 +270,15 @@ impl Reader {
             Reader::Screen(follower) => follower.step(panes, pane_id),
             Reader::Api(follower) => follower.step(panes, pane_id),
             Reader::ScreenFirst(follower) => follower.step(panes, pane_id, now, relocate),
+        }
+    }
+
+    /// The session file the items come from now (`None`: not read from a file, or no file found yet).
+    fn followed_file(&self) -> Option<PathBuf> {
+        match self {
+            Reader::File(follower) => follower.file().map(PathBuf::from),
+            Reader::ScreenFirst(follower) => follower.file_now().map(PathBuf::from),
+            Reader::Screen(_) | Reader::Api(_) => None,
         }
     }
 
@@ -432,7 +446,7 @@ impl Watchers {
         let Some(first) = reader.step(&*self.panes, pane_id, Instant::now(), self.tuning.relocate) else {
             return Vec::new();
         };
-        apply(&watch, first, self.tuning.max_items, None, self.observer.as_deref().map(|o| (o, pane_id)));
+        apply(&watch, first, reader.followed_file(), self.tuning.max_items, None, self.observer.as_deref().map(|o| (o, pane_id)));
         let snapshot = watch.snapshot();
         *watch.waiting.lock() = waiting_of(&watch, &reader, &*self.panes, pane_id);
         *watch.source.lock() = reader.source();
@@ -532,7 +546,7 @@ impl Worker {
             let Some(change) = self.reader.step(&*self.panes, &self.pane_id, Instant::now(), self.tuning.relocate) else {
                 break;
             };
-            apply(&self.watch, change, self.tuning.max_items, Some((&*self.sink, &self.pane_id)), self.observer.as_deref().map(|o| (o, self.pane_id.as_str())));
+            apply(&self.watch, change, self.reader.followed_file(), self.tuning.max_items, Some((&*self.sink, &self.pane_id)), self.observer.as_deref().map(|o| (o, self.pane_id.as_str())));
             let source = self.reader.source();
             {
                 let mut known = self.watch.source.lock();
@@ -565,7 +579,8 @@ fn waiting_of(watch: &Watch, reader: &Reader, panes: &dyn PaneLookup, pane_id: &
 
 /// Puts a change into the pane's items (dropping the oldest past `max`) and sends it to the sink.
 /// Sending happens under the items lock so a snapshot never misses or repeats a batch.
-fn apply(watch: &Watch, change: Change, max: usize, out: Option<(&dyn Sink, &str)>, observer: Option<(&dyn ItemObserver, &str)>) {
+/// `file` is the session file the reader follows after this step; it is noted with the items, under the same lock.
+fn apply(watch: &Watch, change: Change, file: Option<PathBuf>, max: usize, out: Option<(&dyn Sink, &str)>, observer: Option<(&dyn ItemObserver, &str)>) {
     let mut items = watch.items.lock();
     let upsert = matches!(change, Change::Upsert(_));
     let (batch, mut reset) = match change {
@@ -576,6 +591,7 @@ fn apply(watch: &Watch, change: Change, max: usize, out: Option<(&dyn Sink, &str
             (new, true)
         }
     };
+    items.set_file(file);
     let count = batch.len();
     if let Some((observer, pane_id)) = observer {
         observer.observe(pane_id, &batch);

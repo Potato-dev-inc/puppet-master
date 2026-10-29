@@ -66,7 +66,7 @@ const detail = (): StoreDetail => ({
   install_plan: { agent_id: 'qwen', label: 'Qwen Code', available: true, reason: null, hint: null, steps: [] },
   run_preview: ['qwen'],
   fixtures: { count: 0 },
-  uninstall: { available: false, steps: [], note: '' },
+  uninstall: { available: false, steps: [], reason: null, note: '' },
   found_path_display: null,
 });
 

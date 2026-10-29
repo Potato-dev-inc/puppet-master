@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Pick for me: the first row of the "+" menu suggests one agent (and its saved login) for the project, from your own
+  Scores for that project (last 90 days), and says why in one plain sentence. With little history it says it is too
+  early and suggests your usual agent. Nothing starts until you press Start; nothing you type is read or sent, and
+  nothing is stored. Desktop app only. Built and unit-tested; no live run with real agents yet. See
+  `docs/features/pick-for-me.md`.
+
+- Agent Store (preview, Windows only): a "More agents" grid of 19 terminal agents, opened from the "+" menu, Set up agents,
+  Settings > Agents or the palette. Each card shows the vendor, the license, how to sign in and a tier: "Tested" (Kilo Code
+  has captures from a Windows run) or "Basic support" (runs in a pane; not tested on Windows yet). Install shows the vendor's own
+  command and runs it in a visible window after you confirm. Add, Check it works, Remove and Uninstall the program are separate
+  steps, each with its own confirm. Sign in happens in the agent's own pane. Not run live yet; Amp, Grok CLI, Codebuff and
+  Antigravity are not in the list. See `docs/features/agent-store.md`.
+
 - Night Shift (Preview, off by default: Settings > General > Labs): write up to 10 tasks in Tonight, pick the plans and a stop
   time, and Puppet Master works through them while you sleep, each in its own separate copy, checking your declared tests
   after every turn. It never answers a trust, permission or sign-in screen, never merges anything, and sends one push in the

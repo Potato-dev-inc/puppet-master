@@ -109,7 +109,7 @@ fn append(path: &Path, text: &str) {
 }
 
 fn wait_until(what: &str, cond: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(60);
     while !cond() {
         assert!(Instant::now() < deadline, "timed out waiting for: {what}");
         std::thread::sleep(Duration::from_millis(5));
@@ -243,22 +243,28 @@ fn a_pane_that_is_gone_is_unavailable() {
 #[test]
 fn the_reader_ends_when_the_phone_stops_asking_and_stays_while_it_asks() {
     let (rig, _) = Rig::with_file("u:one\n");
-    let lease = Duration::from_millis(150);
-    read_with(&rig.watchers, "p1", Some(&rig.opening), None, lease);
+    // While the phone asks, the lease is far longer than any pause a busy machine puts between two requests (a
+    // 150 ms lease with a request every 60 ms ran out between two asks when the test was starved). How a renewal
+    // moves the end of a lease is checked on a clock the test sets, in `store_tests`.
+    let lasting = Duration::from_secs(120);
+    read_with(&rig.watchers, "p1", Some(&rig.opening), None, lasting);
     assert_eq!(rig.watchers.running(), 1);
-    // Asking again before it runs out renews it.
+    // Asking again keeps the one reader (it does not start a second).
     for _ in 0..4 {
         std::thread::sleep(Duration::from_millis(60));
-        read_with(&rig.watchers, "p1", Some(&rig.opening), None, lease);
+        read_with(&rig.watchers, "p1", Some(&rig.opening), None, lasting);
         assert_eq!(rig.watchers.running(), 1);
     }
+    // The last ask: a lease that runs out soon (an ask replaces the one before it), then nobody asks again.
+    let lease = Duration::from_millis(150);
+    read_with(&rig.watchers, "p1", Some(&rig.opening), None, lease);
     wait_until("the lease to run out", || rig.watchers.running() == 0);
     // The next request starts it again, with the same items.
-    let reply = read_with(&rig.watchers, "p1", Some(&rig.opening), None, lease);
+    let reply = read_with(&rig.watchers, "p1", Some(&rig.opening), None, lasting);
     assert_eq!(texts(&reply), ["one"]);
     assert_eq!(rig.watchers.running(), 1);
     // A revision from before the restarted reader is a reset.
-    let again = read_with(&rig.watchers, "p1", Some(&rig.opening), Some(1), lease);
+    let again = read_with(&rig.watchers, "p1", Some(&rig.opening), Some(1), lasting);
     assert_eq!(again["reset"], true);
 }
 

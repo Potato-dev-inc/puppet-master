@@ -63,15 +63,24 @@ pub type Emitter = Arc<dyn Fn(&Progress) + Send + Sync>;
 /// The event is sent at most this often (4 a second), except when the import ends.
 pub const EMIT_EVERY: Duration = Duration::from_millis(250);
 
+/// Where the throttle reads the time. Tests pass their own, so "at most four a second" is checked against a
+/// clock they move, not against how fast a busy machine happens to run the import.
+pub(crate) type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;
+
 /// The current progress and the throttled emitter. The worker updates it; anyone may read it.
 pub(crate) struct Reporter {
     state: Mutex<(Progress, Option<Instant>)>,
     emit: Emitter,
+    clock: Clock,
 }
 
 impl Reporter {
     pub(super) fn new(emit: Emitter) -> Self {
-        Reporter { state: Mutex::new((Progress::idle(), None)), emit }
+        Self::with_clock(emit, Arc::new(Instant::now))
+    }
+
+    pub(super) fn with_clock(emit: Emitter, clock: Clock) -> Self {
+        Reporter { state: Mutex::new((Progress::idle(), None)), emit, clock }
     }
 
     pub(super) fn get(&self) -> Progress {
@@ -85,12 +94,13 @@ impl Reporter {
             let mut state = self.state.lock();
             let phase = state.0.phase;
             change(&mut state.0);
+            let now = (self.clock)();
             let due = match state.1 {
-                Some(last) => last.elapsed() >= EMIT_EVERY,
+                Some(last) => now.saturating_duration_since(last) >= EMIT_EVERY,
                 None => true,
             };
             if due || state.0.phase != phase {
-                state.1 = Some(Instant::now());
+                state.1 = Some(now);
                 Some(state.0.clone())
             } else {
                 None
@@ -105,7 +115,7 @@ impl Reporter {
     pub(super) fn reset(&self, progress: Progress) {
         {
             let mut state = self.state.lock();
-            *state = (progress.clone(), Some(Instant::now()));
+            *state = (progress.clone(), Some((self.clock)()));
         }
         (self.emit)(&progress);
     }
