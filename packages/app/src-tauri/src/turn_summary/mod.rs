@@ -313,6 +313,10 @@ fn away_digest(since_ms: u64, focus_on: bool) -> Option<Digest> {
 /// Park a digest for the cockpit and tell it.
 fn offer(digest: Digest) {
     DESK.lock().pending = Some(digest.clone());
+    // Not in unit tests: `commands::focus` tests reach this through the global Focus engine, and emitting
+    // through the app handle links the windowing runtime (`TaskDialogIndirect`) into the lib test exe,
+    // which then needs a Common Controls v6 manifest it does not have (docs/REPO_MAP.md).
+    #[cfg(not(test))]
     if let Some(app) = crate::bridge::live_app() {
         let _ = app.emit("digest://ready", &digest);
     }

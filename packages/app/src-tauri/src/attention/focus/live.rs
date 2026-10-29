@@ -449,12 +449,19 @@ impl Io for LiveIo {
     }
 
     fn emit(&self, view: &View) {
-        use tauri::Emitter;
-        if let Some(app) = crate::bridge::live_app() {
-            let _ = app.emit("focus://changed", &view.desktop);
-        }
         crate::bridge::push_focus_sse(&view.phone);
-        crate::tray::request_refresh();
+        // Not in unit tests: `commands::focus` tests reach the global engine, and emitting through the app
+        // handle and redrawing the tray link the windowing runtime (`TaskDialogIndirect`, menus) into the lib
+        // test exe, which then needs a Common Controls v6 manifest it does not have and does not start
+        // (docs/REPO_MAP.md). A test has no app handle anyway; the engine tests use a fake `Io`.
+        #[cfg(not(test))]
+        {
+            use tauri::Emitter;
+            if let Some(app) = crate::bridge::live_app() {
+                let _ = app.emit("focus://changed", &view.desktop);
+            }
+            crate::tray::request_refresh();
+        }
     }
 
     fn offer_digest(&self, summary: &FocusSummary) {
