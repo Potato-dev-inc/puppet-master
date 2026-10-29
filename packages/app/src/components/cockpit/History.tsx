@@ -14,6 +14,8 @@ import {
 } from "./history-model";
 import { RestoreSheet } from "./RestoreSheet";
 import { restoreWithUndo, type Notify } from "./restore-flow";
+import { BranchSheet } from "./BranchSheet";
+import type { BranchFrom } from "../../lib/branch-from";
 
 const errText = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
@@ -46,6 +48,8 @@ export function History({
   const [open, setOpen] = useState<string | null>(null);
   const [diffs, setDiffs] = useState<Record<string, FileChange[] | string>>({});
   const [pending, setPending] = useState<Checkpoint | null>(null);
+  // The "Branch from here" sheet, opened from a row's save point.
+  const [branchFrom, setBranchFrom] = useState<BranchFrom | null>(null);
   // The primary "Undo last turn" asks with its own title; a row's Restore names the row.
   const [undoing, setUndoing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -76,6 +80,7 @@ export function History({
     setDiffs({});
     setPending(null);
     setUndoing(false);
+    setBranchFrom(null);
   }, [paneId]);
 
   // A turn starting or ending is what creates checkpoints, so reload on every status change.
@@ -228,6 +233,13 @@ export function History({
                   >
                     Restore
                   </button>
+                  <button
+                    type="button"
+                    className="ck-btn ck-btn--sm ck-btn--secondary ck-hist-branch"
+                    onClick={() => setBranchFrom({ kind: "save_point", checkpoint_id: item.id })}
+                  >
+                    Branch from here
+                  </button>
                 </div>
                 {expanded && (
                   <div className="ck-hist-files">
@@ -271,6 +283,15 @@ export function History({
             setUndoing(false);
           }}
           onConfirm={() => void confirmRestore()}
+        />
+      )}
+
+      {branchFrom && (
+        <BranchSheet
+          paneId={paneId}
+          from={branchFrom}
+          onClose={() => setBranchFrom(null)}
+          onStarted={(view) => notify(`Branch started. ${view.toLabel} works in a separate copy.`)}
         />
       )}
     </>
