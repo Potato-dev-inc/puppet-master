@@ -10,13 +10,15 @@ Agent-agnostic: the generic code never matches an agent name (a test greps for i
 installs as data.
 
 ## Design
-- `tui/install.rs`: `InstallSpec` (`[install.windows]`): `source`, `order`, `winget`, `npm`, `script_url`,
-  `requires`, `note`. Only closed, validated fields (winget id, npm name, https URL), never a command line.
+- `tui/install.rs`: `InstallSpec` (`[install.windows]`): `source`, `order`, `winget`, `npm`, `uv`, `python`,
+  `script_url`, `requires`, `note`. Only closed, validated fields (winget id, npm name, PyPI name, `3.<digits>` Python
+  version, https URL), never a command line. `uv` is a method for Python agents: `uv tool install [--python <v>] <pkg>`.
 - Code profiles ship `tui/<agent>/install.toml` (`include_str!`) and return it from `TuiProfile::install_spec`.
   TOML definitions add `[install.windows]` (validated in `declarative/validate.rs`, so shell text is rejected).
-- `agent_install/plan.rs` (pure): spec + what the PC has (`Tools`: winget, Node, Git) -> ordered `Step`s.
-  winget, then npm, in the spec's order; a missing Node.js or Git step is added only when the chosen method needs
-  it (`agent_install/tools.toml`); the vendor `irm | iex` script is last and marked high risk.
+- `agent_install/plan.rs` (pure): spec + what the PC has (`Tools`: winget, Node, Git, uv) -> ordered `Step`s.
+  winget, then npm, then uv, in the spec's order; a missing Node.js, Git or uv step is added only when the chosen method
+  needs it (`agent_install/tools.toml`, `[tools.uv]` is marked UNVERIFIED until `winget show` runs); the vendor
+  `irm | iex` script is last and marked high risk.
 - `agent_install/command.rs`: the `-Command` text for the pane. Every token is quoted as a PowerShell
   single-quoted string. A done marker (`PM-INSTALL-EXIT <code>`) is printed at the end.
 - `agent_install/path_refresh.rs`: reads `HKLM` and `HKCU` PATH with `reg query`, expands `%VAR%`, and ADDS the
@@ -24,6 +26,11 @@ installs as data.
 - `agent_install/mod.rs`: `plan`, `start`, `status`, `finish`. `start` rebuilds the plan itself and refuses unless
   the command text equals what the person saw (`INSTALL_COMMAND_CHANGED`) and, for a script, unless a second
   confirmation was given (`INSTALL_NEEDS_CONFIRMATION`).
+- Store fallback: `agent_install/mod.rs` `plan_for` uses the catalog's install spec when an id is not registered yet
+  (an Agent Store entry that is not added), and `finish` falls back to `store_probe`. Uninstall of a program the Store
+  installed is `agent_install/plan.rs::plan_uninstall` (winget `uninstall --id`, `npm uninstall -g`, `uv tool uninstall`).
+  It is built only when the record's method and package equal the current catalog entry. Node.js, Git and uv are never
+  removed. Details: `docs/features/agent-store.md`.
 - Tauri commands only (`commands/agent_install.rs`): there is no bridge route and no MCP tool, so an agent cannot
   start an install.
 - UI: `InstallSheet.tsx`, `AgentDoctor.tsx`, `lib/agent-install.ts`.
@@ -40,11 +47,10 @@ installs as data.
 Gemini CLI is not a registered agent, so it has no `install.toml` yet. A definition for it would use
 `[install.windows] npm = "@google/gemini-cli"` and Puppet Master would offer Node.js through winget first.
 
-## Evidence
-See `D:\pm-night\p0\doctor-installs\REPORT.md`.
-
 ## Limits
 - No checked download (URL + checksum) method: the vendors publish moving "latest" URLs, so there is no stable
   checksum to pin. winget verifies the installer hash itself (it is in the manifest).
 - Windows only. Other systems show the old hint.
 - The PATH refresh adds folders; a tool that moved would still need a restart (the doctor says so).
+- uv is needed for Python agents (Aider, Mistral Vibe). Puppet Master checks only the shape of `python` (`3.<digits>`);
+  the Python range is left to uv. The winget id `astral-sh.uv` has not been run with `winget show` yet.

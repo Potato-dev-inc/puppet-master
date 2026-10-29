@@ -404,6 +404,11 @@ export function AgentDetail({
               )}
             </div>
           )}
+          {onList && !detail.uninstall.available && (
+            <p className="ck-sub" data-testid="uninstall-unavailable">
+              {detail.uninstall.reason || 'Puppet Master cannot remove this program from here.'}
+            </p>
+          )}
           {onList && !detail.uninstall.available && detail.uninstall.note && (
             <p className="ck-sub">To remove the program: {detail.uninstall.note}</p>
           )}

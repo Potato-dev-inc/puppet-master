@@ -132,11 +132,11 @@ impl Importer {
     /// `emit` gets the progress at most four times a second (and at every phase change); the command layer passes the
     /// Tauri emit.
     pub fn new(catalog: Arc<dyn Catalog>, index: Arc<ChatIndex>, emit: Emitter) -> Importer {
-        let shared = Shared {
-            reporter: progress::Reporter::new(emit),
-            cancel: AtomicBool::new(false),
-            running: AtomicBool::new(false),
-        };
+        Self::with_reporter(catalog, index, progress::Reporter::new(emit))
+    }
+
+    pub(super) fn with_reporter(catalog: Arc<dyn Catalog>, index: Arc<ChatIndex>, reporter: progress::Reporter) -> Importer {
+        let shared = Shared { reporter, cancel: AtomicBool::new(false), running: AtomicBool::new(false) };
         Importer { catalog, index, shared: Arc::new(shared) }
     }
 

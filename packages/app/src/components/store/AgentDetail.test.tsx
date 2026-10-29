@@ -81,7 +81,7 @@ const detailFor = (over: Partial<StoreDetail> = {}): StoreDetail => ({
   install_plan: { agent_id: 'qwen', label: 'Qwen Code', available: true, reason: null, hint: null, steps: [step()] },
   run_preview: ['qwen', '--acp'],
   fixtures: { count: 0 },
-  uninstall: { available: false, steps: [], note: '' },
+  uninstall: { available: false, steps: [], reason: null, note: '' },
   found_path_display: null,
   ...over,
 });
@@ -324,7 +324,7 @@ describe('AgentDetail open, remove and uninstall', () => {
       hint: null,
       steps: [step({ method: 'npm', command: 'npm uninstall -g @qwen-code/qwen-code' })],
     };
-    const store = fakeStore({ ...ready, uninstall: { available: true, steps: plan.steps, note: '' } }, {
+    const store = fakeStore({ ...ready, uninstall: { available: true, steps: plan.steps, reason: null, note: '' } }, {
       uninstallPlan: vi.fn(async () => plan),
     });
     const install = fakeInstall();
@@ -340,10 +340,32 @@ describe('AgentDetail open, remove and uninstall', () => {
   });
 
   it('shows the vendor removal note for a script install and no uninstall button', async () => {
-    const d = { ...ready, uninstall: { available: false, steps: [], note: 'Use the vendor menu to remove it.' } };
+    const d = { ...ready, uninstall: { available: false, steps: [], reason: null, note: 'Use the vendor menu to remove it.' } };
     await mount({ store: fakeStore(d) }).render();
     expect(button('Uninstall the program')).toBeUndefined();
     expect(text()).toContain('To remove the program: Use the vendor menu to remove it.');
+  });
+
+  it('says why Uninstall is unavailable, in place of the button', async () => {
+    const reason = 'This was installed another way. Remove it where you installed it.';
+    const d = { ...ready, uninstall: { available: false, steps: [], reason, note: '' } };
+    await mount({ store: fakeStore(d) }).render();
+    expect(button('Uninstall the program')).toBeUndefined();
+    expect(host.querySelector('[data-testid="uninstall-unavailable"]')?.textContent).toBe(reason);
+  });
+
+  it('gives a plain reason when the backend sends none', async () => {
+    const d = { ...ready, uninstall: { available: false, steps: [], reason: null, note: '' } };
+    await mount({ store: fakeStore(d) }).render();
+    expect(host.querySelector('[data-testid="uninstall-unavailable"]')?.textContent).toBe(
+      'Puppet Master cannot remove this program from here.',
+    );
+  });
+
+  it('shows no uninstall reason when the agent is not on the list', async () => {
+    const d = detailFor({ state: 'available', uninstall: { available: false, steps: [], reason: 'Not installed.', note: '' } });
+    await mount({ store: fakeStore(d) }).render();
+    expect(host.querySelector('[data-testid="uninstall-unavailable"]')).toBeNull();
   });
 });
 

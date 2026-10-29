@@ -80,7 +80,7 @@ folder paths are cut to their last names, then the text is cut to its limit.
 | Agent replies, as plain text (no markdown, no HTML, no links) | 1,500 characters |
 | Tool calls: tool name, short summary, how many files, whether it writes | 160 characters for the summary |
 | Tool results: ok or failed, and the number of output lines | the output text is never sent |
-| Turn end: completed, interrupted or failed, and how long it took | none |
+| Turn end: completed, interrupted or failed, and how long it took. A second end right after one (an agent writes the turn's length in a later line) is not shown again | none |
 | Plan: up to 20 tasks, with their status | 160 characters per task |
 | Notes: compacted, error and title notices. A pull request shows `Opened a pull request` and no link | 200 characters |
 
@@ -98,6 +98,14 @@ is always `Waiting for the owner`. Viewers never see the question, the command o
 - Chat items read off the screen (for agents whose chat is read from the screen) while a card is open, and for
   2 seconds after it closes.
 - Companion chats. Shell panes. Panes with no chat.
+- A chat that cannot be tied to its pane. A pane's chat is read from the agent's session file. A pane that does not
+  know its agent session yet (no launch id, no hook yet) would follow the newest file of its folder, which can be
+  another session's. So a room shares such a pane's chat only when the pane's session id is known and the file the
+  reader follows is named after it (`live_room/pin.rs`). Otherwise viewers get one note (`This pane's chat is not
+  shared: it can't be tied to this pane for sure.`) and no chat from that pane. The pane starts sharing when its
+  session becomes known. If the session id then changes (a clear, a resume), the room stops sharing that pane's chat
+  for good and says so once: it never switches sessions in a room. Chats read off the screen are the pane's own and
+  need no pin. The Chat tab itself still follows the newest file for a pane with no known session.
 - Usage numbers, the model name and the CLI version.
 - Absolute times. Viewers see the order of things, not clock times.
 - Folder names, paths (only the file names), the home folder, account labels.
@@ -125,7 +133,7 @@ Known gaps).
 | Expired | The time the person picked is up | `Live Room ended: time is up.` |
 | Idle | No new chat and no state change in any shared pane for 20 minutes | `Live Room stopped: nothing happened for 20 minutes.` |
 | All panes closed | The last shared pane closed | `Live Room stopped: its panes are closed.` |
-| Relay lost | Three failed relay calls in a row, over at least 30 seconds | `Live Room stopped here. The link ends by itself at <time>.` |
+| Relay lost | Three failed relay calls in a row, over at least 30 seconds. A quiet room asks the relay for its status every 10 seconds (no frame is sent for it), so the stop comes 30 to 40 seconds after the relay stops answering | `Live Room stopped here. The link ends by itself at <time>.` |
 | Relay ended | The relay says the room is gone (for example, the relay restarted) | `Live Room ended by the relay.` |
 | Clock jump | More than 5 minutes between two ticks (sleep, hibernate) | `Live Room stopped while this PC was asleep.` |
 | App quit | The app exits | No message. The room is deleted on a best-effort basis (2 seconds). |
