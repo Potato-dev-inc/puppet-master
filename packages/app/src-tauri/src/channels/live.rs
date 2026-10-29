@@ -89,6 +89,20 @@ pub fn offer(candidate: &Candidate) {
     }
 }
 
+/// A run end held by Focus, offered to the chat only as an answer in a conversation window.
+pub fn offer_answer(candidate: &Candidate) {
+    if let Some(rt) = current() {
+        rt.offer_answer(candidate);
+    }
+}
+
+/// The end of a Focus or its reminder, counts only (called by `attention::focus`).
+pub fn focus_note(line: &str) {
+    if let Some(rt) = current() {
+        rt.focus_note(line);
+    }
+}
+
 /// A pane's status changed (called by `push::notify_pane_status`, whether or not anyone listens).
 pub fn pane_status(pane_id: &str, status: &str) {
     if let Some(rt) = current() {

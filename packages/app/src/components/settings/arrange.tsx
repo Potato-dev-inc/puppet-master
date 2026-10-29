@@ -37,6 +37,7 @@ export const LAYOUT: Partial<Record<SectionId, LayoutGroup[]>> = {
     { group: 'Budgets', rows: ['budget-turns', 'budget-minutes'] },
     { group: 'Undo and memory', rows: ['checkpoints', 'checkpoints-keep', 'shared-memory'] },
     { group: 'When you are away', rows: ['away-minutes'] },
+    { group: 'Focus Time', rows: ['focus-time'] },
     { group: LABS_GROUP, rows: [LABS_INDEX_ID, '@labs'] },
     { group: 'Live Room', rows: ['live-room'] },
     { group: 'Storage', rows: ['storage', 'chat-search-index', 'bring-old-chats'] },

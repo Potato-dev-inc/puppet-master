@@ -1,0 +1,14 @@
+{
+  "counts": {
+    "agents": 2,
+    "asked": 2,
+    "failed": 1,
+    "held": 7,
+    "stillWaiting": 1,
+    "turnsDone": 4,
+    "urgent": 1
+  },
+  "endedBy": "timer",
+  "line": "While you focused (45 min): 4 turns done, 1 failed, 2 asked for you, 1 urgent. 1 still waits.",
+  "minutes": 45
+}

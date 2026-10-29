@@ -910,12 +910,16 @@ fn outgoing_converts_to_the_wire_shape() {
     let out = Outgoing {
         text: render::clean("hi", 100),
         keyboard: vec![vec![render::button("Deny", "g:abc").unwrap(), render::button("Cancel", "g:def").unwrap()]],
+        silent: false,
     };
     let wire = to_wire(&out);
     assert_eq!(wire.text.as_str(), "hi");
     assert_eq!(wire.keyboard.len(), 1);
     assert_eq!(wire.keyboard[0][1].data, "g:def");
     assert_eq!(wire.keyboard[0][0].label, "Deny");
+    assert!(!wire.disable_notification, "a loud message keeps the sound");
+    let quiet = to_wire(&Outgoing { silent: true, ..out });
+    assert!(quiet.disable_notification, "the silent flag reaches the wire");
 }
 
 // ---------------------------------------------------------------------------------------------

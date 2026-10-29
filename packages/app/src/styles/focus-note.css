@@ -1,0 +1,68 @@
+/* The Focus note at the top of the Inbox (components/cockpit/FocusNote.tsx). Grayscale only: cockpit
+   tokens, no colour. Dense rows; the urgent count is plain text, not red. */
+.cockpit .ck-focus-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 8px 0 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--sep);
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-focus-note-label {
+  color: var(--label-3);
+  margin-right: 2px;
+}
+.cockpit .ck-focus-note-chip.is-default {
+  color: var(--label);
+  background: var(--fill-active);
+}
+.cockpit .ck-focus-note-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+}
+.cockpit .ck-focus-note-title {
+  color: var(--label);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-focus-note-urgent {
+  color: var(--label-2);
+  font-weight: 400;
+}
+.cockpit .ck-focus-note-sub {
+  width: 100%;
+  margin: 0;
+  color: var(--label-3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.cockpit .ck-focus-note-actions {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+}
+.cockpit .ck-focus-note-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--label);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cockpit .ck-focus-note-link:focus-visible,
+.cockpit .ck-focus-note-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-focus-note-error {
+  width: 100%;
+  color: var(--label-3);
+  font-size: 11px;
+}

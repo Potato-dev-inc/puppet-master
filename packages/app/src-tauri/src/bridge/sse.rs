@@ -136,6 +136,30 @@ mod tests {
     }
 
     #[test]
+    fn the_focus_event_carries_the_phone_view_and_reaches_long_polling() {
+        use crate::attention::focus::view::PhoneView;
+        let view = PhoneView { on: true, ends_at_ms: Some(1_000), minutes: 45, held_total: 3, waiting: 1, last: None };
+        let frame = super::focus_payload(&view).unwrap();
+        let body = frame.strip_prefix("event: focus
+data: ").and_then(|r| r.strip_suffix("
+
+")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({"on": true, "endsAtMs": 1000, "minutes": 45, "heldTotal": 3, "waiting": 1, "last": null})
+        );
+        // `push_sse` records every frame for `GET /events/poll`.
+        let cursor = crate::bridge::event_log::poll(None, std::time::Duration::ZERO).cursor;
+        super::push_focus_sse(&view);
+        let poll = crate::bridge::event_log::poll(Some(cursor), std::time::Duration::from_millis(50));
+        assert!(poll.data.contains("event: focus
+data: {\"on\":true"), "{}", poll.data);
+        // A device that cannot watch does not get it (the cut leaves out events it does not list).
+        assert!(crate::mobile_pairing::project(crate::mobile_pairing::Caps::none(), &frame).is_none());
+    }
+
+    #[test]
     fn offsets_survive_the_event_log_that_feeds_long_polling() {
         // The poll fallback replays the very strings pushed to SSE/WS, so the offset rides along.
         let mut log = crate::bridge::event_log::EventLog::default();
@@ -471,6 +495,23 @@ pub fn push_settings_sse(settings: &serde_json::Value) {
     if let Ok(json) = serde_json::to_string(settings) {
         push_sse(format!("event: settings\ndata: {json}\n\n"));
     }
+}
+
+/// Broadcast `event: focus` with the phone's Focus view (counts only, no names). It goes through `push_sse`, so
+/// it is redacted like every event and kept in the event log for `GET /events/poll`. A device without `watch`
+/// does not get it (`mobile_pairing::caps::project` leaves out events it does not list).
+pub fn push_focus_sse(view: &crate::attention::focus::view::PhoneView) {
+    if let Some(payload) = focus_payload(view) {
+        push_sse(payload);
+    }
+}
+
+/// The `event: focus` frame.
+pub(crate) fn focus_payload(view: &crate::attention::focus::view::PhoneView) -> Option<String> {
+    serde_json::to_string(view).ok().map(|json| format!("event: focus
+data: {json}
+
+"))
 }
 
 pub fn push_panes_sse(registry: &Arc<Mutex<PaneRegistry>>) {

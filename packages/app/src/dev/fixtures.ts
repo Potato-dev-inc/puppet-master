@@ -505,6 +505,17 @@ export const EXAMPLE_DIGEST = {
   ],
 };
 
+// The end-of-Focus digest: the same agent lines and "Needs you" rows, plus the Focus summary.
+export const EXAMPLE_FOCUS_DIGEST = {
+  ...EXAMPLE_DIGEST,
+  focus: {
+    line: 'While you focused (45 min): 4 turns done, 1 failed, 2 asked for you. 1 still waits.',
+    minutes: 45,
+    endedBy: 'timer',
+    counts: { turnsDone: 4, agents: 2, failed: 1, asked: 2, urgent: 0, stillWaiting: 1, held: 3 },
+  },
+};
+
 // Second opinion: a reviewer's answer to the Claude pane's worktree changes (dev harness only).
 export const EXAMPLE_REVIEWERS: ReviewerEntry[] = [
   { id: 'claude', label: 'Claude Code', ready: false, same: true },

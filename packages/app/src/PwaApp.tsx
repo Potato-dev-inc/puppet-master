@@ -151,6 +151,8 @@ export default function PwaApp() {
   const [resyncKey, setResyncKey] = useState(0);
   /** Bumped on each `questions` event (and on resync) so the pending-questions list refetches. */
   const [questionsRev, setQuestionsRev] = useState(0);
+  // Bumped by the bridge `focus` event: the Focus bar on the All view reads `GET /focus` again.
+  const [focusRev, setFocusRev] = useState(0);
   /** The PC's one list of what needs you (event `attention`, `GET /attention`); null on an old PC. */
   const [attention, setAttention] = useState<AttentionSnapshot | null>(null);
   /** A tapped notification points at this card; it is looked up on the PC's list once the bridge is up. */
@@ -308,6 +310,7 @@ export default function PwaApp() {
       if (ev.type === 'input-refused') noteInputRefused(ev.pane_id, ev.error);
       if (ev.type === 'settings') setSettings(ev.settings);
       if (ev.type === 'questions') setQuestionsRev((n) => n + 1);
+      if (ev.type === 'focus') setFocusRev((n) => n + 1);
       if (ev.type === 'pane-outbox') publishBridgeOutbox(ev.paneId, ev.messages);
       if (ev.type === 'attention') setAttention((cur) => newerSnapshot(cur, ev.snapshot));
       if (ev.type === 'companion') setCompanionPush(ev.companions);
@@ -316,6 +319,7 @@ export default function PwaApp() {
         client.listPanes().then((list) => live && applyPanes(list)).catch(() => {});
         setResyncKey((n) => n + 1);
         setQuestionsRev((n) => n + 1);
+        setFocusRev((n) => n + 1);
         refreshAttention();
       }
     });
@@ -708,6 +712,7 @@ export default function PwaApp() {
               onNew={openNewAgentSheet}
               stuck={stuck}
               questionsRevision={questionsRev}
+              focusRevision={focusRev}
               attention={attention}
               canAnswer={canAnswer}
               onRefreshAttention={refreshAttentionNow}

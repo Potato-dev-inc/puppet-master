@@ -14,6 +14,7 @@ mod chats;
 mod companions;
 mod digest;
 mod flight;
+mod focus;
 mod locks;
 mod missions;
 mod night;
@@ -93,6 +94,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| missions::handle(cx))
         .or_else(|| night::handle(cx))
         .or_else(|| review_desk::handle(cx))
+        .or_else(|| focus::handle(cx))
         .or_else(|| digest::handle(cx))
         .or_else(|| flight::handle(cx))
         .or_else(|| team_mcp::handle(cx))

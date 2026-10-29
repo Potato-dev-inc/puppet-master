@@ -84,6 +84,8 @@ pub enum Kind {
     /// Review Desk (`crate::review_desk`): one `review_desk.action` line per Keep, Throw away or unmark the
     /// person did. The detail holds the action, source, key, file count and tier; never a title or a path.
     ReviewDesk,
+    /// Focus (`crate::attention::focus`): one kind for its lines (start, change, end). Counts only.
+    Focus,
 }
 
 impl Kind {
@@ -121,6 +123,7 @@ impl Kind {
             Self::IssueIntake => "issue.intake",
             Self::NightShift => "night_shift",
             Self::ReviewDesk => "review_desk.action",
+            Self::Focus => "focus",
         }
     }
 }

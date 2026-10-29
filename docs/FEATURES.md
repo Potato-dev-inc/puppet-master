@@ -143,6 +143,23 @@ Full page: [`features/agent-store.md`](features/agent-store.md). Entry points: "
 | Known gap: built-in cards (Claude Code, Codex, Cursor Agent, OpenCode) show the vendor name as the title; the four also show the Tested chip with `windows_tested = false` | `agent_store/catalog.rs` (`label`), `catalog/agents/{claude,codex,cursor_agent,opencode}/entry.toml` | gap |
 | Not in the catalog: Amp, Grok CLI, Codebuff (vendor facts not confirmed), Antigravity CLI (no confirmed install source) | `catalog/agents/` | gap |
 
+## 1h. Focus Time (Preview; UI word "Focus")
+
+Full page: [`features/focus-time.md`](features/focus-time.md). Press Focus for 25, 45 or 90 minutes (45 by default) and
+agents keep working. Pings that can wait are held; cards that block an agent still show, and reach the phone and Telegram
+without a buzz. One summary at the end. A person starts it; no agent can.
+
+| Feature | Where | Status |
+|---|---|---|
+| Focus note at the top of the Inbox: chips, `Focus · 31 min left`, `+15 min`, `End Focus` | `components/cockpit/FocusNote.tsx`, mounted in `Inbox.tsx` | experimental (live check not run) |
+| Sidebar pill while on (`Focus 31m`, menu with `+15 min` and `End Focus`); palette rows; tray `Focus` submenu and tooltip | `FocusPill.tsx`, `palette-focus.ts`, `tray.rs` | experimental |
+| Three tiers: Hold (run ends, companion replies, the Night Shift push), Quiet (blocking cards: trust, questions, limits, medium and low approvals; phone and Telegram without a buzz), Through (stuck runs, budget, high-risk approval, consent, tamper, answers) | `attention/focus/policy.rs` | experimental |
+| One reminder after 20 minutes for a quiet card still open (counts only; only while the quiet switch is on) | `attention/focus/nudge.rs`, `scan.rs` | experimental |
+| End summary: one desktop card `While you focused`, one phone push `Focus is over` (counts only), one Telegram note; an empty session shows nothing | `attention/focus/summary.rs`, `turn_summary/`, `push/focus.rs`, `channels/notify.rs` | experimental |
+| Phone bar at the top of the All view: start, `End`, the end summary with `Got it`; the phone reads counts only | `components/mobile/FocusBar.tsx`, `bridge/routes/focus.rs` (`GET /focus`, `POST /focus/start|extend|end`) | experimental |
+| Settings > General > Focus Time: default length and the quiet switch | `components/settings/blocks/FocusSettings.tsx`, `commands/focus.rs` | experimental |
+| Restart: resumes inside the window; the summary waits after the end; a damaged state file means Focus off | `attention/focus/live.rs`, `store.rs` | experimental |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.
