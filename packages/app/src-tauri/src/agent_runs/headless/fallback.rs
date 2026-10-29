@@ -10,7 +10,7 @@
 //! so waiters keep waiting and the task is never run twice: nothing falls back once a turn started.
 
 use super::process::{execute_headless, fail_start, publish};
-use crate::operations::{self, OperationSnapshot};
+use crate::operations::{self, OperationSnapshot, RunFallback, RunModeNote};
 use crate::pty::PaneRegistry;
 use crate::tui::Modes;
 use parking_lot::Mutex;
@@ -19,6 +19,19 @@ use std::thread;
 
 pub const NO_VISIBLE_MODE: &str = "no_visible_mode";
 pub const VISIBLE_FAILED: &str = "visible_failed";
+/// One-task mode was chosen for an agent that runs in Linux, which has no headless run yet (SPEC WSL-15).
+pub const LINUX: &str = "linux";
+
+/// The run mode of a one-task run whose agent runs in Linux (SPEC WSL-15): a visible pane instead,
+/// recorded the same way as an unverified one-task run (`fallback {from: one_task, to: visible,
+/// reason: "linux"}`). It never becomes a Windows run.
+pub(crate) fn linux_visible_instead() -> crate::agent_run_mode::Decision {
+    crate::agent_run_mode::Decision {
+        headless: false,
+        note: Some(RunModeNote::new("visible", crate::agent_run_mode::SOURCE_AGENT_SETTING)),
+        fallback: Some(RunFallback::one_task_to_visible(LINUX)),
+    }
+}
 
 /// Codes that mean the turn never started (nothing ran, so a headless retry cannot duplicate work).
 pub(crate) fn is_pre_turn_failure(code: &str) -> bool {
@@ -42,6 +55,17 @@ pub(crate) fn plan(
     modes: Modes,
     error_code: Option<&str>,
 ) -> Option<&'static str> {
+    plan_with(snapshot, modes, error_code, crate::wsl::place::agent_runs_in_linux(&snapshot.agent_type))
+}
+
+/// `plan` with the agent's place passed in. A run of an agent set to Linux never falls back to a
+/// Windows headless run: the place is part of the agent's setting, not something to change silently.
+fn plan_with(
+    snapshot: &OperationSnapshot,
+    modes: Modes,
+    error_code: Option<&str>,
+    runs_in_linux: bool,
+) -> Option<&'static str> {
     // A run that joined a separate copy someone else made (a mission's turn) is visible-only: a
     // mission never runs headless, its failure goes to the person instead.
     let joined_copy = snapshot.worker.worktree.as_ref().is_some_and(|w| {
@@ -49,6 +73,7 @@ pub(crate) fn plan(
     });
     if snapshot.worker.fallback.is_some()
         || joined_copy
+        || runs_in_linux
         || !modes.headless
         || snapshot.agent_type == "opencode_native"
         || !app_owned_pane(snapshot)
@@ -261,6 +286,30 @@ mod tests {
         let mut again = operation("claude", None);
         again.worker.fallback = Some(RunFallback::to_headless(VISIBLE_FAILED));
         assert_eq!(plan(&again, modes(true, true), Some("DISPATCH_FAILED")), None);
+    }
+
+    /// SPEC WSL-15: a visible run of an agent set to Linux never falls back to a Windows headless run,
+    /// whatever failed; the same run on Windows still does.
+    #[test]
+    fn a_run_of_a_linux_agent_never_falls_back_to_windows() {
+        let op = operation("claude", None);
+        let m = modes(true, true);
+        for code in [Some("PROMPT_NOT_SUBMITTED"), Some("DISPATCH_FAILED"), Some("PANE_SPAWN_FAILED"), None] {
+            assert_eq!(plan_with(&op, m, code, true), None, "{code:?} on Linux");
+        }
+        assert_eq!(plan_with(&op, modes(false, true), None, true), None, "no visible mode, Linux: no headless either");
+        assert_eq!(plan_with(&op, m, Some("DISPATCH_FAILED"), false), Some(VISIBLE_FAILED), "Windows keeps the fallback");
+    }
+
+    /// SPEC WSL-15: a one-task run in Linux becomes a visible run recorded with the `linux` reason.
+    #[test]
+    fn a_one_task_run_in_linux_runs_visible_and_says_why() {
+        let decision = linux_visible_instead();
+        assert!(!decision.headless);
+        assert_eq!(decision.note, Some(RunModeNote::new("visible", "agent_setting")));
+        assert_eq!(decision.fallback, Some(RunFallback::one_task_to_visible("linux")));
+        let fallback = decision.fallback.unwrap();
+        assert_eq!((fallback.from.as_str(), fallback.to.as_str(), fallback.reason.as_str()), ("one_task", "visible", "linux"));
     }
 
     fn mark(op: &OperationSnapshot, status: operations::OperationStatus) {

@@ -283,6 +283,17 @@ pub fn check_run_with(
     Ok(decision)
 }
 
+/// Whether this agent's place setting names a distro, so its runs are Linux runs. Reads the setting
+/// only: nothing is probed or started. The fallback and standby rules use it (SPEC WSL-15).
+pub fn agent_runs_in_linux(agent_type: &str) -> bool {
+    agent_runs_in_linux_with(&settings_store(), agent_type)
+}
+
+/// `agent_runs_in_linux` with the settings passed in (tests use a fake store).
+pub fn agent_runs_in_linux_with(store: &Store, agent_type: &str) -> bool {
+    store.get(agent_type).is_some()
+}
+
 /// The listed distro that `distro` names (case-insensitive), when the status allows a Linux pane.
 fn listed_distro<'a>(distro: &str, status: &'a WslStatus) -> Result<&'a Distro, OperationError> {
     let distros = match status {

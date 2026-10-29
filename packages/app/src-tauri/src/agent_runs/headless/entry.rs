@@ -181,6 +181,28 @@ pub fn run_agent(
     // pass `headless` itself (an explicit true/false always wins). Decided before the read-only
     // and option checks below, which depend on the mode the run will really use.
     let run_mode = crate::agent_run_mode::apply(&mut request);
+    // An agent set to run in Linux is checked here, before any operation or pane exists (SPEC 3.6 C,
+    // WSL-15). A one-task run in Linux runs visible instead, recorded with the `linux` fallback.
+    let headless_asked = if !request.headless {
+        crate::wsl::place::Headless::No
+    } else if run_mode.headless {
+        crate::wsl::place::Headless::FromRunMode
+    } else {
+        crate::wsl::place::Headless::Explicit
+    };
+    let place = crate::wsl::place::check_run(
+        &request.agent_type,
+        &project_path,
+        isolate,
+        headless_asked,
+        request.account.as_deref().map(str::trim).filter(|account| !account.is_empty()),
+    )?;
+    let run_mode = if matches!(place, crate::wsl::place::Decision::Linux { visible_instead_of_one_task: true, .. }) {
+        request.headless = false;
+        super::fallback::linux_visible_instead()
+    } else {
+        run_mode
+    };
     // Visible-first: an agent with no visible mode (but a headless one) runs headless, recorded
     // as `fallback.reason = no_visible_mode`. Decided before the read-only / option checks, which
     // depend on the mode the run will really use.
