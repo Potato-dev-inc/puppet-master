@@ -300,6 +300,36 @@ impl Runtime {
         Ok(report)
     }
 
+    /// The unified diff from checkpoint `from_id` to checkpoint `to_id` (Review Desk: a range of turns).
+    #[allow(dead_code)] // read by Review Desk (its sources and detail)
+    pub fn patch_between(&self, pane_id: &str, from_id: &str, to_id: &str, max_bytes: usize) -> Result<Option<engine::TurnPatch>, CheckpointError> {
+        let (project, _) = self.project_of(pane_id)?;
+        engine::patch_between(&project, pane_id, from_id, to_id, max_bytes)
+    }
+
+    /// Files that differ between checkpoint `from_id` and checkpoint `to_id`.
+    #[allow(dead_code)] // read by Review Desk (its sources and detail)
+    pub fn changes_between_ids(&self, pane_id: &str, from_id: &str, to_id: &str) -> Result<Vec<FileChange>, CheckpointError> {
+        let (project, _) = self.project_of(pane_id)?;
+        engine::changes_between_ids(&project, pane_id, from_id, to_id)
+    }
+
+    /// The id of the checkpoint a turn that started at `started_at_ms` began from (`None` = no
+    /// baseline, checkpoints are off, or the pane has none yet).
+    #[allow(dead_code)] // read by Review Desk (its sources and detail)
+    pub fn before_of_turns(&self, pane_id: &str, started_at_ms: u64) -> Option<String> {
+        let items = self.list(pane_id).ok()?;
+        engine::before_of(&items, started_at_ms).map(|c| c.id.clone())
+    }
+
+    /// The id of the newest "after" checkpoint (the end of the latest finished turn). `None` = checkpoints
+    /// are off or the pane has no finished turn yet (Review Desk: the end of a range of turns).
+    #[allow(dead_code)] // read by Review Desk (its gather and detail)
+    pub fn last_after_id(&self, pane_id: &str) -> Option<String> {
+        let items = self.list(pane_id).ok()?;
+        engine::latest_after(&items).map(|c| c.id.clone())
+    }
+
     /// Restore to the newest checkpoint taken before the latest turn (for "Undo last turn").
     pub fn undo_last_turn(&self, pane_id: &str) -> Result<RestoreReport, CheckpointError> {
         let items = self.list(pane_id)?;

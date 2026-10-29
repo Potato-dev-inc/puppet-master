@@ -107,15 +107,19 @@ pub fn point_edit_in_chat(
 ) -> Result<(), String> {
     let target = target_of(&state, &target_pane_id)?;
     let text = compose_text(live_picks(), &request, Path::new(&target.cwd))?;
-    {
-        let mut session = SESSION.lock();
-        session.put_draft(&target_pane_id, text);
-        session.discard_keep_files();
-    }
+    SESSION.lock().discard_keep_files();
+    put_chat_draft(&app, &target_pane_id, text);
     box_window::hide(&app);
     app_windows::open_cockpit_window(&app, Some(&target_pane_id), true);
-    let _ = app.emit("point://draft", serde_json::json!({ "paneId": target_pane_id }));
     Ok(())
+}
+
+/// Keeps `text` as the pane's pending Chat draft (the composer takes it once) and tells the windows
+/// (`point://draft`). Shared by "Edit in Chat" and Review Desk's Ask to fix (SPEC n33 section 3.5 G).
+/// Nothing is sent: the person reads the draft and sends it from the Chat box.
+pub(crate) fn put_chat_draft(app: &AppHandle, pane_id: &str, text: String) {
+    SESSION.lock().put_draft(pane_id, text);
+    let _ = app.emit("point://draft", serde_json::json!({ "paneId": pane_id }));
 }
 
 /// Hands a pane its pending draft, once.

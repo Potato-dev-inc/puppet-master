@@ -101,6 +101,7 @@ mod settings_store;
 mod settings_patch;
 mod shell_env;
 mod startup_timing;
+mod review_desk;
 mod tamper;
 pub mod shell_exec;
 mod standby;
@@ -486,6 +487,13 @@ pub fn run() {
             commands::issue_intake_check_folder,
             commands::issue_intake_act,
             commands::issue_intake_poll_now,
+            commands::review_desk_list,
+            commands::review_desk_count,
+            commands::review_desk_detail,
+            commands::review_desk_keep,
+            commands::review_desk_throw_away,
+            commands::review_desk_unmark,
+            commands::review_desk_fix,
             commands::worktree_list,
             commands::worktree_diff,
             commands::second_opinion_agents,

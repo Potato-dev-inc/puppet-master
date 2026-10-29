@@ -229,6 +229,11 @@ fn night_shift_kind_has_a_stable_name() {
 }
 
 #[test]
+fn review_desk_kind_has_a_stable_name() {
+    assert_eq!(Kind::ReviewDesk.as_str(), "review_desk.action");
+}
+
+#[test]
 fn focus_kind_has_a_stable_name() {
     assert_eq!(Kind::Focus.as_str(), "focus");
 }
