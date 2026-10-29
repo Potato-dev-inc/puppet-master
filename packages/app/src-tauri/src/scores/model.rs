@@ -69,6 +69,18 @@ pub struct ScoreRun {
     pub copy: CopyState,
 }
 
+/// One saved What broke it finding that blamed a turn (`Outcome::Culprit` with a known agent). Local
+/// only: no folder, pane id, check or text. Read by `gather`, counted by `aggregate::count_broke`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokeFact {
+    /// The finding's project key (`comparable_project_path`).
+    pub project: String,
+    pub agent_id: String,
+    pub account: Option<String>,
+    /// When the finding finished.
+    pub at_ms: u64,
+}
+
 /// One Undo that put files back. Turns of `pane` that started at or after `since_ms` and ended by
 /// `at_ms` were undone.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -139,6 +151,10 @@ pub struct ScoreRow {
     pub lines_median: Option<u32>,
     /// Subset of `"endedOk"`, `"checksGreen"`, `"merged"`, `"undone"`.
     pub ahead: Vec<String>,
+    /// Findings of What broke it that blamed a turn of this agent and account, in the window. A
+    /// number only: never in `ahead`, never a rate, never in `enough`.
+    #[serde(default)]
+    pub broke_tests: u32,
 }
 
 /// A project in the project list. `id` is the first 12 hex characters of a hash of the project key.
@@ -221,6 +237,7 @@ mod tests {
             turn_ms_median: None,
             lines_median: None,
             ahead: vec!["endedOk".into()],
+            broke_tests: 0,
         };
         let v = serde_json::to_value(&row).unwrap();
         assert!(v.get("accountId").is_none(), "no account id key when the agent has its own login");
@@ -234,6 +251,7 @@ mod tests {
         assert_eq!(v["turnMsMedian"], json!(null));
         assert_eq!(v["linesMedian"], json!(null));
         assert_eq!(v["ahead"], json!(["endedOk"]));
+        assert_eq!(v["brokeTests"], json!(0));
     }
 
     #[test]
@@ -255,11 +273,13 @@ mod tests {
             turn_ms_median: Some(60_000),
             lines_median: Some(38),
             ahead: vec![],
+            broke_tests: 2,
         };
         let v = serde_json::to_value(&row).unwrap();
         assert_eq!(v["accountId"], json!("acct-1"));
         assert_eq!(v["turnMsMedian"], json!(60000));
         assert_eq!(v["linesMedian"], json!(38));
+        assert_eq!(v["brokeTests"], json!(2));
     }
 
     #[test]

@@ -89,6 +89,13 @@ impl Shadow {
         Self { git_dir: work_tree.join(".puppet-master").join("checkpoints.git"), work_tree }
     }
 
+    /// The same shadow repository (same `git_dir`) with another work tree. Used by the
+    /// What-broke-it copies: `checkout-index` then writes into the copy, never into the project.
+    #[allow(dead_code)] // first caller: `checkpoints/bisect/copy.rs`
+    pub fn with_work_tree(&self, dir: &Path) -> Shadow {
+        Shadow { work_tree: dir.to_path_buf(), git_dir: self.git_dir.clone() }
+    }
+
     fn empty_config(&self) -> PathBuf {
         self.git_dir.join("pm-empty-config")
     }

@@ -1,0 +1,11 @@
+=== RUN   TestAdd
+=== RUN   TestAdd/neg
+    math_test.go:14: got -1, want 1
+--- FAIL: TestAdd (0.00s)
+    --- FAIL: TestAdd/neg (0.00s)
+        math_test.go:14: got -1, want 1
+=== RUN   TestSub
+--- PASS: TestSub (0.00s)
+FAIL
+FAIL	example.com/mathx	0.112s
+FAIL

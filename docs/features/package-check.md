@@ -132,7 +132,7 @@ Not on this branch yet:
   In the real app the lookup call fails, and the card shows "Could not check" under the offline rows. The offline
   look-alike still shows, because it comes with the prompt.
 - **End-to-end test** with a fake registry server (task PC-14, `tests/fake_tui_package_check.rs`) is not written.
-- **Live check** (spec section 6) has not been run. See `TEST-PLAN.md` section 2.12.
+- **Live check** (spec section 6) has not been run. See `TEST-PLAN.md` section 2.13.
 
 ## Known limits
 

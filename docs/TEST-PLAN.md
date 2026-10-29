@@ -24,6 +24,9 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | Live regression | `node scripts/pm-regression.mjs` (needs the running app; spawns real agents) | `28/28 scenario runs passed; 0 failed assertion(s)`; known flaky: `cursor_agent timeout` can fail `WORKER_STOP_FAILED` (PF3 run was 27/28, rerun passed) |
 | Read-only parity | `node scripts/pm-regression/readonly-check.mjs` | claude and kilo PASS; the control (a write) is detected |
 | Window monitor | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-window-monitor.ps1` | exit 0, `OK: no Puppet Master window on the primary monitor` |
+| What broke it: Rust | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib checkpoints::bisect` (also `cargo test --lib scores` and `cargo test --lib commands::what_broke_it`) | Static count: not run for the docs change. Covers the pure search, blame, points, redaction and undo decisions, the engine loop with a fake `LiveIo`, the `wb_*` commands (error shape, id checks, limits) and the Scores count |
+| What broke it: end to end | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --features dev-fake-tui --test what_broke_it_e2e -- --test-threads=1` | Six scenarios (feature page, section 9). Windows only; needs `node` (each scenario passes with a note when it is missing). Not run for the docs change |
+| What broke it: UI | `cd packages/app; npx vitest run src/components/cockpit/WhatBrokeIt src/components/cockpit/Palette.whatbroke.test.tsx src/components/cockpit/History.test.tsx src/lib/what-broke-it src/lib/agent-scores` | Static count: not run for the docs change |
 | Bring All My Chats: Rust | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib session_chat::history` (also `session_chat::declared::history`, `chat_index`, `commands::chat_import`, `tui::claude::history`, `tui::codex::history`, `tui::opencode::history`, `tui::conformance`) | Static count on `feat/bc-docs`: 162 Bring All My Chats test functions (+1 ignored `regenerate_fixture_db`), counted from source, not run in the docs pass. The filters `chat_index` and `tui::conformance` also run older tests. The count includes the guard tests in `session_chat/history/guard.rs` |
 | Bring All My Chats: UI | `cd packages/app; npx vitest run src/components/history src/lib/chatImport src/components/settings/blocks/BringChatsSettings src/lib/chatTab` | Static count: 45 test cases in those files, not run in the docs pass. `CockpitApp.test.tsx` (31 cases, 3 for the old-chat host) runs with `npx vitest run src/CockpitApp` |
 | Bring All My Chats: fixture builder | `node --test scripts/make-fixture-history-home.test.mjs` | Static count: 15 cases (layout, refusals, extra files, exit codes), not run in the docs pass |
@@ -249,6 +252,20 @@ turn; every other scene uses fake agents. Evidence goes in a folder of the run, 
 11. Away digest does not fire during Focus: stay idle 6 minutes in a 25-minute Focus, come back: only the Focus summary appears
     at the end.
 
+### 2.14 What broke it (live check, not run yet)
+
+Feature page: `docs/features/what-broke-it.md`. Use a throwaway git project with a declared test (for example `node check.mjs`)
+and two or three agent panes with a few turns each. Do not run it on a project you care about.
+
+1. **Open it.** History > "What broke the tests?" and the palette row "Find what broke the tests…" open the same sheet. Expect plain words only ("save point", "turn", "undo only this turn").
+2. **Start.** Declare the command for the folder, then Start. Expect the status line to move, and the test to run in a copy under the app data folder, not in your project.
+3. **Culprit.** Expect the turn, the agent name and its summary sentence. Press Undo only this turn and read the file list first. Expect a save point "What broke it: before undo" in History after it.
+4. **Check it again.** Expect "tests pass" after the undo.
+5. **Stop.** Start a slow test and press Stop. Expect the sheet to say it stopped within a few seconds.
+6. **Scores.** The agent's row shows "Broke the tests 1 time". This is the known limit: it still counts after an undo (feature page, section 7).
+
+Expected: each step matches. Record screenshots (no token, no real names) and the audit line for step 3. Write "not run" for any step not done.
+
 ## 3. Known flaky tests (collected from the progress log and T37 evidence)
 - `tui::descriptor::descriptor_builds_all_nine` - global registry race (fixed by `registry::test_serial()`; tests that swap/count the global registry must take it).
 - `operations_contract_tests::recovery::startup_recovery_releases_locks_held_by_interrupted_operations` - "Access denied" on Windows; rerun.
@@ -258,6 +275,7 @@ turn; every other scene uses fake agents. Evidence goes in a folder of the run, 
 - Rebuild windows: any edit under `src-tauri` drops the bridge for about a minute; a live run during that fails spuriously.
 
 ## 4. Known gaps / not proven live
+- **What broke it** (experimental): not run in the running app. The end-to-end test uses the real engine, a real shadow repository and a real `node check.mjs`, but a fake pane list and fake agent turns (feature page, section 9).
 - **Tray icon and menu clicking by a human** (menu model unit-tested; tray creation seen in the log; real clicks untested).
 - **`visible_failed` fallback live** (pane fails to launch / prompt not submitted): unit tests only. `no_visible_mode` (Kiro) was proven live in PF1.
 - Clean-state Kilo approval flow (delete approvals, re-approve) was skipped at T37 (classifier denied); needs_approval -> approve and the stale-edit refusal were proven live at T36/T36b and by unit tests.

@@ -4,7 +4,8 @@
 //! snapshots the files at each turn boundary. The user's own `.git`, if any, is never touched.
 //! See `docs/features/checkpoints.md`.
 
-mod engine;
+pub mod bisect;
+pub mod engine;
 pub mod http;
 mod git;
 mod runtime;

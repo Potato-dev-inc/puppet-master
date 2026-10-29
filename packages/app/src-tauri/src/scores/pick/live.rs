@@ -270,6 +270,7 @@ mod tests {
             agent_label: agent.to_string(),
             account_id: account.map(str::to_string),
             account_label: String::new(),
+            broke_tests: 0,
             turns,
             enough: turns >= 5,
             ended_ok: none,

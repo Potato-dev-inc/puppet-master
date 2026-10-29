@@ -30,6 +30,7 @@ export function History({
   api = cockpitApi,
   sharedWith = [],
   agentName = "the agent",
+  onWhatBroke,
 }: {
   paneId: string;
   status: string;
@@ -40,6 +41,8 @@ export function History({
   sharedWith?: string[];
   /** The agent's name, for "Before Claude Code's question". */
   agentName?: string;
+  /** Opens "What broke the tests?" for this pane. Absent: no button. */
+  onWhatBroke?: (paneId: string) => void;
 }) {
   const [listing, setListing] = useState<CheckpointList | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +187,15 @@ export function History({
               }}
             >
               Undo last turn
+            </button>
+          )}
+          {onWhatBroke && (
+            <button
+              type="button"
+              className="ck-btn ck-btn--sm ck-btn--secondary"
+              onClick={() => onWhatBroke(paneId)}
+            >
+              What broke the tests?
             </button>
           )}
         </div>

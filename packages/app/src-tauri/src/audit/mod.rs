@@ -86,6 +86,8 @@ pub enum Kind {
     ReviewDesk,
     /// Focus (`crate::attention::focus`): one kind for its lines (start, change, end). Counts only.
     Focus,
+    /// What broke it (`crate::checkpoints::bisect`): the person undid one agent turn.
+    WhatBrokeIt,
 }
 
 impl Kind {
@@ -124,6 +126,7 @@ impl Kind {
             Self::NightShift => "night_shift",
             Self::ReviewDesk => "review_desk.action",
             Self::Focus => "focus",
+            Self::WhatBrokeIt => "what_broke_it.undone",
         }
     }
 }

@@ -39,6 +39,8 @@ import { packageCheckMock } from './package-check-fixtures';
 import { reviewDeskMock } from './review-desk-fixtures';
 import { createFocusMock } from './focus-fixtures';
 import { wslMock } from './wsl-fixtures';
+import { whatBrokeItMock } from './what-broke-it-fixtures';
+import { whatBrokeItResultMock } from './what-broke-it-result-fixtures';
 
 const DOCTOR_ROWS = [
   { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'winget install Anthropic.ClaudeCode', install_fallback: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true, hooks: { state: 'connected', mode: 'shadow', sentence: 'Connected. Claude Code tells Puppet Master when it starts, asks and finishes. Watch only: Puppet Master still decides from the screen.' } },
@@ -88,6 +90,9 @@ export function installTauriMock(scenario: HarnessScenario): void {
       if (focus.handled) return focus.value;
       const wsl = wslMock(scenario.wsl, cmd, a);
       if (wsl.handled) return wsl.value;
+      const whatBroke = whatBrokeItMock(scenario.whatBroke, cmd, a);
+      if (whatBroke.handled) return whatBroke.value;
+      const wbResult = whatBrokeItResultMock(scenario.whatBrokeItResult, cmd, a); if (wbResult.handled) return wbResult.value;
       switch (cmd) {
         case 'list_panes':
           return panes;

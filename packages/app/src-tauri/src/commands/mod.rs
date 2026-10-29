@@ -67,6 +67,7 @@ mod issue_intake;
 mod package_check;
 mod review_desk;
 mod wsl;
+mod what_broke_it;
 
 pub use agent_install::*;
 pub use agent_store::*;
@@ -123,6 +124,7 @@ pub use agent_pack::*;
 pub use point::*;
 pub use channels::*;
 pub use live_room::*;
+pub use what_broke_it::*;
 pub use night::*;
 pub use issue_intake::*;
 pub use package_check::*;

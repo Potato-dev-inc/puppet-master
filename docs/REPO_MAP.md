@@ -716,6 +716,55 @@ test with a fake `wsl.exe` (WSL-17, `tests/fake_tui_wsl.rs`) is in progress on `
 
 ---
 
+### 3.16 What broke it (`checkpoints/bisect/`, `scores/` count, UI)
+
+"What broke the tests?": find the first agent turn after which the person's declared test command fails, by halving
+the save points and running the command in a throw-away copy; undo only that turn, all or nothing (feature page
+`docs/features/what-broke-it.md`). Invariants S1 to S14 are listed in the module doc of `checkpoints/bisect/mod.rs`.
+
+**Status: experimental, not live-checked yet.** The commands and their `lib.rs` registration (WB-16), the History button,
+the palette row and the `CockpitApp.tsx` mount (WB-17), and the end-to-end test (WB-18) are on `feat/wb-phase5`; the rows
+below list them. Nobody has run the feature in the running app yet.
+
+| File | What |
+|---|---|
+| `checkpoints/bisect/mod.rs` | module doc with the invariants; declares the modules; `engine_tests` is test-only |
+| `checkpoints/bisect/model.rs` | the types and limits: `Verdict`, `UnsureWhy`, `Outcome`, `Suspect`, `Narrowed`, `Finding`, `Limits` (runs 1 to 30, minutes 1 to 60; `Limits::clamped`), serde tags pinned by golden tests |
+| `checkpoints/bisect/store.rs` | `<app data>/what-broke-it/`: `findings.json` (newest first, 100), `settings.json`, `copies/`. `valid_id` (`wb-` plus 12 hex) is checked before any path. An unparsable file reads as empty and is never overwritten |
+| `checkpoints/bisect/words.rs` | every user-facing string; a test rejects the words `bisect`, `commit`, `ref`, `tree`, `HEAD`, `sentinel` |
+| `checkpoints/bisect/points.rs` | pure: save points -> `Timeline` (`points` = turn ends plus "now", `spans` = before..after per turn). Ignores `wb-` panes; newest 100 |
+| `checkpoints/bisect/blame.rs` | pure: a bad range -> `Blame::{Turn, Several, Outside}`; `needs_refine` (start tree of a single turn), `after_refine`; `join_summaries` matches turn summaries by pane key and turn number, "An agent" when gone |
+| `checkpoints/bisect/search.rs` | pure state machine `Search` (`next`, `record`, `range`): "now" first, picked or gallop back, halve, recheck the good point; `Done` values. Never runs anything |
+| `checkpoints/bisect/failnames.rs` | failing test names from Jest, Vitest, pytest, `go test`, `cargo test` and TAP output (fixtures in `bisect/fixtures/`); at most 5 names, 120 characters; ANSI stripped first |
+| `checkpoints/bisect/exec.rs` | `run_test`: one declared argv in the copy, stdin closed, `GIT_`/`PUPPET_MASTER`/`PM_` variables dropped, `CI=1`, below-normal priority on Windows; head and tail buffers; cancel or time limit kills the tree by PID (`pty::proc_tree`) |
+| `checkpoints/bisect/copy.rs` | `Copy`: the throw-away folder `copies/<8 hex>/` filled from the shadow repo (`set_tree` writes only differing paths), private index, setup steps via `preset::apply`, refused for unsafe roots and links, removed by `finish`; `sweep_stale` (older than 1 hour, not held) |
+| `checkpoints/bisect/revert.rs` | undo: `plan` (B, A, C per path), `decide` (the S8 case table, pure), `apply` (safety save point `wb-undo` first, then all-or-nothing writes); text merged with `git merge-file`; files over 20 MiB are conflicts |
+| `checkpoints/bisect/job.rs` | the search loop on thread `what-broke-it`: steps 1 to 8, `Probing` (budget, cache, one confirm run, flaky), `CopyGuard` (removes the copy on every exit, also on panic), `tail_of` and `failure_facts` (redacted) |
+| `checkpoints/bisect/live.rs` | `Live` (the one entry point): `LiveIo` trait, `RealIo` (desktop only), one job at a time (`WB_BUSY`), `overview`, `declare`, `start`, `recheck`, `status`, `stop`, `findings`, `finding`, `diff`, `undo_plan`, `undo` (audit, `undone_ms`), settings; `WB_*` codes |
+| `checkpoints/bisect/views.rs` | the shapes the window reads (`Overview`, `JobView`, `FindingView`, `DiffView`, `UndoPlanView`, `UndoReportView`), built from a saved `Finding`; never a folder path or argv |
+| `checkpoints/bisect/engine_tests.rs` | the whole loop with a fake `LiveIo`, a virtual clock and a scripted 8-turn history; S2, S13, S14 source scans |
+| `checkpoints/engine.rs` (`list_all`, `tree_bytes`, `file_at`, `patch_between`, `tree_exists`), `checkpoints/git.rs` (`with_work_tree`) | the read helpers the feature needs; the shadow repo is never the person's `.git` |
+| `scores/gather.rs` (`broke_facts`, `broke_facts_in`) | reads `findings.json`: only `Outcome::Culprit` with a known agent id, as `BrokeFact`s. A missing or bad file gives none |
+| `scores/aggregate.rs` (`count_broke`), `scores/mod.rs` | adds the count to each row (same agent and account, same project, in window) after ranking. Never read by `ahead`, rates or `enough` |
+| `scores/model.rs` | `BrokeFact`; `ScoreRow.broke_tests` (camelCase `brokeTests`, default 0) |
+| `scores/broke_tests.rs` | tests of the count: per row, zero, bad file, `ahead` unchanged, project and window |
+| UI: `components/cockpit/WhatBrokeItSheet.tsx` | the sheet: set up, running (one status line, Stop), result by finding id. Props `paneId`, `notify`, `onClose`, `sharedWith`, `api` |
+| UI: `components/cockpit/WhatBrokeItResult.tsx`, `what-broke-it-result-text.ts` | the result card for every kind; undo confirm (names the files, warns about `sharedWith`), refusal text, "Check it again", "Keep looking", "Copy details" (no folder path) |
+| UI: `lib/what-broke-it.ts` | types mirroring the views, `wb*` wrappers over `invoke` (names `wb_overview` ... `wb_settings_set`), `onWhatBrokeItChanged` (`what-broke-it://changed`), `kindOf` |
+| UI: `styles/cockpit-whatbrokeit.css` | monochrome styles of the sheet and card |
+| UI: `dev/what-broke-it-fixtures.ts`, `dev/what-broke-it-result-fixtures.ts`, `dev/scenarios/what-broke-it-*.ts` | harness scenarios (setup, running, culprit, several, not sure, undo refused; `-light` variants) |
+| UI: `lib/agent-scores.ts` (`brokeTestsText`), `components/cockpit/AgentScores.tsx` | the line "Broke the tests N times" (singular "1 time") under the agent name, only when above zero; no colour |
+| `commands/what_broke_it.rs` | the thirteen `wb_*` Tauri commands (`wb_overview`, `wb_declare`, `wb_start`, `wb_status`, `wb_stop`, `wb_finding`, `wb_findings`, `wb_diff`, `wb_undo_plan`, `wb_undo`, `wb_recheck`, `wb_settings_get`, `wb_settings_set`); thin wrappers over `Live`; ids are checked before the registry; errors reach the window as `CODE: message` |
+| `lib.rs` | registers the `wb_*` commands; `checkpoints::bisect::live::live().sweep_stale()` at startup (`#[cfg(not(test))]`, desktop build only) |
+| UI: `components/cockpit/History.tsx`, `PaneView.tsx`, `Palette.tsx`, `CockpitApp.tsx` | History button "What broke the tests?" (shown only when the pane passes `onWhatBroke`); palette row "Find what broke the tests…" (`act:whatbroke`); `CockpitApp` keeps `whatBrokePane` and mounts `WhatBrokeItSheet` |
+| `tests/what_broke_it_e2e.rs` | six end-to-end scenarios: a temp project, a real shadow repository, the declared `node check.mjs` run in a copy. Windows only, feature `dev-fake-tui`; `lib.rs` exposes the modules it reaches as `pub` (feature page, section 9) |
+
+Tests: `cargo test --lib checkpoints::bisect` (plus the filter of the file touched); `cargo test --lib scores`; `cargo test --lib commands::what_broke_it`;
+`npx vitest run src/components/cockpit/WhatBrokeIt src/components/cockpit/Palette.whatbroke.test.tsx src/lib/what-broke-it src/lib/agent-scores`.
+End to end (Windows, needs `node`): `cargo test --features dev-fake-tui --test what_broke_it_e2e -- --test-threads=1`.
+
+---
+
 ## 4. "Where do I change X?"
 
 | Task | Start here | Also touch |

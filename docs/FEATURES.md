@@ -176,6 +176,14 @@ Full page: [`features/linux-inside.md`](features/linux-inside.md). Settings > Ag
 | Refused in v1: folders inside the distro, separate copies, saved logins, env guards, Hook Lane, companions, standby, WSL 1 | `wsl/place.rs` (`decide`, `resolve`), `standby/host.rs` | gap |
 | Not built yet: per-pane switch, phone chip, doctor row, old chats from Linux, PM's MCP tools for Linux agents, `run_agent` place input | Planned for Phases 2 and 3 (see the feature page) | gap |
 
+## 1j. What broke it ("What broke the tests?")
+
+Limits, guards and error codes: the feature page.
+
+| Feature | Where | Status |
+|---|---|---|
+| What broke it: find the first agent turn after which your declared test command fails (halving the save points, runs in a separate copy), name the turn and agent, undo only that turn (all or nothing, safety save point first), Check it again, Keep looking, Stop. Shows in Scores as "Broke the tests N times" (counts culprits, including ones later undone) | `checkpoints/bisect/` (`live.rs`, `job.rs`, `revert.rs`), `commands/what_broke_it.rs`, `scores/gather.rs`, `components/cockpit/WhatBrokeIt*.tsx`, `components/cockpit/History.tsx`, `Palette.tsx`, `CockpitApp.tsx`, `lib/what-broke-it.ts`, `tests/what_broke_it_e2e.rs` ([`features/what-broke-it.md`](features/what-broke-it.md)) | **experimental, not live-checked yet**: the `wb_*` commands, the History button, the palette row and the sheet mount are wired; unit tests and a six-scenario end-to-end test (Windows, `dev-fake-tui`) exist; nothing has been run in the running app |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.

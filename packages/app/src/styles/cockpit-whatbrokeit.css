@@ -1,0 +1,165 @@
+/* "What broke the tests?" sheet: set up, running, and the plain result slot. Monochrome: cockpit tokens only, no colour. */
+.cockpit .ck-sheet--wb {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cockpit .ck-wb-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-wb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 13px;
+  color: var(--label-2);
+}
+.cockpit .ck-wb-label {
+  color: var(--label);
+}
+.cockpit .ck-wb-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--label);
+}
+.cockpit .ck-wb-code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-wb-muted {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--label-3);
+}
+.cockpit .ck-wb-line {
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-wb-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--sep);
+}
+.cockpit .ck-wb-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cockpit .ck-wb-input,
+.cockpit .ck-wb-select,
+.cockpit .ck-wb-num {
+  box-sizing: border-box;
+  height: 28px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  font: inherit;
+  font-size: 13px;
+}
+.cockpit .ck-wb-input {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.cockpit .ck-wb-num {
+  width: 64px;
+}
+.cockpit .ck-wb-limits {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 12.5px;
+  color: var(--label-2);
+}
+.cockpit .ck-wb-limits label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cockpit .ck-wb-link {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cockpit .ck-wb-warn {
+  margin: 0;
+  padding-left: 8px;
+  font-size: 12.5px;
+  color: var(--label);
+  box-shadow: inset 2px 0 0 var(--label-3);
+}
+.cockpit .ck-wb-error {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--label);
+  box-shadow: inset 0 0 0 1px var(--sep);
+}
+.cockpit .ck-wb-bar {
+  position: relative;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--fill);
+}
+.cockpit .ck-wb-bar span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  border-radius: 2px;
+  background: var(--label-3);
+  animation: ck-wb-shuttle 1.4s var(--ease) infinite;
+}
+@keyframes ck-wb-shuttle {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-wb-bar span {
+    animation: none;
+    left: 35%;
+  }
+}
+.cockpit .ck-wb-result-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-wb-link:focus-visible,
+.cockpit .ck-wb-input:focus-visible,
+.cockpit .ck-wb-select:focus-visible,
+.cockpit .ck-wb-num:focus-visible {
+  outline: 2px solid var(--label-2);
+  outline-offset: 1px;
+}

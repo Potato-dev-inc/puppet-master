@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import {
   AHEAD_TITLE,
   SCORE_WINDOWS,
+  brokeTestsText,
   detailLine,
   notEnoughText,
   percentText,
@@ -88,11 +89,13 @@ function RateCell({ rate, ahead, minSample }: { rate: ScoreRate; ahead: boolean;
 function ScoreTableRow({ row, minSample }: { row: ScoreRow; minSample: number }) {
   const ahead = new Set<ScoreAheadKey>(row.ahead);
   const detail = detailLine(row);
+  const broke = brokeTestsText(row);
   const name = (
     <th scope="row">
       <span className="ck-scores-agent">{row.agentLabel}</span>
       <span className="ck-scores-account">{row.accountLabel}</span>
       {detail !== '' && <span className="ck-scores-detail">{detail}</span>}
+      {broke !== null && <span className="ck-scores-broke">{broke}</span>}
     </th>
   );
   if (!row.enough) {
