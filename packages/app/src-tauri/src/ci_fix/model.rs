@@ -58,14 +58,12 @@ pub const CI_FIX_AGENT_NOT_READY: &str = "CI_FIX_AGENT_NOT_READY";
 pub const CI_FIX_TRIES_USED: &str = "CI_FIX_TRIES_USED";
 pub const CI_FIX_DAY_CAP: &str = "CI_FIX_DAY_CAP";
 pub const CI_FIX_START_FAILED: &str = "CI_FIX_START_FAILED";
-pub const CI_FIX_NO_CHANGES: &str = "CI_FIX_NO_CHANGES";
 pub const CI_FIX_GIT_CHANGED: &str = "CI_FIX_GIT_CHANGED";
 pub const CI_FIX_CI_FILES: &str = "CI_FIX_CI_FILES";
 pub const CI_FIX_HISTORY_REWRITTEN: &str = "CI_FIX_HISTORY_REWRITTEN";
 pub const CI_FIX_REMOTE_MOVED: &str = "CI_FIX_REMOTE_MOVED";
 pub const CI_FIX_PUSH_HELD: &str = "CI_FIX_PUSH_HELD";
 pub const CI_FIX_PUSH_FAILED: &str = "CI_FIX_PUSH_FAILED";
-pub const CI_FIX_NEEDS_PERSON: &str = "CI_FIX_NEEDS_PERSON";
 
 /// The Labs settings (`settings.json`). Off by default; the four numbers are always in range.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

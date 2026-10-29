@@ -28,6 +28,8 @@ const WAITING_APPROVAL: &str = "Waiting for approval on GitHub";
 
 /// Words no path built here may contain (SPEC S9): reruns, dispatches, approvals, deployment
 /// approvals, merges, reviews, comments and labels all write to GitHub. Puppet Master only reads.
+// Reason: only the no-write tests read this list. The check is a test, not a runtime path.
+#[allow(dead_code)]
 pub const WRITE_PATHS_NEVER: &[&str] =
     &["rerun", "rerun-failed-jobs", "dispatches", "approve", "pending_deployments", "/merge", "/reviews", "/comments", "/labels"];
 
@@ -280,6 +282,8 @@ pub fn job_log_path(owner_repo: &str, job: u64) -> String {
 }
 
 /// Reads one pull request through `gh` (a GET). A bad repository name is refused before any call.
+// Reason: only the tests call this helper. The engine reads through its own `read_pull` method.
+#[allow(dead_code)]
 pub fn read_pull(gh: &dyn Gh, owner_repo: &str, number: u64) -> Result<ApiPull, String> {
     if !valid_owner_repo(owner_repo) || number == 0 {
         return Err("Puppet Master can't tell which pull request this is".to_string());
@@ -292,6 +296,8 @@ pub fn read_pull(gh: &dyn Gh, owner_repo: &str, number: u64) -> Result<ApiPull, 
 }
 
 /// Reads the check runs of one commit through `gh` (a GET). A bad sha is refused before any call.
+// Reason: only the tests call this helper. The engine reads through its own `read_checks` method.
+#[allow(dead_code)]
 pub fn read_checks(gh: &dyn Gh, owner_repo: &str, sha: &str) -> Result<Vec<ApiCheck>, String> {
     let path = checks_path(owner_repo, sha).ok_or_else(|| "Puppet Master can't tell which commit this is".to_string())?;
     let response = gh.api(&path, None)?;

@@ -43,6 +43,8 @@ impl Store {
         Store::at(crate::app_paths::app_data_dir().join("ci-fix"))
     }
 
+    // Reason: only the engine tests read the root. Nothing in the app does yet.
+    #[allow(dead_code)]
     pub fn root(&self) -> &Path {
         &self.root
     }

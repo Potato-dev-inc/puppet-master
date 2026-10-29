@@ -30,10 +30,6 @@
 //! - S15: no new bridge route or MCP tool; the phone answers through the existing question route.
 //! - S16: the old raw-log send-back path is removed.
 
-// The desktop commands (RG-10) are the only callers of some `live` functions; until they are wired those
-// items would warn as unused.
-#![allow(dead_code)]
-
 pub mod model;
 pub mod store;
 pub mod github;

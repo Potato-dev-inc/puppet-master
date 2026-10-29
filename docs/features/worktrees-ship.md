@@ -7,8 +7,8 @@ Branch `feat/worktrees-ship`, based on `fix/live-r9`, merged with `integration/r
 - **Personas:** A (developers) and B (vibecoders). A separate copy now starts READY, and its work leaves as a
   pull request with the receipt as its text.
 - **Agent-agnostic:** nothing here knows an agent's name. The copy, the setup, `gh` and the PR belong to the
-  project and its branch. "Send back" goes through the same route as a second-opinion comment (a follow-up turn
-  for a run, typed into the pane for a pane opened by hand).
+  project and its branch. Fixing failed checks is handed to Red to Green (see `docs/features/red-to-green.md`).
+  No CI log is sent to an agent from here any more.
 
 ## Design
 
@@ -16,7 +16,7 @@ Branch `feat/worktrees-ship`, based on `fix/live-r9`, merged with `integration/r
 |---|---|
 | Preset config (`[worktree] setup / copy / run`), setup runner, `conductor.json` import | `src-tauri/src/worktrees/preset.rs` |
 | Bounded process runner, `PATH` and `PATHEXT` lookup (`npm.cmd`), `ToolEnv` for tests | `worktrees/proc.rs` |
-| Create PR, checks, failure excerpt, send-back text, PR body | `worktrees/pr.rs` |
+| Create PR, checks, PR body | `worktrees/pr.rs` |
 | "+" menu folder step: recents, git state, "Set up Git here" | `worktrees/folder.rs` |
 | Service wrappers and Tauri commands | `worktrees/service.rs`, `commands/worktrees.rs` |
 | Setup shown on the run receipt | `agent_runs/runtime/receipt.rs` (`ReceiptWorktree.setup`) |
@@ -71,16 +71,25 @@ commit loose edits as one commit, push `refs/heads/pm/x:refs/heads/pm/x` with no
 --draft --body-file`. Only `pm/...` branches are pushed, never the base or main. A diverged remote branch is
 refused with a plain message. With a PR already open the same button becomes "Update PR" and only pushes.
 
-### Checks back, Send back
+### Checks back, and fixing failed checks
 
-`gh pr checks --json` (exit codes 1 and 8 still carry JSON), polled a bounded number of times from the Changes
-tab (30 looks, each waiting up to 20 s in the backend). On a failure, "Send back to <agent>" first shows the
-exact task (one fixed line that points at a file; no log line, no check name), and sends only after Send. The
-log is untrusted: Puppet Master writes its last 40 lines to `.puppet-master/ci-<pr>-sendback.md` in the copy
-(ANSI and invisible characters removed, secrets and e-mail addresses masked, home folder as `~`, lines cut at
-400 characters, fenced as data). It only sends to an agent run under the `no_push` guard, in a pane inside that
-copy; any other pane is refused with a plain message ("could push to GitHub"). Red to Green (SPEC n33) will
-replace this with a new guarded run.
+Puppet Master reads the checks with `gh pr checks --json` (exit codes 1 and 8 still carry JSON). It looks a
+bounded number of times from the Changes tab (30 looks, each waiting up to 20 s in the backend).
+
+The old "Send back to <agent>" button is gone (RG-11). Nothing here sends a CI log to an agent any more. The
+pull request block shows one of two buttons instead:
+
+- **Fix with <agent>** when the checks failed. It asks Red to Green to watch the copy's pull request. If the
+  checks already failed, it also raises the Red to Green card now.
+- **Watch CI** when the checks did not fail. It only starts the watch.
+
+Neither button starts a fix by itself. The person still says yes on the Red to Green card. Only then does the
+agent work in the same copy, in a pane that cannot push. When it is done, Puppet Master checks the change and
+asks the person again before it pushes to the same `pm/` branch. The full flow is in
+`docs/features/red-to-green.md`.
+
+The CI log is untrusted. Red to Green cleans it (secrets are masked) and keeps it only as a file in the copy's
+`.puppet-master` folder. The log text never goes into a task.
 
 ## Evidence
 

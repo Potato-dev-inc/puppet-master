@@ -519,6 +519,8 @@ fn live_store() -> Store {
 }
 
 /// The store the commands read and write.
+// Reason: only the dev-fake-tui rig reads this (`fake_tui/ci_fix.rs`). Normal builds do not compile it.
+#[allow(dead_code)]
 pub fn store() -> Store {
     match ENGINE.get() {
         Some(engine) => engine.io().store().clone(),

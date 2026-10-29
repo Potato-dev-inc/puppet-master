@@ -224,8 +224,7 @@ Shown on cards and rows, and in the audit log (`ci.fix`). Defined in `ci_fix/mod
 | `CI_FIX_BUSY` | Puppet Master is already working on this. Try again in a moment |
 | `CI_FIX_NOT_FOUND` | There is no such pull request or fix (the id is unknown) |
 
-A change with no edits ends as a notice (`FixState::NoChanges`), not as an error code. `CI_FIX_NO_CHANGES` is defined in
-`model.rs` but nothing raises it yet.
+A change with no edits ends as a notice (`FixState::NoChanges`), not as an error code.
 
 ## Residual risks (read before you turn it on)
 
