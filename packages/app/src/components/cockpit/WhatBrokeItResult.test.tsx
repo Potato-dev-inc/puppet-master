@@ -20,6 +20,7 @@ import {
 } from '../../dev/what-broke-it-result-fixtures';
 import type { FindingView } from '../../lib/what-broke-it';
 import { WhatBrokeItResult, type WhatBrokeItResultApi } from './WhatBrokeItResult';
+import { lastGoodLine } from './what-broke-it-result-text';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -114,6 +115,13 @@ describe('WhatBrokeItResult: the copy per kind', () => {
     expect(text()).toContain('14:10 · "refactor cart" · 4 files, +52 −20');
     expect(text()).toContain('It broke cart.test.ts and 1 more');
     expect(buttonLabels()).toEqual(['Show what it changed', 'Undo only this turn', 'Copy details']);
+  });
+
+  it('culprit: the last good time line shows only when the backend sends it', async () => {
+    await mount(CULPRIT);
+    expect(text()).not.toContain('Last time they passed');
+    await mount({ ...CULPRIT, lastGoodMs: 1_800_000_000_000 });
+    expect(text()).toContain(lastGoodLine(1_800_000_000_000));
   });
 
   it('several: the intro, one row per turn, and no undo', async () => {

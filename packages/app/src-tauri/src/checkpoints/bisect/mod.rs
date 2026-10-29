@@ -16,17 +16,23 @@
 //! - S13: generic code names no agent. Agent labels come from turn summaries.
 //! - S14: nothing is typed into any pane.
 //!
-//! Pure parts (`model`, `points`, `blame`, `search`, `failnames`, `words`) do no I/O and are unit-tested.
-//! I/O parts (`store`, `copy`, `exec`, `revert`, `live`) take their paths and clocks from their callers.
+//! Pure parts (`model`, `points`, `blame`, `search`, `failnames`, `words`, `views`) do no I/O and are unit-tested.
+//! I/O parts (`store`, `copy`, `exec`, `revert`, `live`, `job`) take their paths and clocks from their callers.
+//! `live` is the window's entry point (`Live`), `job` is the search loop it runs on a thread.
 
 pub mod blame;
 pub mod copy;
 pub mod exec;
 pub mod failnames;
+pub mod job;
 pub mod live;
 pub mod model;
 pub mod points;
 pub mod revert;
 pub mod search;
 pub mod store;
+pub mod views;
 pub mod words;
+
+#[cfg(test)]
+mod engine_tests;

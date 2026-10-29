@@ -62,6 +62,10 @@ function mockApi(over: Partial<Record<keyof WhatBrokeItApi, unknown>> = {}) {
     wbStatus: vi.fn(async () => holder.status),
     wbStop: vi.fn(async () => undefined),
     wbFinding: vi.fn(async () => FINDING),
+    wbDiff: vi.fn(async () => ({ files: [], patch: null, truncated: false })),
+    wbUndoPlan: vi.fn(async () => ({ writes: [], removes: [], conflicts: [], blockedBy: null })),
+    wbUndo: vi.fn(async () => ({ undoneAtMs: 1, written: 0, removed: 0 })),
+    wbRecheck: vi.fn(async () => JOB),
     onWhatBrokeItChanged: vi.fn(async (cb: (e: WhatBrokeItChanged) => void) => {
       listener = cb;
       return () => {
@@ -288,7 +292,34 @@ describe('WhatBrokeItSheet: running', () => {
     await act(async () => fire({ jobId: 'wb-job-1', findingId: FINDING.id }));
     expect(api.wbFinding).toHaveBeenCalledExactlyOnceWith(FINDING.id);
     expect(host.querySelector('.ck-wb-line')).toBeNull();
-    expect(host.querySelector('.ck-wb-result-title')!.textContent).toBe(FINDING.title);
+    expect(host.querySelector('.ck-wb-result h2')!.textContent).toBe(FINDING.title);
+  });
+
+  it('the default result card gets the sheet api, a Close button and is keyed by finding id', async () => {
+    const { api, fire, setStatus } = mockApi();
+    const { onClose } = await mount(api);
+    await act(async () => findBtn().click());
+    await act(async () => undefined);
+    setStatus({ ...JOB, state: 'done', findingId: FINDING.id });
+    await act(async () => fire({ jobId: 'wb-job-1', findingId: FINDING.id }));
+    expect(button('Undo only this turn')).toBeTruthy();
+    await act(async () => button('Show what it changed')!.click());
+    expect(api.wbDiff).toHaveBeenCalledExactlyOnceWith(FINDING.id);
+    await act(async () => button('Close')!.click());
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('Keep looking starts the same search again from the not-sure finding', async () => {
+    const notSure: FindingView = { ...FINDING, id: 'wb-aaaaaaaaaaaa', kind: 'not_sure', title: 'Not sure. Ran out of runs.', canUndo: false };
+    const { api, fire, setStatus } = mockApi({ wbFinding: vi.fn(async () => notSure) });
+    await mount(api);
+    await act(async () => findBtn().click());
+    await act(async () => undefined);
+    setStatus({ ...JOB, state: 'done', findingId: notSure.id });
+    await act(async () => fire({ jobId: 'wb-job-1', findingId: notSure.id }));
+    await act(async () => button('Keep looking')!.click());
+    expect(api.wbStart).toHaveBeenLastCalledWith('p1', 0, null, { max_runs: 16, max_minutes: 20 }, notSure.id);
+    expect(host.querySelector('.ck-wb-line')).toBeTruthy();
   });
 
   it('renders the result component passed in, with the finding', async () => {

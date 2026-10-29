@@ -55,6 +55,11 @@ export function clock(ms: number): string {
   return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** `Last time they passed: 13:42` */
+export function lastGoodLine(atMs: number): string {
+  return `Last time they passed: ${clock(atMs)}`;
+}
+
 /** `1 file` or `4 files`. */
 export function countFiles(n: number): string {
   return n === 1 ? '1 file' : `${n} files`;

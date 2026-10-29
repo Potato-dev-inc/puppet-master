@@ -114,6 +114,8 @@ export interface FindingView {
   tail: string;
   canUndo: boolean;
   undoneAtMs: number | null;
+  /** When the tests last passed (unix ms), for a culprit, several suspects or a gap between turns. */
+  lastGoodMs?: number | null;
 }
 
 /** The file list and, when one file was asked for, its unified diff (Rust `DiffView`). */

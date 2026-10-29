@@ -1,17 +1,21 @@
 // "What broke the tests?" from History and the palette. One sheet, three stages:
 // set up (the test command, the save point to start from, the limits), running (one plain status line
-// and Stop) and the result (`renderResult`, the result component once it is wired in).
+// and Stop) and the result (`WhatBrokeItResult`, keyed by finding id; `renderResult` can replace it).
 // The sheet only calls `lib/what-broke-it.ts`; it never writes to a pane or to the person's folder.
 import { useEffect, useState, type ReactNode } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import {
   onWhatBrokeItChanged,
   wbDeclare,
+  wbDiff,
   wbFinding,
   wbOverview,
+  wbRecheck,
   wbStart,
   wbStatus,
   wbStop,
+  wbUndo,
+  wbUndoPlan,
   type FindingView,
   type JobView,
   type Limits,
@@ -20,9 +24,22 @@ import {
 import '../../styles/cockpit-whatbrokeit.css';
 import type { Notify } from './restore-flow';
 import { Sheet } from './Sheet';
+import { WhatBrokeItResult } from './WhatBrokeItResult';
 
 /** The calls the sheet makes. The desktop window uses `whatBrokeItApi`; tests pass their own. */
-export const whatBrokeItApi = { wbOverview, wbDeclare, wbStart, wbStatus, wbStop, wbFinding, onWhatBrokeItChanged };
+export const whatBrokeItApi = {
+  wbOverview,
+  wbDeclare,
+  wbStart,
+  wbStatus,
+  wbStop,
+  wbFinding,
+  wbDiff,
+  wbUndoPlan,
+  wbUndo,
+  wbRecheck,
+  onWhatBrokeItChanged,
+};
 export type WhatBrokeItApi = typeof whatBrokeItApi;
 
 /** Timeout for a test command the person saves from here (minutes). */
@@ -38,20 +55,6 @@ export function clampLimits(limits: Limits): Limits {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
-function ResultPlain({ finding, onClose }: { finding: FindingView; onClose: () => void }) {
-  return (
-    <>
-      <p className="ck-wb-result-title">{finding.title}</p>
-      <p className="ck-sub">{finding.subtitle}</p>
-      <div className="ck-sheet-actions">
-        <button type="button" className="ck-btn ck-btn--primary" onClick={onClose}>
-          Close
-        </button>
-      </div>
-    </>
-  );
-}
 
 export function WhatBrokeItSheet({
   paneId,
@@ -141,13 +144,51 @@ export function WhatBrokeItSheet({
     };
   }, [api, jobId]);
 
+  // Keep looking: the same search again, with the answers already measured and a fresh budget.
+  const keepLooking = (from: FindingView) => {
+    const test = overview?.tests.find((t) => t.index === picked) ?? overview?.tests[0];
+    const lim = limits ?? overview?.limits;
+    if (!test || !lim) {
+      notify('Choose a test command first.');
+      return;
+    }
+    api.wbStart(paneId, test.index, null, clampLimits(lim), from.id).then(
+      (next) => {
+        setFinding(null);
+        setError(null);
+        setStopping(false);
+        setJob(next);
+      },
+      (e) => notify(errText(e)),
+    );
+  };
+
   if (finding) {
     return (
       <Sheet labelledBy="ck-wb-t" role="dialog" onClose={onClose} className="ck-sheet--wb">
         <h2 className="ck-section" id="ck-wb-t">
           What broke the tests?
         </h2>
-        {renderResult ? renderResult(finding) : <ResultPlain finding={finding} onClose={onClose} />}
+        {renderResult ? (
+          renderResult(finding)
+        ) : (
+          <>
+            {/* Keyed by finding id: the card's undo and check state start from the finding. */}
+            <WhatBrokeItResult
+              key={finding.id}
+              finding={finding}
+              api={api}
+              sharedWith={sharedWith}
+              notify={notify}
+              onKeepLooking={() => keepLooking(finding)}
+            />
+            <div className="ck-sheet-actions">
+              <button type="button" className="ck-btn ck-btn--secondary" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </>
+        )}
       </Sheet>
     );
   }

@@ -25,6 +25,7 @@ import {
   canKeepLooking,
   countFiles,
   detailsText,
+  lastGoodLine,
   recheckLine,
   suspectTitle,
   undoButton,
@@ -186,6 +187,7 @@ export function WhatBrokeItResult({
       {finding.subtitle && <p className="ck-sub">{finding.subtitle}</p>}
 
       {kind === 'culprit' && <p className="ck-sub">{brokeLine(finding.failing)}</p>}
+      {kind === 'culprit' && typeof finding.lastGoodMs === 'number' && <p className="ck-sub">{lastGoodLine(finding.lastGoodMs)}</p>}
 
       {kind === 'several' && (
         <>

@@ -5,6 +5,7 @@ import {
   canKeepLooking,
   countFiles,
   detailsText,
+  lastGoodLine,
   maskPaths,
   recheckLine,
   undoRefusedText,
@@ -12,6 +13,10 @@ import {
 } from './what-broke-it-result-text';
 
 describe('what-broke-it-result-text', () => {
+  it('writes the last good time line like the backend words', () => {
+    expect(lastGoodLine(1_800_000_000_000)).toMatch(/^Last time they passed: \d{2}:\d{2}$/);
+  });
+
   it('names one failing test, or the first one and how many more', () => {
     expect(brokeLine([])).toBe('No test name was printed.');
     expect(brokeLine(['cart.test.ts'])).toBe('It broke cart.test.ts');

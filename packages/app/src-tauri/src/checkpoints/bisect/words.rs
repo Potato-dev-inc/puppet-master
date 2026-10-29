@@ -389,6 +389,46 @@ pub fn conflict_created_then_edited() -> &'static str {
     "The turn created this file and later work edited it"
 }
 
+/// The sanity gate failed: the copy cannot stand in for the folder. `detail` is plain English from the copy.
+pub fn copy_differs(detail: &str) -> String {
+    format!("The test copy can't be trusted. {detail}")
+}
+
+/// The save point the person picked is not in the folder's list.
+pub fn bad_point() -> &'static str {
+    "That save point is not on the list."
+}
+
+/// The pane the sheet was opened from is gone.
+pub fn pane_gone() -> &'static str {
+    "That pane is gone."
+}
+
+/// The first line of a job that has not run a test yet.
+pub fn getting_ready() -> &'static str {
+    "Getting ready…"
+}
+
+/// The result of "Check it again" when the tests still fail.
+pub fn still_failing() -> &'static str {
+    "The tests still fail."
+}
+
+/// A search that stopped on an unexpected error.
+pub fn went_wrong() -> &'static str {
+    "Something went wrong while looking. Nothing in your folder was changed."
+}
+
+/// A file changed between the dry run and the undo.
+pub fn undo_changed(path: &str) -> String {
+    format!("{path} changed while the undo was being made. Nothing was changed. Try again.")
+}
+
+/// Only a result that was not undone yet can be undone.
+pub fn already_undone() -> &'static str {
+    "This turn was already undone."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +487,14 @@ mod tests {
             safety_note().to_string(),
             setup_intro().to_string(),
             running_note().to_string(),
+            copy_differs("A link was found.").to_string(),
+            bad_point().to_string(),
+            pane_gone().to_string(),
+            getting_ready().to_string(),
+            still_failing().to_string(),
+            went_wrong().to_string(),
+            undo_changed("src/a.ts"),
+            already_undone().to_string(),
         ];
         for why in [
             UnsureWhy::Flaky,
