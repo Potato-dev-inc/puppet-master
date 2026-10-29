@@ -94,6 +94,7 @@ pub fn to_wire(out: &Outgoing) -> WireMessage {
             .iter()
             .map(|row| row.iter().map(|b| WireButton { label: b.label.clone(), data: b.data.clone() }).collect())
             .collect(),
+        disable_notification: out.silent,
     }
 }
 
@@ -298,7 +299,7 @@ pub(super) fn lines_out(lines: &[String]) -> Outgoing {
         kept.push(line);
     }
     // Already clean; `strict` again changes nothing and gives back the `Redacted` type.
-    Outgoing { text: redact::strict(&kept.join("\n")), keyboard: Vec::new() }
+    Outgoing { text: redact::strict(&kept.join("\n")), keyboard: Vec::new(), silent: false }
 }
 
 pub(super) fn say_lines(lines: &[String]) -> Effect {

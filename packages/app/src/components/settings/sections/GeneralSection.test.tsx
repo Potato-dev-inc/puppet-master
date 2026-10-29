@@ -49,6 +49,16 @@ vi.mock('../../../lib/live-room', async (importOriginal) => {
   };
 });
 
+vi.mock('../../../lib/focus', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../../lib/focus')>();
+  return {
+    ...orig,
+    focusState: vi.fn(async () => ({ settings: { default_minutes: 45, quiet_blocking: true } })),
+    focusSettingsSet: vi.fn(async (settings: unknown) => ({ settings })),
+  };
+});
+
+import { focusSettingsSet } from '../../../lib/focus';
 import { liveRoomApi } from '../../../lib/live-room';
 import { tauri } from '../../../lib/tauri';
 import { tauriLoopApi } from '../../../lib/loop-guard';
@@ -240,6 +250,21 @@ describe('General: Live Room', () => {
     await settle();
     expect(liveRoomApi.configSet).toHaveBeenCalledWith({ relay: 'https://relay.example.test', minutes: 60, maxViewers: 10 });
     expect(m.env.markSaved).toHaveBeenCalled();
+  });
+});
+
+describe('General: Focus Time', () => {
+  it('is its own group with the default length and the quiet switch, and the quiet switch saves through focusSettingsSet', async () => {
+    await mount();
+    const lists = [...m.host.querySelectorAll('section.st-group')];
+    const focus = lists.find((s) => s.textContent?.includes('Make cards that wait for you quiet during Focus'));
+    expect(focus?.textContent).toContain('Default length');
+    expect(hasText(m.host, 'Cards that wait for you are never held.')).toBe(true);
+    await click(switchFor('Make cards that wait for you quiet during Focus'));
+    await settle();
+    expect(focusSettingsSet).toHaveBeenCalledExactlyOnceWith({ default_minutes: 45, quiet_blocking: false });
+    expect(m.env.markSaved).toHaveBeenCalled();
+    expect(m.env.patches).toEqual([]); // Focus is saved by its own command, not settings.json
   });
 });
 

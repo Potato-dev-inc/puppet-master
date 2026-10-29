@@ -1,0 +1,286 @@
+/* The Review Desk detail: header, reasons, facts, files, plain-text diff and the action bar, plus its sheets.
+   Cockpit tokens only (grayscale), no colour literals, so it follows light and dark mode. Every rule sits under
+   the cockpit. Risk is carried by the glyphs and the weight of the text, not by colour. */
+.cockpit .ck-rd-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
+  padding: 16px 18px;
+  overflow-y: auto;
+  font-family: var(--font-ui);
+}
+.cockpit .ck-rd-detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cockpit .ck-rd-detail-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-rd-detail-meta,
+.cockpit .ck-rd-detail-group {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label-2);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-rd-detail-level {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-rd-detail-glyph {
+  display: inline-block;
+  width: 14px;
+  flex: none;
+  font-weight: 400;
+  color: var(--label-3);
+}
+.cockpit .ck-rd-detail-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-rd-detail-h {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--label-3);
+}
+.cockpit .ck-rd-detail-reasons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-rd-detail-reasons li {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+.cockpit .ck-rd-detail-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 0;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-rd-detail-facts dt {
+  color: var(--label-3);
+}
+.cockpit .ck-rd-detail-facts dd {
+  margin: 0;
+  color: var(--label-2);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-rd-detail-extra,
+.cockpit .ck-rd-detail-why {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--label-3);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-rd-detail-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.cockpit .ck-rd-detail-files > li + li {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-rd-detail-file {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  color: var(--label);
+  cursor: pointer;
+  transition: background 160ms var(--ease);
+}
+.cockpit .ck-rd-detail-file:hover,
+.cockpit .ck-rd-detail-file[aria-pressed="true"] {
+  background: var(--fill);
+}
+.cockpit .ck-rd-detail-file:focus-visible {
+  box-shadow: var(--focus);
+}
+.cockpit .ck-rd-detail-mark {
+  width: 12px;
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--label-3);
+}
+.cockpit .ck-rd-detail-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.cockpit .ck-rd-detail-counts {
+  flex: none;
+  font-size: 11px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-rd-detail-diff {
+  margin: 0;
+  padding: 6px 0;
+  max-height: 320px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg);
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+}
+.cockpit .ck-rd-detail-line {
+  display: block;
+  padding: 0 12px;
+  white-space: pre;
+  border-left: 2px solid transparent;
+  color: var(--label-3);
+}
+.cockpit .ck-rd-detail-add {
+  font-weight: 600;
+  color: var(--label);
+  border-left-color: var(--label);
+}
+.cockpit .ck-rd-detail-del {
+  color: var(--label-2);
+  border-left-color: var(--label-4);
+}
+.cockpit .ck-rd-detail-hunk {
+  padding-top: 4px;
+  font-style: italic;
+  color: var(--label-3);
+}
+.cockpit .ck-rd-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-rd-detail-key {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  opacity: 0.6;
+}
+.cockpit .ck-rd-detail-actions .ck-btn:disabled .ck-rd-detail-key {
+  opacity: 0.4;
+}
+.cockpit .ck-rd-detail-actions .ck-btn:disabled {
+  cursor: not-allowed;
+}
+
+/* The sheets: Keep and Ask to fix, on the shared Sheet shell. */
+.cockpit .ck-sheet.ck-rd-sheet {
+  width: min(460px, calc(100vw - 32px));
+}
+.cockpit .ck-rd-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-rd-sheet-list {
+  margin: 0;
+  padding: 0 0 0 16px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--label-2);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-rd-sheet-warn {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+  border-left: 2px solid var(--label);
+  padding-left: 10px;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-rd-sheet-error {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+  border-left: 2px solid var(--label);
+  padding-left: 10px;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-rd-sheet-foot {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label-3);
+}
+.cockpit .ck-rd-fix-preview {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label-2);
+  background: var(--bg);
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+}
+.cockpit .ck-rd-fix-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-rd-fix-note textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 10px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  color: var(--label);
+  background: var(--fill);
+  border: 0;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--sep);
+}
+.cockpit .ck-rd-fix-note textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}

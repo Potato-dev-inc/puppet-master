@@ -594,7 +594,13 @@ pub fn last_turn_patch(project: &Path, pane: &str, max_bytes: usize) -> Result<O
         return Ok(None);
     }
     let turn = after.turn;
-    let out = shadow.run(&["diff", "--no-color", "--no-renames", "-U3", before.tree.as_str(), after.tree.as_str()], None, None, &[])?;
+    let (patch, truncated) = unified_patch(&shadow, &before.tree, &after.tree, max_bytes)?;
+    Ok(Some(TurnPatch { turn, patch, truncated }))
+}
+
+/// The unified diff between two trees, cut at `max_bytes` on a character boundary.
+fn unified_patch(shadow: &Shadow, from: &str, to: &str, max_bytes: usize) -> Result<(String, bool), CheckpointError> {
+    let out = shadow.run(&["diff", "--no-color", "--no-renames", "-U3", from, to], None, None, &[])?;
     let mut patch = String::from_utf8_lossy(&out.stdout).into_owned();
     let truncated = patch.len() > max_bytes;
     if truncated {
@@ -604,7 +610,66 @@ pub fn last_turn_patch(project: &Path, pane: &str, max_bytes: usize) -> Result<O
         }
         patch.truncate(end);
     }
-    Ok(Some(TurnPatch { turn, patch, truncated }))
+    Ok((patch, truncated))
+}
+
+/// The unified diff from checkpoint `from_id` to checkpoint `to_id` of `pane` (paths relative to the
+/// project), for Review Desk's "Look" on a range of turns. `None` when the two trees are the same.
+/// Unknown ids are `NotFound`. Cut at `max_bytes`, and `truncated` says so.
+#[allow(dead_code)] // read by Review Desk (its sources and detail)
+pub fn patch_between(
+    project: &Path,
+    pane: &str,
+    from_id: &str,
+    to_id: &str,
+    max_bytes: usize,
+) -> Result<Option<TurnPatch>, CheckpointError> {
+    let (shadow, items) = two_checkpoints(project, pane)?;
+    let from = &items[find(&items, from_id)?];
+    let to = &items[find(&items, to_id)?];
+    if from.tree == to.tree {
+        return Ok(None);
+    }
+    let (patch, truncated) = unified_patch(&shadow, &from.tree, &to.tree, max_bytes)?;
+    Ok(Some(TurnPatch { turn: to.turn, patch, truncated }))
+}
+
+/// Files that differ between checkpoint `from_id` and checkpoint `to_id` of `pane`, sorted by path.
+/// Unknown ids are `NotFound`.
+#[allow(dead_code)] // read by Review Desk (its sources and detail)
+pub fn changes_between_ids(project: &Path, pane: &str, from_id: &str, to_id: &str) -> Result<Vec<FileChange>, CheckpointError> {
+    let (shadow, items) = two_checkpoints(project, pane)?;
+    let from = &items[find(&items, from_id)?];
+    let to = &items[find(&items, to_id)?];
+    changes_between(&shadow, &from.tree, &to.tree)
+}
+
+/// The shadow repository of `project` and the checkpoints of `pane`, oldest first. Shared by the
+/// range functions above: no Git means `GitMissing`, no shadow repository means `NotFound`.
+fn two_checkpoints(project: &Path, pane: &str) -> Result<(Shadow, Vec<Checkpoint>), CheckpointError> {
+    if !git_available() {
+        return Err(CheckpointError::GitMissing);
+    }
+    let shadow = Shadow::new(project);
+    if !shadow.exists() {
+        return Err(CheckpointError::NotFound);
+    }
+    let items = list_in(&shadow, pane)?;
+    Ok((shadow, items))
+}
+
+/// The checkpoint a turn that started at `started_at_ms` began from: the newest "before" or "after"
+/// taken at (or within `TURN_START_SLACK_MS` of) the start. Items are oldest first.
+#[allow(dead_code)] // read by Review Desk (its sources and detail)
+pub fn before_of(items: &[Checkpoint], started_at_ms: u64) -> Option<&Checkpoint> {
+    let limit = started_at_ms.saturating_add(TURN_START_SLACK_MS);
+    items.iter().rev().find(|c| (c.kind == "before" || c.kind == "after") && c.at_ms <= limit)
+}
+
+/// The newest "after" checkpoint (the end of the latest finished turn). Items are oldest first.
+#[allow(dead_code)] // read by Review Desk (its sources and detail)
+pub fn latest_after(items: &[Checkpoint]) -> Option<&Checkpoint> {
+    items.iter().rev().find(|c| c.kind == "after")
 }
 
 fn name_status(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(char, String)>, CheckpointError> {

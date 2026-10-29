@@ -14,6 +14,7 @@
 
 mod canary_rig;
 mod chat;
+mod focus_rig;
 mod issue_intake;
 mod night;
 mod package_rig;
@@ -25,6 +26,7 @@ mod world;
 
 pub use canary_rig::CanaryRig;
 pub use chat::ChatProbe;
+pub use focus_rig::FocusRig;
 pub use issue_intake::IssueRig;
 pub use night::NightRig;
 pub use package_rig::{PackageRig, Seen};

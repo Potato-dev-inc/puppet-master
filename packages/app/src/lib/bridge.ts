@@ -4,6 +4,7 @@ import type { AgentContextProfile } from '@puppet-master/shared';
 import { ngrokRequestHeaders } from './bridge-ngrok';
 import { decodeBase64, streamOffset } from './bridge-sse';
 import type { BridgeClient, PaneViewportResponse } from './bridge-types';
+import type { PhoneFocus } from './focus';
 import type { Question } from './questions';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
 import { localSecretHeaders } from './bridge-local-secret';
@@ -96,6 +97,10 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       const qs = q.toString();
       return call('GET', `/digest${qs ? `?${qs}` : ''}`);
     },
+    focus: () => call<PhoneFocus>('GET', '/focus'),
+    focusStart: (minutes) => call<PhoneFocus>('POST', '/focus/start', { minutes }),
+    focusExtend: () => call<PhoneFocus>('POST', '/focus/extend', {}),
+    focusEnd: () => call<PhoneFocus>('POST', '/focus/end', {}),
     teamCards: () => call('GET', '/team/cards'),
     teamDismiss: (id) => call('POST', `/team/cards/${encodeURIComponent(id)}/dismiss`, {}),
     teamPull: (id) => call('POST', `/team/cards/${encodeURIComponent(id)}/pull`, {}),

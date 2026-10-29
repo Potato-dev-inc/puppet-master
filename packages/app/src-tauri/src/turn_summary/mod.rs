@@ -21,6 +21,8 @@ pub mod tracker;
 #[cfg(test)]
 mod blame_tests;
 #[cfg(test)]
+mod focus_tests;
+#[cfg(test)]
 mod sentence_tests;
 #[cfg(test)]
 mod tests;
@@ -308,14 +310,49 @@ fn away_threshold_ms() -> u64 {
 }
 
 fn on_return(ret: presence::Return) {
-    let digest = current_digest(ret.since_ms);
-    if digest.is_empty() {
-        return;
+    if let Some(digest) = away_digest(ret.since_ms, crate::attention::focus::is_on()) {
+        offer(digest);
     }
+}
+
+/// The "While you were away" card for a return, or `None`. While Focus is on there is none: the Focus summary
+/// replaces it (one summary, not two).
+fn away_digest(since_ms: u64, focus_on: bool) -> Option<Digest> {
+    if focus_on {
+        return None;
+    }
+    Some(current_digest(since_ms)).filter(|digest| !digest.is_empty())
+}
+
+/// Park a digest for the cockpit and tell it.
+fn offer(digest: Digest) {
     DESK.lock().pending = Some(digest.clone());
+    // Not in unit tests: `commands::focus` tests reach this through the global Focus engine, and emitting
+    // through the app handle links the windowing runtime (`TaskDialogIndirect`) into the lib test exe,
+    // which then needs a Common Controls v6 manifest it does not have (docs/REPO_MAP.md).
+    #[cfg(not(test))]
     if let Some(app) = crate::bridge::live_app() {
         let _ = app.emit("digest://ready", &digest);
     }
+}
+
+/// The digest of a finished Focus: the same per-agent lines the away digest shows (same redaction), for the
+/// window the Focus ran, with the Focus summary on top. Shown even when no agent line exists (held updates, or
+/// cards that asked for you).
+pub fn offer_focus_digest(summary: crate::attention::focus::summary::FocusSummary) {
+    offer(focus_digest(&summary, &tracker().since(summary.started_at_ms), needs_you()));
+}
+
+/// Pure part of `offer_focus_digest`: turns that ended after the Focus did are left out.
+fn focus_digest(
+    summary: &crate::attention::focus::summary::FocusSummary,
+    turns: &[TurnSummary],
+    needs_you: Vec<NeedsYou>,
+) -> Digest {
+    let within: Vec<TurnSummary> = turns.iter().filter(|t| t.ended_at_ms <= summary.ended_at_ms).cloned().collect();
+    let mut digest = digest::build(&within, needs_you, summary.started_at_ms, summary.ended_at_ms);
+    digest.focus = Some(digest::DigestFocus::from(summary));
+    digest
 }
 
 /// Start the idle poller (call once from `setup`).

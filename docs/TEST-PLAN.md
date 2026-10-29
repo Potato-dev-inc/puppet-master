@@ -28,6 +28,8 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | Bring All My Chats: UI | `cd packages/app; npx vitest run src/components/history src/lib/chatImport src/components/settings/blocks/BringChatsSettings src/lib/chatTab` | Static count: 45 test cases in those files, not run in the docs pass. `CockpitApp.test.tsx` (31 cases, 3 for the old-chat host) runs with `npx vitest run src/CockpitApp` |
 | Bring All My Chats: fixture builder | `node --test scripts/make-fixture-history-home.test.mjs` | Static count: 15 cases (layout, refusals, extra files, exit codes), not run in the docs pass |
 | Agent Store: Rust | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib agent_store` (also `agent_install`, `tui::install`, `tui::declarative`) | Static count: about 110 test functions in `agent_store`, not run in the docs pass. Includes `the_shipped_catalog_has_no_problems` and `the_embedded_list_matches_the_catalog_folder_on_disk` |
+| Focus Time: Rust | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib attention::focus` (also `push::focus`, `bridge::routes::focus`, `commands::focus`, `tray`) | Static count: about 109 test functions in `attention/focus/`, 10 in `push/focus.rs`, 9 in `bridge/routes/focus.rs`, 6 in `commands/focus.rs`, not run in the docs pass. Includes the S4 and S9 source scans, the fail-open test (tick never runs), and the redaction test for held sentences. |
+| Focus Time: UI | `cd packages/app; npx vitest run src/lib/focus src/components/cockpit/FocusNote src/components/cockpit/FocusPill src/components/cockpit/palette-focus src/components/cockpit/Palette.focus src/components/cockpit/Sidebar.focus src/components/settings/blocks/FocusSettings src/components/mobile/FocusBar src/hooks/useFocus src/dev/focus-fixtures` | Static count: about 80 cases in those files, not run in the docs pass. |
 | Agent Store: catalog check | `cargo test --lib agent_store::check` (same dir/env) | Expected: all pass. A failure names the entry and the rule (see `docs/features/agent-store.md`, the 11 rules) |
 | Agent Store: UI | `cd packages/app; npx vitest run src/components/store src/lib/agent-store src/lib/agentStoreCheck` | Not run in the docs pass |
 | Agent Store: scripts | `node --test scripts/gen-store-catalog.test.mjs scripts/store-verify-publishers.test.mjs`; `node scripts/gen-store-catalog.mjs --check`; `node scripts/store-verify-publishers.mjs --offline` | Expected: tests pass; `--check` exits 0 when `embedded.rs` is current; `--offline` lists the packages with no network |
@@ -53,6 +55,8 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | Package check: popular list script | `node --test scripts/package-check/popular.test.mjs` (repo root) | Static count: 7 cases, no network, not run in the docs pass |
 | App: Package check UI | `cd packages/app; npx vitest run src/components/cockpit/PackageFacts.test.tsx src/lib/package-check.test.ts src/components/settings/sections/PackageCheckRow.test.tsx src/components/cockpit/ApprovalPrompt.test.tsx` | Static count: 19, 9, 10 and 28 cases (ApprovalPrompt's 28 include older cases), not run in the docs pass |
 | Package check: end to end | `cd packages/app/src-tauri; cargo test --features dev-fake-tui --test fake_tui_e2e package_check -- --test-threads=1` | 8 passed (3 runs in a row). A fake registry on 127.0.0.1 (`fake_tui/package_rig.rs`): `npm install lodahs` facts and the requests it sees, a closed server, a slow server, a workspace `.npmrc`, settings off, a stale id, a secret as a name, two ecosystems on one line |
+| Rust: Review Desk | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib review_desk` (also `cargo test --lib commands::review_desk`) | Static count: about 143 `#[test]` functions under `review_desk/` and `commands/review_desk.rs`, not run in the docs pass. Covers the risk table and its order, the converters, gather and act on a fake desk (stale fingerprint, bad keys, held issue, Ask to fix draft, restore rules), marks, the phone view builder, and the source guards (S1, S7/S8, S11, S12) |
+| App: Review Desk UI | `cd packages/app; npx vitest run src/components/cockpit/review src/lib/review-desk src/styles/review-desk src/styles/review-detail src/dev/review-desk-fixtures` | Static count: 11 test files, not run in the docs pass. The desk is not mounted in the running app yet (UI-4), so there is no live check |
 | Personal paths | `node scripts/check-no-personal-paths.mjs` (repo root) | no findings |
 
 `cargo test` needs `packages/app/dist` (run `npx vite build` in `packages/app` once). After any change to `tool_registry/`, the shim or bridge code it
@@ -201,7 +205,7 @@ throwaway VM for a real install. Keep every profile folder and list it in the re
 8. **Window monitor.** After the visible-pane steps, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-window-monitor.ps1`
    and expect `OK: no Puppet Master window on the primary monitor`.
 
-### 2.12 Package check (live check, not run yet)
+### 2.13 Package check (live check, not run yet)
 
 Blocked until the desktop lookup is wired (task PC-13: `package_check_lookup` registered in `lib.rs`). Without it the card
 shows "Could not check" under the offline rows, and the live check cannot pass. Spec section 6.
@@ -220,6 +224,30 @@ or 9333, and never the founder's app data. Window on the left monitor (bounds le
 
 Expected: each row matches what it says; the card's buttons, their order and the focus do not move when the facts land;
 the only request is one name to the public npm registry.
+### 2.12 Focus Time (live check, not run yet)
+Feature page: `docs/features/focus-time.md`. Isolated profile only (`PUPPET_MASTER_PROFILE=ft-live`, its own bridge and CDP
+ports, window on the left monitor). Never the founder's app data folder. Real agent turns only in a test folder with ONE tiny
+turn; every other scene uses fake agents. Evidence goes in a folder of the run, and profile folders are listed, not deleted.
+
+1. Start `Focus 25` from the palette: the Inbox note reads `Focus · 25 min left`, the sidebar pill shows, the tray tooltip reads
+   `Focus 25 min left`. Screenshots.
+2. A real tiny turn ends during Focus: no push planned for it; the held count rises on `GET /focus`, or the turn appears only in
+   the final summary. The Inbox shows nothing new.
+3. A medium approval: the Inbox card is there at once, the tray badge reads `1`, the push payload has `"quiet":true`. A high-risk
+   approval: no `quiet` in the payload. A trust gate or a sign-in screen: the card is present and quiet.
+4. A budget with one turn trips: the budget push has no `quiet`. A finished mission: the Inbox says `1 finished mission waits
+   until Focus ends`, and `Show` unfolds it.
+5. A quiet card open for 20 minutes: one reminder `1 agent has waited 20 minutes for you.` Mark it "unit-verified" if the clock
+   is not run for 20 minutes.
+6. `+15 min` then `End Focus` from a paired phone (`control`): the desktop shows `While you focused` with the right counts, the
+   phone bar shows the line, one push `Focus is over`, and `Got it` clears both.
+7. A real 5-minute Focus ends by itself: one summary. A second `End Focus` afterwards does nothing.
+8. Restart inside the window: Focus is still on, same end time. Restart after the end: the summary appears when the cockpit opens.
+9. Fail open: stop the app, corrupt `focus/state.json`, start: Focus off, `state.json.bad` exists, pings flow.
+10. Auth: a script with an MCP session header and `POST /focus/start` gets 403 `PERSON_ONLY`; a plain local `POST /focus/start`
+    gets 403; a plain local `POST /focus/end` works; a forged forwarder header without a token gets 401. Evidence as curl output.
+11. Away digest does not fire during Focus: stay idle 6 minutes in a 25-minute Focus, come back: only the Focus summary appears
+    at the end.
 
 ## 3. Known flaky tests (collected from the progress log and T37 evidence)
 - `tui::descriptor::descriptor_builds_all_nine` - global registry race (fixed by `registry::test_serial()`; tests that swap/count the global registry must take it).

@@ -229,6 +229,16 @@ fn night_shift_kind_has_a_stable_name() {
 }
 
 #[test]
+fn review_desk_kind_has_a_stable_name() {
+    assert_eq!(Kind::ReviewDesk.as_str(), "review_desk.action");
+}
+
+#[test]
+fn focus_kind_has_a_stable_name() {
+    assert_eq!(Kind::Focus.as_str(), "focus");
+}
+
+#[test]
 fn a_night_shift_line_round_trips_through_the_log_view() {
     let log = temp_log("night-shift");
     write_five(&log);

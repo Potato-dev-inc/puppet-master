@@ -16,6 +16,7 @@ import { AssignIssueSettings } from '../blocks/AssignIssueSettings';
 import { BringChatsSettings } from '../blocks/BringChatsSettings';
 import { ChatIndexSettings } from '../blocks/ChatIndexSettings';
 import { DiagnosticFile } from '../blocks/DiagnosticFile';
+import { FocusSettingsBlock } from '../blocks/FocusSettings';
 import { LiveRoomRow } from '../blocks/LiveRoomRow';
 import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
 import { SharedMemoryToggle } from '../blocks/SharedMemoryToggle';
@@ -325,6 +326,14 @@ export const generalRows: RowDef[] = [
     ),
   },
   ...budgetRows,
+  {
+    id: 'focus-time',
+    label: 'Focus Time',
+    hint: 'How long a Focus runs by default, and whether cards that wait for you go quiet during it.',
+    keywords: 'focus time default length minutes quiet blocking cards wait make during held inbox phone telegram buzz pause',
+    group: 'Focus Time',
+    render: (env) => <FocusSettingsBlock onSaved={env.markSaved} />,
+  },
   {
     id: 'ask-bar',
     label: 'Ask bar',

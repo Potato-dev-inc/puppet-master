@@ -1,0 +1,212 @@
+/* The Review Desk (SPEC n33 section 3.8): a dense monochrome list with a detail pane. Risk is carried by the glyph
+   and the weight of the title, never by colour. Cockpit tokens only, no colour literals. Every rule sits under
+   the cockpit. */
+.cockpit .ck-rd {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  padding: 20px 24px 14px;
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-rd-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+.cockpit .ck-rd-heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-rd-counts {
+  color: var(--label-3);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-rd-close {
+  margin-left: auto;
+}
+.cockpit .ck-rd-btn {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  color: var(--label-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.cockpit .ck-rd-btn:hover {
+  color: var(--label);
+  background: var(--fill-hover);
+}
+.cockpit .ck-rd-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cockpit .ck-rd-btn:focus-visible,
+.cockpit .ck-rd-link:focus-visible,
+.cockpit .ck-rd-row:focus-visible,
+.cockpit .ck-rd-detail:focus-visible {
+  outline: 2px solid var(--label-2);
+  outline-offset: -2px;
+}
+.cockpit .ck-rd-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+.cockpit .ck-rd-body.is-open {
+  grid-template-columns: minmax(260px, 2fr) minmax(0, 3fr);
+}
+.cockpit .ck-rd-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+}
+.cockpit .ck-rd-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  box-shadow: inset 0 1px 0 var(--sep);
+}
+.cockpit .ck-rd-group {
+  padding: 10px 10px 4px;
+  color: var(--label-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+.cockpit .ck-rd-row {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: inset 0 -1px 0 var(--sep);
+  cursor: pointer;
+}
+.cockpit .ck-rd-row.is-grouped {
+  padding-left: 22px;
+}
+.cockpit .ck-rd-row:hover {
+  background: var(--fill);
+}
+.cockpit .ck-rd-row.is-selected {
+  background: var(--fill-hover);
+}
+.cockpit .ck-rd-line,
+.cockpit .ck-rd-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.cockpit .ck-rd-glyph {
+  flex: none;
+  width: 12px;
+  color: var(--label);
+  text-align: center;
+}
+.cockpit .ck-rd-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  color: var(--label);
+}
+.cockpit .ck-rd-row[data-level='high'] .ck-rd-title {
+  font-weight: 600;
+}
+.cockpit .ck-rd-agent {
+  flex: none;
+  color: var(--label-3);
+  font-size: 12px;
+}
+.cockpit .ck-rd-sub {
+  padding-left: 20px;
+}
+.cockpit .ck-rd-reason {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-2);
+  font-size: 12px;
+}
+.cockpit .ck-rd-files {
+  flex: none;
+  color: var(--label-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-rd-toast {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  color: var(--label-2);
+  font-size: 12.5px;
+}
+.cockpit .ck-rd-notice {
+  margin: 0;
+  color: var(--label-2);
+  font-size: 12.5px;
+}
+.cockpit .ck-rd-note {
+  margin: 0;
+  color: var(--label-3);
+  font-size: 12px;
+}
+.cockpit .ck-rd-empty {
+  margin: 0;
+  padding: 32px 0;
+  color: var(--label-3);
+  text-align: center;
+}
+.cockpit .ck-rd-detail {
+  min-width: 0;
+  min-height: 0;
+  padding: 0 4px 0 14px;
+  overflow-y: auto;
+  box-shadow: inset 1px 0 0 var(--sep);
+}
+.cockpit .ck-rd-keys {
+  margin: 0;
+  color: var(--label-3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 720px) {
+  .cockpit .ck-rd-body.is-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

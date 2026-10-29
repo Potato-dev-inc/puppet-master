@@ -305,6 +305,7 @@ Per agent: `cursor/` (`mod.rs`, `launch.rs`, `headless.rs`, `screen.rs`, `chrome
 | `prompt_risk/packages/` | Package check, offline (no network). `parse.rs`: which packages an install command names, by tool grammar (npm family, pip/uv/pipx/poetry/pdm/rye, cargo, go, gem/bundle, winget/choco/scoop). `model.rs`: `PackageItem`, `Source`, `Ecosystem`, name rules. `mod.rs::extract`: dedupe, secret-shaped names dropped and counted, 20 kept, cut rule. `lookalike.rs` + `popular.rs` (+ `popular/*.txt`, hand-compiled top lists, not fetched). `words.rs`: every card sentence. `prompt_risk/mod.rs::assess` adds the High look-alike finding. Invariants: S1 (no write path, source scan), S7 (facts only, forbidden words), S8 (only the offline look-alike changes risk), S13 (no agent names). See `docs/features/package-check.md`. |
 | `package_check/` | Package check, lookups (network). `live.rs::lookup`: re-reads the live prompt by `prompt_id` (`STALE_PROMPT` when it changed), settings, private-server check, pool of 4 with an 8 s deadline. `registries/` (npm, pypi, crates, gems, go): URL builders and typed reads. `http.rs` (`UreqFetcher`): allow-list, no redirects, proxy or cookies, byte caps, 60 GETs a minute. `cache.rs`: memory only. `private.rs`: own package server detection (token lines skipped unread). `lines.rs`: rows and view. `settings.rs`: `<app data>/package-check/settings.json`. Invariants: S1 (no answer path), S2 (only the name is sent; headers are User-Agent and Accept), S8 (network facts never change risk, buttons or focus), S9 (names only from the live prompt; `MAX_LOOKUPS`). The desktop Tauri commands (`package_check_lookup`, `package_check_settings_*`) are not registered on this branch (PC-13). |
 | `attention/` | One list of what needs the person, and the one number every surface shows (`counts.blocking`). `derive.rs` ports `deriveNeedsYou` exactly (shared corpus `packages/shared/fixtures/attention/`, run by vitest and cargo); `store.rs` applies lanes, rank, one pane-state item per pane, occurrences, tombstones, `raise` / `clear` and a `rev`. `GET /attention`, `event: attention` (full snapshot) and `attention://changed`. Tray badge, away digest, phone counter and push read it. `answer.rs` is `POST /attention/{id}/answer` (a paired person's answer: ability, idempotency ledger, prompt id + occurrence + fingerprint re-checked on the live screen under the answer lock, typed through the current answer route under an `AnswerPermit` from `agent_runs/readiness.rs`); `layout.rs` and `fingerprint.rs` back it. The phone card is `components/mobile/ApprovalCard.tsx` (pure view `lib/approval-card.ts`), the queue `NeedsYouList.tsx`, the docked card over the open agent `DockedCard.tsx`, and a push tap opens `/?item=<id>` through the service worker's intent cache (`pwa/push-intent.ts`, `hooks/usePushIntents.ts`). See `docs/features/attention.md`. |
+| `attention/focus/` (Focus Time, feature page `docs/features/focus-time.md`; section 3.11a) | The quiet window: `policy.rs` (the three tiers Hold / Quiet / Through, pure, no wildcard arms), `live.rs` (the engine over `Io`, the one `Mutex<State>`, `LiveIo`, the free hooks `gate_push` / `quiet_for` / `hold` / `hold_push`, the `focus-tick` and `focus-notes` threads), `scan.rs` + `nudge.rs` (new waiting cards, the one 20 minute reminder), `summary.rs` (the end summary), `view.rs` (`FocusView` for the desktop, `PhoneView` for the phone: counts only), `model.rs` (types, limits, error codes), `store.rs` (`<app data>/focus/state.json`, `.bad` on damage), `mod.rs` (`is_on()`, the fast flag: deadline checked on every call). Routes `bridge/routes/focus.rs`; commands `commands/focus.rs`; push `push/focus.rs`; tray `tray.rs` (`focus:` ids). Never names an agent (test) and never writes to a pane (test). |
 | `turn_summary/`, `checkpoints/`, `pty/resize_clock.rs` (round 7) | Turn boundaries. `checkpoints/runtime.rs`: `decide` (status -> before/after snapshot), `capture` (one capture at a time per pane, 10 s debounce), `note_dispatched` / `before_dispatch` (called by `bridge/dispatch.rs::send_task_prompt` for EVERY run: a fresh pane never reads `idle` before its first task, so it gets no `running` event). `turn_summary/tracker.rs` (turns from pane status + `note_dispatched`), `settle.rs` (a summary waits for ITS OWN "after" capture by ticket, never an earlier rest point's), `store.rs` (a stale summary of an earlier rest point never replaces a later one). `pty/resize_clock.rs`: the redraw a resize causes is not work (`status::settle_status_after_resize`). |
 | `pane_wait/` + `pane_wait_notify.rs` | Long-poll waits. `mod.rs`: `wait_for_panes`, `WaitUntil`, `WaitForPanesRequest/Result`; `check.rs`: `check_pane`, settled/state/model/key-swap conditions and hints (`agent_hint_for_reason`); `model_task.rs`: `wait_for_model`, `wait_for_task`; `worker.rs`: `wait_for_worker`, spawn-readiness checks (`worker_settled_reason` lives in `check.rs`). `pane_wait_notify.rs`: `bump_waiters`, `wait_for_change[_ms]`. |
 | `pane_outbox/` | The Chat tab's message box: messages a person wrote for the agent in a pane they started by hand, sent when the agent can take them. Generic (no agent names). `mod.rs`: `Outbox` (`send`, `cancel`, `list`; per pane a FIFO of at most 5 waiting messages, text 1..8000 chars, finished ones kept 2 min, failed ones 10 min), `Timing`; `model.rs`: `OutboxMessage` (camelCase JSON `{id, text, createdAt, state: queued|sending|sent|failed|cancelled, waitingFor, error}`), the sentences shown to the person; `worker.rs`: one thread per pane with messages, a look every ~400 ms, `decide` (deliver only when `readiness::assess` says `Ready`, the input box is empty or unreadable and the pane status is idle; a gate is waited for and never answered; host shell fails; 2 h gives up); `confirm.rs`: after "submitted, no turn seen" it checks whether the box still holds the text (then the message fails with a plain sentence instead of reading as sent); `target_block` (in `worker.rs`): why a pane is not a Point target (dialog, question, no input box); `draft_guard.rs`: `DeliveryIo` wrapper that refuses the first text write when the box holds text (a message never clears or types over what the person typed in the terminal); `host.rs`: `Host` trait (fakes in `outbox_tests.rs`); `live.rs`: `LiveHost` over the pane registry, delivery through `agent_runs/delivery.rs::deliver_text` with no clear sequence, event `pane-outbox` (Tauri) and SSE `pane-outbox` (watch-only, text redacted). Refused at send time: shell panes, protocol agents, panes an open `run_agent` operation controls (`bridge::pane_has_open_run`). Wiring: Tauri `pane_message_send/cancel`, `pane_messages_list` (`commands/pane_outbox.rs`); bridge `POST/GET /panes/{id}/messages`, `DELETE /panes/{id}/messages/{messageId}` (`bridge/routes/panes.rs`; caps `type`/`watch`, `mobile_pairing/caps.rs`). UI: `components/chat/{ChatComposer,PendingMessages,SessionChatPanel}.tsx`, `hooks/{usePaneOutbox,usePendingBubbles}.ts`, `lib/paneOutbox.ts` (the `OutboxTransport` shape plus the Tauri one). The phone uses the same components through `lib/paneOutbox-bridge.ts` (bridge send/cancel/list, `publishBridgeOutbox` fed by the `pane-outbox` SSE event in `PwaApp.tsx`, a list read every 3 s while visible) inside `components/mobile/PhoneChatView.tsx`. Tests: `pane_outbox/outbox_tests.rs`, `tests/fake_tui_chat_reply.rs`, `components/chat/*.test.tsx`. |
@@ -502,6 +503,32 @@ when no tests are declared. Gates are never answered; nothing merges except on t
 
 Tests: `cargo test --lib night`; `cargo test --features dev-fake-tui --test fake_tui_e2e night -- --test-threads=1`.
 
+### 3.11a Focus Time (`attention/focus/`)
+
+A person presses Focus (25, 45 or 90 minutes). While it is on, pings that can wait (run ends, companion replies, the
+Night Shift morning push) are held and counted, and cards that block an agent reach the phone and Telegram without a
+buzz. Cards that block an agent are never hidden or held. The end gives one summary (desktop card, one phone push, one
+chat note). Feature page: `docs/features/focus-time.md`. Full file list is in the attention row of section 3.5.
+
+| File | What |
+|---|---|
+| `attention/focus/policy.rs` | the tier tables for attention kinds and push kinds, `decide` (Hold / Quiet / Send), `class_of_push`; the S4 and S9 source scans and the table tests |
+| `attention/focus/live.rs` | `Engine<I: Io>` (start, extend, end, tick, hold, gate, settings, summary dismiss), `LiveIo`, `engine()`, `start(app)` |
+| `attention/focus/mod.rs` | `Flag` (on + deadline, lock-free), `is_on()`, `is_on_at()`, `set_session()` |
+| `attention/focus/summary.rs`, `view.rs` | the end summary (`build`, `line`, `body`, `is_empty`) and the desktop / phone views (`PhoneView` has no pane id, name or sentence) |
+| `attention/focus/scan.rs`, `nudge.rs` | new blocking cards as waiters (cap 200), the one reminder per waiter after 20 minutes |
+| `attention/focus/model.rs`, `store.rs` | types, limits (5 to 240 minutes, 240 minute cap, held list cap 100), error codes, the private state file |
+| `push/focus.rs` (+ `push/triggers.rs` `Kind::Focus`, `push/hub.rs::focus_deliveries`, `push/mod.rs::notify_focus`) | the one push kind: counts only, not urgent, tag `pm-focus`; `Hide details` gets a fixed sentence |
+| `channels/notify.rs` (`focus_note`), `channels/live.rs` (`focus_note`) | the Telegram end note and reminder (no buttons; short mode: a fixed sentence) |
+| `bridge/routes/focus.rs` | `GET /focus`, `POST /focus/start|extend|end` (person or phone only; MCP sessions get 403 `PERSON_ONLY`) |
+| `commands/focus.rs` | `focus_state`, `focus_start`, `focus_extend`, `focus_end`, `focus_settings_set`, `focus_summary_dismiss` (registered in `lib.rs`; `attention::focus::live::start` runs in `setup`) |
+| `tray.rs` (`focus:` ids, `focus_items`, `summary_line_with_focus`, `run_focus_command`) | the tray Focus submenu and the tooltip prefix |
+| `turn_summary/mod.rs` (`on_return`, `offer_focus_digest`), `turn_summary/digest.rs` (`DigestFocus`) | the away digest is off while Focus is on; the end summary is shown as the digest |
+| UI: `components/cockpit/FocusNote.tsx`, `FocusPill.tsx`, `palette-focus.ts`, `useFocusView.ts`, `components/settings/blocks/FocusSettings.tsx`, `components/mobile/FocusBar.tsx`, `lib/focus.ts`, `hooks/useFocus.ts`, `dev/focus-fixtures.ts` | Inbox note, sidebar pill, palette rows, settings block, phone bar, the TypeScript types and wrappers |
+
+Tests: `cargo test --lib attention::focus` (engine, model, store, policy, scan, nudge, summary, view), `cargo test --lib push::focus`,
+`cargo test --lib bridge::routes::focus`, `cargo test --lib commands::focus`, `cargo test --lib tray`; UI `npx vitest run` on the `Focus*` and `focus` test files.
+
 ### 3.12 Assign an issue (`issue_intake/`, `pty/env_guard.rs`, `worktrees/harden.rs`)
 
 A labeled GitHub issue starts an agent run in a separate copy after you say yes. The agent cannot push. After it finishes,
@@ -571,6 +598,53 @@ Desktop only: the Tauri commands have no bridge route and no MCP tool.
 | Install data | `catalog/agents/<id>/entry.toml` and `definition.toml` (`[install.windows]`); code agents: `tui/<agent>/install.toml`; uv method in `agent_install/tools.toml` (`[tools.uv]`) |
 
 Tests: `cargo test --lib agent_store` (and `agent_store::check` for the catalog); `npx vitest run src/components/store src/lib/agent-store src/lib/agentStoreCheck`; `node --test scripts/gen-store-catalog.test.mjs scripts/store-verify-publishers.test.mjs`.
+
+### 3.14 Review Desk (`review_desk/`, `commands/review_desk.rs`)
+
+One list of finished agent work (separate copies and missions, Night Shift tasks, issue runs waiting for the push, turns in
+the person's own folder), riskiest first, with Keep, Ask to fix and Throw away (feature page
+`docs/features/review-desk.md`). Desktop only: the seven Tauri commands have no bridge route and no MCP tool. Nothing merges,
+pushes or throws work away without the person's click. The order is one fixed table (`risk.rs`), never a model's opinion.
+
+| File | What |
+|---|---|
+| `review_desk/mod.rs` | module doc: the invariants S1-S15 (SPEC n33 section 4) |
+| `review_desk/model.rs` | the types (`Item`, `Facts`, `Risk`, `Keep`, `Throw`, `Marks`); every limit as a constant (`WINDOW_MS` 14 days, `ITEMS_CAP` 200, `BIG_FILES` 20, `BIG_LINES` 400, `PATCH_SCAN_MAX` 256 KiB, `NOTE_MAX` 1,000); `ItemKey::parse` (the four exact forms, strict); `Clean` |
+| `review_desk/risk.rs` | the seven-tier table: `flags`, `risk`, `order`, `fingerprint`; `PACKAGE_FILES`. Pure, imports only `model` and `tamper::Role` |
+| `review_desk/sources/night.rs`, `issues.rs`, `copies.rs`, `folder.rs`, `group.rs` | pure converters: Night Shift tasks, issue runs (`AskPush` and `Held`), unreviewed copies and missions, in-folder turns with the Throw away rules, helper groups |
+| `review_desk/live.rs` | the `DeskIo` trait (every read and write) and `LiveIo`, the real adapter over `worktrees`, `night_shift::review`, `issue_intake::live::act`, `checkpoints`, the point draft and the audit log; `TtlCache` (facts, 60 s); `scan_patch` (skipped above 256 KiB); `redact_patch`, `clean_line` |
+| `review_desk/gather.rs` | reads every source through `DeskIo`, fills what only the live layer knows, finishes each item (pane liveness, group, risk, fingerprint), orders; a failing source adds one plain note and the rest still show |
+| `review_desk/act.rs` | Keep, Throw away, unmark, Ask to fix and the detail. Parses the key, re-reads the one item, refuses `REVIEW_ITEM_CHANGED` on a different fingerprint, one action per key (`REVIEW_BUSY`), audits without titles or paths |
+| `review_desk/fix.rs` | pure: the Ask to fix draft (fixed sentences and the person's note) |
+| `review_desk/marks.rs` | `<app data>/review-desk/marks.json`: "Looks good" marks per folder pane; private, atomic; a corrupt file counts as no marks |
+| `review_desk/view.rs` | what leaves Rust: `DeskView`, `ItemView`, `DetailView`, `ActView` (camelCase); `phone_view` (built, no route yet) |
+| `review_desk/guard_tests.rs`, `review_desk/engine_tests.rs` | source scans (S1, S7/S8, S11, S12); end-to-end `gather` and `act` on a fake `DeskIo` |
+| `commands/review_desk.rs` | the seven Tauri commands (`review_desk_list`, `_count`, `_detail`, `_keep`, `_throw_away`, `_unmark`, `_fix`); each runs on a blocking thread; event `review-desk://changed` |
+| UI: `components/cockpit/review/` (`ReviewDesk.tsx`, `ReviewRow.tsx`, `ReviewDetail.tsx`, `KeepSheet.tsx`, `FixSheet.tsx`, `review-keys.ts`), `lib/review-desk.ts`, `lib/review-desk-pending.ts` (the 10 s Undo store), `styles/review-desk.css` | built, not mounted: `MainView`, the sidebar count and the palette entries are UI-4 (in progress) |
+| In progress: `bridge/routes/review_desk.rs` (RD-11) | `GET /review-desk`, read only, behind `authorize_caller`; MCP sessions 403. Not on this branch yet |
+| In progress: `components/mobile/ReviewSummary.tsx` (UI-5) | the phone card under the Night summary in `PwaApp.tsx`. Not on this branch yet |
+
+Invariants (each is named in `review_desk/mod.rs`):
+
+- S1: actions are Tauri commands only; the guard test `no_remote_surface_names_the_desk_actions` scans `bridge/`, `tool_registry/`, `mcp_shim/`, `companion/`, `channels/`, `team/`, `push/`.
+- S2: no timer or bulk path merges or pushes; `merge`, `keep_with` and `act("push")` are called only from `review_desk_keep`; no bulk action in v1.
+- S3: every action takes the fingerprint; `fresh()` refuses a changed item before any call (`a_stale_fingerprint_is_refused_and_nothing_is_called`).
+- S4: titles, reasons and file names are plain text; `strip_controls` removes control and bidi characters; the window renders text nodes only.
+- S5: patches and strings pass `redact::strict_with` and home to `~` before they leave Rust; the phone view cleans again (route pending, RD-11).
+- S6: Throw away has a 10 s Undo in the window (`review-desk-pending.ts`, `UNDO_MS`); folder restores go through `checkpoints` `restore`, which takes the "Before undo" safety point, and are checked again at the call.
+- S7: Ask to fix only calls `put_chat_draft`; nothing is sent or typed.
+- S8: the desk never writes to a pane and starts no agent (`the_desk_never_writes_to_a_pane`).
+- S9: an issue Keep is only `issue_intake::live::act(run, "push")`; a `Held` run has `Keep::No` (`keep_on_a_held_issue_is_refused_and_a_pushable_one_only_pushes`).
+- S10: `ItemKey::parse` is strict and runs before any read (`bad_keys_are_refused_before_anything_is_read`).
+- S11: `risk.rs` reads nothing but `model` and `tamper::Role` (`the_risk_table_imports_only_the_model_and_path_roles`).
+- S12: generic code never names an agent (`generic_code_names_no_agent`, which also scans the non-test window files).
+- S13: marks and audit hold ids, counts and tiers only; fixtures use `C:\Users\you\...`.
+- S14: the phone route sits behind the normal bridge auth and is GET only. In progress (RD-11); no route on this branch.
+- S15: git work runs in `spawn_blocking`; per-copy facts cached 60 s (`TtlCache`); patches above 256 KiB are not scanned (`lines_scanned = false`).
+
+Known gap: the sidebar count command `review_desk_count` runs the full gather (cached facts), not the cheaper cached total the spec describes.
+
+Tests: `cargo test --lib review_desk` (also `cargo test --lib commands::review_desk`); `npx vitest run src/components/cockpit/review src/lib/review-desk src/styles/review-desk src/styles/review-detail src/dev/review-desk-fixtures`.
 
 ---
 
@@ -742,6 +816,11 @@ Tests: `cargo test --lib agent_store` (and `agent_store::check` for the catalog)
   (`updatePaneDimensions(..., keepStream)`), sizes from cell metrics, and has no local echo.
 - **Build id**: every release build re-stamps `PM_BUILD_ID`; hand-offs for live retest must carry a
   fresh `build_id` (commit first so the sha is current).
+- **Every new desktop ping, sound, toast or taskbar flash asks Focus first.** Before it makes any sound or
+  window signal for a finished thing, call `attention::focus::is_on()` or the free hooks
+  `attention::focus::live::gate_push(kind, risk)` / `quiet_for(kind, risk)` / `hold(class, agent, sentence)`.
+  `Hold` means no signal (the thing is counted); `Quiet` means no buzz; blocking cards (`Through` or `Quiet`) keep
+  their signal. Focus never answers or types into a pane, and only a person starts it (see 3.11a).
 
 ---
 
@@ -966,6 +1045,12 @@ validation unless noted.
 **OpenCode native**
 - `OPENCODE_SERVER_UNREACHABLE` - `opencode serve` unreachable past the grace period; cancel/close still finalise runs - `agent_runs/native.rs`, `runtime.rs`.
 - `NATIVE_AGENT_ERROR`, `NATIVE_STATUS_UNAVAILABLE`, `APPROVAL_WAIT_FAILED` - `native.rs`, `bridge/`.
+
+**Focus Time** (`attention/focus/`, section 3.11a)
+- `FOCUS_BAD_MINUTES` - length outside 5 to 240 minutes - `attention/focus/model.rs`; bridge 400 `focus_bad_minutes`.
+- `FOCUS_NOT_ON` - `+15 min` while Focus is off - `attention/focus/model.rs`; bridge 409 `focus_not_on`.
+- `FOCUS_PERSON_ONLY` - a local program tried to start or extend - `attention/focus/live.rs`, `bridge/routes/focus.rs`; bridge 403.
+- `PERSON_ONLY` - an MCP session (an agent) called a Focus route - `bridge/routes/focus.rs`; bridge 403, `error: focus_person_only`.
 
 **Shim / transport** (`mcp_shim/`)
 - `WAIT_TIMEOUT` - foreground wait ended with the turn still running; response includes `watch_command`; retry with the same idempotency key.

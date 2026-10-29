@@ -8,6 +8,7 @@ import type { LoopSignalInfo } from '../../lib/bridge-types';
 import { ago, glyphStatus, groupPanes, previewLines, projectName, waitingCount } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from '../cockpit/DotSpinner';
 import { DigestCard } from './DigestCard';
+import { FocusBar } from './FocusBar';
 import { isLive } from '../../lib/questions';
 import { blockingCount, type AttentionSnapshot } from '../../lib/attention';
 import { QuestionsView, useQuestionPolling } from './QuestionsList';
@@ -36,6 +37,7 @@ export function AgentsOverview({
   header,
   stuck,
   questionsRevision,
+  focusRevision,
   attention,
   canAnswer = true,
   onRefreshAttention,
@@ -56,6 +58,8 @@ export function AgentsOverview({
    * shows their cards under the title, and counts them in the waiting number like the desktop does.
    */
   questionsRevision?: number;
+  /** Bumped by the bridge `focus` event: the Focus bar reads `GET /focus` again. */
+  focusRevision?: number;
   /**
    * The PC's one attention snapshot. When it is there, the waiting number IS its blocking count (the
    * number the desktop Inbox, the tray and the away digest show); an old PC leaves it out and this
@@ -114,6 +118,8 @@ export function AgentsOverview({
     );
   }
 
+  // The PC's device block says what this phone may do; without it (an old PC) Focus stays hidden.
+  const canControl = attention?.device?.can_control === true;
   const waiting = attention
     ? String(blockingCount(attention)).padStart(2, '0')
     : waitingCount(panes, { questions: liveQuestions, stuckPaneIds: stuck ? [...stuck.keys()] : [] });
@@ -150,6 +156,7 @@ export function AgentsOverview({
         {header}
         {cards}
         <TeamGroup bridge={bridge} bridgeReady={bridgeReady} />
+        <FocusBar bridge={bridge} bridgeReady={bridgeReady} canControl={canControl} focusRevision={focusRevision} />
         <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
         <div className="ph-empty">
           <div className="ph-dotgrid" aria-hidden="true" />
@@ -171,6 +178,7 @@ export function AgentsOverview({
       {header}
       {cards}
       <TeamGroup bridge={bridge} bridgeReady={bridgeReady} />
+      <FocusBar bridge={bridge} bridgeReady={bridgeReady} canControl={canControl} focusRevision={focusRevision} />
       <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
       {groupPanes(panes).map((group) => (
         <section key={group.id} aria-label={group.title}>

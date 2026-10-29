@@ -116,6 +116,8 @@ pub struct BotInfo {
 pub struct WireMessage {
     pub text: Redacted<String>,
     pub keyboard: Vec<Vec<WireButton>>,
+    /// Sent without a sound (`disable_notification`). Only `true` is sent; `false` leaves the key out.
+    pub disable_notification: bool,
 }
 
 /// One inline button. `data` is at most 64 bytes (Telegram's limit for `callback_data`).
@@ -310,6 +312,9 @@ impl Api for HttpApi {
         }
         if !out.keyboard.is_empty() {
             body["reply_markup"] = markup(&out.keyboard);
+        }
+        if out.disable_notification {
+            body["disable_notification"] = json!(true);
         }
         let result = self.call("sendMessage", body)?;
         result.get("message_id").and_then(Value::as_i64).ok_or(ApiError::Parse)

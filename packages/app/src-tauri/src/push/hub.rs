@@ -72,6 +72,13 @@ pub struct Candidate {
     pub detail: Option<String>,
 }
 
+impl Candidate {
+    /// The prompt's risk in the attention scale, for the Focus tiers (`attention::focus::policy`).
+    pub fn focus_risk(&self) -> Option<crate::attention::model::Level> {
+        self.prompt.as_ref().and_then(|p| p.risk.as_ref()).map(|r| crate::attention::model::Level::from(r.level))
+    }
+}
+
 /// A notification the rate limit held back instead of dropping: the newest candidate for its key and
 /// how many were held. It is released when the window ends (`PushHub::take_due`).
 #[derive(Debug, Clone)]
@@ -348,6 +355,8 @@ impl PushHub {
     /// full version.
     fn deliveries(&self, candidate: &Candidate, words: &dyn Fn(View) -> Words, actionable: bool, now_ms: u64) -> Vec<Delivery> {
         let prompt_id = candidate.prompt.as_ref().map(|p| p.prompt_id.as_str());
+        // Focus: a card that waits for the person arrives without the buzz (the phone shows it silently).
+        let quiet = crate::attention::focus::live::quiet_for(candidate.kind, candidate.focus_risk());
         let mut deliveries = Vec::new();
         for (device_id, subscription, hide_details) in self.store.lock().all_with_preferences() {
             let view = if hide_details {
@@ -363,6 +372,9 @@ impl PushHub {
             extra.insert("v".into(), json!(2));
             extra.insert("kind".into(), json!(candidate.kind.as_str()));
             extra.insert("tag".into(), json!(format!("pm-{}", candidate.key)));
+            if quiet {
+                extra.insert("quiet".into(), json!(true));
+            }
             if let Some(pane_id) = &candidate.pane_id {
                 extra.insert("pane_id".into(), Value::String(pane_id.clone()));
             }
@@ -461,6 +473,35 @@ impl PushHub {
                 urgent: false,
                 pane_id: None,
                 kind: Kind::NightShift,
+            });
+        }
+        deliveries
+    }
+
+    /// The end-of-Focus message, or its one reminder (`push::focus`): one message per phone that may watch
+    /// (`watch` ability) and is not looking at the PWA. Same rules as `night_deliveries`; counts only, not
+    /// urgent, and never a pane (a Focus message names none).
+    pub fn focus_deliveries(&self, message: &super::focus::Message, now_ms: u64) -> Vec<Delivery> {
+        let mut deliveries = Vec::new();
+        for (device_id, subscription, hide_details) in self.store.lock().all_with_preferences() {
+            // Read at send time: a phone that lost `watch` or was unpaired gets nothing.
+            if !self.directory.device_exists(&device_id) || !self.directory.device_can_watch(&device_id) || self.is_visible(&device_id, now_ms) {
+                continue;
+            }
+            let title = crate::redact::text(&message.title);
+            let body = crate::redact::text(&message.body(hide_details));
+            let mut extra = serde_json::Map::new();
+            extra.insert("v".into(), json!(2));
+            extra.insert("kind".into(), json!(Kind::Focus.as_str()));
+            extra.insert("tag".into(), json!("pm-focus"));
+            let payload = super::sender::PushPayload::new(&title, &body, extra);
+            deliveries.push(Delivery {
+                device_id,
+                subscription,
+                payload,
+                urgent: false,
+                pane_id: None,
+                kind: Kind::Focus,
             });
         }
         deliveries

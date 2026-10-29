@@ -42,6 +42,50 @@ pub struct NeedsYou {
     pub prompt: Option<String>,
 }
 
+/// The numbers of an end-of-Focus summary, as the card reads them. Counts only; `held` is the total of pings held.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DigestFocusCounts {
+    pub turns_done: u32,
+    pub agents: u32,
+    pub failed: u32,
+    pub asked: u32,
+    pub urgent: u32,
+    pub still_waiting: u32,
+    pub held: u32,
+}
+
+/// The end-of-Focus summary inside a digest (SPEC n33 3.4 E, 3.6 (5)). One shape for Rust and `DigestFocus` in
+/// `lib/cockpit-api.ts`: camelCase, `endedBy` is `timer` or `early`, `counts.held` is one number. The saved
+/// `FocusSummary` keeps its own (snake_case) shape for `FocusView.lastSummary`; this is its card view.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DigestFocus {
+    pub line: String,
+    pub minutes: u32,
+    pub ended_by: crate::attention::focus::summary::EndedBy,
+    pub counts: DigestFocusCounts,
+}
+
+impl From<&crate::attention::focus::summary::FocusSummary> for DigestFocus {
+    fn from(s: &crate::attention::focus::summary::FocusSummary) -> Self {
+        Self {
+            line: s.line.clone(),
+            minutes: s.minutes,
+            ended_by: s.ended_by,
+            counts: DigestFocusCounts {
+                turns_done: s.counts.turns_done,
+                agents: s.counts.agents,
+                failed: s.counts.failed,
+                asked: s.counts.asked,
+                urgent: s.counts.urgent,
+                still_waiting: s.counts.still_waiting,
+                held: s.counts.held.total(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Digest {
@@ -52,12 +96,15 @@ pub struct Digest {
     pub turns: u32,
     pub lines: Vec<DigestLine>,
     pub needs_you: Vec<NeedsYou>,
+    /// Set only for the end of a Focus. Absent on the normal "While you were away" digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus: Option<DigestFocus>,
 }
 
 impl Digest {
-    /// Nothing happened while away: show nothing.
+    /// Nothing happened while away: show nothing. An end-of-Focus digest is never empty.
     pub fn is_empty(&self) -> bool {
-        self.lines.is_empty()
+        self.lines.is_empty() && self.focus.is_none()
     }
 }
 
@@ -87,7 +134,7 @@ pub fn build(summaries: &[TurnSummary], needs_you: Vec<NeedsYou>, since_ms: u64,
     // Newest first, so the agent that just stopped is at the top.
     lines.sort_by_key(|l| std::cmp::Reverse(l.ended_at_ms));
     lines.truncate(MAX_LINES);
-    Digest { since_ms, now_ms, agents_worked, turns, lines, needs_you }
+    Digest { since_ms, now_ms, agents_worked, turns, lines, needs_you, focus: None }
 }
 
 /// When each paired phone last looked at its digest, persisted so a restart keeps it.

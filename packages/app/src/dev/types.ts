@@ -77,6 +77,8 @@ export interface HarnessScenario {
   headlessOnlyAgent?: boolean;
   /** Cockpit: start with the "While you were away" digest showing (as after a return). */
   awayDigest?: boolean;
+  /** Cockpit: start with the end-of-Focus digest showing ("While you focused"). Needs no `awayDigest`. */
+  awayFocus?: boolean;
   /** Run info the mocked `pane_run_info` returns per pane id (default: only the example Claude pane has one). */
   runs?: Record<string, import('../lib/cockpit-api').PaneRunInfo>;
   /** Cockpit History: make `checkpoints_list` answer with this state instead of the example list. */
@@ -103,10 +105,14 @@ export interface HarnessScenario {
   missions?: import('./mission-fixtures').MissionScenario;
   /** Keep going: the picker rows, the hand-over lines per pane and the brief the mocked `keep_going_*` commands answer. */
   keepGoing?: import('./keep-going-fixtures').KeepGoingScenario;
+  /** Focus Time: start with a Focus running, or a just-ended summary; the mocked `focus_*` commands then start, extend and end it (see focus-fixtures.ts). */
+  focus?: import('./focus-fixtures').FocusScenario;
   /** Night Shift: what the state, plans and checks the mocked `night_*` commands answer (see night-fixtures.ts). */
   night?: import('./night-fixtures').NightScenario;
   /** Package check: the packages the mocked approval carries and what the mocked `package_check_*` commands answer. */
   packageCheck?: import('./package-check-fixtures').PackageCheckScenario;
+  /** Review Desk: what the mocked `review_desk_*` commands answer (see review-desk-fixtures.ts). */
+  reviewDesk?: import('./review-desk-fixtures').ReviewDeskScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */
   teamConfig?: Partial<import('../lib/team').TeamConfigView>;
   /** Set up agents > Install: what the mocked `agents_install_*` commands answer. */

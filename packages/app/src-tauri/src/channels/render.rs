@@ -22,10 +22,13 @@ pub struct Button {
 }
 
 /// One message to the chat: plain text plus its buttons (one `Vec` per row).
+/// `silent` sends it without a notification sound (Telegram `disable_notification`). Only the
+/// wording and buttons are the same either way; the flag changes how the phone announces it.
 #[derive(Debug, Clone)]
 pub struct Outgoing {
     pub text: Redacted<String>,
     pub keyboard: Vec<Vec<Button>>,
+    pub silent: bool,
 }
 
 /// Clean `raw` for the chat: sanitize, redact secrets and personal paths, mask e-mail addresses,
@@ -65,7 +68,7 @@ pub fn changed_by_redaction(raw: &str) -> bool {
 
 /// A message with no buttons, cleaned with the default cap.
 pub fn plain(raw: &str) -> Outgoing {
-    Outgoing { text: clean(raw, MAX_OUT_CHARS), keyboard: Vec::new() }
+    Outgoing { text: clean(raw, MAX_OUT_CHARS), keyboard: Vec::new(), silent: false }
 }
 
 /// A button with a cleaned label (at most 40 characters). `None` when `data` is over 64 bytes:

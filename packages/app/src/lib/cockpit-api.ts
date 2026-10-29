@@ -207,6 +207,25 @@ export interface NeedsYou {
 }
 
 /** "While you were away": built from turn summaries since the away start. */
+/**
+ * The end-of-Focus summary, when the digest is the one Focus sends (SPEC n33 3.4 D, 3.6 (5)).
+ * `line` is the sentence the person reads. `counts` has numbers only; `held` is the total of pings Focus held.
+ */
+export interface DigestFocus {
+  line: string;
+  minutes: number;
+  endedBy: 'timer' | 'early';
+  counts: {
+    turnsDone: number;
+    agents: number;
+    failed: number;
+    asked: number;
+    urgent: number;
+    stillWaiting: number;
+    held: number;
+  };
+}
+
 export interface Digest {
   sinceMs: number;
   nowMs: number;
@@ -214,6 +233,8 @@ export interface Digest {
   turns: number;
   lines: DigestLine[];
   needsYou: NeedsYou[];
+  /** Set only for the end of a Focus. Absent on the normal "While you were away" digest. */
+  focus?: DigestFocus;
 }
 
 export interface TurnSummaryApi {

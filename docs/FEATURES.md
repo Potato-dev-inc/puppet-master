@@ -47,6 +47,7 @@ Rows marked **obsolete** describe the legacy main-window UI: still in the tree, 
 | Crews (team templates): "Save this team" in the session rail's Helpers card turns a pane and its helpers into a crew (agent per role, first task with the folder as `{folder}`, redacted; edited in a sheet), saved as `<app data>/crews/<slug>.toml`; "Start crew…" in the palette starts a crew in a folder, lead first, each helper under its parent's pane, stopping at the first failure; any registered agent, wizard-added ones included; trust and permission questions of started panes are never answered | `crews/`, `commands/crews.rs`; UI `components/cockpit/crews/`, `lib/crews-api.ts` | experimental |
 | Live Room: share the chat of 1 to 6 panes as a read-only link, end-to-end encrypted through a relay, secrets and folders hidden, stops by time, idle, Stop, panic or app quit; relays: the axum binary and the Cloudflare Worker | `live_room/`, `commands/live_room.rs`, `relay/viewer/`, `relay/worker/src/room.ts`; UI `components/cockpit/live/`, `lib/live-room.ts`; doc [`features/live-room.md`](features/live-room.md) | experimental (no live run on a relay yet) |
 | Home dashboard with an Agents overview card | UI `components/HomeDashboard.tsx`, `AgentsOverviewCard.tsx` | **obsolete** (Overview unreachable) |
+| Review Desk: one list of finished agent work (separate copies, Night Shift tasks, issue runs waiting for the push, turns in your folder), riskiest first, with Keep, Ask to fix and Throw away (10 s Undo). Nothing merges by itself. Doc [`features/review-desk.md`](features/review-desk.md) | `review_desk/`, `commands/review_desk.rs`; UI `components/cockpit/review/`, `lib/review-desk*.ts` | being built (engine and commands on the branch; window, sidebar count, phone route and phone card not wired yet) |
 
 ## 1a. Point and Fix (preview, pick, send)
 
@@ -141,6 +142,23 @@ Full page: [`features/agent-store.md`](features/agent-store.md). Entry points: "
 | Publisher check for npm and PyPI names (network, maintainer, before a release) | `scripts/store-verify-publishers.mjs` | experimental |
 | Known gap: built-in cards (Claude Code, Codex, Cursor Agent, OpenCode) show the vendor name as the title; the four also show the Tested chip with `windows_tested = false` | `agent_store/catalog.rs` (`label`), `catalog/agents/{claude,codex,cursor_agent,opencode}/entry.toml` | gap |
 | Not in the catalog: Amp, Grok CLI, Codebuff (vendor facts not confirmed), Antigravity CLI (no confirmed install source) | `catalog/agents/` | gap |
+
+## 1h. Focus Time (Preview; UI word "Focus")
+
+Full page: [`features/focus-time.md`](features/focus-time.md). Press Focus for 25, 45 or 90 minutes (45 by default) and
+agents keep working. Pings that can wait are held; cards that block an agent still show, and reach the phone and Telegram
+without a buzz. One summary at the end. A person starts it; no agent can.
+
+| Feature | Where | Status |
+|---|---|---|
+| Focus note at the top of the Inbox: chips, `Focus · 31 min left`, `+15 min`, `End Focus` | `components/cockpit/FocusNote.tsx`, mounted in `Inbox.tsx` | experimental (live check not run) |
+| Sidebar pill while on (`Focus 31m`, menu with `+15 min` and `End Focus`); palette rows; tray `Focus` submenu and tooltip | `FocusPill.tsx`, `palette-focus.ts`, `tray.rs` | experimental |
+| Three tiers: Hold (run ends, companion replies, the Night Shift push), Quiet (blocking cards: trust, questions, limits, medium and low approvals; phone and Telegram without a buzz), Through (stuck runs, budget, high-risk approval, consent, tamper, answers) | `attention/focus/policy.rs` | experimental |
+| One reminder after 20 minutes for a quiet card still open (counts only; only while the quiet switch is on) | `attention/focus/nudge.rs`, `scan.rs` | experimental |
+| End summary: one desktop card `While you focused`, one phone push `Focus is over` (counts only), one Telegram note; an empty session shows nothing | `attention/focus/summary.rs`, `turn_summary/`, `push/focus.rs`, `channels/notify.rs` | experimental |
+| Phone bar at the top of the All view: start, `End`, the end summary with `Got it`; the phone reads counts only | `components/mobile/FocusBar.tsx`, `bridge/routes/focus.rs` (`GET /focus`, `POST /focus/start|extend|end`) | experimental |
+| Settings > General > Focus Time: default length and the quiet switch | `components/settings/blocks/FocusSettings.tsx`, `commands/focus.rs` | experimental |
+| Restart: resumes inside the window; the summary waits after the end; a damaged state file means Focus off | `attention/focus/live.rs`, `store.rs` | experimental |
 
 ## 2. Orchestrator sidebar and coordination
 

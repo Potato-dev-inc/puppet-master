@@ -102,6 +102,7 @@ mod settings_store;
 mod settings_patch;
 mod shell_env;
 mod startup_timing;
+mod review_desk;
 mod tamper;
 pub mod shell_exec;
 mod standby;
@@ -435,6 +436,12 @@ pub fn run() {
             commands::pane_prompt,
             commands::answer_pane_prompt,
             commands::attention_snapshot,
+            commands::focus_state,
+            commands::focus_start,
+            commands::focus_extend,
+            commands::focus_end,
+            commands::focus_settings_set,
+            commands::focus_summary_dismiss,
             commands::checkpoints_list,
             commands::checkpoint_diff,
             commands::checkpoint_restore,
@@ -484,6 +491,13 @@ pub fn run() {
             commands::issue_intake_check_folder,
             commands::issue_intake_act,
             commands::issue_intake_poll_now,
+            commands::review_desk_list,
+            commands::review_desk_count,
+            commands::review_desk_detail,
+            commands::review_desk_keep,
+            commands::review_desk_throw_away,
+            commands::review_desk_unmark,
+            commands::review_desk_fix,
             commands::worktree_list,
             commands::worktree_diff,
             commands::second_opinion_agents,
@@ -717,6 +731,8 @@ pub fn run() {
             panic::init_shortcut(app.handle());
             turn_summary::start_presence();
             attention::init();
+            // Focus: load the saved state (resume or end it), then start the tick thread. Once, here.
+            attention::focus::live::start(app.handle());
             askbar::glue::init(app.handle());
             team::init(app.handle().clone(), registry_for_panes.clone());
             issue_intake::live::start(registry_for_panes.clone(), app.handle().clone());

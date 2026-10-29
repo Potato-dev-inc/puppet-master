@@ -29,6 +29,7 @@ mod coordination;
 mod diagnostics;
 mod loop_guard;
 mod attention;
+mod focus;
 mod mcp;
 mod one_brain;
 mod opencode_keys;
@@ -58,18 +59,20 @@ mod keep_going;
 mod tunnel;
 mod toolbelt;
 mod agent_pack;
-mod point;
+pub(crate) mod point;
 mod channels;
 mod live_room;
 pub(crate) mod night;
 mod issue_intake;
 mod package_check;
+mod review_desk;
 
 pub use agent_install::*;
 pub use agent_store::*;
 pub use agent_wizard::*;
 pub use agent_models::*;
 pub use attention::*;
+pub use focus::*;
 pub use agents::*;
 pub use ambient::*;
 pub use askbar::*;
@@ -122,6 +125,7 @@ pub use live_room::*;
 pub use night::*;
 pub use issue_intake::*;
 pub use package_check::*;
+pub use review_desk::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{
