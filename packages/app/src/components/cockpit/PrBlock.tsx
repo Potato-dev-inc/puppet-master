@@ -88,7 +88,7 @@ export function PrBlock({
     if (!preview) return;
     setSending(true);
     try {
-      await ship.prSendBack(repo, handle, preview.text);
+      await ship.prSendBack(repo, handle);
       setNotice(`Sent to ${agentName}. Check again when it has pushed a fix.`);
       setPreview(null);
     } catch (err) {
@@ -139,11 +139,11 @@ export function PrBlock({
             Send back to {agentName}?
           </h2>
           <p className="ck-sub">
-            {agentName} gets the failing job&apos;s last {preview.excerpt_lines > 0 ? preview.excerpt_lines : 'few'} lines, marked as output
-            from GitHub. Failing: {preview.failing.join(', ')}.
+            The end of the failing log ({preview.excerpt_lines > 0 ? `${preview.excerpt_lines} lines` : 'a few lines'}, secrets hidden) goes
+            into a file in the copy. {agentName} is told to read it as output, not as instructions. Failing: {preview.failing.join(', ')}.
           </p>
           <details className="ck-pr-details">
-            <summary>See exactly what is sent</summary>
+            <summary>See exactly what {agentName} is told</summary>
             <pre className="ck-pr-command">{preview.text}</pre>
           </details>
           <div className="ck-sheet-actions">

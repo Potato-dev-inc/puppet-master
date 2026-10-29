@@ -9,7 +9,7 @@
 //! app never reads room data from the relay except the two numbers of a `RoomStatus`.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Condvar, Mutex as StdMutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -144,11 +144,19 @@ struct Shared {
     status: Mutex<LiveStatus>,
     /// The link, until the room ends.
     link: Mutex<Option<String>>,
+    /// Set before the last status event goes out: from then on the room takes no command and has no link.
+    ending: AtomicBool,
     done: StdMutex<bool>,
     ended: Condvar,
 }
 
 impl Shared {
+    /// The room is over for everyone who asks (commands, the link), before any window hears it.
+    fn end_for_askers(&self) {
+        self.ending.store(true, Ordering::SeqCst);
+        *self.link.lock() = None;
+    }
+
     fn finish(&self) {
         *self.link.lock() = None;
         *self.done.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -232,11 +240,12 @@ impl LiveRoomState {
         result
     }
 
-    /// Takes the slot for a start. A room that ended by itself leaves its slot behind; that one is free.
+    /// Takes the slot for a start. A room that ended by itself leaves its slot behind; that one is free, from the moment
+    /// it has told the windows (its thread is then only cleaning up its own `active.json`, which a new room's file survives).
     fn claim(&self) -> Result<(), String> {
         let mut slot = self.inner.slot.lock();
         match &*slot {
-            Slot::Running(running) if !running.shared.is_done() => return Err(ALREADY_RUNNING.to_string()),
+            Slot::Running(running) if !running.shared.is_done() && !running.shared.ending.load(Ordering::SeqCst) => return Err(ALREADY_RUNNING.to_string()),
             Slot::Starting => return Err(ALREADY_RUNNING.to_string()),
             _ => {}
         }
@@ -283,6 +292,7 @@ impl LiveRoomState {
         let shared = Arc::new(Shared {
             status: Mutex::new(initial.clone()),
             link: Mutex::new(Some(link)),
+            ending: AtomicBool::new(false),
             done: StdMutex::new(false),
             ended: Condvar::new(),
         });
@@ -340,7 +350,7 @@ impl LiveRoomState {
 
     fn send(&self, cmd: Cmd) -> Result<(), String> {
         match &*self.inner.slot.lock() {
-            Slot::Running(running) if !running.shared.is_done() => {
+            Slot::Running(running) if !running.shared.is_done() && !running.shared.ending.load(Ordering::SeqCst) => {
                 running.tx.send(cmd).map_err(|_| NOT_RUNNING.to_string())
             }
             _ => Err(NOT_RUNNING.to_string()),
@@ -438,8 +448,10 @@ fn run<S: Source, K: Sink>(
         let status = publisher.status();
         let ended = status.stopped.is_some();
         if ended {
-            // Before the last event, so a window or the tray that reacts to it sees no room.
+            // Before the last event, so a window or the tray that reacts to it sees no room (and no link, and a
+            // pause or resume it sends is refused).
             RUNNING.fetch_sub(1, Ordering::SeqCst);
+            shared.end_for_askers();
         }
         if status != last {
             *shared.status.lock() = status.clone();

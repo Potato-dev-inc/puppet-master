@@ -43,6 +43,20 @@ use tracker::{Env, PaneInfo, Tracker};
 /// How long a finished turn waits for its "after" checkpoint before the summary is built anyway.
 const SETTLE_TIMEOUT: Duration = Duration::from_secs(25);
 
+/// `SETTLE_TIMEOUT`, in milliseconds, unless the end-to-end harness changed it.
+static SETTLE_TIMEOUT_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(SETTLE_TIMEOUT.as_millis() as u64);
+
+fn settle_timeout() -> Duration {
+    Duration::from_millis(SETTLE_TIMEOUT_MS.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The end-to-end harness (`fake_tui`) waits longer for the checkpoint: on a machine starved of CPU the git work
+/// behind it took longer than 25 s, the summary was then built without the files and a test that read them failed.
+#[cfg(feature = "dev-fake-tui")]
+pub fn set_settle_timeout_for_e2e(timeout: Duration) {
+    SETTLE_TIMEOUT_MS.store(timeout.as_millis() as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -190,7 +204,7 @@ pub fn on_pane_status(pane_id: &str, status: &str) {
     let in_flight = summary_in_flight(&ended.pane_id);
     let spawned = std::thread::Builder::new().name("pm-turn-summary".into()).spawn(move || {
         let _in_flight = in_flight;
-        if let Some(summary) = summarize(tracker(), &SETTLE, ended, ticket, SETTLE_TIMEOUT) {
+        if let Some(summary) = summarize(tracker(), &SETTLE, ended, ticket, settle_timeout()) {
             publish(&summary);
         }
     });

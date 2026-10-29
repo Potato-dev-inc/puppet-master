@@ -12,6 +12,7 @@ use pm_relay_protocol::b64;
 use pm_relay_protocol::room::RoomFrame;
 
 use super::*;
+use crate::live_room::pin::ChatShare;
 use crate::live_room::publisher::PaneNow;
 use crate::live_room::seal::open;
 use crate::pty::status::PaneStatus;
@@ -82,6 +83,7 @@ impl Source for FakeSource {
             activity: None,
             pending_card: false,
             screen_source: false,
+            chat: ChatShare::Shared,
         }]
     }
 
@@ -99,8 +101,10 @@ fn user(text: &str) -> ChatItem {
     ChatItem::User { id: "u".into(), at: None, text: text.into() }
 }
 
+/// A hang detector, not a time limit: the room ticks and talks to a relay on its own threads, and a machine running
+/// the whole suite stretches every one of those steps.
 fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(90);
     while !done() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
         std::thread::sleep(Duration::from_millis(10));
@@ -285,12 +289,44 @@ fn a_room_whose_panes_all_closed_ends_by_itself_and_frees_the_slot() {
     wait_until("the room to end", || seen.lock().last().is_some_and(|s| s.stopped.as_deref() == Some("all_panes_closed")));
     // Until the next start the status still says why.
     assert_eq!(state.status().stopped.as_deref(), Some("all_panes_closed"));
-    assert!(state.link().is_err(), "the link is dropped when the room ends");
+    // The last event goes out just before the slot moves to its ended state, so wait for that step.
+    wait_until("the link to drop", || state.link().is_err());
     assert!(state.pause().is_err());
     wait_until("active.json gone", || !active::path(&dir).exists());
     source.0.lock().gone = false;
     state.start_ticking(&env, &request(60, 5), vec![PANE.into()], source, TICK_FAST).expect("a new room");
     state.stop_all(StopReason::Owner);
+}
+
+#[test]
+fn a_window_that_hears_the_room_has_ended_finds_no_link_and_no_command_taken() {
+    // The last status event goes out from the room's own thread; a window or the tray reacting to it at once asks
+    // for the link or presses pause. Both must already be refused (the ending was published first, the cleanup
+    // after it, so a test that looked a moment later passed and one that looked at once did not).
+    let (_addr, relay) = relay();
+    let dir = temp_dir();
+    let state = LiveRoomState::default();
+    let heard: Arc<Mutex<Vec<(bool, bool)>>> = Arc::new(Mutex::new(Vec::new()));
+    let emit: Emit = {
+        let (state, heard) = (state.clone(), heard.clone());
+        Arc::new(move |status: &LiveStatus| {
+            if status.stopped.is_some() {
+                heard.lock().push((state.link().is_err(), state.pause().is_err()));
+            }
+        })
+    };
+    let env = Env { data_dir: dir.clone(), relay, emit, ctx: ctx() };
+    let source = FakeSource::default();
+    state.start_ticking(&env, &request(60, 5), vec![PANE.into()], source.clone(), TICK_FAST).expect("start");
+    source.0.lock().gone = true;
+    wait_until("the room to end", || !heard.lock().is_empty());
+    assert_eq!(*heard.lock(), [(true, true)], "(no link, pause refused) at the moment of the last event");
+    // The slot is free as soon as the windows heard it, before the room's thread has cleaned up (this start came
+    // back "already running" on a starved machine).
+    source.0.lock().gone = false;
+    state.start_ticking(&env, &request(60, 5), vec![PANE.into()], source, TICK_FAST).expect("a new room at once");
+    state.stop_all(StopReason::Owner);
+    wait_until("active.json gone", || !active::path(&dir).exists());
 }
 
 #[test]

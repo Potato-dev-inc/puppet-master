@@ -247,7 +247,9 @@ fn a_long_multi_line_message_to_a_slow_loaded_pane_is_submitted_whole() {
         r#"
 agent = "claude"
 boot_ms = 2500
-paste_burst_ms = 40
+# Enters closer than this to the last typed key are line breaks of a paste. Wider than the fake reads can be apart on
+# a starved machine (40 ms was crossed by a gap between two reads); the product waits 390 ms before its own Enter.
+paste_burst_ms = 150
 paste_burst_effect = "newline"
 input_keys_per_turn = 4
 no_paste_collapse = true
@@ -262,10 +264,10 @@ steps = [
     let pane = session.spawn_pane("fake_claude").expect("a pane");
     let outbox = session.outbox();
     let message = outbox.send(&pane, POINT_MESSAGE).expect("accepted");
-    let sent = session.until(120, || Some(find(&outbox, &pane, &message.id)).filter(|m| matches!(m.state, State::Sent | State::Failed)));
+    let sent = session.until(300, || Some(find(&outbox, &pane, &message.id)).filter(|m| matches!(m.state, State::Sent | State::Failed)));
     let sent = sent.unwrap_or_else(|| panic!("the message never settled: {:?}\n{}", find(&outbox, &pane, &message.id), session.screen(&pane)));
     assert_eq!(sent.state, State::Sent, "{sent:?}\n-- screen:\n{}", session.screen(&pane));
-    session.until(60, || turn_ends(&session, 1)).unwrap_or_else(|| panic!("the turn never started\n{}", session.screen(&pane)));
+    session.until(300, || turn_ends(&session, 1)).unwrap_or_else(|| panic!("the turn never started\n{}", session.screen(&pane)));
     let seen = prompts(&session);
     assert_eq!(seen, [POINT_MESSAGE], "the whole message, once: {seen:?}");
 }

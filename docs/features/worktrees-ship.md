@@ -75,7 +75,12 @@ refused with a plain message. With a PR already open the same button becomes "Up
 
 `gh pr checks --json` (exit codes 1 and 8 still carry JSON), polled a bounded number of times from the Changes
 tab (30 looks, each waiting up to 20 s in the backend). On a failure, "Send back to <agent>" first shows the
-exact text ("last 40 lines, marked as output from GitHub", fenced as data, one line), and sends only after Send.
+exact task (one fixed line that points at a file; no log line, no check name), and sends only after Send. The
+log is untrusted: Puppet Master writes its last 40 lines to `.puppet-master/ci-<pr>-sendback.md` in the copy
+(ANSI and invisible characters removed, secrets and e-mail addresses masked, home folder as `~`, lines cut at
+400 characters, fenced as data). It only sends to an agent run under the `no_push` guard, in a pane inside that
+copy; any other pane is refused with a plain message ("could push to GitHub"). Red to Green (SPEC n33) will
+replace this with a new guarded run.
 
 ## Evidence
 

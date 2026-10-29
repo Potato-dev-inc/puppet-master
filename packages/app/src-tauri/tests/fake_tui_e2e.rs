@@ -59,7 +59,17 @@ fn wait_for(session: &Session, handle: &str, until: &[&str], secs: u64) -> Value
 /// Starts a run and waits until it is finished or parked on something.
 fn run_until_stopped(session: &Session, agent: &str, task: &str, extra: Value) -> Value {
     let started = start(session, agent, task, extra);
-    wait_for(session, &handle_of(&started), STOPPED, 90)
+    // A hang detector: the run's own limit (`Session::run`, 600 s) ends a stuck one first. One wait is at most
+    // 300 s (the route refuses more), so it waits in slices.
+    let handle = handle_of(&started);
+    let mut view = wait_for(session, &handle, STOPPED, 240);
+    for _ in 0..2 {
+        if STOPPED.contains(&status(&view)) {
+            break;
+        }
+        view = wait_for(session, &handle, STOPPED, 240);
+    }
+    view
 }
 
 fn event_names(session: &Session) -> Vec<String> {
@@ -111,13 +121,21 @@ steps = [
     // transitions and the checkpoint taken after the turn.
     let pane = done["pane_id"].as_str().expect("the run had a pane").to_string();
     let summary = session
-        .until(40, || {
+        .until(320, || {
             let all = session.turn_summaries(&pane);
             all.as_array().filter(|list| !list.is_empty()).map(|list| list[0].clone())
         })
         .unwrap_or_else(|| explain(&session, &done, "no turn summary was recorded"));
     assert_eq!(summary["turn"], 1, "{summary}");
-    assert_eq!(summary["files"]["paths"], json!(["hello.txt"]), "{summary}");
+    assert_eq!(
+        summary["files"]["paths"],
+        json!(["hello.txt"]),
+        "{summary}
+-- every summary of the pane: {}
+-- fake events: {:#?}",
+        session.turn_summaries(&pane),
+        session.events()
+    );
     assert_eq!(summary["end"]["kind"], "idle", "{summary}");
     assert_eq!(summary["approvals"], json!([]), "{summary}");
     assert!(summary["sentence"].as_str().unwrap_or_default().contains("edited 1 file"), "{summary}");

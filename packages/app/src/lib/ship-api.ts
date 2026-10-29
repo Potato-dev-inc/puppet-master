@@ -98,6 +98,7 @@ export interface PrPrepared {
 }
 
 export interface SendBackPreview {
+  /** The fixed task: it points at a file and holds no log line. */
   text: string;
   failing: string[];
   excerpt_lines: number;
@@ -132,8 +133,9 @@ export const shipApi = {
     call<PrRef>('worktree_pr_checks', { projectPath, handle, waitSecs }),
   prSendBackPreview: (projectPath: string | null, handle: string) =>
     call<SendBackPreview>('worktree_pr_send_back_preview', { projectPath, handle }),
-  prSendBack: (projectPath: string | null, handle: string, text: string) =>
-    call<{ route: 'run' | 'pane'; target: string }>('worktree_pr_send_back', { projectPath, handle, text }),
+  /** Rust writes the cleaned log into the copy and makes the task; no text comes from here. */
+  prSendBack: (projectPath: string | null, handle: string) =>
+    call<{ route: 'run' | 'pane'; target: string }>('worktree_pr_send_back', { projectPath, handle }),
   openUrl: (url: string) => (isTauri() ? invoke<void>('open_external_url', { url }) : Promise.resolve()),
 };
 
