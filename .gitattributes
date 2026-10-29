@@ -40,6 +40,7 @@ packages/app/src-tauri/src/tui/**/fixtures/*.ansi -text
 
 # Codex trust-dialog captures: read through include_str! and split on newlines, keep them LF.
 packages/app/src-tauri/src/tui/codex/fixtures/trust_folder_*.txt text eol=lf
+packages/app/src-tauri/src/tui/*/fixtures/*.txt text eol=lf
 
 # OpenCode screen captures (rows read through the terminal emulator): keep them LF.
 packages/app/src-tauri/src/tui/opencode/fixtures/screen_*.txt text eol=lf

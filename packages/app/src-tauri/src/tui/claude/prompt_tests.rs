@@ -299,9 +299,11 @@ fn picking_a_theme_moves_the_pointer_from_dark_mode() {
 
 #[test]
 fn the_theme_picker_keeps_one_id_when_the_pointer_moves() {
-    let moved = FIRST_THEME.replace("❯ ✔ Dark mode", "  ✔ Dark mode").replace("     Light mode\n", " ❯   Light mode\n");
-    assert_ne!(moved, FIRST_THEME);
-    let (a, b) = (detect(FIRST_THEME, false), detect(&moved, false));
+    // Normalized first, so a CRLF checkout of the fixture reads the same as an LF one.
+    let theme = FIRST_THEME.replace("\r\n", "\n");
+    let moved = theme.replace("❯ ✔ Dark mode", "  ✔ Dark mode").replace("     Light mode\n", " ❯   Light mode\n");
+    assert_ne!(moved, theme);
+    let (a, b) = (detect(&theme, false), detect(&moved, false));
     assert_eq!(b["menu"]["selected"], 3);
     assert_eq!(a["identity"], b["identity"]);
     assert_eq!(b["labels"]["2"], "Dark mode");
@@ -403,6 +405,6 @@ fn every_first_run_screen_reaches_the_card_through_the_shared_detector() {
         assert!(ui.choices.iter().all(|c| !c.broad));
     }
     // A narrow pane wraps the preview into more rows; the picker is still found.
-    let narrow = FIRST_THEME.replace("Hello, World!", "Hello, World! Hello, World! Hello, World!\n  Hello, World! Hello").repeat(1);
+    let narrow = FIRST_THEME.replace("\r\n", "\n").replace("Hello, World!", "Hello, World! Hello, World! Hello, World!\n  Hello, World! Hello").repeat(1);
     assert!(crate::pane_prompt::detect_in_screen("claude", &narrow, false).is_some());
 }
