@@ -3,6 +3,7 @@
 import { AccountsGroup } from '../accounts/AccountsGroup';
 import { AgentDefinitions } from '../blocks/AgentDefinitions';
 import { AgentVersions } from '../blocks/AgentVersions';
+import { COLLISION_LABEL, CollisionSettings } from '../blocks/CollisionSettings';
 import { PreloadSettings } from '../blocks/PreloadSettings';
 import { useEffect, useState } from 'react';
 import { agentHealthApi, type AgentHealth } from '../../../lib/agent-health';
@@ -118,6 +119,14 @@ export const agentsRows: RowDef[] = [
     keywords: 'linux wsl ubuntu distro subsystem runs on place check windows drive inside',
     group: 'Linux',
     render: (env) => <LinuxRows onSaved={env.markSaved} />,
+  },
+  {
+    id: 'collision',
+    label: COLLISION_LABEL,
+    hint: 'Puppet Master warns you when two agents change the same file. It never pauses or stops an agent.',
+    keywords: 'collision clash conflict same file two agents overlap warn warning changed lines copies folder alert',
+    group: 'Same file',
+    render: (env) => <CollisionSettings onSaved={env.markSaved} />,
   },
   {
     id: 'definitions',

@@ -6,6 +6,8 @@ use std::ffi::OsStr;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub(super) struct GitOut {
@@ -99,4 +101,90 @@ pub(super) fn git_limited(
         }
     }
     Ok((text, truncated))
+}
+
+/// `git <args>` in `dir` with extra env, stdout capped at `max` bytes and a deadline of
+/// `timeout_ms`. Returns `(text, truncated, timed_out)`; see [`run_capped`].
+pub(super) fn git_capped_env(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, &OsStr)],
+    max: usize,
+    timeout_ms: u64,
+) -> Result<(String, bool, bool), OperationError> {
+    run_capped(command(dir, args, env), max, timeout_ms)
+}
+
+/// Run `cmd` with its stdout piped (stderr dropped) and capped at `max` bytes, and wait at most
+/// `timeout_ms`. Stdout is read on its own thread, so a child that goes quiet cannot block the
+/// wait. At the cap the child is killed and the text is cut (`truncated`). At the deadline the
+/// child is killed and nothing is returned (`timed_out`). A child that exits non-zero on its own
+/// is `GIT_FAILED`. Taking the command as a parameter is the test seam for the kill path.
+pub(super) fn run_capped(
+    mut cmd: Command,
+    max: usize,
+    timeout_ms: u64,
+) -> Result<(String, bool, bool), OperationError> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut child = cmd.spawn().map_err(unavailable)?;
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    let stdout = child.stdout.take();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(out) = stdout {
+            // one byte past the cap, so the reader can tell "exactly at the cap" from "over it"
+            let _ = out.take(max as u64 + 1).read_to_end(&mut buf);
+        }
+        let _ = tx.send(buf);
+    });
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    let mut got: Option<Vec<u8>> = None;
+    loop {
+        if got.is_none() {
+            if let Ok(buf) = rx.try_recv() {
+                got = Some(buf);
+            }
+        }
+        if got.as_ref().is_some_and(|buf| buf.len() > max) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let (text, truncated) = finish(got.take().unwrap_or_default(), max);
+            return Ok((text, truncated, false));
+        }
+        if let Some(status) = child.try_wait().map_err(unavailable)? {
+            if got.is_none() {
+                let left = deadline.saturating_duration_since(Instant::now());
+                match rx.recv_timeout(left) {
+                    Ok(buf) => got = Some(buf),
+                    Err(RecvTimeoutError::Timeout) => return Ok((String::new(), false, true)),
+                    Err(RecvTimeoutError::Disconnected) => got = Some(Vec::new()),
+                }
+            }
+            let (text, truncated) = finish(got.take().unwrap_or_default(), max);
+            if truncated || status.success() {
+                return Ok((text, truncated, false));
+            }
+            return Err(OperationError::new("GIT_FAILED", "git stopped with an error", false));
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok((String::new(), false, true));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The captured bytes as text, cut at `max` bytes on a char boundary, and whether they were cut.
+fn finish(mut buf: Vec<u8>, max: usize) -> (String, bool) {
+    let truncated = buf.len() > max;
+    buf.truncate(max);
+    let mut text = String::from_utf8_lossy(&buf).into_owned();
+    if truncated {
+        // lossy decoding may have ended on a replacement char from a cut sequence
+        while text.ends_with('\u{FFFD}') {
+            text.pop();
+        }
+    }
+    (text, truncated)
 }

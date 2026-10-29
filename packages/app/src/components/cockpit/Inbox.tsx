@@ -23,6 +23,7 @@ import { focusWithRing } from './InboxCard';
 import { handleInboxKey, isEditable } from './inbox-keys';
 import { TeamSection } from './team/TeamSection';
 import { MissionsSection, readyMissions } from './mission/MissionCards';
+import { CollisionSection } from './CollisionSection';
 import { useMissions } from '../../lib/missions';
 import { useFocus } from '../../hooks/useFocus';
 import { FocusNote } from './FocusNote';
@@ -296,6 +297,7 @@ export function Inbox({
       )}
 
       <MissionsSection missions={missions.missions} onChanged={missions.reload} onOpenPane={(id) => c.select(id)} onNotify={c.notify} foldReady={folding} />
+      <CollisionSection select={(id) => c.select(id)} hasPane={(id) => c.registry.panes.has(id)} />
 
       <AskNotices />
       <CanaryNotices />

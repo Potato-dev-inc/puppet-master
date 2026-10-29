@@ -121,6 +121,7 @@ pub mod env_probe;
 mod webview_service_worker;
 mod live_room;
 mod wsl;
+mod collision;
 
 use commands::AppState;
 use std::path::{Path, PathBuf};
@@ -529,6 +530,10 @@ pub fn run() {
             commands::ci_fix_act,
             commands::ci_fix_log,
             commands::ci_fix_poll_now,
+            commands::collision_list,
+            commands::collision_ignore,
+            commands::collision_settings_get,
+            commands::collision_settings_set,
             commands::worktree_list,
             commands::worktree_diff,
             commands::second_opinion_agents,

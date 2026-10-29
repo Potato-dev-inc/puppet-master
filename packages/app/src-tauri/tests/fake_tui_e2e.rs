@@ -1262,3 +1262,7 @@ mod ci_fix;
 
 #[path = "fake_tui_branch.rs"]
 mod branch;
+// ---- Collision Alert: two agents, one file, an early heads-up (fake agents, real git, zero tokens) -----------------
+
+#[path = "fake_tui_collision.rs"]
+mod collision;

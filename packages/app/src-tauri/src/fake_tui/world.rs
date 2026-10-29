@@ -920,3 +920,43 @@ impl Session {
         super::NightRig::new(self.world.registry.clone(), self.project.clone())
     }
 }
+
+/// Collision Alert (SPEC n33 CA-16): what the Inbox card, the phone item and the settings row read, off the real
+/// watch thread (`collision::live`) and the real attention list.
+impl Session {
+    /// `collision_list`: the alerts the window shows, as the window gets them (camelCase JSON), newest first.
+    pub fn collision_list(&self) -> Vec<Value> {
+        crate::collision::live::views().iter().filter_map(|v| serde_json::to_value(v).ok()).collect()
+    }
+
+    /// `collision_ignore` (the command validates the id first; ids here come from `collision_list`).
+    pub fn collision_ignore(&self, id: &str) -> Result<(), String> {
+        crate::collision::live::ignore(id)
+    }
+
+    /// Settings > Agents > "Warn me when two agents change the same file".
+    pub fn collision_set_enabled(&self, enabled: bool) {
+        crate::collision::live::set_settings(crate::collision::model::Settings { enabled }).expect("save collision.json");
+    }
+
+    /// The git calls the watch thread's probe has made so far.
+    pub fn collision_probe_calls(&self) -> u64 {
+        crate::collision::live::probe_calls_for_e2e()
+    }
+
+    /// The open attention items a paired phone gets for Collision Alert (key contains `collision:`), as JSON.
+    pub fn collision_attention_items(&self) -> Vec<Value> {
+        crate::attention::snapshot_now()
+            .items
+            .iter()
+            .filter(|item| item.state == crate::attention::model::State::Open && item.key.contains("collision:"))
+            .filter_map(|item| serde_json::to_value(item).ok())
+            .collect()
+    }
+
+    /// The numbers on the Inbox and the phone: (needs you now, ready for you).
+    pub fn attention_counts(&self) -> (u32, u32) {
+        let counts = crate::attention::snapshot_now().counts;
+        (counts.blocking, counts.ready)
+    }
+}

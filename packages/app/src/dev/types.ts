@@ -109,6 +109,8 @@ export interface HarnessScenario {
   focus?: import('./focus-fixtures').FocusScenario;
   /** Branch from here: what the mocked `branch_lineage` and `branch_brief` commands answer (see branch-fixtures.ts). */
   branch?: import('./branch-fixtures').BranchScenario;
+  /** Collision Alert: the alerts and the switch the mocked `collision_*` commands answer (see collision-fixtures.ts). */
+  collision?: import('./collision-fixtures').CollisionScenario;
   /** Night Shift: what the state, plans and checks the mocked `night_*` commands answer (see night-fixtures.ts). */
   night?: import('./night-fixtures').NightScenario;
   /** Package check: the packages the mocked approval carries and what the mocked `package_check_*` commands answer. */

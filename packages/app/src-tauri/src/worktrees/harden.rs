@@ -10,9 +10,12 @@
 //! [`config_snapshot`] records what git would run (the config and the hook files). Callers keep the
 //! snapshot taken when the run starts and compare it before the push card and again right before the
 //! push: any difference means no push.
+//!
+//! [`read`] is the read-only path for a copy that an agent may be working in (spec n33 CA-2): a
+//! fixed list of commands, refused options, a size cap and a deadline, and never `index.lock`.
 
 use crate::operations::OperationError;
-use super::git::git_raw;
+use super::git::{git_capped_env, git_raw};
 use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -358,3 +361,103 @@ pub fn commit_count(dir: &Path, base: &str, env: &[(String, String)]) -> Result<
         .parse()
         .map_err(|_| OperationError::new("GIT_FAILED", "git gave no commit count", false))
 }
+/// What [`read`] returns: the stdout, and whether the output cap cut it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadOut {
+    pub text: String,
+    pub truncated: bool,
+}
+
+/// The only git commands [`read`] runs: three plumbing reads, and `diff` (always with textconv
+/// and external diff off). None of them takes `.git/index.lock` once `GIT_OPTIONAL_LOCKS=0`.
+const READ_COMMANDS: [&str; 4] = ["diff-index", "ls-files", "rev-parse", "diff"];
+
+/// A read of a copy that PM runs while an agent may be working in it (spec n33 CA-2, threats C1
+/// and C2). The command must be one of [`READ_COMMANDS`]; the caller's arguments are checked by
+/// [`read_argv`]. The env must be a hardened one from [`git_env`]. For `diff-index` and `diff`
+/// the repo's own filter drivers are blanked too (see [`with_filters_off`]), because a clean
+/// filter runs while git hashes a changed file. `GIT_OPTIONAL_LOCKS=0` is always added, so the
+/// read never takes `index.lock` or rewrites the index. Stdout is capped at `max_bytes`, and the
+/// git process is killed at `timeout_ms`.
+pub fn read(
+    dir: &Path,
+    args: &[&str],
+    env: &[(String, String)],
+    max_bytes: usize,
+    timeout_ms: u64,
+) -> Result<ReadOut, OperationError> {
+    if env.is_empty() {
+        return Err(refuse("a read needs the hardened git env".to_string()));
+    }
+    let argv = read_argv(args)?;
+    let command = argv[0].clone();
+    let mut hardened = if matches!(command.as_str(), "diff-index" | "diff") {
+        with_filters_off(dir, env)?
+    } else {
+        env.to_vec()
+    };
+    hardened.push(("GIT_OPTIONAL_LOCKS".to_string(), "0".to_string()));
+    let words: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let (text, truncated, timed_out) = git_capped_env(dir, &words, &refs(&hardened), max_bytes, timeout_ms)
+        .map_err(|error| match error.code.as_str() {
+            "GIT_FAILED" => OperationError::new("GIT_FAILED", format!("git {command} failed"), false),
+            _ => error,
+        })?;
+    if timed_out {
+        return Err(OperationError::new(
+            "GIT_TIMEOUT",
+            format!("git {command} took longer than {timeout_ms} ms"),
+            true,
+        ));
+    }
+    Ok(ReadOut { text, truncated })
+}
+
+/// The argv for a [`read`]: the command, the flags PM always adds, then the caller's arguments.
+/// Refuses an unknown command, a NUL byte, and the options that write a file, leave the repo or
+/// run a program. Pure, so the rules are tested without git.
+fn read_argv(args: &[&str]) -> Result<Vec<String>, OperationError> {
+    let Some((&command, rest)) = args.split_first() else {
+        return Err(refuse("a read needs a git command".to_string()));
+    };
+    if !READ_COMMANDS.contains(&command) {
+        return Err(refuse(format!("git {command} is not a read Puppet Master makes")));
+    }
+    if let Some(arg) = args.iter().find(|arg| arg.contains('\0')) {
+        return Err(refuse(format!("a git argument has a NUL byte: {arg:?}")));
+    }
+    if let Some(arg) = rest.iter().find(|arg| refused_option(arg)) {
+        return Err(refuse(format!("git {command} does not take {arg}")));
+    }
+    let mut argv = vec![command.to_string()];
+    argv.extend(forced_flags(command).iter().map(|flag| flag.to_string()));
+    argv.extend(rest.iter().map(|arg| arg.to_string()));
+    Ok(argv)
+}
+
+/// Options a [`read`] refuses from its caller: `--no-index` (reads outside the repo), `--output*`
+/// and `-O` (write a file or read an order file), `--ext-diff` and `--textconv` (run a program),
+/// and a pager.
+fn refused_option(arg: &str) -> bool {
+    matches!(arg, "--no-index" | "--ext-diff" | "--textconv" | "--open-files-in-pager")
+        || arg.starts_with("--open-files-in-pager=")
+        || arg.starts_with("--output")
+        || arg.starts_with("-O")
+}
+
+/// The flags [`read`] puts right after the command. Textconv is always off for both diffs; the
+/// external diff, colour and rename flags are fixed for `diff`, so its output is stable to parse.
+fn forced_flags(command: &str) -> &'static [&'static str] {
+    match command {
+        "diff-index" => &["--no-textconv"],
+        "diff" => &["--no-textconv", "--no-ext-diff", "--no-color", "--no-renames"],
+        _ => &[],
+    }
+}
+
+fn refuse(message: String) -> OperationError {
+    OperationError::new("INVALID_ARGUMENT", message, false)
+}
+
+#[cfg(test)]
+mod tests;

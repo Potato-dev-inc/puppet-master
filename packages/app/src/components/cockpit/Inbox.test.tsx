@@ -13,6 +13,12 @@ import { Inbox } from './Inbox';
 const settings = vi.hoisted(() => ({ patchSettings: vi.fn(() => Promise.resolve({})) }));
 vi.mock('../../lib/settings', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../lib/settings')>()), patchSettings: settings.patchSettings }));
 
+const collision = vi.hoisted(() => ({ list: vi.fn((): Promise<unknown[]> => Promise.resolve([])) }));
+vi.mock('../../lib/collision', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/collision')>()),
+  tauriCollisionApi: { list: collision.list, ignore: vi.fn(), settingsGet: vi.fn(), settingsSet: vi.fn(), onChanged: () => Promise.resolve(() => {}) },
+}));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let host: HTMLDivElement;
@@ -382,5 +388,47 @@ describe('Red to Green cards in the Inbox', () => {
     expect(answerQuestion).not.toHaveBeenCalled();
     // the generic question card is still drawn for the other question
     expect(cards().some((c) => c.dataset.kind === 'question')).toBe(true);
+  });
+});
+
+describe('Collision alert cards in the Inbox', () => {
+  it('draws the card under the list, and the number and hero do not count it', async () => {
+    const { api } = fixture({ panes: [{ id: 'idle', agent: 'codex', status: 'idle', cwd: 'C:\\work\\shop' }] });
+    collision.list.mockResolvedValueOnce([]);
+    await act(async () => {
+      root.render(<Inbox c={api} />);
+    });
+    expect(host.querySelector('h1')?.textContent).toBe('Nothing needs you');
+    expect(host.querySelector('.ck-doto')?.textContent).toBe('00');
+
+    act(() => root.unmount());
+    root = createRoot(host);
+    collision.list.mockResolvedValueOnce([
+      {
+        id: 'ca-0123456789ab',
+        level: 'clash',
+        relation: 'copies',
+        title: 'fake_a and fake_b both changed src/auth.ts',
+        detail: 'Lines 40-80 overlap.',
+        advice: 'Finish fake_a first. It started first. Merge it first. Then fake_b can build on it.',
+        place: 'In separate copies.',
+        footer: 'Nothing was paused. You decide.',
+        sides: [
+          { paneId: 'pane-a', label: 'fake_a', working: true },
+          { paneId: 'pane-b', label: 'fake_b', working: true },
+        ],
+        files: [{ path: 'src/auth.ts', text: 'Lines 40-80' }],
+        more: 0,
+        firstMs: 1000,
+        lastMs: 2000,
+      },
+    ]);
+    await act(async () => {
+      root.render(<Inbox c={api} />);
+    });
+    expect(host.querySelector('.ck-collision-card')).not.toBeNull();
+    expect(host.querySelector('h1')?.textContent).toBe('Nothing needs you');
+    expect(host.querySelector('.ck-doto')?.textContent).toBe('00');
+    expect(host.querySelectorAll('[data-ib-card]')).toHaveLength(0);
   });
 });

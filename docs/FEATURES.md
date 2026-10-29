@@ -203,6 +203,14 @@ Full page: [`features/branch-from-here.md`](features/branch-from-here.md). Entry
 | Known limit: the save-point write adds unreferenced objects to the source's shadow store (spec said reads only) | `checkpoints/export.rs` | gap |
 | Not in v1: plain-folder copies, old chats, retry after a failed start, MCP / phone branches, diff of only the new agent's work | [`features/branch-from-here.md`](features/branch-from-here.md) ("Not done yet") | gap |
 
+## 1l. Collision Alert (experimental, not live-checked yet)
+
+Full page: [`features/collision-alert.md`](features/collision-alert.md). Status: the engine, the watch thread, the four Tauri commands, the 8 source-scan guard tests and the fake-agent end-to-end test (8 scenarios) are all in. No live run with real agents yet.
+
+| Feature | Where | Status |
+|---|---|---|
+| Collision Alert: tells you early when two agents change the same file in separate copies, or work in one folder. A card in the Inbox, a row above the two chats, a switch in Settings > Agents. Never pauses, stops, types into or merges anything. Desktop only: the phone does not draw its Ready-lane item | `collision/`, `components/cockpit/CollisionSection.tsx`, `components/chat/CollisionBanner.tsx`, `components/settings/blocks/CollisionSettings.tsx`, `lib/collision.ts` ([`features/collision-alert.md`](features/collision-alert.md)) | **experimental**: the commands are registered and the window and switch use them; not live-checked yet. Alerts can come late on a very busy PC (cost backoff). Desktop only |
+
 ## 2. Orchestrator sidebar and coordination
 
 The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main window removed); the backend (operations, tasks, locks, standby) is unchanged and used through MCP.

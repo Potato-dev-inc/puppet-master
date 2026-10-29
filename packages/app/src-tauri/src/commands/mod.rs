@@ -70,6 +70,7 @@ mod review_desk;
 mod wsl;
 mod what_broke_it;
 mod ci_fix;
+mod collision;
 
 pub use agent_install::*;
 pub use agent_store::*;
@@ -134,6 +135,7 @@ pub use package_check::*;
 pub use review_desk::*;
 pub use wsl::*;
 pub use ci_fix::*;
+pub use collision::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{
