@@ -3,8 +3,7 @@
 // The session rail on the right follows the focused side. Each side has its own message box (SessionChatPanel).
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
-import { ScreenQuestionCard } from '../chat/ScreenQuestionCard';
-import { SessionChatPanel } from '../chat/SessionChatPanel';
+import { SessionChatPanel, type ScreenAsk } from '../chat/SessionChatPanel';
 import { composerBlock } from '../../lib/paneOutbox';
 import { useAgentRegistry } from '../../lib/agentRegistry';
 import { useLoopGuard } from '../../lib/loop-guard';
@@ -146,19 +145,25 @@ function SplitSideView({
   const asking = waiting && !!prompt && prompt.choices.length > 0;
   const dock = dockItems(asking, !!signals[paneId]);
   const dockNow = dock.length > 0 ? dock[dockIx % dock.length] : null;
-  const askScreen = waiting && !asking;
   const helperAsks = helperQuestionIds(c, paneId);
   // "Open Terminal" needs the terminal, which only the single-pane view has: close the split and open this pane.
   const openAlone = () => {
     onClose();
     c.select(paneId);
   };
+  // The card for a question only the terminal screen holds (also the safety net for an idle pane with a menu).
+  const screenAsk: ScreenAsk = {
+    waiting,
+    idle: pane.status === 'idle',
+    covered: asking,
+    fallbackText: prompt?.summary || prompt?.risk?.headline,
+    onOpenTerminal: () => openAlone(),
+  };
   const chatDock =
-    dockNow || askScreen || helperAsks.length > 0 ? (
+    dockNow || helperAsks.length > 0 ? (
       <>
         <HelperQuestions c={c} ids={helperAsks} />
         {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={() => setDockIx((i) => i + 1)} />}
-        {askScreen && <ScreenQuestionCard paneId={paneId} waiting fallbackText={prompt?.summary || prompt?.risk?.headline} onOpenTerminal={() => openAlone()} />}
       </>
     ) : null;
 
@@ -186,6 +191,7 @@ function SplitSideView({
         <SessionChatPanel
           paneId={paneId}
           dock={chatDock ?? undefined}
+          screenAsk={screenAsk}
           reply={{ blockedReason: composerBlock(pane, !chatAllowed) }}
           emptyNote={chatAllowed ? undefined : 'A plain shell has no chat. Open it alone to use its terminal.'}
           onOpenPane={(id) => c.select(id)}

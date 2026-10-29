@@ -15,6 +15,7 @@ import { ClipSheet, type ClipApi } from './ClipSheet';
 import { CollisionBanner } from './CollisionBanner';
 import { KeepGoingBanner } from './KeepGoingBanner';
 import { PendingMessages } from './PendingMessages';
+import { ScreenQuestionCard } from './ScreenQuestionCard';
 import { lastClippableId, SessionChatView } from './SessionChatView';
 import { useSideQuestion } from './useSideQuestion';
 import { useChatJump } from '../../lib/chatJump';
@@ -24,7 +25,22 @@ export interface ChatReply {
   blockedReason: string | null;
 }
 
-export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOpenPane }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; clipApi?: ClipApi; onOpenPane?: (paneId: string) => void }) {
+/**
+ * What the chat needs to show "Agent is asking" for a question that only the terminal screen holds (see
+ * `ScreenQuestionCard`). Without it the chat never reads the screen.
+ */
+export interface ScreenAsk {
+  /** The pane's status is waiting_input. */
+  waiting: boolean;
+  /** The pane's status is idle. */
+  idle: boolean;
+  /** An approval or question card already answers the pane: nothing is added. */
+  covered: boolean;
+  fallbackText?: string | null;
+  onOpenTerminal?: () => void;
+}
+
+export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOpenPane, screenAsk }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; clipApi?: ClipApi; onOpenPane?: (paneId: string) => void; screenAsk?: ScreenAsk }) {
   const chat = useSessionChat(paneId, true);
   const outbox = usePaneOutbox(tauriOutboxTransport, paneId, !!reply);
   const userTexts = useMemo(() => chat.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [chat.turns]);
@@ -70,6 +86,19 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
         onBranch={setBranchFor}
         overlay={side.box}
         dock={dock}
+        aside={
+          screenAsk && (
+            <ScreenQuestionCard
+              paneId={paneId}
+              waiting={screenAsk.waiting}
+              idle={screenAsk.idle}
+              covered={screenAsk.covered}
+              queued={outbox.messages}
+              fallbackText={screenAsk.fallbackText}
+              onOpenTerminal={screenAsk.onOpenTerminal}
+            />
+          )
+        }
         pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
         composer={reply ? <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} /> : undefined}
       />

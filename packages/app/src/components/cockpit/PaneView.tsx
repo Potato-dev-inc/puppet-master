@@ -41,8 +41,7 @@ import { MissionProgress } from './mission/MissionProgress';
 import { missionOfPane, useMissions } from '../../lib/missions';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { SaveCrewSheet } from './crews/SaveCrewSheet';
-import { ScreenQuestionCard } from '../chat/ScreenQuestionCard';
-import { SessionChatPanel } from '../chat/SessionChatPanel';
+import { SessionChatPanel, type ScreenAsk } from '../chat/SessionChatPanel';
 import { useChatJump } from '../../lib/chatJump';
 import { clearChatTabRequest, useChatTabRequest } from '../../lib/chatTab';
 import { composerBlock } from '../../lib/paneOutbox';
@@ -258,16 +257,22 @@ export function PaneView({
   const cycleDock = () => setDockIx((i) => i + 1);
   // A pane that waits with no card to answer on (a login or setup screen, a question no profile knows): Chat shows
   // "Agent is asking" with what the terminal asks, so the person never has to open the terminal.
-  const askScreen = waiting && !asking;
+  // The same card is the safety net for a pane that is only idle with a menu on its screen (see ScreenQuestionCard).
+  const screenAsk: ScreenAsk = {
+    waiting,
+    idle: pane.status === 'idle',
+    covered: asking,
+    fallbackText: prompt?.summary || prompt?.risk?.headline,
+    onOpenTerminal: () => setTab('terminal'),
+  };
   // The Chat tab shows the same docked cards as the Terminal tab, under the conversation.
   // The questions of this pane's helpers (its direct helpers and, for the top pane, every helper under it) wait here too.
   const helperAsks = helperQuestionIds(c, paneId);
   const chatDock =
-    dockNow || askScreen || helperAsks.length > 0 ? (
+    dockNow || helperAsks.length > 0 ? (
       <>
         <HelperQuestions c={c} ids={helperAsks} />
         {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={cycleDock} />}
-        {askScreen && <ScreenQuestionCard paneId={paneId} waiting fallbackText={prompt?.summary || prompt?.risk?.headline} onOpenTerminal={() => setTab('terminal')} />}
       </>
     ) : null;
 
@@ -485,7 +490,7 @@ export function PaneView({
           )}
           {tab === 'chat' && chatAllowed && (
             <div className="ck-scroll ck-fade-in" key="chat">
-              <SessionChatPanel paneId={paneId} dock={chatDock} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} onOpenPane={(id) => c.select(id)} />
+              <SessionChatPanel paneId={paneId} dock={chatDock} screenAsk={screenAsk} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} onOpenPane={(id) => c.select(id)} />
             </div>
           )}
           {tab === 'changes' && worktree && (

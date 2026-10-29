@@ -18,6 +18,8 @@ pub const NO_SUCH_MESSAGE: &str = "That message is not waiting any more.";
 pub const ALREADY_SENDING: &str = "It is already being sent.";
 
 pub const WAIT_BUSY: &str = "The agent is working. Sends when the turn ends.";
+/// The pane is not working (idle, or waiting on a question) and shows no input box: a menu or a setup screen is up.
+pub const WAIT_MENU: &str = "Waiting for the agent. If it asks something, answer it first.";
 pub const WAIT_GATE: &str = "The agent asks something. Answer it first.";
 pub const WAIT_DRAFT: &str = "The terminal box has text. Send or clear it there first.";
 pub const WAIT_RUN: &str = "An agent run controls this pane. Sends when the run ends.";

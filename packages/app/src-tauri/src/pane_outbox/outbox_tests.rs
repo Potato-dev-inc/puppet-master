@@ -32,7 +32,7 @@ struct Fake {
 }
 
 fn look(readiness: Readiness, composer: ComposerState, idle: bool) -> Look {
-    Look { readiness, composer, idle }
+    Look { readiness, composer, idle, waiting: false }
 }
 
 fn ready() -> Look {
@@ -169,7 +169,10 @@ fn only_a_ready_idle_agent_with_an_empty_box_gets_the_message() {
     assert_eq!(decide(&look(Readiness::Ready, Empty, false)), Step::Wait(WAIT_BUSY), "status is not idle");
     assert_eq!(decide(&look(Readiness::Ready, HasText, true)), Step::Wait(WAIT_DRAFT));
     assert_eq!(decide(&look(Readiness::Unknown, HasText, true)), Step::Wait(WAIT_DRAFT));
-    assert_eq!(decide(&look(Readiness::Unknown, Unknown, true)), Step::Wait(WAIT_BUSY));
+    assert_eq!(decide(&look(Readiness::Unknown, Unknown, true)), Step::Wait(WAIT_MENU), "idle and no input box: a menu or a setup step, not a turn");
+    assert_eq!(decide(&look(Readiness::Unknown, Unknown, false)), Step::Wait(WAIT_BUSY), "running and no input box: still a turn");
+    let waiting = look(Readiness::Unknown, Unknown, false).waiting(true);
+    assert_eq!(decide(&waiting), Step::Wait(WAIT_MENU), "waiting on a question is not working");
     assert_eq!(decide(&busy()), Step::Wait(WAIT_BUSY));
     assert_eq!(decide(&look(Readiness::Gate(PROMPT_GATE), Unknown, true)), Step::Wait(WAIT_GATE));
     let startup = StartupGate { id: "notice", summary: "x", dismiss: Some("\u{1b}") };
@@ -216,6 +219,23 @@ fn a_message_for_a_busy_agent_waits_for_the_turn_to_end() {
     host.set(ready());
     until_state(&outbox, &message.id, State::Sent);
     assert_eq!(host.typed(), ["next please"]);
+}
+
+#[test]
+fn a_message_for_a_pane_on_a_setup_screen_does_not_say_the_agent_is_working_and_goes_in_when_the_box_shows() {
+    // A first-run menu: idle status, no input box. The person typed "hi"; nothing is typed into the menu.
+    let host = Fake::new(look(Readiness::Unknown, ComposerState::Unknown, true));
+    let outbox = outbox(&host);
+    let message = outbox.send("p", "hi").unwrap();
+    waiting_for(&outbox, &message.id, WAIT_MENU);
+    std::thread::sleep(Duration::from_millis(60));
+    assert!(host.typed().is_empty(), "never typed into a menu");
+    assert!(!WAIT_MENU.contains("working"));
+    // The menu is answered and the agent shows its empty input box: the message goes in. It does not wait for a
+    // session file (the agent writes one only after the first message).
+    host.set(ready());
+    until_state(&outbox, &message.id, State::Sent);
+    assert_eq!(host.typed(), ["hi"]);
 }
 
 #[test]

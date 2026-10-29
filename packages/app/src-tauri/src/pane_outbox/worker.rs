@@ -35,8 +35,12 @@ pub fn decide(look: &Look) -> Step {
         Readiness::Gate(_) => Step::Wait(WAIT_GATE),
         Readiness::Busy => Step::Wait(WAIT_BUSY),
         Readiness::Unknown if has_text => Step::Wait(WAIT_DRAFT),
+        // A pane that is not working and shows no input box sits on a menu or a setup screen (a first-run step).
+        // It is not "working"; the sentence says to look at what it asks.
+        Readiness::Unknown if look.at_rest() => Step::Wait(WAIT_MENU),
         Readiness::Unknown => Step::Wait(WAIT_BUSY),
         Readiness::Ready if has_text => Step::Wait(WAIT_DRAFT),
+        Readiness::Ready if look.waiting => Step::Wait(WAIT_MENU),
         Readiness::Ready if !look.idle => Step::Wait(WAIT_BUSY),
         Readiness::Ready => Step::Deliver,
     }
