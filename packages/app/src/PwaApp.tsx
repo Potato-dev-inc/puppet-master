@@ -23,6 +23,8 @@ import { bridgeCompanionTransport, type CompanionView } from './lib/companion';
 import { bridgePlansApi } from './lib/plans-report';
 import { PhonePlans } from './components/mobile/PhonePlans';
 import { NightSummary, bridgeNightApi } from './components/mobile/NightSummary';
+import { ReviewSummary } from './components/mobile/ReviewSummary';
+import { bridgeReviewApi } from './lib/mobile-review';
 import { useBridgeCompanions } from './hooks/useBridgeCompanions';
 import { CompanionHome } from './components/mobile/CompanionHome';
 import {
@@ -165,6 +167,8 @@ export default function PwaApp() {
   const plansTransport = useMemo(() => (bridge ? bridgePlansApi(bridge) : null), [bridge]);
   // Night Shift on the phone: read and stop only (`GET /night`, `POST /night/stop`).
   const nightApi = useMemo(() => (bridge ? bridgeNightApi(bridge.baseUrl) : null), [bridge]);
+  // Review Desk on the phone: read only (`GET /review-desk`), under the Night summary.
+  const reviewApi = useMemo(() => (bridge ? bridgeReviewApi(bridge.baseUrl) : null), [bridge]);
   const companionList = useBridgeCompanions(companionTransport, resyncKey, companionPush);
   const companions = companionList.companions;
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
@@ -707,7 +711,12 @@ export default function PwaApp() {
               attention={attention}
               canAnswer={canAnswer}
               onRefreshAttention={refreshAttentionNow}
-              night={nightApi ? <NightSummary api={nightApi} canControl={canControl} refreshKey={resyncKey} /> : undefined}
+              night={
+                <>
+                  {nightApi && <NightSummary api={nightApi} canControl={canControl} refreshKey={resyncKey} />}
+                  {reviewApi && <ReviewSummary api={reviewApi} refreshKey={resyncKey} />}
+                </>
+              }
             />
           )}
           {activeView === 'terminal' && dockedCard}
