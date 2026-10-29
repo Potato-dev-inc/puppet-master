@@ -368,18 +368,18 @@ impl<I: Io + 'static> Engine<I> {
             self.put(&run);
             return self.push_job(run_id);
         }
-        let question = self.raise_push_kind(
-            &run,
-            &format!("Draft PR ready for #{}?", run.issue.number),
-            push_context(&run, &checked.facts, &reasons),
+        let question = format!("Draft PR ready for #{}?", run.issue.number);
+        let context = push_context(&run, &checked.facts, &reasons);
+        let asked = self.ask_push_card(
+            &mut run,
+            checked.facts,
+            &question,
+            context,
             vec![choice(CHOICE_PUSH, "Open draft PR"), choice(CHOICE_LOOK, "Look first"), choice(CHOICE_THROW, "Throw away")],
             pane_id,
-            None,
         );
-        match question {
-            Some(question_id) => {
-                run.state = RunState::AskPush { question_id, facts: checked.facts };
-                self.put(&run);
+        match asked {
+            Some(_) => {
                 let who = run.approved_by.clone().unwrap_or_else(|| "auto".to_string());
                 io.audit("asked", &who, &format!("Asked about a draft PR for #{}", run.issue.number), run_detail(&run));
             }
@@ -439,6 +439,7 @@ impl<I: Io + 'static> Engine<I> {
             vec![choice(CHOICE_LOOK, "Look first"), choice(CHOICE_THROW, "Throw away")],
             self.pane_of(run),
             Some(CardKind::Held),
+            None,
         );
     }
 
@@ -451,21 +452,27 @@ impl<I: Io + 'static> Engine<I> {
             vec![choice(CHOICE_LOOK, "Open the agent"), choice(CHOICE_THROW, "Throw away")],
             self.pane_of(run),
             Some(CardKind::NoChanges),
+            None,
         );
     }
 
-    /// The push card again (the person tapped Look first, or a restart lost the card).
-    pub(super) fn reraise_push_card(&self, run: &IssueRun, facts: &PushFacts) -> Option<String> {
+    /// The push card again (the person tapped Look first, or a restart lost the card). The run is saved as
+    /// waiting on the new card first (see [`Self::ask_push_card`]). Returns false when the card was not raised.
+    pub(super) fn reraise_push_card(&self, run: &mut IssueRun, facts: &PushFacts) -> bool {
         let ask = self.repo_of(run).is_none_or(|repo| repo.ask_before_push);
         let (reasons, _) = reasons_for(facts, false, ask);
-        self.raise_push_kind(
+        let question = format!("Draft PR ready for #{}?", run.issue.number);
+        let context = push_context(run, facts, &reasons);
+        let pane = self.pane_of(run);
+        self.ask_push_card(
             run,
-            &format!("Draft PR ready for #{}?", run.issue.number),
-            push_context(run, facts, &reasons),
+            facts.clone(),
+            &question,
+            context,
             vec![choice(CHOICE_PUSH, "Open draft PR"), choice(CHOICE_LOOK, "Look first"), choice(CHOICE_THROW, "Throw away")],
-            self.pane_of(run),
-            None,
+            pane,
         )
+        .is_some()
     }
 
     /// The pane the agent worked in, while it is still known.
@@ -492,6 +499,7 @@ impl<I: Io + 'static> Engine<I> {
             vec![choice(CHOICE_RETRY, "Try again"), choice(CHOICE_GOT_IT, "Got it")],
             pane_id.or_else(|| self.pane_of(run)),
             Some(kind),
+            None,
         );
     }
 

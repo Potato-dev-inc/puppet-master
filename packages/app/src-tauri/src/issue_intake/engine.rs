@@ -471,7 +471,8 @@ impl<I: Io + 'static> Engine<I> {
         let _ = self.io.ask(new);
     }
 
-    /// A card of the push kind for `run`, remembered when it is not stored in the run's state.
+    /// A card of the push kind for `run`, remembered when it is not stored in the run's state. `id` is the
+    /// id the run record already holds (see [`Self::ask_push_card`]); `None` lets the question store pick one.
     pub(super) fn raise_push_kind(
         &self,
         run: &IssueRun,
@@ -480,6 +481,7 @@ impl<I: Io + 'static> Engine<I> {
         choices: Vec<Choice>,
         pane_id: Option<String>,
         follow_up: Option<CardKind>,
+        id: Option<String>,
     ) -> Option<String> {
         let new = NewQuestion {
             pane_id,
@@ -492,11 +494,38 @@ impl<I: Io + 'static> Engine<I> {
             kind: Some(CARD_KIND_PUSH.to_string()),
             ..NewQuestion::default()
         };
-        let id = self.io.ask(new).map_err(|message| tracing::warn!(%message, "issue-intake: could not raise a card")).ok()?;
+        let asked = match &id {
+            Some(id) => self.io.ask_as(new, id),
+            None => self.io.ask(new),
+        };
+        let id = asked.map_err(|message| tracing::warn!(%message, "issue-intake: could not raise a card")).ok()?;
         if let Some(kind) = follow_up {
             self.state.lock().cards.insert(id.clone(), CardRef { run_id: run.id.clone(), kind });
         }
         Some(id)
+    }
+
+    /// The push card of a run that is about to wait on it. The run is saved as `AskPush` under the card's id
+    /// before the card is raised, so a card on screen always has a run that points at it: an answer or a
+    /// restart in between finds both. If the card cannot be raised, the run goes back to the state it had.
+    pub(super) fn ask_push_card(
+        &self,
+        run: &mut IssueRun,
+        facts: PushFacts,
+        question: &str,
+        context: String,
+        choices: Vec<Choice>,
+        pane_id: Option<String>,
+    ) -> Option<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let before = std::mem::replace(&mut run.state, RunState::AskPush { question_id: id.clone(), facts });
+        self.put(run);
+        let raised = self.raise_push_kind(run, question, context, choices, pane_id, None, Some(id));
+        if raised.is_none() {
+            run.state = before;
+            self.put(run);
+        }
+        raised
     }
 
     /// Take a card down without it counting as an answer. The run must already point elsewhere.
@@ -594,10 +623,7 @@ impl<I: Io + 'static> Engine<I> {
                 }
                 Some(q) => self.spawn_job(claim, run_id, Job::Answer(Box::new(q))),
                 None => {
-                    if let Some(id) = self.reraise_push_card(&run, &facts) {
-                        run.state = RunState::AskPush { question_id: id, facts };
-                        self.put(&run);
-                    }
+                    self.reraise_push_card(&mut run, &facts);
                 }
             },
             RunState::Running { handle, .. } => {
