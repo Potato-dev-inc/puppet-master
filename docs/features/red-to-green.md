@@ -4,11 +4,13 @@ Code: `packages/app/src-tauri/src/ci_fix/` (the rules, the GitHub reads, the log
 the engine and its flows). The shared pieces it reuses are in `worktrees/` (copy git, `pr::push_update`, the fix push in
 `service::pr_push_fix`, the `on_pr_opened` hook), `issue_intake/` (the push check base and the text helpers), `questions/`
 (the cards), `audit/` and `pty/env_guard.rs` (the no-push guard). In the UI: `components/settings/blocks/CiFixSettings.tsx`,
-`components/cockpit/CiFixCard.tsx` (+ `styles/ci-fix-card.css`), `lib/ci-fix.ts`. The file map is in `docs/REPO_MAP.md`
-section 3.14. Spec: n33 (Red to Green). In code the feature is `ci_fix`; in the UI and in these docs it is **Red to Green**.
+`components/cockpit/CiFixCard.tsx` (+ `styles/ci-fix-card.css`), `lib/ci-fix.ts`, and the two buttons on the pull request
+block in `components/cockpit/PrBlock.tsx`. The desktop commands are in `commands/ci_fix.rs`, registered in `lib.rs`. The file
+map is in `docs/REPO_MAP.md` section 3.14. Spec: n33 (Red to Green). In code the feature is `ci_fix`; in the UI and in these
+docs it is **Red to Green**.
 
-Status: **experimental**, in Settings > Labs. Not wired into the running app yet (see "Status on this branch"). No run
-against real GitHub is recorded.
+Status: **Labs, experimental**, in Settings > Labs. Wired into the app on this branch (see "Status on this branch"). Not
+live-checked yet: no run against real GitHub or with a real agent is recorded.
 
 ## What and why
 
@@ -26,27 +28,30 @@ Puppet Master never merges, never marks a pull request ready, never re-runs a ch
 
 ## Status on this branch
 
-What is in the tree (branch `feat/rg-docs`, from `feat/rg-live`, after RG-9):
+What is on this branch (`feat/rg-phase5`, the finished Red to Green work through RG-12 and UI-4):
 
 - The store, the settings and the caps (`model.rs`, `store.rs`), the GitHub reads and parsers (`github.rs`), the ownership
   and offer rules (`filter.rs`), the log cleaning (`logs.rs`), the texts (`text.rs`), the push check extras (`fixcheck.rs`).
 - The live engine and its flows (`live.rs`, `engine.rs`, `flows.rs`, `answers.rs`, `view.rs`), tested with a fake GitHub,
   a fake agent and a virtual clock (`engine_tests.rs`).
+- The watcher thread starts in `lib.rs` setup (`ci_fix::live::start`). It looks at GitHub only while the Labs switch is on.
+- The six desktop commands (`ci_fix_view`, `ci_fix_save_settings`, `ci_fix_offer`, `ci_fix_act`, `ci_fix_log`,
+  `ci_fix_poll_now`) are in `commands/ci_fix.rs` and registered in `lib.rs` (RG-10). The Labs block calls them.
 - The hook in `worktrees/service.rs` (`pr_create_with` calls `ci_fix::live::on_pr_opened`), the question and audit wiring,
   and the Labs block with its card (`CiFixSettings.tsx`, `CiFixCard.tsx`).
+- The pull request block (UI-4): **Fix with <agent>** when the checks failed, **Watch CI** otherwise. Both call
+  `ci_fix_offer`, which only starts the watch (and raises the card now if the head already failed). No fix starts from them.
+- The old "Send back to <agent>" path is removed (RG-11): no command, no button. Only `worktrees/sendback.rs::pane_if_guarded`
+  remains. The engine uses it to check that a pane is guarded and inside the copy before it gets anything.
+- An end-to-end test with a fake `gh`, a local bare remote, real git and a fake agent in a real pane (RG-12): six scenarios in
+  `tests/fake_tui_ci_fix.rs`, run through `fake_tui_e2e`. It found one engine fault, now fixed: our own fix push can land
+  while a look is under way. That look now reads GitHub again and does not treat the new commit as someone else's push.
 
-What is **not** wired yet, so the feature does not run in the app:
+What is still missing:
 
-- The watcher thread is not started. `lib.rs` does not call `ci_fix::live::start`, so no pull request is watched, no card
-  is raised, and the answer hooks do nothing.
-- The six desktop commands (`ci_fix_view`, `ci_fix_save_settings`, `ci_fix_offer`, `ci_fix_act`, `ci_fix_log`,
-  `ci_fix_poll_now`) are not in `commands/` or registered in `lib.rs` (RG-10). The Labs block calls them, so on desktop
-  those calls fail with a missing-command error.
-- The old "Send back to <agent>" button is still there: `PrBlock.tsx` calls `worktree_pr_send_back`, registered in `lib.rs`.
-  That path lives in `worktrees/sendback.rs`. It already cleans the log, writes a fenced file and refuses any pane that can
-  push, but it is not the Red to Green path. RG-11 removes it.
-- The "Fix with <agent>" and "Watch CI" buttons on the PR block (UI-4) and the end-to-end test with a fake `gh`, git and
-  agent (RG-12) are not in the branch.
+- No live run against real GitHub, and no run with a real agent. Everything is tested with fakes. Keep the Labs status
+  until one is recorded.
+- The test counts in this page and in `docs/TEST-PLAN.md` are counted from source. They were not re-run in the docs pass.
 
 ## Setup
 
@@ -67,8 +72,11 @@ The switch is off by default. Numbers are clamped into their ranges when saved a
 ## Which pull requests
 
 Only pull requests Puppet Master opened from its own copy: a copy on a `pm/...` branch that has a stored pull request.
-A watch is started when Puppet Master opens one, while the switch is on (the hook is in `pr_create_with`). Older pull
-requests are meant to be started by hand with **Watch CI** (UI-4, not wired yet).
+A watch is started when Puppet Master opens one, while the switch is on (the hook is in `pr_create_with`). A pull request
+that was opened before the switch was on, or that is not watched for another reason, can be started by hand from its PR
+block: **Watch CI** when the checks do not fail, **Fix with <agent>** when they did. Both only ask Red to Green to watch
+the copy's pull request (and, when the head already failed, to raise the fix card now). Neither one starts a fix: the
+person still says yes on the card. The rules below apply to both.
 
 Never watched, never offered: fork pull requests, pull requests by someone else, branches made outside Puppet Master,
 and a head that someone else pushed to. Every poll checks GitHub again (`filter::owns`):
@@ -137,7 +145,8 @@ plus `fixcheck.rs`. The result is one of:
 **Push (flow F).** On `Push fix`: the fresh GitHub read must still show the failing commit as head, the repo facts must
 match, and the remote branch must still be the failing commit. Then `git push` runs with an explicit refspec to the same
 `pm/` branch, with no force flag. If the remote moved, git refuses and nothing is pushed. A push failure gives a card
-`Try again` / `Got it`. On success the new commit goes into `pushed_shas` and the watch looks at GitHub again soon.
+`Try again` / `Got it`. On success the new commit goes into `pushed_shas` and the watch looks at GitHub again soon. If our
+own push lands while a look is under way, that look reads GitHub again and does not pause the watch.
 
 **Result.** A green check on the new commit ends the fix as green. A red one raises a new card while tries are left.
 A merged or closed pull request ends the watch, and open cards go.
@@ -180,7 +189,9 @@ Each guard is in the code and tested where it is built (see `ci_fix/mod.rs` for 
 - **Logs stay here (S13).** Logs are local and redacted. The only outbound write is the push the person agreed to.
 - **No agent names in generic code (S14).** Labels come from `crews::live::label_of`.
 - **No new bridge route or MCP tool (S15).** The phone answers through the existing question route.
-- **The old raw-log path is gone (S16).** Not yet: `worktrees/sendback.rs` stays registered until RG-11 removes it.
+- **The old raw-log path is gone (S16).** The Send back command and button are removed (RG-11). `worktrees/sendback.rs`
+  keeps only `pane_if_guarded`. A test (`no_raw_ci_log_read_is_left_outside_tests`, `worktrees/tests_ship.rs`) fails if any
+  non-test code contains `log-failed`, the `gh` flag that reads a failed job's raw log.
 
 ## Error codes
 
@@ -209,6 +220,9 @@ Shown on cards and rows, and in the audit log (`ci.fix`). Defined in `ci_fix/mod
 | `CI_FIX_PUSH_FAILED` | The push failed; the commits stay in the copy |
 | `CI_FIX_WATCH_FAILED` | The watch could not be saved |
 | `CI_FIX_NEEDS_PERSON` | A plain loopback request tried to answer a card |
+| `CI_FIX_OFF` | Red to Green is off. The Labs switch must be on first (`Turn on Red to Green in Settings > Labs`) |
+| `CI_FIX_BUSY` | Puppet Master is already working on this. Try again in a moment |
+| `CI_FIX_NOT_FOUND` | There is no such pull request or fix (the id is unknown) |
 
 A change with no edits ends as a notice (`FixState::NoChanges`), not as an error code. `CI_FIX_NO_CHANGES` is defined in
 `model.rs` but nothing raises it yet.
