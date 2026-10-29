@@ -3,6 +3,7 @@
 // The session rail on the right follows the focused side. Each side has its own message box (SessionChatPanel).
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
+import { ScreenQuestionCard } from '../chat/ScreenQuestionCard';
 import { SessionChatPanel } from '../chat/SessionChatPanel';
 import { composerBlock } from '../../lib/paneOutbox';
 import { useAgentRegistry } from '../../lib/agentRegistry';
@@ -145,25 +146,19 @@ function SplitSideView({
   const asking = waiting && !!prompt && prompt.choices.length > 0;
   const dock = dockItems(asking, !!signals[paneId]);
   const dockNow = dock.length > 0 ? dock[dockIx % dock.length] : null;
-  const gateNow = waiting && !!prompt && prompt.choices.length === 0;
+  const askScreen = waiting && !asking;
   const helperAsks = helperQuestionIds(c, paneId);
-  // The gate bar needs the terminal, which only the single-pane view has: close the split and open this pane.
+  // "Open Terminal" needs the terminal, which only the single-pane view has: close the split and open this pane.
   const openAlone = () => {
     onClose();
     c.select(paneId);
   };
   const chatDock =
-    dockNow || gateNow || helperAsks.length > 0 ? (
+    dockNow || askScreen || helperAsks.length > 0 ? (
       <>
         <HelperQuestions c={c} ids={helperAsks} />
         {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={() => setDockIx((i) => i + 1)} />}
-        {gateNow && (
-          <button type="button" className="ck-dock-bar" onClick={() => openAlone()} aria-label={`Needs you: ${heading.primary}. Open the pane to answer.`}>
-            <span className="ck-dock-bar-dot" aria-hidden="true" />
-            <span className="ck-dock-bar-text">Needs you · {prompt?.risk?.headline ?? 'Waiting for your answer'}</span>
-            <span className="ck-dock-bar-go">Open pane ›</span>
-          </button>
-        )}
+        {askScreen && <ScreenQuestionCard paneId={paneId} waiting fallbackText={prompt?.summary || prompt?.risk?.headline} onOpenTerminal={() => openAlone()} />}
       </>
     ) : null;
 

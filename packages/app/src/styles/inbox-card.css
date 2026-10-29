@@ -264,3 +264,33 @@
 .cockpit .ck-inbox:focus {
   outline: none;
 }
+
+/* "Agent is asking" (components/chat/ScreenQuestionCard): the screen's rows, a box to type in, and the keys. Grayscale. */
+.cockpit .ib-screen-answer {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.cockpit .ib-screen-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label);
+  font: 12px/1.4 var(--font-ui);
+}
+.cockpit .ib-screen-input::placeholder {
+  color: var(--label-3);
+}
+.cockpit .ib-screen-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.cockpit .ib-screen-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}

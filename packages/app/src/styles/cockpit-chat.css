@@ -101,6 +101,9 @@
   background: var(--bg);
   border-top: 1px solid var(--sep);
 }
+.cockpit .ck-chat-dock:empty {
+  display: none;
+}
 .cockpit .ck-chat-dock .ck-dock {
   position: relative;
   top: auto;

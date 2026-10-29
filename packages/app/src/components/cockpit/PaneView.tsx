@@ -20,7 +20,7 @@ import { useRailLayout } from './rail/useRailLayout';
 import { helperRows } from './rail/helperRows';
 import { DockedCards } from './DockedCards';
 import { HelperQuestions, helperQuestionIds } from './HelperQuestions';
-import { formatElapsed, promptSummary, spinnerStatus, stateText } from './model';
+import { formatElapsed, spinnerStatus, stateText } from './model';
 import { ReceiptTab } from './ReceiptTab';
 import { Changes } from './Changes';
 import { changesTabLabel, usePaneWorktree } from './usePaneWorktree';
@@ -41,6 +41,7 @@ import { MissionProgress } from './mission/MissionProgress';
 import { missionOfPane, useMissions } from '../../lib/missions';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { SaveCrewSheet } from './crews/SaveCrewSheet';
+import { ScreenQuestionCard } from '../chat/ScreenQuestionCard';
 import { SessionChatPanel } from '../chat/SessionChatPanel';
 import { useChatJump } from '../../lib/chatJump';
 import { clearChatTabRequest, useChatTabRequest } from '../../lib/chatTab';
@@ -255,24 +256,18 @@ export function PaneView({
   const dockNow = dock.length > 0 ? dock[dockIx % dock.length] : null;
   const dockHeadline = asking ? (prompt?.risk?.headline ?? 'Question') : 'Looks stuck';
   const cycleDock = () => setDockIx((i) => i + 1);
-  // A question with no choices (a login or onboarding gate) has no card to answer on: the Chat tab keeps a bar to the terminal.
-  const gateNow = waiting && !!prompt && prompt.choices.length === 0;
-  const gateHeadline = prompt?.risk?.headline ?? (promptSummary(prompt) || 'Waiting for your answer');
+  // A pane that waits with no card to answer on (a login or setup screen, a question no profile knows): Chat shows
+  // "Agent is asking" with what the terminal asks, so the person never has to open the terminal.
+  const askScreen = waiting && !asking;
   // The Chat tab shows the same docked cards as the Terminal tab, under the conversation.
   // The questions of this pane's helpers (its direct helpers and, for the top pane, every helper under it) wait here too.
   const helperAsks = helperQuestionIds(c, paneId);
   const chatDock =
-    dockNow || gateNow || helperAsks.length > 0 ? (
+    dockNow || askScreen || helperAsks.length > 0 ? (
       <>
         <HelperQuestions c={c} ids={helperAsks} />
         {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={cycleDock} />}
-        {gateNow && (
-          <button type="button" className="ck-dock-bar" onClick={() => setTab('terminal')} aria-label={`Needs you: ${gateHeadline}. Open the terminal to answer.`}>
-            <span className="ck-dock-bar-dot" aria-hidden="true" />
-            <span className="ck-dock-bar-text">Needs you · {gateHeadline}</span>
-            <span className="ck-dock-bar-go">Open terminal ›</span>
-          </button>
-        )}
+        {askScreen && <ScreenQuestionCard paneId={paneId} waiting fallbackText={prompt?.summary || prompt?.risk?.headline} onOpenTerminal={() => setTab('terminal')} />}
       </>
     ) : null;
 
