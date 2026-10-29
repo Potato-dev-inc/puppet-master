@@ -6,7 +6,7 @@
 use super::github::{ApiPull, CiRead};
 use super::model::{
     valid_sha, FailedCheck, FixRun, FixState, Settings, Watch, WatchState, BACKOFF_MAX_S, CHECKS_SHOWN_MAX,
-    CI_FIX_FORK, CI_FIX_HEAD_MOVED, CI_FIX_NOT_PM_BRANCH, CI_FIX_NOT_YOURS, CI_FIX_PR_CLOSED, HUNG_CHECK_MS,
+    CI_FIX_FORK, CI_FIX_HEAD_MOVED, CI_FIX_NOT_PM_BRANCH, CI_FIX_NOT_YOURS, CI_FIX_PR_CLOSED, CI_FIX_TRIES_USED, HUNG_CHECK_MS,
     POLL_PENDING_S, POLL_PR_S, WATCH_IDLE_DAYS,
 };
 
@@ -105,6 +105,8 @@ pub fn day_count(fixes: &[FixRun], now_ms: u64) -> u32 {
     fixes
         .iter()
         .filter(|f| !matches!(f.state, FixState::Asking { .. } | FixState::Declined | FixState::Expired))
+        // The marker the engine stores for a tries-used notice is no fix: nothing was started.
+        .filter(|f| !matches!(&f.state, FixState::Failed { code, .. } if code == CI_FIX_TRIES_USED))
         .filter(|f| now_ms < f.at_ms.saturating_add(DAY_MS))
         .count() as u32
 }

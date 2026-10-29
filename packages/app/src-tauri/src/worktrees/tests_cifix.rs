@@ -360,3 +360,18 @@ fn name_status_shows_d_for_a_deleted_file_and_a_and_m_for_the_others() {
     assert!(listed.contains(&("A".to_string(), "new.txt".to_string())), "{listed:?}");
     assert_eq!(listed.len(), 3, "an unchanged file is not listed: {listed:?}");
 }
+
+#[test]
+fn commit_count_counts_the_commits_after_the_failing_commit_and_refuses_a_name() {
+    let (_guard, root, _bare, _bare_path) = repo_with_origin();
+    let worktree = copy_of(&root, "cf-count-1");
+    let cwd = PathBuf::from(&worktree.cwd);
+    let env = git_env(&empty_hooks().0);
+    let failing = harden::head_sha(&cwd, &env).unwrap();
+    assert_eq!(harden::commit_count(&cwd, &failing, &env).unwrap(), 0);
+    commit_file(&cwd, "one.txt", "1\n");
+    commit_file(&cwd, "two.txt", "2\n");
+    assert_eq!(harden::commit_count(&cwd, &failing, &env).unwrap(), 2);
+    assert_eq!(harden::commit_count(&cwd, "main", &env).unwrap_err().code, "INVALID_ARGUMENT");
+    assert!(harden::commit_count(&cwd, &failing, &[]).is_err(), "the hardened env is required");
+}

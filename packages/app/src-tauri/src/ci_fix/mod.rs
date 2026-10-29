@@ -8,7 +8,9 @@
 //!   the id validators and the error codes.
 //! - `store`: the private files under `<app data>/ci-fix/` (settings, watches, fixes).
 //! - `github`, `filter`, `logs`, `text`, `fixcheck`: GitHub reads, ownership rules, log cleaning, the
-//!   texts, and the push check extras (later tasks).
+//!   texts, and the push check extras.
+//! - `live` (the `Io` trait and the real world), `engine` (the watch loop and the offer cards), `flows` (start,
+//!   finish, push, stop), `answers` (card answers, the queue, the buttons, the views) and `view`.
 //!
 //! Invariants (SPEC n33 section 4; each one is tested where it is built):
 //! - S1: CI log text never goes into a task; it is only in a file, as one fenced JSON object (data).
@@ -28,7 +30,8 @@
 //! - S15: no new bridge route or MCP tool; the phone answers through the existing question route.
 //! - S16: the old raw-log send-back path is removed.
 
-// RG-1 only stores the data. The engine that uses these items comes in later tasks.
+// The desktop commands (RG-10) are the only callers of some `live` functions; until they are wired those
+// items would warn as unused.
 #![allow(dead_code)]
 
 pub mod model;
@@ -38,6 +41,13 @@ pub mod filter;
 pub mod logs;
 pub mod text;
 pub mod fixcheck;
+pub mod view;
+pub mod live;
+pub mod engine;
+pub mod flows;
+pub mod answers;
 
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod engine_tests;

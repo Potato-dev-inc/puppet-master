@@ -333,6 +333,9 @@ pub fn pr_create_with(
     let pr_ref = pr::create_with(&stored, title, body, base, env, git_env)?;
     stored.pr = Some(pr_ref.clone());
     super::update_meta(&stored)?;
+    // Red to Green: watch this pull request's CI (only when the Labs switch is on; never fails the PR).
+    #[cfg(not(test))]
+    crate::ci_fix::live::on_pr_opened(&project, &stored);
     Ok(pr_ref)
 }
 

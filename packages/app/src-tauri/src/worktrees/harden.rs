@@ -345,3 +345,16 @@ pub fn name_status(dir: &Path, base: &str, env: &[(String, String)]) -> Result<V
     }
     Ok(out)
 }
+
+/// How many commits `base..HEAD` holds (`rev-list --count`). `base` is a full commit id.
+pub fn commit_count(dir: &Path, base: &str, env: &[(String, String)]) -> Result<u32, OperationError> {
+    hardened(env)?;
+    if !is_sha(base) {
+        return Err(OperationError::new("INVALID_ARGUMENT", "commit_count needs a full commit id", false));
+    }
+    let range = format!("{base}..HEAD");
+    let out = run(dir, &["rev-list", "--count", &range], env)?;
+    out.trim()
+        .parse()
+        .map_err(|_| OperationError::new("GIT_FAILED", "git gave no commit count", false))
+}
