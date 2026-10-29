@@ -1241,3 +1241,8 @@ mod night;
 
 #[path = "fake_tui_issue_intake.rs"]
 mod issue_intake;
+
+// ---- Branch from here: a separate copy of a save point, a fenced brief, another agent (zero tokens) ---------------------
+
+#[path = "fake_tui_branch.rs"]
+mod branch;
