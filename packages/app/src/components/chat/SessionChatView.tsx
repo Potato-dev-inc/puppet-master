@@ -40,6 +40,8 @@ export interface SessionChatViewProps {
   cliVersion: string | null;
   /** What waits on the person (a question card, a bar): shown under the conversation, outside its scroll. */
   dock?: ReactNode;
+  /** Another row under the dock, outside it (a card that brings its own dock when it has something to say). */
+  aside?: ReactNode;
   /** Messages the person wrote that the conversation does not show yet: bubbles at the end of the conversation. */
   pending?: ReactNode;
   /** The message box, under the dock. Without it the chat is read-only. */
@@ -165,7 +167,7 @@ function TurnView({ turn, fromScreen, markdown, mode, clip, branch }: { turn: Ch
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, banner, overlay, jump, readOnly, canClip, onMakeClip, canBranch, onBranch }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, banner, overlay, aside, jump, readOnly, canClip, onMakeClip, canBranch, onBranch }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
   const markdown = source === 'file' || source === 'api';
@@ -280,6 +282,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
       </div>
       {remember && paneId && <RememberSelection paneId={paneId} root={scrollRef} />}
       {dock && <div className="ck-chat-dock">{dock}</div>}
+      {aside}
       {state !== 'unavailable' && composer}
       {overlay}
     </div>
