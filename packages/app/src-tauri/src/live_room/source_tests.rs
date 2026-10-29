@@ -77,6 +77,7 @@ impl PaneLookup for Pane {
             provider_session_id: self.session.lock().clone(),
             home: None,
             launch: Default::default(),
+            linux: None,
         })
     }
 }
