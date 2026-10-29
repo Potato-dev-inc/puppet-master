@@ -77,3 +77,8 @@ packages/app/src-tauri/src/wsl/fixtures/*.txt text eol=lf
 
 # What Broke It test-runner output fixtures (failing-name parsing): read line by line, keep them LF.
 packages/app/src-tauri/src/checkpoints/bisect/fixtures/fail_*.txt text eol=lf
+
+# Red to Green GitHub fixtures are parsed as JSON; keep them LF on every checkout.
+packages/app/src-tauri/src/ci_fix/fixtures/gh/*.json text eol=lf
+# Red to Green log fixtures and their golden log files are compared byte for byte: keep them LF.
+packages/app/src-tauri/src/ci_fix/fixtures/logs/* text eol=lf

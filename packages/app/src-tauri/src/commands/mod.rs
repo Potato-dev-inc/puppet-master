@@ -68,6 +68,7 @@ mod package_check;
 mod review_desk;
 mod wsl;
 mod what_broke_it;
+mod ci_fix;
 
 pub use agent_install::*;
 pub use agent_store::*;
@@ -130,6 +131,7 @@ pub use issue_intake::*;
 pub use package_check::*;
 pub use review_desk::*;
 pub use wsl::*;
+pub use ci_fix::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

@@ -1,0 +1,41 @@
+{
+  "total_count": 4,
+  "check_runs": [
+    {
+      "id": 3001,
+      "name": "unit",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/acme/billing/runs/3001",
+      "details_url": "https://github.com/acme/billing/actions/runs/9003/job/3001",
+      "app": { "slug": "github-actions" }
+    },
+    {
+      "id": 3002,
+      "name": "docs",
+      "status": "completed",
+      "conclusion": "neutral",
+      "html_url": "https://github.com/acme/billing/runs/3002",
+      "details_url": "https://github.com/acme/billing/actions/runs/9003/job/3002",
+      "app": { "slug": "github-actions" }
+    },
+    {
+      "id": 3003,
+      "name": "old-job",
+      "status": "completed",
+      "conclusion": "skipped",
+      "html_url": "https://github.com/acme/billing/runs/3003",
+      "details_url": "https://github.com/acme/billing/actions/runs/9003/job/3003",
+      "app": { "slug": "github-actions" }
+    },
+    {
+      "id": 3004,
+      "name": "superseded",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "html_url": "https://github.com/acme/billing/runs/3004",
+      "details_url": "https://github.com/acme/billing/actions/runs/9003/job/3004",
+      "app": { "slug": "github-actions" }
+    }
+  ]
+}

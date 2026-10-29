@@ -57,7 +57,7 @@ export interface WorktreeItem {
   /** `active`: an agent is still working in it. `unreviewed`: finished, not merged or discarded. */
   state: 'active' | 'unreviewed' | 'missing';
   summary: { files_changed: number; additions: number; deletions: number } | null;
-  /** The agent type that works in it (for "Send back to <agent>"). */
+  /** The agent type that works in it (for "Fix with <agent>"). */
   agent_type?: string | null;
   /** What preparing the copy did (setup steps, files copied in). */
   setup?: import('./ship-api').SetupReport | null;

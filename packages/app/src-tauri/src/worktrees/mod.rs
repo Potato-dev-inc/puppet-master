@@ -37,6 +37,8 @@ mod tests;
 mod tests_ship;
 #[cfg(test)]
 mod tests_issue;
+#[cfg(test)]
+mod tests_cifix;
 
 use crate::operations::OperationError;
 use git::{git_ok, git_raw, git_limited, GitOut};

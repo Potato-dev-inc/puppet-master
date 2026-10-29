@@ -97,13 +97,6 @@ export interface PrPrepared {
   has_uncommitted: boolean;
 }
 
-export interface SendBackPreview {
-  /** The fixed task: it points at a file and holds no log line. */
-  text: string;
-  failing: string[];
-  excerpt_lines: number;
-}
-
 const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -131,11 +124,6 @@ export const shipApi = {
     call<PrRef>('worktree_pr_create', { projectPath, handle, title, body, base }),
   prChecks: (projectPath: string | null, handle: string, waitSecs = 0) =>
     call<PrRef>('worktree_pr_checks', { projectPath, handle, waitSecs }),
-  prSendBackPreview: (projectPath: string | null, handle: string) =>
-    call<SendBackPreview>('worktree_pr_send_back_preview', { projectPath, handle }),
-  /** Rust writes the cleaned log into the copy and makes the task; no text comes from here. */
-  prSendBack: (projectPath: string | null, handle: string) =>
-    call<{ route: 'run' | 'pane'; target: string }>('worktree_pr_send_back', { projectPath, handle }),
   openUrl: (url: string) => (isTauri() ? invoke<void>('open_external_url', { url }) : Promise.resolve()),
 };
 

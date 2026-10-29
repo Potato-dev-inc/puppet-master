@@ -1,0 +1,61 @@
+/* The Red to Green cards (components/cockpit/CiFixCard.tsx). They are InboxCards (inbox-card.css); this is only what
+   they add: the failing check names, the size line and the read-only log box. Grayscale tokens only (monochrome). */
+
+.cockpit .ib-ci-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font: 11px/1.4 var(--font-mono);
+  color: var(--label-2);
+}
+.cockpit .ib-ci-checks li {
+  max-width: 100%;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--fill);
+  overflow-wrap: anywhere;
+}
+
+.cockpit .ib-ci-notes,
+.cockpit .ib-ci-notes-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ib-ci-notes-list li,
+.cockpit .ib-ci-notes {
+  overflow-wrap: anywhere;
+}
+
+.cockpit .ib-ci-log {
+  display: grid;
+  gap: 8px;
+}
+.cockpit .ib-ci-log-name {
+  font-size: 11px;
+  color: var(--label-3);
+  overflow-wrap: anywhere;
+}
+.cockpit .ib-ci-log-text {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label-2);
+  font: 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.cockpit .ib-ci-log-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--label-3);
+}

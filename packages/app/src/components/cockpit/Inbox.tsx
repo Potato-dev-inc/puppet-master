@@ -3,7 +3,7 @@ import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectWithCopy } from './shell-labels';
 import { hasEverSpawned } from '../../lib/agent-health';
 import { sortInbox, type InboxEntry } from '../../lib/inbox-order';
-import { isBudget, isConsent, isIssueCard, isLimit, type QuestionAnswer } from '../../lib/questions';
+import { isBudget, isCiCard, isConsent, isIssueCard, isLimit, type QuestionAnswer } from '../../lib/questions';
 import { patchSettings } from '../../lib/settings';
 import { PaneApprovalCard } from './PaneApprovalCard';
 import { PaneStuckCard } from './StuckCard';
@@ -17,6 +17,7 @@ import { ConsentCard } from './ConsentCard';
 import { LimitCard } from './LimitCard';
 import { QuestionCard } from './QuestionCard';
 import { IssueCard } from './IssueCard';
+import { CiFixCard } from './CiFixCard';
 import { PaneErrorCard } from './InboxError';
 import { focusWithRing } from './InboxCard';
 import { handleInboxKey, isEditable } from './inbox-keys';
@@ -130,6 +131,15 @@ export function Inbox({
           since: q.created_at_ms,
           quick: false,
           render: () => <IssueCard q={q} now={c.now} onAnswer={answer(q.id)} onOpenPane={open(q.pane_id)} />,
+        });
+      } else if (isCiCard(q)) {
+        // Red to Green: a fix card or a push card for a PR Puppet Master opened. Like the issue cards, a number key never answers it.
+        out.push({
+          key: `ci:${q.id}`,
+          kind: 'question',
+          since: q.created_at_ms,
+          quick: false,
+          render: () => <CiFixCard q={q} now={c.now} onAnswer={answer(q.id)} onOpenPane={open(q.pane_id)} />,
         });
       } else {
         out.push({

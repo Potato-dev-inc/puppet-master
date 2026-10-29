@@ -29,6 +29,7 @@ mod event_log;
 mod git_exclude;
 mod handoff;
 mod issue_intake;
+mod ci_fix;
 mod events;
 mod mcp_hints;
 mod mcp_install;
@@ -517,6 +518,12 @@ pub fn run() {
             commands::review_desk_throw_away,
             commands::review_desk_unmark,
             commands::review_desk_fix,
+            commands::ci_fix_view,
+            commands::ci_fix_save_settings,
+            commands::ci_fix_offer,
+            commands::ci_fix_act,
+            commands::ci_fix_log,
+            commands::ci_fix_poll_now,
             commands::worktree_list,
             commands::worktree_diff,
             commands::second_opinion_agents,
@@ -555,8 +562,6 @@ pub fn run() {
             commands::worktree_pr_prepare,
             commands::worktree_pr_create,
             commands::worktree_pr_checks,
-            commands::worktree_pr_send_back_preview,
-            commands::worktree_pr_send_back,
             commands::pane_transcript,
             commands::questions_list,
             commands::question_answer,
@@ -758,6 +763,7 @@ pub fn run() {
             askbar::glue::init(app.handle());
             team::init(app.handle().clone(), registry_for_panes.clone());
             issue_intake::live::start(registry_for_panes.clone(), app.handle().clone());
+            ci_fix::live::start(registry_for_panes.clone(), app.handle().clone());
             companion::live::start(app.handle().clone(), registry_for_panes.clone());
             // A room a crash left on the relay is ended now (its own thread: it may wait for the network).
             live_room::service::cleanup_at_boot(app_paths::app_data_dir());

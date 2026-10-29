@@ -391,6 +391,21 @@ fn issue_push_card_says_github_issue_and_never_shows_its_context() {
     check("issue_push", &payload);
 }
 
+#[test]
+fn ci_fix_card_says_github_ci_and_never_shows_its_context() {
+    let payload = issue_card_payload("g-ci-fix", "ci_fix", "CI failed on #61 (lint, test). Ask Codex to fix it?");
+    assert_eq!(payload["kind"], "question");
+    assert!(payload["body"].as_str().unwrap().ends_with("\nGitHub CI"), "{}", payload["body"]);
+    check("ci_fix", &payload);
+}
+
+#[test]
+fn ci_push_card_says_github_ci_and_never_shows_its_context() {
+    let payload = issue_card_payload("g-ci-push", "ci_push", "Push the fix to #61?");
+    assert!(payload["body"].as_str().unwrap().contains("Push the fix to #61?"), "{}", payload["body"]);
+    check("ci_push", &payload);
+}
+
 // ---- companion replies ---------------------------------------------------------------------------
 
 /// A phone set for companion replies: "dev-a" (watch), "dev-w" (watch), "dev-h" (hide details, watch),

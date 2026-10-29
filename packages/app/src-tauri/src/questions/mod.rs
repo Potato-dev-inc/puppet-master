@@ -25,10 +25,14 @@ pub const MAX_BUDGET_TIMEOUT_S: u64 = 24 * 3600;
 /// Kinds of the cards about a GitHub issue (`issue_intake`): start work on an issue, open a draft PR.
 pub const ISSUE_KIND_START: &str = "issue_start";
 pub const ISSUE_KIND_PUSH: &str = "issue_push";
+/// Kinds of the cards about a failed CI check on a PR Puppet Master opened (`ci_fix`): ask to fix it, ask to push
+/// the fix. Only the person answers them (see `PERSON_ONLY_KINDS`).
+pub const CI_KIND_FIX: &str = "ci_fix";
+pub const CI_KIND_PUSH: &str = "ci_push";
 /// Cards only the person can answer: never an agent, never a companion, never a chat channel. A plain
 /// loopback request may not answer or dismiss them (`routes.rs`), and a chat answer is refused in
 /// `attention::answer`. Answered from the desktop window (Tauri command) or a paired phone only.
-pub const PERSON_ONLY_KINDS: &[&str] = &["budget", ISSUE_KIND_START, ISSUE_KIND_PUSH];
+pub const PERSON_ONLY_KINDS: &[&str] = &["budget", ISSUE_KIND_START, ISSUE_KIND_PUSH, CI_KIND_FIX, CI_KIND_PUSH];
 /// A usage-limit card (raised by Puppet Master, never through `ask_user`) outlives an hour: a limit
 /// can last a working day.
 pub const MAX_LIMIT_TIMEOUT_S: u64 = 24 * 3600;
@@ -145,6 +149,11 @@ pub struct Question {
     /// Set when this is a usage-limit card (or a reminder for one), not a question an agent asked.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub limit: Option<LimitInfo>,
+    /// The Red to Green fix (`cf-` + 12 hex) a `ci_fix` or `ci_push` card is about. The card's
+    /// `Show log` reads the stored snapshot by it. Only an id: it never carries log text, and it is
+    /// set only on those two kinds when the id has the exact shape.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub fix_id: Option<String>,
     #[serde(skip)]
     resolved_at_ms: Option<u64>,
 }
@@ -238,6 +247,19 @@ impl QuestionStore {
     /// Like `create`, with an id the caller picked (a UUID not in use). For a caller that must store the
     /// card's id before the card can be seen. `None` picks a fresh id.
     pub fn create_as(&self, new: NewQuestion, chosen_id: Option<&str>, now: u64) -> Result<Question, QuestionError> {
+        self.create_for_fix(new, chosen_id, None, now)
+    }
+
+    /// Like `create_as`, for a Red to Green card: `fix_id` (`cf-` + 12 lowercase hex) names the fix the card is
+    /// about so its `Show log` can read the stored snapshot. It is kept only on the `ci_fix` and `ci_push`
+    /// kinds and only in that exact shape, so it can never carry text.
+    pub fn create_for_fix(
+        &self,
+        new: NewQuestion,
+        chosen_id: Option<&str>,
+        fix_id: Option<&str>,
+        now: u64,
+    ) -> Result<Question, QuestionError> {
         let text = trimmed(&new.question);
         if text.is_empty() {
             return Err(QuestionError::new("INVALID_ARGUMENT", "question must not be empty"));
@@ -329,6 +351,7 @@ impl QuestionStore {
                 chosen
             }
         };
+        let new_kind_is_ci = matches!(new.kind.as_deref(), Some(CI_KIND_FIX | CI_KIND_PUSH));
         let question = Question {
             id,
             asker: new.asker,
@@ -346,6 +369,9 @@ impl QuestionStore {
             consent: new.consent,
             kind: new.kind.map(|k| trimmed(&k)).filter(|k| !k.is_empty()),
             limit: new.limit,
+            fix_id: fix_id
+                .filter(|id| new_kind_is_ci && crate::ci_fix::model::valid_fix_id(id))
+                .map(str::to_string),
             resolved_at_ms: None,
         };
         inner.items.push(question.clone());
@@ -403,6 +429,8 @@ impl QuestionStore {
                 crate::handoff::on_resolved(&resolution.question);
                 // A card about a GitHub issue: start the run, open the draft PR, throw the copy away.
                 crate::issue_intake::live::on_resolved(&resolution.question);
+                // A card about a failed CI check: start the fix, push it, stop watching.
+                crate::ci_fix::live::on_resolved(&resolution.question);
             }
         }
         result
@@ -488,6 +516,8 @@ impl QuestionStore {
             crate::agent_authority::consent::on_resolved(&resolution.question);
             // Dismissing an issue card says "not now" (the routes let only the person do it).
             crate::issue_intake::live::on_resolved(&resolution.question);
+            // Dismissing a CI card says "not now" / "don't push".
+            crate::ci_fix::live::on_resolved(&resolution.question);
         }
         Ok(resolution)
     }

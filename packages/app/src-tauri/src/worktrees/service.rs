@@ -333,7 +333,39 @@ pub fn pr_create_with(
     let pr_ref = pr::create_with(&stored, title, body, base, env, git_env)?;
     stored.pr = Some(pr_ref.clone());
     super::update_meta(&stored)?;
+    // Red to Green: watch this pull request's CI (only when the Labs switch is on; never fails the PR).
+    #[cfg(not(test))]
+    crate::ci_fix::live::on_pr_opened(&project, &stored);
     Ok(pr_ref)
+}
+
+/// Push a fix to the pull request's branch (Red to Green, spec n33 §3.4): commit the agent's loose
+/// edits, then [`pr::push_update`] (a fast-forward only, the remote must still be
+/// `expected_remote`). Never merges, never marks ready, never comments. Returns the new head.
+/// `git_env` is the hardened env of PM's git calls on the copy; the PR's stored checks are cleared
+/// because they describe the old commit.
+#[allow(clippy::too_many_arguments)]
+pub fn pr_push_fix(
+    project: Option<&str>,
+    handle: &str,
+    expected_remote: &str,
+    default_branch: Option<&str>,
+    registry: &Registry,
+    env: &ToolEnv,
+    git_env: &[(String, String)],
+) -> Result<String, OperationError> {
+    let (project, _) = resolve(project, handle, registry)?;
+    let mut stored = stored_with_pr(&project, handle)?;
+    ensure_idle(&project, &stored, registry)?;
+    let mut pr_ref = stored.pr.clone().expect("checked by stored_with_pr");
+    // The PR's base: the copy's branch must never be it (checked again in `push_update`).
+    let base = pr_ref.base.clone();
+    super::commit_pending_with(&stored, git_env)?;
+    let head = pr::push_update(&stored, &base, default_branch, expected_remote, env, git_env)?;
+    pr_ref.checks = None;
+    stored.pr = Some(pr_ref);
+    super::update_meta(&stored)?;
+    Ok(head)
 }
 
 /// Read the PR's checks (polling for at most `wait` while some are pending) and keep the result on
@@ -364,74 +396,4 @@ fn stored_with_pr(project: &str, handle: &str) -> Result<WorktreeRef, OperationE
         return Err(OperationError::new("NO_PR", "This copy has no pull request yet.", false));
     }
     Ok(stored)
-}
-
-/// What "Send back" would tell the agent: shown first, sent only after the person agrees. The
-/// task is fixed words that point at a file; the log lines are in the file, never in `text`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SendBackPreview {
-    pub text: String,
-    pub failing: Vec<String>,
-    /// Lines of the failing job's log that go into the file (cleaned, secrets hidden).
-    pub excerpt_lines: usize,
-}
-
-/// The pane that may be sent CI output: the newest run in this copy must run under the `no_push`
-/// guard (it cannot push), and its pane must be inside the copy. Else refused with a plain message.
-fn guarded_author_pane(
-    project: &str,
-    worktree: &WorktreeRef,
-    registry: &Registry,
-) -> Result<String, OperationError> {
-    let op = operations::latest_agent_run(project, &worktree.handle).ok();
-    let in_copy: Vec<String> = panes_in(registry, worktree).into_iter().map(|(id, _)| id).collect();
-    super::sendback::pane_if_guarded(
-        op.as_ref().and_then(|op| op.worker.guard_env.as_deref()),
-        op.as_ref().and_then(|op| op.pane_id.as_deref()),
-        &in_copy,
-    )
-}
-
-/// Check the pane is safe to send to, read the failing checks and their logs, and clean them.
-fn build_send_back(
-    project: Option<&str>,
-    handle: &str,
-    registry: &Registry,
-    env: &ToolEnv,
-) -> Result<(WorktreeRef, String, super::sendback::Built), OperationError> {
-    let (project, _) = resolve(project, handle, registry)?;
-    let stored = stored_with_pr(&project, handle)?;
-    // The pane check comes first: a pane that could push is refused before any log is read.
-    let pane_id = guarded_author_pane(&project, &stored, registry)?;
-    let pr_ref = stored.pr.clone().expect("checked by stored_with_pr");
-    let report: ChecksReport = pr::checks_once(&stored, env)?;
-    if report.failing().is_empty() {
-        return Err(OperationError::new("NO_FAILED_CHECKS", "No GitHub check has failed.", false));
-    }
-    let raw = pr::failure_excerpt(&stored, &report, env);
-    Ok((stored, pane_id, super::sendback::build(pr_ref.number, &report, &raw)))
-}
-
-pub fn pr_send_back_preview(
-    project: Option<&str>,
-    handle: &str,
-    registry: &Registry,
-    env: &ToolEnv,
-) -> Result<SendBackPreview, OperationError> {
-    let (_, _, built) = build_send_back(project, handle, registry, env)?;
-    Ok(SendBackPreview { text: built.task, failing: built.failing, excerpt_lines: built.excerpt_lines })
-}
-
-/// Write the cleaned log into the copy and tell the agent to read it. The agent must be one that
-/// cannot push. The text is made here, never taken from the caller.
-pub fn pr_send_back(
-    project: Option<&str>,
-    handle: &str,
-    registry: &Registry,
-    env: &ToolEnv,
-    app: tauri::AppHandle,
-) -> Result<crate::second_opinion::route::Sent, OperationError> {
-    let (stored, pane_id, built) = build_send_back(project, handle, registry, env)?;
-    super::sendback::write_file(&stored, &built)?;
-    crate::second_opinion::service::send_text_to_author(&pane_id, &built.task, registry.clone(), app)
 }
