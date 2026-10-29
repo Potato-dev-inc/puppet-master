@@ -643,6 +643,28 @@ fn a_fork_another_author_or_a_foreign_head_pauses_the_watch_with_no_card_and_no_
 }
 
 #[test]
+fn a_pull_request_that_shows_the_commit_of_our_push_that_is_landing_is_not_someone_elses() {
+    // Our push reached GitHub, but the record of pushed commits does not hold it yet: not a foreign head.
+    let fx = Fx::new();
+    let eng = fx.engine();
+    fx.started(&eng);
+    let mut fix = fx.only_fix();
+    fix.state = FixState::Pushing;
+    fx.0.store.put_fix(&fix).expect("fix");
+    fx.route_pull(SHA2);
+    fx.route_checks(SHA2, RED);
+    eng.tick();
+    assert_eq!(fx.watch().state, WatchState::Watching);
+    assert!(fx.pending().iter().all(|q| q.kind.as_deref() != Some(CARD_KIND_FIX)), "a card was raised for a push under way");
+    // With no push under way and no record of it, the same head is someone else's.
+    let other = Fx::new();
+    other.route_pull(SHA2);
+    other.route_checks(SHA2, RED);
+    other.engine().tick();
+    assert!(matches!(other.watch().state, WatchState::Paused { .. }));
+}
+
+#[test]
 fn a_foreign_head_shows_the_row_text_the_spec_asks_for() {
     let fx = Fx::new();
     let eng = fx.engine();

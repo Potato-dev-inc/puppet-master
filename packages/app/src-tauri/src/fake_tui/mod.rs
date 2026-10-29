@@ -14,6 +14,7 @@
 
 mod canary_rig;
 mod chat;
+mod ci_fix;
 mod issue_intake;
 mod night;
 mod profile;
@@ -24,6 +25,7 @@ mod world;
 
 pub use canary_rig::CanaryRig;
 pub use chat::ChatProbe;
+pub use ci_fix::CiFixRig;
 pub use issue_intake::IssueRig;
 pub use night::NightRig;
 pub use store_rig::StoreRig;
