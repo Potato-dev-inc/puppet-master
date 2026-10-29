@@ -22,6 +22,7 @@ pub mod aggregate;
 pub mod gather;
 pub mod join;
 pub mod model;
+pub mod pick;
 pub mod stats;
 pub mod undo_log;
 #[cfg(test)]

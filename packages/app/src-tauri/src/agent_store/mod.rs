@@ -104,6 +104,7 @@ pub fn detail_in(
         "uninstall": {
             "available": removal["available"],
             "steps": removal["steps"],
+            "reason": removal["reason"],
             "note": entry.entry.uninstall.note,
         },
         "found_path_display": inputs.found_path.as_deref().map(display_path),

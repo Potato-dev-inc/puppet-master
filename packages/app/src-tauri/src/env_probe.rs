@@ -80,13 +80,17 @@ fn probe_pytest(python: Option<&str>) -> Value {
 }
 
 fn probe_first(names: &[&str], args: &[&str], known_path: Option<&str>) -> Value {
+    probe_first_within(names, args, known_path, PROBE_TIMEOUT)
+}
+
+fn probe_first_within(names: &[&str], args: &[&str], known_path: Option<&str>, timeout: Duration) -> Value {
     for name in names {
         let path = match known_path {
             Some(path) => Some(PathBuf::from(path)),
             None => find_on_path(name),
         };
         let Some(path) = path else { continue };
-        if let Some(version) = run_version(&path, args) {
+        if let Some(version) = run_version(&path, args, timeout) {
             return json!({
                 "present": true,
                 "version": version,
@@ -125,7 +129,7 @@ fn is_file(path: &Path) -> bool {
 
 /// First line of the tool's version output, or `None` if it fails or exceeds the timeout. A
 /// non-zero exit (for example the Windows Store `python` stub) means "not usable".
-fn run_version(path: &Path, args: &[&str]) -> Option<String> {
+fn run_version(path: &Path, args: &[&str], timeout: Duration) -> Option<String> {
     let mut command = crate::proc_util::hidden_command(path);
     command
         .args(args)
@@ -133,7 +137,7 @@ fn run_version(path: &Path, args: &[&str]) -> Option<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = command.spawn().ok()?;
-    let deadline = Instant::now() + PROBE_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -193,9 +197,13 @@ mod tests {
 
     #[test]
     fn cargo_is_present_when_tests_run_under_cargo() {
-        // `cargo test` puts cargo on PATH for the test process on supported setups.
+        // `cargo test` puts cargo on PATH for the test process on supported setups. `cargo` is rustup's proxy,
+        // which starts the real one: on a machine running the whole suite that took longer than the 2.5 s the app
+        // allows a probe, and the tool was then (correctly) reported absent. This test asks "does the probe find
+        // cargo", not "is it quick", so it waits as long as a hung process needs to be told apart.
         if find_on_path("cargo").is_some() {
-            assert_eq!(probe_first(&["cargo"], &["--version"], None)["present"], true);
+            let probe = probe_first_within(&["cargo"], &["--version"], None, Duration::from_secs(120));
+            assert_eq!(probe["present"], true);
         }
     }
 }

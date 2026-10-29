@@ -4,11 +4,15 @@
 //   3. "Set up Git here" for a folder without Git, with the exact commands shown first.
 // The Separate copy switch sits at the bottom of step 1. It starts OFF (the agent works in the folder the person
 // selected); a remembered choice wins. Without Git it cannot be turned on: a one-line hint and "Set up Git here".
+// The first row of step 1 is "Pick for me" (only with a `pick` API and a project). It asks which agent to start
+// here, from the person's own history. It starts nothing: only a press on its Start button does.
 import { useEffect, useState } from 'react';
 import { accountsFor, needsAccountStep, tauriAccountsApi, type Account, type AccountsApi } from '../../lib/accounts';
 import { shipApi, type GitInitPlan, type GitState, type RecentProject, type ShipApi } from '../../lib/ship-api';
 import { realRecents, stateHint, supportsCopies } from '../../lib/ship-model';
+import { EARLY_TITLE, FOOTER, isEarly, pickHint, startable, startLabel, type PickApi, type PickResult, type PickState } from '../../lib/pick-for-me';
 import '../../styles/cockpit-ship.css';
+import '../../styles/cockpit-pick.css';
 
 export interface LaunchEntry {
   type: string;
@@ -39,6 +43,8 @@ interface Props {
   isolated?: boolean;
   onIsolated?: (on: boolean) => void;
   ship?: ShipApi;
+  /** "Pick for me". Without it, or without `project`, the row is not drawn. */
+  pick?: PickApi;
   /** "More agents…": opens the Agent Store. Without it the row is not drawn. */
   onOpenStore?: () => void;
   /** "Start a mission…" (Preview, Labs). Without it the item is not drawn. */
@@ -47,7 +53,14 @@ interface Props {
   onTonight?: () => void;
 }
 
-type Step = 'agents' | 'projects' | 'git';
+type Step = 'agents' | 'projects' | 'git' | 'pick';
+
+/** The answer of "Pick for me" for one folder. `path` is the folder it was asked for, so an old answer is never shown. */
+interface PickAnswer {
+  path: string;
+  result?: PickResult;
+  failed?: boolean;
+}
 
 /** The one line under a switch that cannot be turned on: why, in plain words. */
 function noGitHint(state: GitState | undefined): string {
@@ -69,6 +82,7 @@ export function NewAgentMenu({
   isolated = false,
   onIsolated,
   ship = shipApi,
+  pick: pickApi,
   onOpenStore,
   onStartMission,
   onTonight,
@@ -81,6 +95,8 @@ export function NewAgentMenu({
   const [planFor, setPlanFor] = useState<RecentProject | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [answer, setAnswer] = useState<PickAnswer | null>(null);
+  const projectPath = project?.path ?? null;
 
   useEffect(() => {
     let alive = true;
@@ -104,6 +120,27 @@ export function NewAgentMenu({
     if (onProject) loadRecent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onProject]);
+
+  // "Pick for me": asked once when the menu opens and again when the folder changes. The `alive` flag drops an
+  // answer that arrives after the folder changed, so an old folder's pick is never shown. Nothing is started here.
+  useEffect(() => {
+    if (!pickApi || !projectPath) return undefined;
+    let alive = true;
+    setAnswer({ path: projectPath });
+    pickApi
+      .pick(projectPath)
+      .then((result) => alive && setAnswer({ path: projectPath, result }))
+      .catch(() => alive && setAnswer({ path: projectPath, failed: true }));
+    return () => {
+      alive = false;
+    };
+  }, [pickApi, projectPath]);
+
+  // The pick state for the current folder only: 'loading', the answer, or 'failed' (then no row is drawn).
+  const current = answer && answer.path === projectPath ? answer : null;
+  let pickState: PickState | 'failed' | null = null;
+  if (pickApi && projectPath) pickState = current?.result ?? (current?.failed ? 'failed' : 'loading');
+  const pickResult = pickState !== null && pickState !== 'loading' && pickState !== 'failed' ? pickState : null;
 
   const start = (agentId: string, accountId?: string) => {
     onClose();
@@ -262,6 +299,60 @@ export function NewAgentMenu({
     );
   }
 
+  if (step === 'pick' && pickResult) {
+    // The pick panel: the name, one plain sentence, Start (only when it can really start), and "Why this one".
+    const { choice } = pickResult;
+    const canStart = startable(pickResult, entries);
+    return (
+      <div className="ck-pick">
+        <div className="ck-menu-cap">Pick for me</div>
+        {choice && <div className="ck-pick-name">{choice.label}</div>}
+        {choice && isEarly(pickResult) && (
+          <span className="ck-pick-chip" title={EARLY_TITLE}>
+            early
+          </span>
+        )}
+        <p className="ck-pick-reason">{pickResult.reason}</p>
+        {choice && !canStart && (
+          <p className="ck-menu-note ck-menu-note--err" role="alert">
+            {`${choice.label} can't be started from this menu.`}
+          </p>
+        )}
+        <div className="ck-pick-actions">
+          {choice && canStart ? (
+            <>
+              <button type="button" className="ck-btn ck-btn--primary" autoFocus onClick={() => start(choice.agentId, choice.accountId)}>
+                {startLabel(pickResult)}
+              </button>
+              <button type="button" className="ck-btn ck-btn--secondary" onClick={() => setStep('agents')}>
+                Choose myself
+              </button>
+            </>
+          ) : (
+            <button type="button" className="ck-btn ck-btn--secondary" autoFocus onClick={() => setStep('agents')}>
+              Back
+            </button>
+          )}
+        </div>
+        <details className="ck-pick-why">
+          <summary>Why this one</summary>
+          {pickResult.considered.map((c, i) => (
+            <div key={`${c.label}-${i}`} className={c.state === 'skipped' ? 'ck-pick-line is-skipped' : 'ck-pick-line'}>
+              <span>{c.label}</span>
+              <span>{c.line}</span>
+            </div>
+          ))}
+          {pickResult.notes.map((note) => (
+            <p key={note} className="ck-pick-foot">
+              {note}
+            </p>
+          ))}
+          <p className="ck-pick-foot">{FOOTER}</p>
+        </details>
+      </div>
+    );
+  }
+
   if (picking) {
     return (
       <>
@@ -303,6 +394,15 @@ export function NewAgentMenu({
           </button>
         )}
       </div>
+      {pickState !== null && pickState !== 'failed' && (
+        <>
+          <button type="button" role="menuitem" className="ck-menu-item" disabled={pickState === 'loading'} onClick={() => setStep('pick')}>
+            <span>Pick for me</span>
+            <span className="ck-menu-hint">{pickHint(pickState)}</span>
+          </button>
+          <div className="ck-menu-sep" />
+        </>
+      )}
       {entries.map((e) => {
         const hasAccounts = needsAccountStep(accounts, e.type);
         return (
