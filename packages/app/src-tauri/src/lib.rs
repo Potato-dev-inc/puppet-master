@@ -481,6 +481,12 @@ pub fn run() {
             commands::issue_intake_check_folder,
             commands::issue_intake_act,
             commands::issue_intake_poll_now,
+            commands::ci_fix_view,
+            commands::ci_fix_save_settings,
+            commands::ci_fix_offer,
+            commands::ci_fix_act,
+            commands::ci_fix_log,
+            commands::ci_fix_poll_now,
             commands::worktree_list,
             commands::worktree_diff,
             commands::second_opinion_agents,
@@ -717,6 +723,7 @@ pub fn run() {
             askbar::glue::init(app.handle());
             team::init(app.handle().clone(), registry_for_panes.clone());
             issue_intake::live::start(registry_for_panes.clone(), app.handle().clone());
+            ci_fix::live::start(registry_for_panes.clone(), app.handle().clone());
             companion::live::start(app.handle().clone(), registry_for_panes.clone());
             // A room a crash left on the relay is ended now (its own thread: it may wait for the network).
             live_room::service::cleanup_at_boot(app_paths::app_data_dir());
