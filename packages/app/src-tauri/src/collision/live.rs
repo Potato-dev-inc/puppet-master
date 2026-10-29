@@ -159,8 +159,10 @@ fn set_settings_in(store: &Store, shared: &Shared, next: Settings) -> Result<Set
     Ok(next)
 }
 
+/// The same file `settings::load` reads (`<app data>/collision.json`; a per-process temp file in tests),
+/// so a save is always seen by the next read.
 fn settings_file() -> PathBuf {
-    crate::app_paths::app_data_dir().join("collision.json")
+    settings::default_file()
 }
 
 // ---- panes -> facts -----------------------------------------------------------------------------------

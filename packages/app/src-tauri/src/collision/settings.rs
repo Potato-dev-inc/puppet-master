@@ -36,15 +36,19 @@ impl Store {
     }
 }
 
+/// Serialises the tests that write the one per-process test file that `default_file` names under `cfg(test)`.
+#[cfg(test)]
+pub(crate) static TEST_FILE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// `<app data>/collision.json`.
 #[cfg(not(test))]
-fn default_file() -> PathBuf {
+pub(crate) fn default_file() -> PathBuf {
     crate::app_paths::app_data_dir().join(FILE)
 }
 
 /// Tests never touch the real app data folder: a per-process temp file instead.
 #[cfg(test)]
-fn default_file() -> PathBuf {
+pub(crate) fn default_file() -> PathBuf {
     std::env::temp_dir().join(format!("pm-collision-unused-{}", std::process::id())).join(FILE)
 }
 
@@ -123,6 +127,7 @@ mod tests {
 
     #[test]
     fn load_and_save_use_the_default_file_in_tests() {
+        let _guard = TEST_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         save(&Settings { enabled: false }).unwrap();
         assert!(!load().enabled);
         save(&Settings { enabled: true }).unwrap();

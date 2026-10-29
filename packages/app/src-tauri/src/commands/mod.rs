@@ -63,6 +63,7 @@ mod channels;
 mod live_room;
 pub(crate) mod night;
 mod issue_intake;
+mod collision;
 
 pub use agent_install::*;
 pub use agent_store::*;
@@ -120,6 +121,7 @@ pub use channels::*;
 pub use live_room::*;
 pub use night::*;
 pub use issue_intake::*;
+pub use collision::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{
