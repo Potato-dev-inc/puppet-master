@@ -322,6 +322,14 @@ impl Runtime {
         engine::before_of(&items, started_at_ms).map(|c| c.id.clone())
     }
 
+    /// The id of the newest "after" checkpoint (the end of the latest finished turn). `None` = checkpoints
+    /// are off or the pane has no finished turn yet (Review Desk: the end of a range of turns).
+    #[allow(dead_code)] // read by Review Desk (its gather and detail)
+    pub fn last_after_id(&self, pane_id: &str) -> Option<String> {
+        let items = self.list(pane_id).ok()?;
+        engine::latest_after(&items).map(|c| c.id.clone())
+    }
+
     /// Restore to the newest checkpoint taken before the latest turn (for "Undo last turn").
     pub fn undo_last_turn(&self, pane_id: &str) -> Result<RestoreReport, CheckpointError> {
         let items = self.list(pane_id)?;

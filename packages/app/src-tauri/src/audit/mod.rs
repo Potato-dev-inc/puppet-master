@@ -81,6 +81,9 @@ pub enum Kind {
     IssueIntake,
     /// Night Shift (`crate::night_shift`): one kind for the night's own lines (start, task, stop).
     NightShift,
+    /// Review Desk (`crate::review_desk`): one `review_desk.action` line per Keep, Throw away or unmark the
+    /// person did. The detail holds the action, source, key, file count and tier; never a title or a path.
+    ReviewDesk,
 }
 
 impl Kind {
@@ -117,6 +120,7 @@ impl Kind {
             Self::ChannelError => "channel.error",
             Self::IssueIntake => "issue.intake",
             Self::NightShift => "night_shift",
+            Self::ReviewDesk => "review_desk.action",
         }
     }
 }

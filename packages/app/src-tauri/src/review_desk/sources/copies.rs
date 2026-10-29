@@ -225,7 +225,7 @@ fn cleaned_lines(lines: &[(String, u32)], clean: &Clean) -> Vec<(String, u32)> {
 }
 
 /// `added` -> `A`, `deleted` -> `D`, anything else (`modified`) -> `M`.
-fn status_of(raw: &str) -> char {
+pub(crate) fn status_of(raw: &str) -> char {
     match raw {
         "added" => 'A',
         "deleted" => 'D',
@@ -234,7 +234,7 @@ fn status_of(raw: &str) -> char {
 }
 
 /// Cleans a string for display and strips control and bidi characters.
-fn tidy(raw: &str, clean: &Clean) -> String {
+pub(crate) fn tidy(raw: &str, clean: &Clean) -> String {
     strip_controls(&clean.apply(raw))
 }
 

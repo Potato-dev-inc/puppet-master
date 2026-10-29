@@ -4,7 +4,8 @@
 //!
 //! - `model`: the types (SPEC 3.2) and the strict `ItemKey` parser. `marks`: the "looked at" file.
 //! - `risk`: the fixed order table (pure). `sources`: converters from copies, Night Shift, issues, turns.
-//! - `gather`, `act`, `fix`, `live`: the live layer (later tasks). `view`: the read-only phone view.
+//! - `live` (the `DeskIo` trait and the real `LiveIo`), `gather` (read, fill, order), `act` (Keep, Throw away,
+//!   Ask to fix, detail), `fix` (the draft), `view` (what leaves Rust, and the read-only phone view).
 //!
 //! Invariants (SPEC 4):
 //! - S1: actions are Tauri commands only; no MCP tool, bridge action route, companion or channel reaches them.
@@ -36,5 +37,7 @@ pub mod risk;
 pub mod sources;
 pub mod view;
 
+#[cfg(test)]
+mod engine_tests;
 #[cfg(test)]
 mod guard_tests;

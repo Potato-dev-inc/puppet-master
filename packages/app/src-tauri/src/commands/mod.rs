@@ -58,7 +58,7 @@ mod keep_going;
 mod tunnel;
 mod toolbelt;
 mod agent_pack;
-mod point;
+pub(crate) mod point;
 mod channels;
 mod live_room;
 pub(crate) mod night;

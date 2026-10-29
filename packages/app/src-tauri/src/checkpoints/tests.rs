@@ -1081,6 +1081,7 @@ fn range_wrappers_go_through_the_pane_folder_and_its_turn_baseline() {
 
     // The turn that started at the fake clock's start began from the "before" checkpoint.
     assert_eq!(rt.before_of_turns("p1", 100_000).as_deref(), Some(before.as_str()));
+    assert_eq!(rt.last_after_id("p1").as_deref(), Some(last.as_str()), "the newest after");
     let range = rt.patch_between("p1", &before, &last, 1 << 20).unwrap().expect("a patch");
     assert!(range.patch.contains("+two") && range.patch.contains("+new"));
     let files = rt.changes_between_ids("p1", &before, &after).unwrap();
@@ -1089,5 +1090,6 @@ fn range_wrappers_go_through_the_pane_folder_and_its_turn_baseline() {
     // Checkpoints off: no baseline, and the range refuses.
     env.enabled.store(false, Ordering::SeqCst);
     assert_eq!(rt.before_of_turns("p1", 100_000), None);
+    assert_eq!(rt.last_after_id("p1"), None);
     assert!(matches!(rt.patch_between("p1", &before, &last, 1 << 20), Err(CheckpointError::Disabled)));
 }
