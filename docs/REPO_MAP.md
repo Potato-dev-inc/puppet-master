@@ -570,6 +570,59 @@ Desktop only: the Tauri commands have no bridge route and no MCP tool.
 
 Tests: `cargo test --lib agent_store` (and `agent_store::check` for the catalog); `npx vitest run src/components/store src/lib/agent-store src/lib/agentStoreCheck`; `node --test scripts/gen-store-catalog.test.mjs scripts/store-verify-publishers.test.mjs`.
 
+### 3.14 Red to Green (`ci_fix/`, with hooks in `worktrees/`, `questions/`, `audit/`)
+
+Puppet Master watches CI on a pull request it opened from one of its own copies. When checks fail and you say yes, the same
+agent fixes them in that copy. The agent cannot push, and every push is asked first. Feature page:
+`docs/features/red-to-green.md`. Spec: n33. In code the module is `ci_fix`; the UI says "Red to Green". Generic code never
+names an agent: labels come from `crews::live::label_of`. Desktop only: no bridge route, no SSE event, no MCP tool.
+
+**Status on this branch.** `lib.rs` does not call `ci_fix::live::start`, and the six `ci_fix_*` Tauri commands are not
+written or registered yet (RG-10), so the engine never runs. The old "Send back to <agent>" path is still registered
+(`worktrees/sendback.rs`, RG-11). The feature page lists what is still missing.
+
+| File | What |
+|---|---|
+| `ci_fix/mod.rs` | the module map and the invariants S1-S16 (one line each); `#![allow(dead_code)]` until RG-10 wires the commands |
+| `ci_fix/model.rs` | the Labs `Settings` (clamped), `Watch` and `WatchState`, `FailedCheck`, `LogNotes`, `LogSnapshot`, `FixFacts`, `FixState` and `FixRun` (state tags), the id and sha validators, the caps, the `CI_FIX_*` error codes |
+| `ci_fix/store.rs` | `<app data>/ci-fix/`: `settings.json`, `watches.json` (200 records, 30 active), `fixes.json` (300 records, newest first); `write_private`; a bad id finds nothing |
+| `ci_fix/github.rs` | `gh api` reads only: pull request and check-run parsing; `read_ci` (failure, timed_out and startup_failure fail; action_required is shown, never acted on); `job_id` only for GitHub Actions; cleaned names and links; `WRITE_PATHS_NEVER` |
+| `ci_fix/filter.rs` | `owns` (open, not a fork, our author, base repo, `pm/` branch, pushed head); `should_offer` (one card per watch and sha, tries, day cap); `due` (60 s while checks run, 300 s otherwise, backoff); `expired` (14 days); `one_running`; `day_count`; `shown_checks` |
+| `ci_fix/logs.rs` | log cleaning in four steps (escape sequences, invisible and bidi characters, redaction through `issue_intake::text::publish_text`, then the cut); `log_file` (one `context_pack::fence`, one JSON object); `sha8` |
+| `ci_fix/text.rs` | the task (no log byte, no check name), the card texts, the notices, the row text, the push card text (no log lines) |
+| `ci_fix/fixcheck.rs` | the push check extras: skipped and deleted tests (added lines only), CI-run files, web addresses, the over-cap note; `reasons` (held causes last) |
+| `ci_fix/live.rs` | the `Io` trait and `LiveIo` (gh, git through `worktrees::harden`, `pushcheck`, `service::pr_push_fix`, `agent_runs::send_agent` and `run_agent`, the question store, audit); `start`, `on_pr_opened`, `on_resolved`, `offer`, `act`, `view`, `log`, `poll_now`, `save_settings` |
+| `ci_fix/engine.rs` | `Engine`: the 20 s loop (`run_loop`, `tick`), `poll_watch`, `act_on_checks`, `raise_offer` (reads up to 3 job logs and stores the snapshot), `tries_used`, `resume`, `route_a_ok` |
+| `ci_fix/flows.rs` | D start (checks, log file, `start_agent`: route A or route B, `build_request` with `no_push`), E finish (commit, facts, held, ask or no change), F push (fresh reads, `push_fix`, `pushed`), restart (`resolve_pushing`), G stop |
+| `ci_fix/answers.rs` | `on_resolved` and `apply_card_answer` (question ids stored in a fix only), follow-up cards, the queue (`drive_queue`), the row buttons (`act`), `watch_view_of` |
+| `ci_fix/view.rs` | the view shapes: `CiFixView`, `WatchView`, `FixView`, `FixLogView` |
+| `ci_fix/*_tests.rs`, `ci_fix/fixtures/` | `engine_tests.rs` (fake `Io`, virtual clock), `store_tests.rs`, `fixcheck_tests.rs`; recorded `gh` answers (`fixtures/gh`), plain and hostile logs with golden files (`fixtures/logs`), the task golden (`fixtures/text`). Other tests sit next to their code |
+| `worktrees/harden.rs` | adds `remote_branch_sha`, `head_sha`, `current_branch`, `is_ancestor`, `name_status`, `commit_count` |
+| `worktrees/pr.rs` | `push_update`: the branch guard, the default branch refused, the expected remote commit checked, then `push_branch` (explicit refspec, no force) |
+| `worktrees/service.rs` | `pr_push_fix` (commit the pending edits, `push_update`, clear the stored checks); `pr_create_with` calls `ci_fix::live::on_pr_opened` |
+| `worktrees/sendback.rs` | the older "Send back" path, still live until RG-11: cleaned log, fenced file, guarded panes only. `pane_if_guarded` is reused by `ci_fix` |
+| `questions/mod.rs`, `questions/routes.rs`, `push/mod.rs`, `attention/answer.rs` | `CI_KIND_FIX` and `CI_KIND_PUSH` in `PERSON_ONLY_KINDS`; a plain loopback answer gets 403 `CI_FIX_NEEDS_PERSON`; the push card copy for CI cards; chat answers refused by the same list; `on_resolved` called from `answer` and `dismiss` |
+| `audit/mod.rs` | `Kind::CiFix` = `ci.fix` |
+| `issue_intake/text.rs`, `issue_intake/pushcheck.rs` | `strip_hidden`, `is_invisible`, `publish_text` and `publish_clean` are `pub(crate)`; the push check is reused as it is |
+| UI: `components/settings/blocks/CiFixSettings.tsx`, `components/cockpit/CiFixCard.tsx` (+ `styles/ci-fix-card.css`), `components/settings/sections/GeneralSection.tsx` (Labs row `red-to-green`), `lib/ci-fix.ts`, `lib/questions.ts` (`isCiFix`, `isCiPush`, `isCiCard`) | the Labs block, the card, the typed client. `components/cockpit/PrBlock.tsx` still has "Send back to" (UI-4) |
+
+**Invariants S1-S16** (SPEC n33 section 4; each one is tested where it is built, and `ci_fix/mod.rs` has the one-line list).
+**S1**: CI log text is only in `.puppet-master/ci-<pr>-try<n>.md`, as one JSON object inside one fence; the task has no log
+byte and no check name. **S2**: `publish_text` redacts before anything is stored; a finished fix keeps only `sha8`; the push
+card text has no log lines. **S3**: `filter::owns` on every poll; a fork, another author or a foreign head raises no card.
+**S4**: route A only into a `no_push` guarded pane; route B is always a new `no_push` run in the copy. **S5**:
+`pr::guard_branch`, the default branch and the PR base are refused, explicit refspec, no force. **S6**: every push is asked;
+CI files, git settings, `.puppet-master/`, a moved remote, rewritten history or a wrong branch hold it. **S7**: `harden::git_env`;
+the fingerprint is taken at start, before the card and before the push. **S8**: `ci_fix` and `ci_push` are person-only; loopback
+gets 403; chat answers are refused; the engine acts only on stored question ids. **S9**: GitHub is read only (`WRITE_PATHS_NEVER`);
+the only write is the fast-forward push. **S10**: tries per pull request, fixes a day, one fix at a time, 30 watches, 14 days.
+**S11**: start and push re-check the remote commit and the copy. **S12**: nothing in `ci_fix/` writes to a pane. **S13**: logs
+stay local and redacted. **S14**: labels from `crews::live::label_of`. **S15**: no bridge route, no MCP tool. **S16**: not yet.
+`worktrees/sendback.rs` is still live; RG-11 removes it, and then no code path may put log text into a task.
+
+Tests: `cargo test --lib ci_fix` (about 189 test functions, counted from source, not run in the docs pass); the UI tests are in
+`npx vitest run src/lib/ci-fix src/lib/questions.test.ts src/components/cockpit/CiFixCard src/components/settings/blocks/CiFixSettings`.
+
 ---
 
 ## 4. "Where do I change X?"
