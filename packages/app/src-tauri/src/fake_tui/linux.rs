@@ -74,7 +74,7 @@ impl Session {
             .collect()
     }
 
-    /// The test project's folder as the agent sees it inside Linux (`/mnt/c/Users/...`).
+    /// The test project's folder as the agent sees it inside Linux (`/mnt/c/Users/you/...`).
     pub fn linux_project_cwd(&self) -> String {
         let mounts = crate::wsl::path::Mounts {
             distro: DISTRO.to_string(),
