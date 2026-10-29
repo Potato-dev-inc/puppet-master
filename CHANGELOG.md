@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Pick for me: the first row of the "+" menu suggests one agent (and its saved login) for the project, from your own
+  Scores for that project (last 90 days), and says why in one plain sentence. With little history it says it is too
+  early and suggests your usual agent. Nothing starts until you press Start; nothing you type is read or sent, and
+  nothing is stored. Desktop app only. Built and unit-tested; no live run with real agents yet. See
+  `docs/features/pick-for-me.md`.
+
 - Agent Store (preview, Windows only): a "More agents" grid of 19 terminal agents, opened from the "+" menu, Set up agents,
   Settings > Agents or the palette. Each card shows the vendor, the license, how to sign in and a tier: "Tested" (Kilo Code
   has captures from a Windows run) or "Basic support" (runs in a pane; not tested on Windows yet). Install shows the vendor's own
