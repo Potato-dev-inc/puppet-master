@@ -87,6 +87,7 @@ pub(crate) fn attach_risk(prompt: &mut Value, workspace: Option<&str>) {
     let text_of = |key: &str| prompt.get(key).and_then(Value::as_str).map(str::to_string);
     let (kind, command, cwd, text, path) =
         (text_of("kind"), text_of("command"), text_of("cwd"), text_of("text"), text_of("path"));
+    let note = text_of("note").filter(|n| !n.trim().is_empty());
     let extra = crate::tui::profile_for(&agent_type).risk_rules();
     let risk = crate::prompt_risk::assess(
         &crate::prompt_risk::RiskInput {
@@ -101,6 +102,10 @@ pub(crate) fn attach_risk(prompt: &mut Value, workspace: Option<&str>) {
     );
     if let Ok(value) = serde_json::to_value(&risk) {
         prompt["risk"] = value;
+        // A profile's own one-line explanation of what answering does (the sign-in menu) leads the card.
+        if let Some(note) = note {
+            prompt["risk"]["reasons"] = json!([note]);
+        }
     }
     attach_packages(prompt, command.as_deref());
 }

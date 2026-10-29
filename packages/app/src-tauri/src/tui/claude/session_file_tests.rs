@@ -487,3 +487,20 @@ fn kind_name(item: &ChatItem) -> &'static str {
         ChatItem::Notice { .. } => "Notice",
     }
 }
+
+#[test]
+fn a_message_the_cli_made_itself_carries_no_model() {
+    let line = r#"{"type":"assistant","timestamp":"2026-10-27T09:00:09Z","message":{"role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"Login expired. Please run /login"}],"usage":{"input_tokens":0,"output_tokens":0}}}"#;
+    let items = ClaudeSessionFile.parse_line(line, 0);
+    let models: Vec<Option<String>> = items
+        .iter()
+        .filter_map(|item| match item {
+            ChatItem::Assistant { model, .. } => Some(model.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(models, vec![None], "the text is kept, the fake model is not");
+    let real = line.replace("<synthetic>", "claude-sonnet-5-5");
+    let kept = ClaudeSessionFile.parse_line(&real, 0);
+    assert!(kept.iter().any(|item| matches!(item, ChatItem::Assistant { model: Some(m), .. } if m == "claude-sonnet-5-5")));
+}
