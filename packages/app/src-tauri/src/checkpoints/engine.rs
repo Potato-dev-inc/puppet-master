@@ -347,7 +347,7 @@ pub fn file_at(project: &Path, tree: &str, path: &str) -> Result<Option<Vec<u8>>
 /// The unified diff of one file between two trees, cut at `max_bytes` on a character boundary.
 /// The bool says whether it was cut. A file that did not change gives an empty patch.
 #[allow(dead_code)] // first caller: `checkpoints/bisect/` (see `list_all`)
-pub fn patch_between(project: &Path, from: &str, to: &str, path: &str, max_bytes: usize) -> Result<(String, bool), CheckpointError> {
+pub fn patch_between_trees(project: &Path, from: &str, to: &str, path: &str, max_bytes: usize) -> Result<(String, bool), CheckpointError> {
     let shadow = shadow_at(project, &[from, to])?;
     if safe_relative(path).is_none() {
         return Err(CheckpointError::Other("That file name is not allowed.".into()));
@@ -1068,20 +1068,20 @@ mod all_tests {
         d.write("a.txt", "one\ntwo\nthree\nfour é ü\n");
         let after = snap(&d, "p1", Kind::After, 2_000);
 
-        let (full, cut) = patch_between(d.p(), &before.tree, &after.tree, "a.txt", 1_000_000).unwrap();
+        let (full, cut) = patch_between_trees(d.p(), &before.tree, &after.tree, "a.txt", 1_000_000).unwrap();
         assert!(!cut);
         assert!(full.contains("+four é ü"));
         // `é` is two bytes: a cut at the middle of it steps back to the character start.
         let at = full.find('é').unwrap();
         for (max, want) in [(0, 0), (at, at), (at + 1, at)] {
-            let (short, cut) = patch_between(d.p(), &before.tree, &after.tree, "a.txt", max).unwrap();
+            let (short, cut) = patch_between_trees(d.p(), &before.tree, &after.tree, "a.txt", max).unwrap();
             assert!(cut, "{max} bytes is less than the whole patch");
             assert_eq!(short.len(), want, "cut at {max} bytes");
             assert!(full.starts_with(&short));
         }
-        let (none, cut) = patch_between(d.p(), &before.tree, &after.tree, "other.txt", 100).unwrap();
+        let (none, cut) = patch_between_trees(d.p(), &before.tree, &after.tree, "other.txt", 100).unwrap();
         assert_eq!((none.as_str(), cut), ("", false), "a file that did not change");
-        assert!(patch_between(d.p(), &before.tree, &after.tree, "../a.txt", 100).is_err());
+        assert!(patch_between_trees(d.p(), &before.tree, &after.tree, "../a.txt", 100).is_err());
     }
 
     #[test]

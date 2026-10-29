@@ -3,7 +3,6 @@
 
 use super::harden::git_env;
 use super::*;
-use std::process::Command;
 
 const MESSAGE: &str = "Puppet Master: start from save point (after turn 5, 14:02)";
 
@@ -42,7 +41,7 @@ impl Drop for Dir {
 }
 
 fn git_run(dir: &Path, args: &[&str]) -> std::process::Output {
-    Command::new("git")
+    crate::proc_util::hidden_command("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")

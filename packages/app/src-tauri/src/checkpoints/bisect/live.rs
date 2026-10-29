@@ -424,7 +424,7 @@ impl Live {
         if !files.iter().any(|f| f.path == path) {
             return Err(WbError::new(WB_BAD_ID, words::bad_id()));
         }
-        let (patch, truncated) = engine::patch_between(&project, before, after, path, 100 * 1024)?;
+        let (patch, truncated) = engine::patch_between_trees(&project, before, after, path, 100 * 1024)?;
         Ok(DiffView { files, patch: Some(patch), truncated })
     }
 
