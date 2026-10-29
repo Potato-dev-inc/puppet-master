@@ -47,6 +47,12 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | App: Scores on your code UI | `cd packages/app; npx vitest run src/lib/agent-scores.test.ts src/components/cockpit/AgentScores.test.tsx src/styles/cockpit-scores.css.test.ts` | expected all pass (not run for the docs change). The page is not checked in the running app yet (no live run) |
 | Rust: Pick for me | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib scores::pick` | expected all pass (not run for the docs change). Covers the skips (not ready, own login out of usage, shared plan), the usual saved login, the 5-run minimum, the clear gap, too early and close call fallbacks, the sentences and "Why this one" lines, and the limit of one login only (no switch to another login) |
 | App: Pick for me UI | `cd packages/app; npx vitest run src/lib/pick-for-me.test.ts src/components/cockpit/NewAgentMenu.pick.test.tsx src/styles/cockpit-pick.css.test.ts` | expected all pass (not run for the docs change). The row and panel are not checked in the running app yet (no live run) |
+| Rust: Package check, offline | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\you\cargo-target-shared'; cargo test --lib prompt_risk::packages` | Static count: about 53 test functions in `prompt_risk/packages/` (the parser cases are table rows inside a few of them), not run in the docs pass |
+| Rust: Package check, lookups | `cargo test --lib package_check` (same dir/env) | Static count: about 143 test functions in `package_check/` (registries, HTTP against a local test server, cache, private servers, the card view), not run in the docs pass |
+| Rust: Package check, prompt and policy | `cargo test --lib pane_prompt` and `cargo test --lib approval_policy` (same dir/env) | Static count, not run in the docs pass: the `packages` cases in `pane_prompt/tests.rs` and `approval_policy/tests.rs` (look-alike and link installs never auto-approved) |
+| Package check: popular list script | `node --test scripts/package-check/popular.test.mjs` (repo root) | Static count: 7 cases, no network, not run in the docs pass |
+| App: Package check UI | `cd packages/app; npx vitest run src/components/cockpit/PackageFacts.test.tsx src/lib/package-check.test.ts src/components/settings/sections/PackageCheckRow.test.tsx src/components/cockpit/ApprovalPrompt.test.tsx` | Static count: 19, 9, 10 and 28 cases (ApprovalPrompt's 28 include older cases), not run in the docs pass |
+| Package check: end to end | `cargo test --test fake_tui_package_check` (same dir/env) | Not written yet (task PC-14). Planned: fake registry server, `npm install lodahs`, the requests it sees, a closed server, a slow server, a workspace `.npmrc`, settings off, a stale id |
 | Personal paths | `node scripts/check-no-personal-paths.mjs` (repo root) | no findings |
 
 `cargo test` needs `packages/app/dist` (run `npx vite build` in `packages/app` once). After any change to `tool_registry/`, the shim or bridge code it
@@ -194,6 +200,26 @@ throwaway VM for a real install. Keep every profile folder and list it in the re
    definition", and Add does nothing. Edit a Store-added file: the card says "Needs your review", and the agent does not start.
 8. **Window monitor.** After the visible-pane steps, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-window-monitor.ps1`
    and expect `OK: no Puppet Master window on the primary monitor`.
+
+### 2.12 Package check (live check, not run yet)
+
+Blocked until the desktop lookup is wired (task PC-13: `package_check_lookup` registered in `lib.rs`). Without it the card
+shows "Could not check" under the offline rows, and the live check cannot pass. Spec section 6.
+
+Setup: isolated profile only: `PUPPET_MASTER_PROFILE=pc-live` with its own bridge and CDP ports. Never ports 17321, 17322
+or 9333, and never the founder's app data. Window on the left monitor (bounds left -1852, top 121). Recipe: the pane-window steps in section 2.3 and the
+`scripts/check-window-monitor.ps1` check after the run.
+
+1. Open a pane in a test folder with a Claude Code agent (or a wizard-added agent). Ask it for `npm install lodahs` in that folder.
+   Expect the approval card, with a Package check block at once: `Looks like lodash (2 letters swapped)` and the card at High risk.
+2. Within 8 s expect one registry fact or a "Not found on npm" line for `lodahs` (the real registry decides). Record which row text appears.
+3. Open Settings > General > Safety, turn "Check packages before installs" off, ask again. Expect `Not checked: package lookups are off`
+   on the row, the look-alike line still there, and no request to the registry.
+4. **The checker never answers the prompt.** No Allow, no Deny. Screenshot, read the card, then close the pane this run
+   opened (by its own PID or the app's close). Confirm the agent's log shows no answer.
+
+Expected: each row matches what it says; the card's buttons, their order and the focus do not move when the facts land;
+the only request is one name to the public npm registry.
 
 ## 3. Known flaky tests (collected from the progress log and T37 evidence)
 - `tui::descriptor::descriptor_builds_all_nine` - global registry race (fixed by `registry::test_serial()`; tests that swap/count the global registry must take it).
