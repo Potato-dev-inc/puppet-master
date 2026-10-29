@@ -25,6 +25,8 @@
 // The types land before their callers (the other wave tasks fill the files in parallel).
 #![allow(dead_code)]
 
+pub mod chat;
+pub mod live;
 pub mod model;
 pub mod path;
 pub mod parse;

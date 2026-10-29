@@ -37,17 +37,33 @@ pub fn stop_agent_in(
     stop_pid(pid, wait_ms, look, kill)
 }
 
-/// Stop the agent in a live pane. The root pid comes from the registry; the pane stays in it.
+/// Stop the agent in a live pane. The root pid comes from the registry; the pane stays in it. A pane
+/// that runs inside Linux is stopped by its `wsl.exe` pid (gone = stopped), then what it left in the
+/// distro is signalled by the pane's marker (`wsl::live`).
 pub fn stop_agent(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str, wait_ms: u64) -> Result<(), StopError> {
-    let root_pid = registry.lock().get(pane_id).map(|pane| pane.info.pid).unwrap_or(0);
+    let (root_pid, place) = {
+        let registry = registry.lock();
+        match registry.get(pane_id) {
+            Some(pane) => (pane.info.pid, pane.info.place.clone()),
+            None => (0, None),
+        }
+    };
     if root_pid == 0 {
         return Err(StopError::NoPid);
     }
-    let pid = agent_proc::agent_pid(pane_id, root_pid).ok_or(StopError::NoPid)?;
-    // Judged by the pid itself: once it is gone, the agent is gone. (The pane's state can name another
-    // child of the shell as the agent after the kill, and would then wait for nothing.)
-    let look = || if crate::proc_util::pid_alive(pid) { AgentProcess::Alive } else { AgentProcess::Exited };
-    stop_pid(pid, wait_ms, &look, &proc_tree::kill_process_tree)
+    let stopped = match agent_proc::agent_pid(pane_id, root_pid) {
+        None => Err(StopError::NoPid),
+        Some(pid) => {
+            // Judged by the pid itself: once it is gone, the agent is gone. (The pane's state can name
+            // another child of the shell as the agent after the kill, and would then wait for nothing.)
+            let look = || if crate::proc_util::pid_alive(pid) { AgentProcess::Alive } else { AgentProcess::Exited };
+            stop_pid(pid, wait_ms, &look, &proc_tree::kill_process_tree)
+        }
+    };
+    if let Some(place) = place {
+        crate::wsl::live::stop_pane(&place.distro, pane_id);
+    }
+    stopped
 }
 
 /// The shared loop. A look before the kill: an agent already gone is not killed at all, because a
@@ -118,6 +134,30 @@ mod tests {
         // Root 0 is never a process: no agent can be read from it.
         let result = stop_agent_in("agent-stop-no-pid", 0, 100, &looks_after(None), &|_| panic!("no kill"));
         assert_eq!(result, Err(StopError::NoPid));
+    }
+
+    #[test]
+    fn a_linux_pane_is_followed_up_inside_the_distro_and_a_windows_pane_is_not() {
+        use crate::wsl::model::PanePlace;
+        let registry = Arc::new(Mutex::new(PaneRegistry::new()));
+        let mut linux = PaneRegistry::test_pane_stub("agent-stop-linux-pane");
+        linux.info.place = Some(PanePlace {
+            kind: "linux".into(),
+            distro: "Ubuntu-Test".into(),
+            cwd: "/mnt/d/x".into(),
+            mount_root: "/mnt/".into(),
+            unc_root: "unc".into(),
+            home_windows: String::new(),
+            warnings: Vec::new(),
+        });
+        let windows = PaneRegistry::test_pane_stub("agent-stop-windows-pane");
+        registry.lock().panes.insert("agent-stop-linux-pane".into(), linux);
+        registry.lock().panes.insert("agent-stop-windows-pane".into(), windows);
+        let _ = stop_agent(&registry, "agent-stop-linux-pane", 100);
+        let _ = stop_agent(&registry, "agent-stop-windows-pane", 100);
+        let stops = crate::wsl::live::recorded_stops();
+        assert!(stops.contains(&("Ubuntu-Test".to_string(), "agent-stop-linux-pane".to_string())));
+        assert!(!stops.iter().any(|(_, pane)| pane == "agent-stop-windows-pane"));
     }
 
     #[test]

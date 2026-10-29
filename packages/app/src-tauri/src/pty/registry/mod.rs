@@ -24,6 +24,7 @@ mod probe;
 pub(crate) use probe::{spawn_probe, ProbePty};
 mod pane_io;
 pub(crate) use pane_io::snapshot_text;
+mod linux;
 mod spawn;
 
 pub use command::*;
@@ -220,6 +221,10 @@ pub(crate) fn shutdown_pane(mut pane: PaneState) {
         super::proc_tree::kill_process_tree(pid);
     }
     let _ = pane.child.kill();
+    // A pane that ran inside Linux: its `wsl.exe` tree is gone, now stop what it left in the distro.
+    if let Some(place) = pane.info.place.as_ref() {
+        crate::wsl::live::stop_pane(&place.distro, &pane.info.id);
+    }
 }
 
 /// How long the release of a closed pane's worktree, and the app's exit, wait for pending kills.

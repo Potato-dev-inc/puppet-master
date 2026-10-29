@@ -197,28 +197,15 @@ fn take_once_at(pane_id: &str, now: Instant) -> Option<String> {
 }
 
 /// What `check_run` reads from the probe: the distro list (cached, never boots a distro) and one
-/// distro's facts (probed on a miss, which boots it). `probe::cache()` implements this (WSL-12).
+/// distro's facts (probed on a miss, which boots it). `probe::cache()` implements this.
 pub trait PlaceProbe {
     fn status(&self, max_age_ms: u64) -> WslStatus;
     fn facts(&self, distro: &str, max_age_ms: u64) -> Result<DistroFacts, OperationError>;
 }
 
-/// The seam WSL-14 connects: `probe::cache()` is returned here instead. Until then a Linux choice is
-/// refused with a plain error, and no Linux run starts without a probe.
-struct NotConnected;
-
-impl PlaceProbe for NotConnected {
-    fn status(&self, _max_age_ms: u64) -> WslStatus {
-        WslStatus::Broken { line: "Linux support is not connected yet.".to_string() }
-    }
-
-    fn facts(&self, _distro: &str, _max_age_ms: u64) -> Result<DistroFacts, OperationError> {
-        Err(OperationError::new(WSL_START_FAILED, "Linux did not start: Linux support is not connected yet.", true))
-    }
-}
-
+/// The live probe: the process-wide cache of `wsl/probe.rs`.
 fn live_probe() -> &'static dyn PlaceProbe {
-    &NotConnected
+    crate::wsl::probe::cache()
 }
 
 #[cfg(not(test))]
@@ -230,6 +217,29 @@ fn settings_store() -> Store {
 #[cfg(test)]
 fn settings_store() -> Store {
     Store::at(&std::env::temp_dir().join("pm-wsl-place-no-settings"))
+}
+
+/// The place of a pane that is about to spawn: `None` = Windows (today's path, nothing read from the
+/// probe), `Some` = Linux. Reads the live settings and takes the one-shot request for this pane.
+pub fn plan_spawn(ask: &Ask<'_>, windows_cwd: &str) -> Result<Option<LinuxPlace>, OperationError> {
+    plan_with(&settings_store(), live_probe(), ask, take_once(ask.pane_id).as_deref(), windows_cwd)
+}
+
+/// `plan_spawn` with the settings, the probe and the one-shot request passed in (tests use fakes).
+pub fn plan_with(
+    store: &Store,
+    probe: &dyn PlaceProbe,
+    ask: &Ask<'_>,
+    once: Option<&str>,
+    windows_cwd: &str,
+) -> Result<Option<LinuxPlace>, OperationError> {
+    let Decision::Linux { distro, .. } = decide(ask, store.get(ask.agent_type).as_deref(), once)? else {
+        return Ok(None);
+    };
+    let status = probe.status(LIST_FRESH_MS);
+    listed_distro(&distro, &status)?;
+    let facts = probe.facts(&distro, FACTS_FRESH_MS)?;
+    resolve(&distro, &status, &facts, windows_cwd, ask.linux_program.as_deref().unwrap_or("")).map(Some)
 }
 
 /// The early check `run_agent` makes (SPEC 3.6 C): the same rules as `decide` and `resolve`, with
@@ -735,10 +745,43 @@ mod tests {
     }
 
     #[test]
-    fn until_the_probe_is_connected_a_linux_run_is_refused_with_a_plain_error() {
-        let store = store_with_ubuntu("check-not-connected");
-        let err = check_run_with(&store, live_probe(), &cli_ask("fake-cli"), r"D:\x").unwrap_err();
-        assert_eq!(err.code, WSL_START_FAILED);
-        assert!(err.message.starts_with("Linux did not start:"), "{}", err.message);
+    fn the_live_probe_is_the_process_wide_probe_cache() {
+        let live = live_probe() as *const dyn PlaceProbe as *const ();
+        let cache = crate::wsl::probe::cache() as *const crate::wsl::probe::LiveCache as *const ();
+        assert_eq!(live, cache);
+    }
+
+    // ---- plan_with (the pane spawn) ----
+
+    #[test]
+    fn a_spawn_with_no_setting_plans_nothing_and_never_asks_the_probe() {
+        let store = Store::at(&scratch("plan-none"));
+        let probe = FakeProbe::new(ready("Ubuntu", 2));
+        assert_eq!(plan_with(&store, &probe, &cli_ask("fake-cli"), None, r"D:\x").unwrap(), None);
+        assert_eq!(probe.facts_calls.get(), 0);
+    }
+
+    #[test]
+    fn a_spawn_in_linux_plans_the_place_from_the_setting() {
+        let store = store_with_ubuntu("plan-setting");
+        let probe = FakeProbe::new(ready("Ubuntu", 2));
+        let place = plan_with(&store, &probe, &cli_ask("fake-cli"), None, r"D:\work\shop").unwrap().unwrap();
+        assert_eq!(place.distro, "Ubuntu");
+        assert_eq!(place.linux_cwd, "/mnt/d/work/shop");
+        assert_eq!(place.program_abs, "/usr/bin/fake-cli");
+    }
+
+    #[test]
+    fn a_one_shot_distro_beats_the_setting_and_a_refusal_comes_back_coded() {
+        let store = Store::at(&scratch("plan-once"));
+        let probe = FakeProbe::new(ready("Ubuntu", 2));
+        let place = plan_with(&store, &probe, &cli_ask("fake-cli"), Some("Ubuntu"), r"D:\x").unwrap().unwrap();
+        assert_eq!(place.linux_cwd, "/mnt/d/x");
+        let mut ask = cli_ask("fake-cli");
+        ask.account = Some("work");
+        assert_eq!(
+            plan_with(&store, &probe, &ask, Some("Ubuntu"), r"D:\x").unwrap_err().code,
+            WSL_ACCOUNT_NOT_YET
+        );
     }
 }

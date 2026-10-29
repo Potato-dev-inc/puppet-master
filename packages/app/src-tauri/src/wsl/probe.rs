@@ -12,6 +12,7 @@ use crate::wsl::model::{
     WSL_NOT_INSTALLED, WSL_PROBE_TIMEOUT, WSL_START_FAILED,
 };
 use crate::wsl::parse;
+use crate::wsl::place::PlaceProbe;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -306,8 +307,28 @@ fn fresh(at: u64, now: u64, max_age: u64) -> bool {
 static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
 
 /// The one cache of this process. The lock is held only for reads and writes, never for a call.
-fn cache() -> MutexGuard<'static, Cache> {
+fn lock() -> MutexGuard<'static, Cache> {
     CACHE.get_or_init(|| Mutex::new(Cache::default())).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The process-wide cache as a `PlaceProbe` (what `place::check_run` and the pane spawn read).
+pub struct LiveCache;
+
+static LIVE: LiveCache = LiveCache;
+
+/// The one live cache. It answers from the cache and runs `wsl.exe` only on a miss.
+pub fn cache() -> &'static LiveCache {
+    &LIVE
+}
+
+impl PlaceProbe for LiveCache {
+    fn status(&self, max_age_ms: u64) -> WslStatus {
+        status_cached(max_age_ms)
+    }
+
+    fn facts(&self, distro: &str, max_age_ms: u64) -> Result<DistroFacts, OperationError> {
+        facts(distro, max_age_ms)
+    }
 }
 
 /// The distro list. Served from the cache when no older than `max_age` ms; otherwise `wsl.exe --list`
@@ -320,11 +341,11 @@ pub fn status_cached(max_age: u64) -> WslStatus {
         return WslStatus::not_installed();
     };
     let now = now_ms();
-    if let Some(hit) = cache().cached_status(now, max_age) {
+    if let Some(hit) = lock().cached_status(now, max_age) {
         return hit;
     }
     let status = status(&LiveRunner::new(exe));
-    cache().store_status(now, &status);
+    lock().store_status(now, &status);
     status
 }
 
@@ -333,12 +354,12 @@ pub fn status_cached(max_age: u64) -> WslStatus {
 pub fn facts(distro: &str, max_age: u64) -> Result<DistroFacts, OperationError> {
     let programs = asked_programs();
     let now = now_ms();
-    if let Some(hit) = cache().cached_facts(distro, &programs, now, max_age) {
+    if let Some(hit) = lock().cached_facts(distro, &programs, now, max_age) {
         return Ok(hit);
     }
     let runner = live_runner()?;
     let result = probe_distro(&runner, distro, &programs, now);
-    cache().store_facts(distro, &result);
+    lock().store_facts(distro, &result);
     result
 }
 
@@ -347,13 +368,13 @@ pub fn facts(distro: &str, max_age: u64) -> Result<DistroFacts, OperationError> 
 pub fn check(distro: &str, programs: &[String]) -> Result<DistroFacts, OperationError> {
     let runner = live_runner()?;
     let result = probe_distro(&runner, distro, programs, now_ms());
-    cache().store_facts(distro, &result);
+    lock().store_facts(distro, &result);
     result
 }
 
 /// Forget the cached facts of one distro.
 pub fn invalidate(distro: &str) {
-    cache().invalidate(distro);
+    lock().invalidate(distro);
 }
 
 /// The programs to look for: `tui::linux_program` of every registered profile that has one.
