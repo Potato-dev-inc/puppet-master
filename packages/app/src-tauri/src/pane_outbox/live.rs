@@ -48,15 +48,15 @@ pub(super) fn attempt_of(outcome: Delivery, typed: bool) -> Attempt {
 /// One look at a live pane: the readiness verdict, what the input box holds, and whether the pane reads idle.
 /// Also what the Point box asks for each pane in its "To:" list.
 pub fn look_pane(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<Look> {
-    let (agent, idle) = {
+    let (agent, idle, waiting) = {
         let registry = registry.lock();
         let pane = registry.get(pane_id)?;
-        let idle = pane.status.lock().as_str() == "idle";
-        (pane.info.agent_type.clone(), idle)
+        let status = pane.status.lock().as_str();
+        (pane.info.agent_type.clone(), status == "idle", status == "waiting_input")
     };
     let profile = crate::tui::profile_for(&agent);
     let verdict = readiness::assess(profile.as_ref(), delivery::observe_pane(registry, pane_id));
-    Some(Look::from_verdict(&verdict, idle))
+    Some(Look::from_verdict(&verdict, idle).waiting(waiting))
 }
 
 /// The delivery outcome's name, for the log (the screen it may carry stays out of it).

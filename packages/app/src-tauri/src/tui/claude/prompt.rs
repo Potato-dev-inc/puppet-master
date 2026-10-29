@@ -23,6 +23,7 @@ use serde_json::{json, Value};
 
 use crate::tui::{generic, Reply};
 
+mod first_run;
 mod login;
 mod question;
 
@@ -466,6 +467,7 @@ pub(super) fn detect_prompt(agent_type: &str, screen: &str, allow_broad: bool) -
         .or_else(|| permission_menu(agent_type, screen, allow_broad))
         .or_else(|| question::question_menu(agent_type, screen))
         .or_else(|| login::login_menu(agent_type, screen))
+        .or_else(|| first_run::first_run(agent_type, screen))
 }
 
 /// Whether Claude's own question menu (AskUserQuestion) is on screen: a pane waiting for the person.
@@ -476,6 +478,11 @@ pub(super) fn shows_question_menu(screen: &str) -> bool {
 /// Whether Claude's sign-in menu (`/login`) is on screen: a pane waiting for the person.
 pub(super) fn shows_login_menu(screen: &str) -> bool {
     login::shows_login_menu(screen)
+}
+
+/// Whether one of Claude's first-run screens is on (theme, API key, security notes): a pane waiting for the person.
+pub(super) fn shows_first_run(screen: &str) -> bool {
+    first_run::shows_first_run(screen)
 }
 
 /// Arrow keys that move the pointer from `from` to `to` (1-based rows).

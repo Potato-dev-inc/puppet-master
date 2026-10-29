@@ -28,17 +28,30 @@ impl PaneKind {
 }
 
 /// One look at a pane: what the readiness check says (`agent_runs::readiness::assess`), what the input box
-/// holds, and whether the pane's own status reads idle.
+/// holds, and whether the pane's own status reads idle (or waiting for the person).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Look {
     pub readiness: Readiness,
     pub composer: ComposerState,
     pub idle: bool,
+    /// The pane's status is `waiting_input`: it is not working, it waits for a hand.
+    pub waiting: bool,
 }
 
 impl Look {
     pub fn from_verdict(verdict: &Verdict, idle: bool) -> Self {
-        Self { readiness: verdict.readiness().clone(), composer: verdict.composer(), idle }
+        Self { readiness: verdict.readiness().clone(), composer: verdict.composer(), idle, waiting: false }
+    }
+
+    /// The same look, for a pane whose status is `waiting_input`.
+    pub fn waiting(mut self, waiting: bool) -> Self {
+        self.waiting = waiting;
+        self
+    }
+
+    /// The pane is not working: a screen it does not know is a menu or a setup step, not a turn.
+    pub fn at_rest(&self) -> bool {
+        self.idle || self.waiting
     }
 }
 

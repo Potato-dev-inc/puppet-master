@@ -255,3 +255,154 @@ fn the_sign_in_card_leads_with_its_own_line_and_keeps_the_agents_words() {
     assert_eq!(labels, ["Claude account with subscription", "Anthropic Console account", "3rd-party platform", "Cancel"]);
     assert!(ui.choices.iter().all(|c| !c.broad), "no sign-in answer is a broad approval");
 }
+
+// ---- the first-run screens (real captures of v2.1.312, a fresh config folder) ----
+
+const FIRST_THEME: &str = include_str!("fixtures/first_run_theme_2_1_312.txt");
+const FIRST_LOGIN: &str = include_str!("fixtures/first_run_login_method_2_1_312.txt");
+const FIRST_API_KEY: &str = include_str!("fixtures/first_run_api_key_2_1_312.txt");
+const FIRST_NOTES: &str = include_str!("fixtures/first_run_security_notes_2_1_312.txt");
+const FIRST_IDLE: &str = include_str!("fixtures/first_run_idle_box_2_1_312.txt");
+const READY_FRESH: &str = include_str!("fixtures/ready_fresh_2_1_299_live.txt");
+
+fn waiting(screen: &str) -> bool {
+    profile_for("claude").classify_screen(screen) == Some(crate::pty::status::PaneStatus::WaitingInput)
+}
+
+#[test]
+fn the_theme_picker_is_a_waiting_pane_with_a_card_of_seven_rows() {
+    assert!(waiting(FIRST_THEME));
+    let prompt = detect(FIRST_THEME, false);
+    assert_eq!(prompt["kind"], "question");
+    assert_eq!(prompt["summary"], "Claude Code: pick a text style");
+    assert_eq!(prompt["choices"], json!(["1", "2", "3", "4", "5", "6", "7"]));
+    assert_eq!(prompt["labels"]["1"], "Auto (match terminal)");
+    assert_eq!(prompt["labels"]["2"], "Dark mode", "the check mark is not part of the name");
+    assert_eq!(prompt["labels"]["7"], "Light mode (ANSI colors only)");
+    assert_eq!(prompt["menu"]["selected"], 2);
+    assert_eq!(prompt["menu"]["options"].as_array().unwrap().len(), 7);
+    // The card says what the screen asks, not the code preview under the menu.
+    let text = prompt["text"].as_str().unwrap();
+    assert!(text.starts_with("Choose the text style"));
+    assert!(!text.contains("function greet"));
+}
+
+#[test]
+fn picking_a_theme_moves_the_pointer_from_dark_mode() {
+    let prompt = detect(FIRST_THEME, false);
+    assert_eq!(key(&prompt, "2", false), "", "the pointer is already on Dark mode; the route adds Enter");
+    assert_eq!(key(&prompt, "1", false), UP);
+    assert_eq!(key(&prompt, "4", false), format!("{DOWN}{DOWN}"));
+    assert!(prompt_reply(&prompt, "8", false).is_err());
+    assert!(prompt_reply(&prompt, "cancel", false).is_err(), "the picker has no way out");
+}
+
+#[test]
+fn the_theme_picker_keeps_one_id_when_the_pointer_moves() {
+    let moved = FIRST_THEME.replace("❯ ✔ Dark mode", "  ✔ Dark mode").replace("     Light mode\n", " ❯   Light mode\n");
+    assert_ne!(moved, FIRST_THEME);
+    let (a, b) = (detect(FIRST_THEME, false), detect(&moved, false));
+    assert_eq!(b["menu"]["selected"], 3);
+    assert_eq!(a["identity"], b["identity"]);
+    assert_eq!(b["labels"]["2"], "Dark mode");
+}
+
+#[test]
+fn the_theme_picker_goes_away_when_the_next_screen_is_drawn() {
+    // The picker's words with the login menu drawn under them: no rule and no preview, so it is not the end of the screen.
+    let later = format!("{FIRST_THEME}\n\n{}\n", "Opening the next screen...\n".repeat(16));
+    assert!(detect_prompt("claude", &later, false).is_none());
+    assert!(!waiting(&later));
+}
+
+#[test]
+fn the_sign_in_menu_of_a_first_run_has_no_title_and_is_still_a_card() {
+    assert!(waiting(FIRST_LOGIN));
+    let prompt = detect(FIRST_LOGIN, false);
+    assert_eq!(prompt["summary"], "Claude Code needs you to sign in");
+    assert_eq!(prompt["choices"], json!(["1", "2", "3", "cancel"]));
+    assert_eq!(prompt["labels"]["3"], "3rd-party platform");
+    assert_eq!(key(&prompt, "2", false), DOWN);
+}
+
+#[test]
+fn the_api_key_question_is_a_card_with_yes_and_no_and_hides_the_key() {
+    assert!(waiting(FIRST_API_KEY));
+    let prompt = detect(FIRST_API_KEY, false);
+    assert_eq!(prompt["kind"], "question");
+    assert_eq!(prompt["summary"], "Claude Code found an API key in your environment");
+    assert_eq!(prompt["choices"], json!(["1", "2", "cancel"]));
+    assert_eq!(prompt["labels"]["1"], "Yes");
+    assert_eq!(prompt["labels"]["2"], "No (recommended)");
+    assert_eq!(prompt["menu"]["selected"], 2);
+    assert!(!prompt["text"].as_str().unwrap().contains("sk-ant"), "the key stays out of the card");
+    assert_eq!(key(&prompt, "1", false), UP);
+    assert_eq!(key(&prompt, "2", false), "");
+    assert_eq!(key(&prompt, "cancel", false), "\u{1b}");
+}
+
+#[test]
+fn the_security_notes_are_a_continue_card() {
+    assert!(waiting(FIRST_NOTES));
+    let prompt = detect(FIRST_NOTES, false);
+    assert_eq!(prompt["kind"], "question");
+    assert_eq!(prompt["summary"], "Claude Code shows its security notes");
+    assert_eq!(prompt["choices"], json!(["continue"]));
+    assert_eq!(prompt["labels"]["continue"], "Continue");
+    assert!(prompt["text"].as_str().unwrap().starts_with("Security notes"));
+    assert_eq!(key(&prompt, "continue", false), "", "the route adds the Enter");
+    let ui = crate::pane_prompt::detect_in_screen("claude", FIRST_NOTES, false).and_then(|card| crate::pane_prompt::PanePrompt::from_detected(&card)).expect("a prompt for the UI");
+    assert_eq!(ui.choices.len(), 1);
+    assert!(ui.choices.iter().all(|c| !c.broad));
+}
+
+#[test]
+fn any_press_enter_to_continue_screen_is_caught_by_its_footer() {
+    let signed_in = "Login successful. Press Enter to continue…";
+    assert!(waiting(signed_in));
+    let prompt = detect(signed_in, false);
+    assert_eq!(prompt["summary"], "Claude Code signed you in");
+    assert_eq!(prompt["choices"], json!(["continue"]));
+    // Said in the middle of a reply, with the input box under it, it is not a screen to continue.
+    let quoted = format!("The wizard says: Press Enter to continue…\n\n{READY_FRESH}");
+    assert!(detect_prompt("claude", &quoted, false).is_none());
+    assert!(!waiting(&quoted));
+}
+
+#[test]
+fn the_idle_input_box_is_not_a_first_run_screen() {
+    for screen in [FIRST_IDLE, READY_FRESH] {
+        assert!(!waiting(screen), "{screen}");
+        assert!(detect_prompt("claude", screen, false).is_none());
+    }
+}
+
+#[test]
+fn the_screens_that_look_a_little_like_a_first_run_screen_are_not_cards() {
+    // A reply that talks about themes, with no menu under it.
+    let talk = "Choose the text style that looks best with your terminal is what the CLI asks on a first run.\nDark mode\nLight mode\n";
+    assert!(detect_prompt("claude", talk, false).is_none());
+    // The picker's words and a list with no pointer.
+    let no_pointer = FIRST_THEME.replace("❯ ✔ Dark mode", "  ✔ Dark mode");
+    assert!(detect_prompt("claude", &no_pointer, false).is_none());
+}
+
+#[test]
+fn every_first_run_screen_reaches_the_card_through_the_shared_detector() {
+    // `pane_prompt::detect_in_screen` hands the profile only the last rows (a window around an anchor phrase).
+    for (screen, summary) in [
+        (FIRST_THEME, "Claude Code: pick a text style"),
+        (FIRST_LOGIN, "Claude Code needs you to sign in"),
+        (FIRST_API_KEY, "Claude Code found an API key in your environment"),
+        (FIRST_NOTES, "Claude Code shows its security notes"),
+    ] {
+        let card = crate::pane_prompt::detect_in_screen("claude", screen, false).unwrap_or_else(|| panic!("no card for {summary}"));
+        let ui = crate::pane_prompt::PanePrompt::from_detected(&card).expect("a prompt for the UI");
+        assert_eq!(ui.summary.as_deref(), Some(summary));
+        assert!(!ui.choices.is_empty());
+        assert!(ui.choices.iter().all(|c| !c.broad));
+    }
+    // A narrow pane wraps the preview into more rows; the picker is still found.
+    let narrow = FIRST_THEME.replace("Hello, World!", "Hello, World! Hello, World! Hello, World!\n  Hello, World! Hello").repeat(1);
+    assert!(crate::pane_prompt::detect_in_screen("claude", &narrow, false).is_some());
+}
