@@ -24,6 +24,7 @@ import type { CompanionView } from '../../lib/companion';
 import { CompanionRow, MakeCompanionRow } from './companion/CompanionRow';
 import { isCompanionPaneId } from './companion/model';
 import { JobsChip } from './rail/JobsChip';
+import { useReviewCount } from './review/useReviewCount';
 
 /** `localhost:5173`: where the preview is, without the scheme. */
 const previewAddress = (p: PreviewUrl): string => p.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -41,6 +42,7 @@ export function Sidebar({
   onOpenMemory,
   onOpenPlans,
   onOpenScores,
+  onOpenReview,
   onOpenMorning,
   onOpenStore,
   companions,
@@ -57,6 +59,8 @@ export function Sidebar({
   onOpenPlans?: () => void;
   /** Opens "Scores on your code" (which agent works best in the selected pane's project). */
   onOpenScores?: () => void;
+  /** Opens the Review Desk (finished work, riskiest first). Absent: no Review button. */
+  onOpenReview?: () => void;
   /** Night Shift: opens the Morning page. Absent: no Night Shift chip. */
   onOpenMorning?: () => void;
   /** The "More agents…" row of the New agent menu opens the Agent Store. Absent: no row. */
@@ -72,6 +76,8 @@ export function Sidebar({
   ship?: ShipApi;
 }) {
   const list = c.registry.paneList;
+  // `Review 4`: how many finished things wait to be looked at. Hidden at 0.
+  const reviewCount = useReviewCount(onOpenReview !== undefined);
   // A companion's pane has its own row above the Inbox, so it is not listed in these groups (SPEC section 8).
   const panes = list.filter((p) => !isCompanionPaneId(p.info.id));
   // The same list the Inbox badge and the Doto counter use, so the three numbers always agree.
@@ -437,6 +443,12 @@ export function Sidebar({
           <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenScores}>
             <IconChart />
             Scores
+          </button>
+        )}
+        {onOpenReview && (
+          <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenReview}>
+            <IconChart />
+            Review{reviewCount > 0 && <span className="ck-side-count"> {reviewCount}</span>}
           </button>
         )}
         <div className="ck-foot-row">
