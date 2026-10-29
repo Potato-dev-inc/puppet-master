@@ -158,7 +158,8 @@ export function Changes({
     let cancelled = false;
     branchLineage(paneId).then(
       (found) => {
-        if (!cancelled) setBranch(found.from);
+        // A lookup with no answer reads as no branch (no warning), never as a crash.
+        if (!cancelled) setBranch(found?.from ?? null);
       },
       () => {
         if (!cancelled) setBranch(null);

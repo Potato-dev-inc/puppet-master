@@ -147,6 +147,17 @@ describe('Changes: keeping a branch copy', () => {
     expect(warning()).toBeNull();
   });
 
+  it('a null lineage (no answer from the desktop) shows no warning and throws nothing', async () => {
+    lineageMock.mockResolvedValue(null as unknown as BranchLineage);
+    const api = fakeApi();
+    await mount(api);
+    await click(button('Merge'));
+    expect(host.querySelector('[role="alertdialog"]')?.textContent).toContain('Merge into main?');
+    expect(warning()).toBeNull();
+    await click(Array.from(host.querySelectorAll('.ck-sheet button')).find((b) => b.textContent === 'Merge') ?? null);
+    expect(api.worktreeMerge).toHaveBeenCalledWith('C:/proj', 'run-1');
+  });
+
   it('a failed lookup shows no warning and still lets Merge run', async () => {
     lineageMock.mockRejectedValue(new Error('no lineage'));
     const api = fakeApi();
