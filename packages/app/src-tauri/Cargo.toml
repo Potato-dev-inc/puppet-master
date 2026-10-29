@@ -126,6 +126,14 @@ name = "fake_tui_e2e"
 path = "tests/fake_tui_e2e.rs"
 required-features = ["dev-fake-tui"]
 
+# What broke it end to end (SPEC n33 WB-18): a temp project, the real shadow repository and the declared command run
+# in a copy. It roots app data in a temp folder (`app_paths::set_data_root_for_e2e`), which only this feature has, so
+# it never writes to the real app data.
+[[test]]
+name = "what_broke_it_e2e"
+path = "tests/what_broke_it_e2e.rs"
+required-features = ["dev-fake-tui"]
+
 # Dev and test builds (`test` inherits `dev`): line tables only for this crate (panics and backtraces
 # keep file:line) and no debug info for dependencies. Full debug info doubled the target folder
 # (6.4 GB -> 2.9 GB without it) and slowed every link; nothing here reads more than line tables. For
