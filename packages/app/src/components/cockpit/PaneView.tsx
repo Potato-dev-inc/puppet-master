@@ -114,7 +114,16 @@ function Empty({ title, body }: { title: string; body: string }) {
   );
 }
 
-export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
+export function PaneView({
+  c,
+  paneId,
+  onWhatBroke,
+}: {
+  c: CockpitApi;
+  paneId: string;
+  /** Opens "What broke the tests?" for this pane (History tab). Absent: no button. */
+  onWhatBroke?: (paneId: string) => void;
+}) {
   const pane = c.registry.panes.get(paneId);
   const [tab, setTab] = useState<Tab>('terminal');
   const [menu, setMenu] = useState(false);
@@ -522,6 +531,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
               notify={c.notify}
               agentName={name}
               sharedWith={panesSharingFolder(c.registry.paneList, c.names, paneId)}
+              onWhatBroke={onWhatBroke}
             />
           )}
           {tab === 'receipt' && (

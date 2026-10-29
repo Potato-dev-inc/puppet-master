@@ -328,3 +328,25 @@ describe('History polish', () => {
     expect(host.querySelectorAll('.ck-hist-row .ck-btn--primary').length).toBe(0);
   });
 });
+
+describe('History: What broke the tests?', () => {
+  it('shows no What broke button when the app did not pass the handler', async () => {
+    await mount(mockApi());
+    expect(button('What broke the tests?')).toBeUndefined();
+  });
+
+  it('shows the plain button next to Undo last turn and calls the handler with the pane', async () => {
+    const onWhatBroke = vi.fn();
+    const api = mockApi();
+    await act(async () => {
+      root.render(<History paneId="p1" status="idle" now={NOW} notify={vi.fn()} api={api} onWhatBroke={onWhatBroke} />);
+    });
+    const found = button('What broke the tests?');
+    expect(found).toBeTruthy();
+    expect(found!.className).not.toContain('ck-btn--primary');
+    expect(button('Undo last turn')).toBeTruthy();
+    await click(found);
+    expect(onWhatBroke).toHaveBeenCalledExactlyOnceWith('p1');
+    expect(api.checkpointRestore).not.toHaveBeenCalled();
+  });
+});

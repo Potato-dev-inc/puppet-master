@@ -54,6 +54,7 @@ export function Palette({
   onOpenScores,
   onOpenStore,
   onUndoLastTurn,
+  onWhatBroke,
   onOpenWelcome,
   onStartCrew,
   onOpenShortcuts,
@@ -77,6 +78,8 @@ export function Palette({
   onOpenStore?: () => void;
   /** Opens the restore confirmation for the pane's last turn (never restores by itself). */
   onUndoLastTurn?: (paneId: string) => void;
+  /** Opens "What broke the tests?" for the selected pane. Absent: no row. */
+  onWhatBroke?: (paneId: string) => void;
   /** Shows the first-run welcome again. */
   onOpenWelcome?: () => void;
   /** Opens "Start crew": pick a saved team of agents and a folder. */
@@ -183,6 +186,16 @@ export function Palette({
           desc: 'Restore files to before the last turn. The agent keeps its memory.',
           icon: <IconReflow />,
           run: () => onUndoLastTurn(sel),
+        });
+      }
+      if (onWhatBroke) {
+        out.push({
+          id: 'act:whatbroke',
+          group: 'Actions',
+          title: 'Find what broke the tests…',
+          desc: "Look back through the agents' turns.",
+          icon: <IconSearch />,
+          run: () => onWhatBroke(sel),
         });
       }
     }
@@ -385,7 +398,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onOpenStore, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onOpenStore, onUndoLastTurn, onWhatBroke, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),
