@@ -525,8 +525,6 @@ pub fn run() {
             commands::worktree_pr_prepare,
             commands::worktree_pr_create,
             commands::worktree_pr_checks,
-            commands::worktree_pr_send_back_preview,
-            commands::worktree_pr_send_back,
             commands::pane_transcript,
             commands::questions_list,
             commands::question_answer,

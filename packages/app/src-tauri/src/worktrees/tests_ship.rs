@@ -3,7 +3,7 @@
 //! on the `PATH` handed to the code under test (no real GitHub is ever contacted).
 
 use super::folder;
-use super::pr::{self, ChecksReport, PrFacts};
+use super::pr::{self, PrFacts};
 use super::preset::{self, WorktreePreset};
 use super::proc::ToolEnv;
 use super::*;
@@ -631,36 +631,32 @@ fn polling_is_bounded_and_stops_when_nothing_is_pending() {
     assert_eq!(gh.calls().lines().count(), before + 1, "one look is enough when nothing is pending");
 }
 
+/// S16: the raw-log "Send back" path is gone. No non-test code reads a failing job's log with
+/// `gh run view --log-failed`, so CI log text cannot reach an agent's task from here. The only
+/// log reader left is `ci_fix`, which cleans the text and fences it as data.
 #[test]
-fn send_back_reads_the_failing_logs_raw_and_the_task_has_none_of_it() {
-    let (_guard, root, _g2, _bare) = repo_with_origin();
-    let gh = FakeGh::new();
-    let mut log: String = (1..=300).map(|n| format!("line {n}\n")).collect();
-    log.push_str("token ghp_abcdefghijklmnopqrstuvwxyz0123456789 mail dana.private@example.org\n");
-    gh.put("runlog.txt", &log);
-    let worktree = worktree_with_change(&root, "chk-3");
-    let report: ChecksReport = pr::parse_checks(FAILING).unwrap();
-    let raw = pr::failure_excerpt(&worktree, &report, &gh.env());
-    let lines: Vec<&str> = raw.lines().collect();
-    assert_eq!(lines.len(), pr::RAW_EXCERPT_LINES, "the raw tail is only input for the cleaning");
-    // Two failing checks in two runs: both runs are read, each at most once.
-    let reads = gh.calls().lines().filter(|l| l.contains("run view")).count();
-    assert_eq!(reads, 2, "{}", gh.calls());
-    assert!(gh.calls().contains("--log-failed"));
-
-    let built = super::sendback::build_with(42, &report, &raw, &|t: &str| {
-        crate::issue_intake::text::publish_text(t, &crate::redact::RedactContext::default(), None)
-    });
-    assert!(!built.task.contains('\n'), "one line, so a terminal never submits half of it");
-    assert!(built.task.contains("#42") && built.task.contains(".puppet-master/ci-42-sendback.md"));
-    for planted in ["line 300", "line 299", "ghp_", "dana.private", "test (ubuntu)", "lint"] {
-        assert!(!built.task.contains(planted), "the task holds {planted:?}");
+fn no_raw_ci_log_read_is_left_outside_tests() {
+    fn walk(dir: &Path, found: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, found);
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let is_test_file = name.contains("tests") || name.starts_with("test");
+            if path.extension().is_some_and(|ext| ext == "rs") && !is_test_file {
+                let text = std::fs::read_to_string(&path).unwrap();
+                let code = text.split("#[cfg(test)]").next().unwrap_or_default();
+                if code.contains("log-failed") {
+                    found.push(path.display().to_string());
+                }
+            }
+        }
     }
-    assert_eq!(built.excerpt_lines, pr::EXCERPT_LINES, "the last 40 lines go into the file");
-    assert!(built.file.contains("line 300") && !built.file.contains("line 150"));
-    assert!(!built.file.contains("ghp_abcdefghijklmnopqrstuvwxyz0123456789"), "{}", built.file);
-    assert!(!built.file.contains("dana.private@example.org") && built.file.contains("<email>"));
-    assert_eq!(built.file.matches("<<<pm-notes").count(), 1);
+    let mut found = Vec::new();
+    walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut found);
+    assert!(found.is_empty(), "a raw CI log is read outside tests: {found:?}");
 }
 
 // ------------------------------------------------------------------------------ folder step

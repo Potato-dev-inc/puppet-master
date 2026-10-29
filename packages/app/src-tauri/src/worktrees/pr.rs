@@ -8,8 +8,7 @@
 //!   never to the base branch), then `gh pr create --draft` with a title and body made from the
 //!   receipt ([`render_body`]). Called again for a branch that has a PR, it only pushes.
 //! - [`checks`]: `gh pr checks` as a [`ChecksReport`], optionally polled for a bounded time.
-//! - [`failure_excerpt`]: the failing jobs' last lines (`gh run view --log-failed`), RAW and
-//!   untrusted. They never go into a task: `sendback` cleans them and writes them to a file.
+//!   CI logs are read by `ci_fix` (Red to Green), never here.
 //!
 //! Safety, in code and in tests:
 //! - only branches named `pm/...` are pushed, and never the base branch or `main`/`master`;
@@ -27,12 +26,6 @@ use std::time::Duration;
 const GH_QUICK: Duration = Duration::from_secs(30);
 const GH_SLOW: Duration = Duration::from_secs(120);
 const PUSH_LIMIT: Duration = Duration::from_secs(180);
-/// Lines of a failing job's log kept for the agent, after cleaning (see `sendback`).
-pub const EXCERPT_LINES: usize = 40;
-/// Lines read raw before cleaning, so a secret that spans lines is masked before the cut.
-pub const RAW_EXCERPT_LINES: usize = 200;
-/// Failing runs whose logs are read (each is one `gh` call).
-const MAX_RUNS_READ: usize = 3;
 
 // ------------------------------------------------------------------------------------- records
 
@@ -600,34 +593,4 @@ pub fn poll_checks(
         polls += 1;
     }
     Ok(last)
-}
-
-// ------------------------------------------------------------------------------- send back
-
-fn run_id_of(link: &str) -> Option<String> {
-    let tail = link.split("/actions/runs/").nth(1)?;
-    let id: String = tail.chars().take_while(char::is_ascii_digit).collect();
-    (!id.is_empty()).then_some(id)
-}
-
-/// The last [`RAW_EXCERPT_LINES`] lines of the failing jobs' logs, read with `gh run view --log-failed`.
-/// RAW and untrusted: it can hold secrets and planted instructions, so it is never put in a task
-/// or shown as is (`sendback::build` cleans it). Empty when GitHub has no log to give.
-pub fn failure_excerpt(worktree: &WorktreeRef, report: &ChecksReport, env: &ToolEnv) -> String {
-    let dir = Path::new(&worktree.path);
-    let mut seen: Vec<String> = Vec::new();
-    let mut logs: Vec<String> = Vec::new();
-    for item in report.failing() {
-        let Some(id) = item.link.as_deref().and_then(run_id_of) else { continue };
-        if seen.contains(&id) || seen.len() >= MAX_RUNS_READ {
-            continue;
-        }
-        seen.push(id.clone());
-        if let Ok(ran) = run_str("gh", &["run", "view", &id, "--log-failed"], dir, env, GH_SLOW) {
-            if !ran.stdout.trim().is_empty() {
-                logs.push(ran.stdout);
-            }
-        }
-    }
-    tail_lines(&logs.join("\n"), RAW_EXCERPT_LINES)
 }
