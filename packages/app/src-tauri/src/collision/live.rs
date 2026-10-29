@@ -168,7 +168,7 @@ fn settings_file() -> PathBuf {
 // ---- panes -> facts -----------------------------------------------------------------------------------
 
 /// The agent panes as the engine sees them. Shells, protocol panes and companions are left out.
-/// Headings are numbered over ALL panes, as the sidebar does ("Claude Code 2").
+/// Headings are numbered over ALL panes, as the sidebar does ("Name 2").
 pub fn pane_facts(
     infos: &[PaneInfo],
     label_of: &dyn Fn(&str) -> String,
@@ -202,7 +202,7 @@ pub fn pane_facts(
         .collect()
 }
 
-/// The display name of an agent type ("Claude Code"). An unknown type shows as typed.
+/// The display name of an agent type (its descriptor label). An unknown type shows as typed.
 fn label_of(agent_type: &str) -> String {
     crate::tui::descriptor_for(agent_type).map(|d| d.label).unwrap_or_else(|| agent_type.to_string())
 }
