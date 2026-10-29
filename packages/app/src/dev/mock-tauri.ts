@@ -4,6 +4,7 @@ import type { HarnessScenario } from './types';
 import {
   EXAMPLE_CHECKPOINTS,
   EXAMPLE_DIGEST,
+  EXAMPLE_FOCUS_DIGEST,
   EXAMPLE_TURN_SUMMARIES,
   EXAMPLE_FILE_CHANGES,
   EXAMPLE_PANES,
@@ -34,6 +35,7 @@ import { firstRunMock, firstRunStore } from './first-run-fixtures';
 import { missionMock } from './mission-fixtures';
 import { keepGoingMock } from './keep-going-fixtures';
 import { nightMock } from './night-fixtures';
+import { createFocusMock } from './focus-fixtures';
 
 const DOCTOR_ROWS = [
   { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'winget install Anthropic.ClaudeCode', install_fallback: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true, hooks: { state: 'connected', mode: 'shadow', sentence: 'Connected. Claude Code tells Puppet Master when it starts, asks and finishes. Watch only: Puppet Master still decides from the screen.' } },
@@ -43,6 +45,8 @@ const DOCTOR_ROWS = [
 ];
 
 export function installTauriMock(scenario: HarnessScenario): void {
+  // Focus keeps its state for the page's life (start, +15 min and End Focus work in the harness).
+  const focusMock = createFocusMock(scenario.focus);
   const panes = scenario.panes ?? EXAMPLE_PANES;
   // In-memory plugin-store (one store, rid 1), keyed as the app writes it.
   // The two agent-authority switches, at the shipped defaults unless the scenario says otherwise.
@@ -73,6 +77,8 @@ export function installTauriMock(scenario: HarnessScenario): void {
       if (keepGoing.handled) return keepGoing.value;
       const night = nightMock(scenario.night, cmd, a);
       if (night.handled) return night.value;
+      const focus = focusMock(cmd, a);
+      if (focus.handled) return focus.value;
       switch (cmd) {
         case 'list_panes':
           return panes;
@@ -123,7 +129,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'turn_summaries':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_TURN_SUMMARIES : [];
         case 'away_digest_pending':
-          return scenario.awayDigest ? EXAMPLE_DIGEST : null;
+          return scenario.awayFocus ? EXAMPLE_FOCUS_DIGEST : scenario.awayDigest ? EXAMPLE_DIGEST : null;
         case 'away_digest_dismiss':
         case 'presence_cockpit_focus':
           return null;

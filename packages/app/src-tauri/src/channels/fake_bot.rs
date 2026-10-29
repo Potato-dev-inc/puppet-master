@@ -30,6 +30,9 @@ pub struct FakeBot {
     pub me_calls: AtomicUsize,
     /// (chat id, text) of every message sent.
     pub sent: Mutex<Vec<(i64, String)>>,
+    /// One entry per message sent, in the same order as `sent`: `true` when it was silent
+    /// (`disable_notification`).
+    pub silent: Mutex<Vec<bool>>,
     pub menus: AtomicUsize,
     /// Every token `api_for` was asked to build a client for.
     pub tokens: Mutex<Vec<String>>,
@@ -45,6 +48,7 @@ impl FakeBot {
             polls: AtomicUsize::new(0),
             me_calls: AtomicUsize::new(0),
             sent: Mutex::new(Vec::new()),
+            silent: Mutex::new(Vec::new()),
             menus: AtomicUsize::new(0),
             tokens: Mutex::new(Vec::new()),
         })
@@ -82,6 +86,7 @@ impl Api for FakeBot {
     fn send(&self, chat_id: i64, out: &WireMessage, _reply_to: Option<i64>) -> Result<i64, ApiError> {
         let mut sent = self.sent.lock();
         sent.push((chat_id, out.text.as_str().to_string()));
+        self.silent.lock().push(out.disable_notification);
         Ok(sent.len() as i64)
     }
 

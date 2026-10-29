@@ -81,7 +81,7 @@ fn last_seen(f: &Fake) -> Seen {
 }
 
 fn message(text: &str) -> WireMessage {
-    WireMessage { text: crate::redact::text(text), keyboard: Vec::new() }
+    WireMessage { text: crate::redact::text(text), keyboard: Vec::new(), disable_notification: false }
 }
 
 fn button(label: &str, data: &str) -> WireButton {
@@ -149,6 +149,7 @@ fn send_is_plain_text_with_no_preview_protected_and_a_reply_target() {
     let out = WireMessage {
         text: crate::redact::text("Mochi says hi"),
         keyboard: vec![vec![button("Deny", "g:0123456789abcdefghijkl"), button("Allow once…", "g:mnopqrstuvwxyz012345")]],
+        disable_notification: false,
     };
     assert_eq!(api_for(&f).send(1001, &out, Some(55)), Ok(88));
 
@@ -180,6 +181,23 @@ fn send_without_buttons_or_reply_has_neither_key() {
 }
 
 #[test]
+fn send_adds_disable_notification_only_when_silent() {
+    let f = fake(&[
+        (200, r#"{"ok":true,"result":{"message_id":4}}"#),
+        (200, r#"{"ok":true,"result":{"message_id":5}}"#),
+    ]);
+    let api = api_for(&f);
+    let silent = WireMessage { disable_notification: true, ..message("Focus is over.") };
+    assert_eq!(api.send(1001, &silent, None), Ok(4));
+    let b = last_seen(&f).body;
+    assert_eq!(b["disable_notification"], json!(true));
+    assert_eq!(b["text"], json!("Focus is over."), "a silent send keeps the same text");
+
+    assert_eq!(api.send(1001, &message("Loud again"), None), Ok(5));
+    assert!(last_seen(&f).body.get("disable_notification").is_none(), "a loud send omits the key");
+}
+
+#[test]
 fn send_without_a_message_id_in_the_answer_is_a_parse_error() {
     let f = fake(&[(200, r#"{"ok":true,"result":true}"#)]);
     assert_eq!(api_for(&f).send(1001, &message("x"), None), Err(ApiError::Parse));
@@ -197,7 +215,11 @@ fn edit_keeps_plain_text_and_drops_the_buttons_when_there_are_none() {
     assert!(b.get("parse_mode").is_none());
     assert!(b.get("reply_markup").is_none(), "no buttons: omit reply_markup so Telegram removes them");
 
-    let with_buttons = WireMessage { text: crate::redact::text("Allow once?"), keyboard: vec![vec![button("Yes", "g:x")]] };
+    let with_buttons = WireMessage {
+        text: crate::redact::text("Allow once?"),
+        keyboard: vec![vec![button("Yes", "g:x")]],
+        disable_notification: false,
+    };
     api.edit(1001, 88, &with_buttons).unwrap();
     assert!(last_seen(&f).body.get("reply_markup").is_some());
 }

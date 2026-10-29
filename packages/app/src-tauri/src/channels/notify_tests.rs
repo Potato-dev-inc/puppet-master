@@ -961,3 +961,183 @@ fn a_pem_key_in_a_turn_summary_leaks_no_body_line() {
         .expect("in window");
     assert_no_key_body(&text_of(&note));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Silent sends (Focus Time, FT-3): the flag is a delivery detail. Today every note is loud.
+
+#[test]
+fn every_note_is_loud_until_focus_marks_it_silent() {
+    let p = approval("npm test", true, RiskLevel::Low, "Run a test command");
+    let cards = [
+        candidate(Kind::WaitingInput, Some(p), Some(item())),
+        candidate(Kind::TrustGate, None, None),
+        candidate(Kind::Budget, None, None),
+    ];
+    for (i, c) in cards.iter().enumerate() {
+        let mut world = World::new();
+        let note = Notifier::default()
+            .offer(c, None, &cfg(), world.links(), 1)
+            .unwrap_or_else(|| panic!("card {i} sent"));
+        assert!(!note.out.silent, "card {i} is loud");
+    }
+    let mut world = World::new();
+    world.refs.open_window(&Target::Companion("c1".into()), 0);
+    let reply = Notifier::default()
+        .companion_reply("c1", "Mochi", "The build is green.", &cfg(), world.links(), 1_000)
+        .expect("in window");
+    assert!(!reply.out.silent, "a companion reply is loud");
+}
+
+#[test]
+fn a_silent_note_keeps_its_text_and_buttons() {
+    use crate::channels::engine::to_wire;
+    let mut world = World::new();
+    let p = approval("npm test", true, RiskLevel::Low, "Run a test command");
+    let c = candidate(Kind::WaitingInput, Some(p), Some(item()));
+    let note = Notifier::default().offer(&c, None, &cfg(), world.links(), 1).expect("sent");
+    assert_eq!(labels(&note), vec![vec!["Allow once…".to_string(), "Deny".to_string()]]);
+
+    let loud = note.out.clone();
+    let quiet = Outgoing { silent: true, ..loud.clone() };
+    assert_eq!(quiet.text.as_str(), loud.text.as_str(), "same words");
+    assert_eq!(quiet.keyboard, loud.keyboard, "same buttons, same data");
+
+    let (wire_loud, wire_quiet) = (to_wire(&loud), to_wire(&quiet));
+    assert_eq!(wire_quiet.text.as_str(), wire_loud.text.as_str());
+    assert_eq!(wire_quiet.keyboard, wire_loud.keyboard);
+    assert!(!wire_loud.disable_notification, "the loud note has a sound");
+    assert!(wire_quiet.disable_notification, "the silent note has none");
+}
+
+// ---- the end of Focus (FT-7) -------------------------------------------------------------------
+
+const FOCUS_LINE: &str = "While you focused (45 min): 4 turns done, 1 failed, 2 asked for you. 1 still waits.";
+
+#[test]
+fn focus_note_is_the_counts_line_with_no_buttons_and_no_pane_link() {
+    let mut world = World::new();
+    let note = Notifier::default()
+        .focus_note(FOCUS_LINE, &cfg(), world.links(), 1)
+        .expect("sent");
+    assert_eq!(text_of(&note), FOCUS_LINE);
+    assert!(note.out.keyboard.is_empty(), "no buttons");
+    assert!(note.remember.is_none(), "a reply to it means no pane");
+    assert!(!note.out.silent, "the summary is a normal message");
+}
+
+#[test]
+fn focus_note_in_short_mode_is_the_fixed_sentence_and_no_counts() {
+    let mut world = World::new();
+    let short = TelegramConfig {
+        short_mode: true,
+        ..cfg()
+    };
+    let note = Notifier::default()
+        .focus_note(FOCUS_LINE, &short, world.links(), 1)
+        .expect("sent");
+    assert_eq!(text_of(&note), "Focus is over. Open Puppet Master.");
+}
+
+#[test]
+fn focus_note_needs_the_chat_on_and_paired() {
+    let mut world = World::new();
+    let off = TelegramConfig {
+        enabled: false,
+        ..cfg()
+    };
+    assert!(Notifier::default()
+        .focus_note(FOCUS_LINE, &off, world.links(), 1)
+        .is_none());
+    let unpaired = TelegramConfig {
+        paired: None,
+        ..cfg()
+    };
+    assert!(Notifier::default()
+        .focus_note(FOCUS_LINE, &unpaired, world.links(), 1)
+        .is_none());
+}
+
+#[test]
+fn focus_note_with_an_empty_bucket_sends_nothing() {
+    let mut world = World::new();
+    world.bucket = Bucket::new(0, 60_000);
+    assert!(Notifier::default()
+        .focus_note(FOCUS_LINE, &cfg(), world.links(), 1)
+        .is_none());
+}
+
+#[test]
+fn focus_note_is_cleaned_once_like_every_chat_message() {
+    let mut world = World::new();
+    let dirty = format!("{FOCUS_LINE} Key {SECRET} for you@example.com in C:\\Users\\you\\notes.txt");
+    let note = Notifier::default()
+        .focus_note(&dirty, &cfg(), world.links(), 1)
+        .expect("sent");
+    assert_clean(&text_of(&note));
+    assert!(text_of(&note).contains("4 turns done"), "the counts stay after cleaning");
+}
+
+#[test]
+fn a_focus_candidate_is_never_offered_as_a_note() {
+    let mut world = World::new();
+    let c = candidate(Kind::Focus, None, None);
+    assert!(Notifier::default()
+        .offer(&c, None, &cfg(), world.links(), 1)
+        .is_none());
+}
+
+#[test]
+fn golden_focus_end() {
+    let mut world = World::new();
+    let note = Notifier::default()
+        .focus_note(FOCUS_LINE, &cfg(), world.links(), 1)
+        .expect("sent");
+    assert_eq!(golden(&note), include_str!("golden/focus.txt").trim_end());
+}
+
+// ---- Focus: a card that waits for the person goes to the chat without the notification sound (FT-9) ----
+
+fn offered_silent(kind: Kind, level: RiskLevel, headline: &str) -> bool {
+    let mut world = World::new();
+    let p = approval("npm install left-pad", false, level, headline);
+    let c = candidate(kind, Some(p), Some(item()));
+    Notifier::default().offer(&c, None, &cfg(), world.links(), 1).expect("sent").out.silent
+}
+
+#[test]
+fn outside_focus_nothing_is_silent() {
+    assert!(!offered_silent(Kind::WaitingInput, RiskLevel::Medium, "Install packages"));
+    assert!(!offered_silent(Kind::Error, RiskLevel::Low, "x"));
+}
+
+#[test]
+fn a_waiting_card_is_silent_during_focus_and_keeps_its_text() {
+    let mut world = World::new();
+    let p = approval("npm install left-pad", false, RiskLevel::Medium, "Install packages");
+    let c = candidate(Kind::WaitingInput, Some(p), Some(item()));
+    let loud = Notifier::default().offer(&c, None, &cfg(), world.links(), 1).expect("sent");
+
+    let _focus = crate::attention::focus::live::testing::force_default();
+    let mut world = World::new();
+    let quiet = Notifier::default().offer(&c, None, &cfg(), world.links(), 1).expect("sent");
+    assert!(quiet.out.silent);
+    assert!(!loud.out.silent);
+    assert_eq!(quiet.out.text.as_str(), loud.out.text.as_str(), "same words");
+    assert_eq!(quiet.out.keyboard, loud.out.keyboard, "same buttons");
+}
+
+#[test]
+fn a_high_risk_approval_and_a_budget_are_never_silent_during_focus() {
+    let _focus = crate::attention::focus::live::testing::force_default();
+    assert!(!offered_silent(Kind::WaitingInput, RiskLevel::High, "Delete a folder"));
+    assert!(!offered_silent(Kind::Budget, RiskLevel::Low, "x"));
+    assert!(!offered_silent(Kind::Consent, RiskLevel::Low, "x"));
+    assert!(offered_silent(Kind::Error, RiskLevel::Low, "x"));
+}
+
+#[test]
+fn with_the_switch_off_a_waiting_card_is_not_silent() {
+    use crate::attention::focus::model::Settings;
+    let _focus = crate::attention::focus::live::testing::force(Settings { default_minutes: 45, quiet_blocking: false });
+    assert!(!offered_silent(Kind::WaitingInput, RiskLevel::Medium, "Install packages"));
+}

@@ -1,0 +1,79 @@
+/* Focus: the pill under the sidebar header (components/cockpit/FocusPill.tsx) and the Focus dot in the palette
+   (components/cockpit/palette-focus.ts). Grayscale only, cockpit tokens. No animation, so reduced motion needs nothing. */
+.cockpit .ck-focus {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 10px 6px 14px;
+}
+.cockpit .ck-focus-pill {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.cockpit .ck-focus-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--label);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cockpit .ck-focus-main:hover {
+  color: var(--label);
+}
+.cockpit .ck-focus-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-focus-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--label);
+}
+.cockpit .ck-focus-end {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: none;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.cockpit .ck-focus-end:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.cockpit .ck-focus-main:focus-visible,
+.cockpit .ck-focus-end:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-focus-menu {
+  top: calc(100% + 4px);
+  left: 0;
+  right: auto;
+  min-width: 180px;
+}

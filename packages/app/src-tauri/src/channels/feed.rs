@@ -66,6 +66,32 @@ impl Runtime {
         self.send_note(note);
     }
 
+    /// A run end that Focus held from the phone, offered to the chat only when it is an answer: the pane is in a
+    /// conversation window the person started there. Same cleaning and buttons as `offer`; the `notify_runs`
+    /// switch is ignored so a held ping never reaches the chat for any other reason.
+    pub fn offer_answer(&self, c: &Candidate) {
+        if !self.listening() {
+            return;
+        }
+        let mut cfg = self.deps.host.config();
+        cfg.notify_runs = false;
+        let now = self.deps.host.now_ms();
+        let note = self.with_links(|links| self.notifier.offer(c, None, &cfg, links, now));
+        self.send_note(note);
+    }
+
+    /// The end of a Focus, or its one reminder. `line` is counts only (`attention::focus`); the notifier cleans it
+    /// and swaps it for a fixed sentence in short mode.
+    pub fn focus_note(&self, line: &str) {
+        if !self.listening() {
+            return;
+        }
+        let cfg = self.deps.host.config();
+        let now = self.deps.host.now_ms();
+        let note = self.with_links(|links| self.notifier.focus_note(line, &cfg, links, now));
+        self.send_note(note);
+    }
+
     /// A pane's status changed (from the same event the phone push listens to).
     pub fn pane_status(&self, pane_id: &str, status: &str) {
         self.notifier.pane_status(pane_id, status);

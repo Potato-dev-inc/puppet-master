@@ -10,6 +10,7 @@ import type { PreviewUrl } from './pane-preview';
 import type { AttentionSnapshot } from './attention';
 import type { OutboxMessage } from './paneOutbox';
 import type { CompanionView } from './companion';
+import type { PhoneFocus } from './focus';
 
 /** Decode a base64 terminal chunk into raw bytes. */
 export function decodeBase64(text: string): Uint8Array {
@@ -54,6 +55,9 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'questions') {
     const payload = parsed as { revision?: number };
     onEvent({ type: 'questions', revision: payload.revision ?? 0 });
+  } else if (eventName === 'focus') {
+    // The PC's Focus changed (start, extend, end, a held ping counted). Counts only; the phone bar reads again.
+    onEvent({ type: 'focus', view: parsed as PhoneFocus });
   } else if (eventName === 'opencode-worker') {
     onEvent({ type: 'opencode-worker', event: parsed as OpenCodeWorkerEvent });
   } else if (eventName === 'pane-resize') {
@@ -241,6 +245,7 @@ const BRIDGE_EVENT_NAMES = [
   'attention',
   'pane-outbox',
   'companion',
+  'focus',
 ] as const;
 
 function shouldUseFetchBridgeSse(baseUrl: string): boolean {
