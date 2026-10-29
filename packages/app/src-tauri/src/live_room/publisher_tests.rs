@@ -11,6 +11,7 @@ use serde_json::Value;
 
 use super::{PaneNow, Publisher, RoomPlan, Sink, Source, StopReason, Tick};
 use crate::live_room::client::ClientError;
+use crate::live_room::pin::ChatShare;
 use crate::live_room::seal::{open, Sealer};
 use crate::live_room::view::WAITING_LINE;
 use crate::pty::status::PaneStatus;
@@ -54,10 +55,22 @@ struct PaneSpec {
     pending: bool,
     screen: bool,
     activity: Option<Activity>,
+    label: String,
+    title: Option<String>,
+    chat: ChatShare,
 }
 
 fn pane(id: &str, screen: bool) -> PaneSpec {
-    PaneSpec { id: id.into(), status: Some(PaneStatus::Running), pending: false, screen, activity: None }
+    PaneSpec {
+        id: id.into(),
+        status: Some(PaneStatus::Running),
+        pending: false,
+        screen,
+        activity: None,
+        label: "Codex".into(),
+        title: Some("Fix login".into()),
+        chat: ChatShare::Shared,
+    }
 }
 
 /// What the fake app knows: the panes, their chat logs, and the panes whose chat starts over on the next read.
@@ -78,12 +91,13 @@ impl Source for FakeSource {
             .iter()
             .map(|spec| PaneNow {
                 pane_id: spec.id.clone(),
-                agent_label: "Codex".into(),
-                title: Some("Fix login".into()),
+                agent_label: spec.label.clone(),
+                title: spec.title.clone(),
                 status: spec.status,
                 activity: spec.activity.clone(),
                 pending_card: spec.pending,
                 screen_source: spec.screen,
+                chat: spec.chat,
             })
             .collect()
     }
@@ -91,6 +105,9 @@ impl Source for FakeSource {
     fn items_since(&mut self, pane_id: &str, rev: Option<u64>) -> Option<(u64, bool, Vec<ChatItem>)> {
         let mut world = self.0.borrow_mut();
         let reset = world.resets.remove(pane_id);
+        if world.panes.iter().any(|spec| spec.id == pane_id && spec.chat != ChatShare::Shared) {
+            return None;
+        }
         let log = world.logs.get(pane_id)?;
         let len = log.len();
         let from = if reset { 0 } else { (rev.unwrap_or(0) as usize).min(len) };
@@ -111,6 +128,8 @@ struct Wire {
     fail: Option<Failure>,
     ended: u32,
     viewers: u32,
+    /// How many status calls (heartbeats) the relay got.
+    pings: u32,
 }
 
 struct FakeSink(Rc<RefCell<Wire>>);
@@ -130,6 +149,16 @@ impl FakeSink {
 }
 
 impl Sink for FakeSink {
+    fn ping(&mut self) -> Result<RoomStatus, ClientError> {
+        let mut wire = self.0.borrow_mut();
+        wire.pings += 1;
+        match wire.fail {
+            Some(Failure::Network) => Err(ClientError::Network("no answer".into())),
+            Some(Failure::Gone) => Err(ClientError::Gone(None)),
+            None => Ok(RoomStatus { viewers: wire.viewers, expires_at_ms: 0 }),
+        }
+    }
+
     fn snapshot(&mut self, frame: &RoomFrame) -> Result<RoomStatus, ClientError> {
         self.accept(frame)
     }
@@ -370,11 +399,9 @@ fn a_screen_chat_is_held_back_around_a_card_but_a_file_chat_is_not() {
 #[test]
 fn a_waiting_pane_shows_only_the_fixed_line() {
     let spec = PaneSpec {
-        id: "pa".into(),
-        status: Some(PaneStatus::Running),
         pending: true,
-        screen: false,
         activity: Some(Activity { kind: ActivityKind::Waiting, text: "Run rm on notes.txt?".into() }),
+        ..pane("pa", false)
     };
     let rig = Rig::new(vec![spec]);
     let mut publisher = rig.publisher(T0 + 20 * MIN);
@@ -560,4 +587,192 @@ fn a_pane_state_change_goes_out_as_a_state_frame() {
     assert_eq!(last["kind"], "state");
     assert_eq!(last["panes"][0]["state"], "idle");
     assert_eq!(last["items"].as_array().map(Vec::len), Some(0));
+}
+
+fn end_row(ms: Option<u64>) -> ChatItem {
+    ChatItem::TurnEnd { id: "e".into(), at: None, outcome: crate::session_chat::model::TurnOutcome::Completed, duration_ms: ms }
+}
+
+fn user(text: &str) -> ChatItem {
+    ChatItem::User { id: "u".into(), at: None, text: text.into() }
+}
+
+/// The `t` tag of every row in a frame.
+fn tags(body: &Value) -> Vec<String> {
+    body["items"].as_array().map(|rows| rows.iter().filter_map(|row| row["t"].as_str().map(str::to_string)).collect()).unwrap_or_default()
+}
+
+#[test]
+fn a_late_second_turn_end_is_not_shown_again() {
+    let rig = Rig::new(vec![pane("pa", false)]);
+    {
+        let mut world = rig.world.borrow_mut();
+        let log = world.logs.entry("pa".to_string()).or_default();
+        log.extend([user("hi"), agent("one"), end_row(None), end_row(Some(5000))]);
+    }
+    let mut publisher = rig.publisher(T0 + 20 * MIN);
+    publisher.start(T0).expect("starts");
+    let first = rig.bodies()[0].clone();
+    assert_eq!(tags(&first), vec!["user", "agent", "end"], "the first snapshot has one end row");
+
+    // The next turn: its end row, and then its late length line, arrive in later ticks.
+    {
+        let mut world = rig.world.borrow_mut();
+        let log = world.logs.get_mut("pa").unwrap();
+        log.extend([user("again"), agent("two"), end_row(None)]);
+    }
+    assert_eq!(publisher.tick(T0 + SEC), Tick::Continue);
+    rig.world.borrow_mut().logs.get_mut("pa").unwrap().push(end_row(Some(7000)));
+    assert_eq!(publisher.tick(T0 + 2 * SEC), Tick::Continue);
+    let sent: Vec<String> = rig.bodies().iter().skip(1).flat_map(tags).collect();
+    assert_eq!(sent, vec!["user", "agent", "end"], "one end row for the second turn");
+}
+
+#[test]
+fn a_turn_end_after_a_new_turn_is_shown() {
+    let rig = Rig::new(vec![pane("pa", false)]);
+    {
+        let mut world = rig.world.borrow_mut();
+        let log = world.logs.entry("pa".to_string()).or_default();
+        log.extend([user("a"), end_row(None), user("b"), end_row(None)]);
+    }
+    let mut publisher = rig.publisher(T0 + 20 * MIN);
+    publisher.start(T0).expect("starts");
+    assert_eq!(tags(&rig.bodies()[0]), vec!["user", "end", "user", "end"]);
+}
+
+#[test]
+fn a_pane_that_closes_keeps_its_label_and_title() {
+    let rig = Rig::new(vec![pane("pa", false), pane("pb", false)]);
+    rig.set("pa", |spec| {
+        spec.label = "Claude Code".into();
+        spec.title = Some("Fix the build".into());
+    });
+    let mut publisher = rig.publisher(T0 + 20 * MIN);
+    publisher.start(T0).expect("starts");
+    // The source no longer knows the pane at all: it is simply not listed.
+    rig.world.borrow_mut().panes.retain(|spec| spec.id != "pa");
+    assert_eq!(publisher.tick(T0 + SEC), Tick::Continue);
+    for s in 2..=60 {
+        publisher.tick(T0 + s * SEC);
+    }
+    let last_snapshot = rig.bodies().into_iter().rev().find(|body| body["kind"] == "snap").expect("a snapshot");
+    let closed = &last_snapshot["panes"][0];
+    assert_eq!(closed["state"], "gone");
+    assert_eq!(closed["label"], "Claude Code");
+    assert_eq!(closed["title"], "Fix the build");
+}
+
+#[test]
+fn a_pane_reported_closed_with_its_name_is_shown_closed_with_that_name() {
+    let rig = Rig::new(vec![pane("pa", false), pane("pb", false)]);
+    rig.set("pa", |spec| {
+        spec.label = "Claude Code".into();
+        spec.status = None;
+    });
+    let mut publisher = rig.publisher(T0 + 20 * MIN);
+    publisher.start(T0).expect("starts");
+    let first = &rig.bodies()[0];
+    assert_eq!(first["panes"][0]["state"], "gone");
+    assert_eq!(first["panes"][0]["label"], "Claude Code");
+    assert_eq!(first["panes"][0]["title"], "Fix login");
+}
+
+#[test]
+fn a_pane_whose_chat_cannot_be_tied_to_it_shows_a_note_and_no_chat() {
+    let rig = Rig::new(vec![pane("pa", false), pane("pb", false)]);
+    rig.set("pa", |spec| spec.chat = ChatShare::NotPinned);
+    rig.say("pa", "another session's words");
+    rig.say("pb", "my words");
+    let mut publisher = rig.publisher(T0 + 20 * MIN);
+    publisher.start(T0).expect("starts");
+    assert_eq!(publisher.tick(T0 + SEC), Tick::Continue);
+    rig.say("pa", "more of another session");
+    assert_eq!(publisher.tick(T0 + 2 * SEC), Tick::Continue);
+
+    let all = rig.everything_sent();
+    assert!(!all.contains("another session"), "nothing of the unpinned pane's chat: {all}");
+    assert!(all.contains("my words"));
+    let first = &rig.bodies()[0];
+    let notes: Vec<&Value> = first["items"].as_array().unwrap().iter().filter(|row| row["t"] == "note").collect();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["pane"], "p1");
+    assert!(notes[0]["text"].as_str().unwrap().contains("not shared"));
+    let notes_in_all = all.matches("is not shared").count();
+    assert_eq!(notes_in_all, 1, "told once, not on every tick");
+}
+
+#[test]
+fn a_pane_that_becomes_pinned_starts_sharing_and_a_changed_session_stops_with_one_note() {
+    let rig = Rig::new(vec![pane("pa", false)]);
+    rig.set("pa", |spec| spec.chat = ChatShare::NotPinned);
+    rig.say("pa", "foreign");
+    let mut publisher = rig.publisher(T0 + 20 * MIN);
+    publisher.start(T0).expect("starts");
+    // Pinned: its own chat is shared from now on.
+    rig.set("pa", |spec| spec.chat = ChatShare::Shared);
+    rig.say("pa", "mine");
+    assert_eq!(publisher.tick(T0 + SEC), Tick::Continue);
+    // The session changed: no more chat, one note.
+    rig.set("pa", |spec| spec.chat = ChatShare::SessionChanged);
+    rig.say("pa", "a new session's words");
+    assert_eq!(publisher.tick(T0 + 2 * SEC), Tick::Continue);
+    assert_eq!(publisher.tick(T0 + 3 * SEC), Tick::Continue);
+    let all = rig.everything_sent();
+    assert!(all.contains("mine"));
+    assert!(!all.contains("a new session"));
+    assert_eq!(all.matches("its session changed").count(), 1);
+}
+
+#[test]
+fn a_quiet_room_asks_the_relay_every_ten_seconds_and_sends_no_frame_for_it() {
+    let rig = Rig::new(vec![pane("pa", false)]);
+    rig.wire.borrow_mut().viewers = 3;
+    let mut publisher = rig.publisher(T0 + 20 * MIN);
+    publisher.start(T0).expect("starts");
+    for s in 1..=35 {
+        assert_eq!(publisher.tick(T0 + s * SEC), Tick::Continue);
+    }
+    assert_eq!(rig.wire.borrow().pings, 3, "at 10 s, 20 s and 30 s");
+    assert_eq!(rig.kinds(), vec!["snap"], "a status call is not a frame");
+    assert_eq!(publisher.status().viewers, 3);
+}
+
+#[test]
+fn a_quiet_room_stops_thirty_to_forty_seconds_after_the_relay_stops_answering() {
+    let rig = Rig::new(vec![pane("pa", false)]);
+    let mut publisher = rig.publisher(T0 + 20 * MIN);
+    publisher.start(T0).expect("starts");
+    // Quiet for 3 s, then the relay stops answering (killed, or the network is gone).
+    let lost_at = 3;
+    for s in 1..=lost_at {
+        assert_eq!(publisher.tick(T0 + s * SEC), Tick::Continue);
+    }
+    rig.wire.borrow_mut().fail = Some(Failure::Network);
+    let mut stopped_after = None;
+    for s in (lost_at + 1)..=120 {
+        if publisher.tick(T0 + s * SEC) == Tick::Stopped(StopReason::RelayLost) {
+            stopped_after = Some(s - lost_at);
+            break;
+        }
+    }
+    let waited = stopped_after.expect("the room stops by itself");
+    assert!((30..=40).contains(&waited), "stopped {waited} s after the relay was lost");
+    assert_eq!(rig.wire.borrow().ended, 1);
+}
+
+#[test]
+fn the_relay_saying_gone_to_a_status_call_ends_a_quiet_room() {
+    let rig = Rig::new(vec![pane("pa", false)]);
+    let mut publisher = rig.publisher(T0 + 20 * MIN);
+    publisher.start(T0).expect("starts");
+    rig.wire.borrow_mut().fail = Some(Failure::Gone);
+    let mut stopped = None;
+    for s in 1..=15 {
+        if publisher.tick(T0 + s * SEC) == Tick::Stopped(StopReason::RelayEnded) {
+            stopped = Some(s);
+            break;
+        }
+    }
+    assert_eq!(stopped, Some(10));
 }

@@ -186,8 +186,26 @@ pub(super) fn importer(sources: Vec<Source>, index: &Arc<ChatIndex>) -> (Arc<Imp
     (Arc::new(Importer::new(Arc::new(FakeCatalog(sources)), index.clone(), emit)), seen)
 }
 
+/// Like `importer`, but the progress throttle reads `clock` instead of the machine's time.
+pub(super) fn importer_on_clock(sources: Vec<Source>, index: &Arc<ChatIndex>, clock: super::progress::Clock) -> (Arc<Importer>, Arc<Mutex<Vec<Progress>>>) {
+    let seen: Arc<Mutex<Vec<Progress>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let emit: Emitter = Arc::new(move |progress: &Progress| sink.lock().push(progress.clone()));
+    let reporter = super::progress::Reporter::with_clock(emit, clock);
+    (Arc::new(Importer::with_reporter(Arc::new(FakeCatalog(sources)), index.clone(), reporter)), seen)
+}
+
+/// A clock that only moves when it is read: each look at it is `tick` later than the one before.
+pub(super) fn ticking_clock(tick: Duration) -> super::progress::Clock {
+    let start = Instant::now();
+    let reads = std::sync::atomic::AtomicU32::new(0);
+    Arc::new(move || start + tick * reads.fetch_add(1, Ordering::SeqCst))
+}
+
+/// A hang detector, not a time limit: on a machine running the whole suite an import of a few chats took 20 s
+/// (measured pinned to one core among 12 busy processes).
 pub(super) fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + Duration::from_secs(120);
     while !done() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
         std::thread::sleep(Duration::from_millis(5));

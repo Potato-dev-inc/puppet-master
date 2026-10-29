@@ -26,15 +26,15 @@ pub struct CatalogEntry {
 }
 
 impl CatalogEntry {
-    /// The name a card and an install title show: the definition's `agent.label` when it has one,
-    /// else the vendor's name (a built-in agent has no definition).
+    /// The name a card and an install title show: the definition's `agent.label` when it has one.
+    /// A built-in agent has no definition, so it shows the label its registered TUI profile shows
+    /// everywhere else (`tui::descriptor_for`). Anything else falls back to the vendor's name.
     pub fn label(&self) -> String {
-        let defined = self
-            .definition_text
-            .as_deref()
-            .and_then(|text| parse_definition(text).ok())
-            .map(|definition| definition.agent.label.trim().to_string())
-            .filter(|label| !label.is_empty());
+        let defined = match self.definition_text.as_deref() {
+            Some(text) => parse_definition(text).ok().map(|definition| definition.agent.label.trim().to_string()),
+            None => crate::tui::descriptor_for(&self.entry.store.id).map(|descriptor| descriptor.label.trim().to_string()),
+        }
+        .filter(|label| !label.is_empty());
         defined.unwrap_or_else(|| self.entry.vendor.name.clone())
     }
 }
