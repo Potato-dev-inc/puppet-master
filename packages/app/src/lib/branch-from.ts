@@ -133,3 +133,14 @@ export function branchStateText(view: BranchView): string {
   if (view.state === 'starting') return `${view.toLabel} is starting`;
   return 'Making a copy from the save point';
 }
+
+/**
+ * The warning above Merge for a branch copy that is still open. Null when there is no branch (a
+ * normal copy) or the branch is already kept or thrown away. Merge only brings in the branch's own
+ * changes; the original chat's later work is not in the branch, and Merge never removes it either.
+ */
+export function branchKeepWarning(view: BranchView | null): string | null {
+  if (!view || view.closed) return null;
+  const started = view.pointLabel.trim() ? `started ${view.pointLabel.trim()}` : 'started from a save point';
+  return `This branch ${started}. The original chat may have kept working after that, and merging this branch does not bring that later work in. Check both chats before you merge.`;
+}
