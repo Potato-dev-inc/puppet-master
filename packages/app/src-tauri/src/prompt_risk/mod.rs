@@ -10,6 +10,7 @@
 mod command;
 mod paths;
 mod rules;
+pub mod packages;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -70,6 +71,8 @@ pub struct RiskInput<'a> {
 }
 
 const MAX_REASONS: usize = 6;
+/// Above `GLOBAL_INSTALL` (70), below `PUBLISH` (85).
+const LOOKALIKE_RANK: u8 = 72;
 
 fn plain(level: RiskLevel, headline: &str, reason: &str) -> Risk {
     Risk { level, headline: headline.to_string(), reasons: vec![reason.to_string()] }
@@ -85,6 +88,17 @@ pub fn assess(input: &RiskInput, extra: &[RiskRule]) -> Risk {
     let mut findings = std::mem::take(&mut ctx.findings);
     let base_found = !findings.is_empty() || ctx.unknown;
     let known = !findings.is_empty();
+    // A package whose name looks like a popular one (offline check, `packages`): High, before the card first paints.
+    for item in packages::extract(command, false).items {
+        if let Some(lookalike) = item.lookalike {
+            findings.push(Finding {
+                level: RiskLevel::High,
+                rank: LOOKALIKE_RANK,
+                headline: packages::words::LOOKALIKE_RISK_HEADLINE.to_string(),
+                reason: packages::words::lookalike_risk_reason(&item.name, &lookalike.popular, lookalike.how),
+            });
+        }
+    }
 
     let mut matched_extra: Vec<Finding> = Vec::new();
     for rule in extra {

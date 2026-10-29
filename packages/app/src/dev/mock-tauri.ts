@@ -35,6 +35,7 @@ import { firstRunMock, firstRunStore } from './first-run-fixtures';
 import { missionMock } from './mission-fixtures';
 import { keepGoingMock } from './keep-going-fixtures';
 import { nightMock } from './night-fixtures';
+import { packageCheckMock } from './package-check-fixtures';
 import { reviewDeskMock } from './review-desk-fixtures';
 import { createFocusMock } from './focus-fixtures';
 
@@ -78,6 +79,8 @@ export function installTauriMock(scenario: HarnessScenario): void {
       if (keepGoing.handled) return keepGoing.value;
       const night = nightMock(scenario.night, cmd, a);
       if (night.handled) return night.value;
+      const packageCheck = packageCheckMock(scenario.packageCheck, cmd, a);
+      if (packageCheck.handled) return packageCheck.value;
       const reviewDesk = reviewDeskMock(scenario.reviewDesk, cmd, a);
       if (reviewDesk.handled) return reviewDesk.value;
       const focus = focusMock(cmd, a);

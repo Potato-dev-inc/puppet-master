@@ -32,7 +32,7 @@ export const LAYOUT: Partial<Record<SectionId, LayoutGroup[]>> = {
     { group: 'Appearance', rows: ['theme', 'animated-tray', { pointerTo: 'simple-mode' }, 'welcome'] },
     {
       group: 'Safety',
-      rows: ['security-ask-before-control', 'security-agents-merge', 'confirm-close', 'loop-guard', 'security-recent-approvals'],
+      rows: ['security-ask-before-control', 'security-agents-merge', 'confirm-close', 'loop-guard', 'package-check', 'security-recent-approvals'],
     },
     { group: 'Budgets', rows: ['budget-turns', 'budget-minutes'] },
     { group: 'Undo and memory', rows: ['checkpoints', 'checkpoints-keep', 'shared-memory'] },

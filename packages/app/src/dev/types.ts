@@ -109,6 +109,8 @@ export interface HarnessScenario {
   focus?: import('./focus-fixtures').FocusScenario;
   /** Night Shift: what the state, plans and checks the mocked `night_*` commands answer (see night-fixtures.ts). */
   night?: import('./night-fixtures').NightScenario;
+  /** Package check: the packages the mocked approval carries and what the mocked `package_check_*` commands answer. */
+  packageCheck?: import('./package-check-fixtures').PackageCheckScenario;
   /** Review Desk: what the mocked `review_desk_*` commands answer (see review-desk-fixtures.ts). */
   reviewDesk?: import('./review-desk-fixtures').ReviewDeskScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */

@@ -250,6 +250,7 @@ The tray **New pane** submenu is built from the registry (`tray.rs`; headless-on
 | `read_only=true` per profile capability (`READ_ONLY_UNSUPPORTED` otherwise) | `tui` `features()` | stable |
 | `followup_task` / resume on the same provider session (`continuity: resume`) | `agent_runs/runtime/followup.rs` | stable |
 | `answer_prompt` for approval prompts in visible panes | `bridge/routes`, `pane_prompt/` | stable |
+| Package check on install approvals: the package names an install command names, look-alike names flagged offline (raises the card to High), registry facts (age, downloads, install scripts) on the desktop card. Facts only: never answers or blocks. Never auto-approves a look-alike or link install under `allowed_commands` | `prompt_risk/packages/`, `package_check/`, `components/cockpit/PackageFacts.tsx`, `agent_runs/approval_policy.rs` | experimental: the desktop lookup command is not registered on this branch (PC-13); look-alike lists hand-compiled; see `docs/features/package-check.md` (known limits) |
 | `keep_pane` (default false: a run-created pane closes after the run; `PANE_CLOSED_AFTER_RUN`) | `agent_runs/` | stable |
 | In-flight runs keep the profile they started under; editing a definition mid-run does not lose the result | `agent_runs` + `registry` (T36b) | stable |
 | Refusals `AGENT_DEF_*` (e.g. `AGENT_DEF_APPROVAL_STALE`), `UNKNOWN_AGENT_TYPE`, `AGENT_REPORTED_ERROR`, `OUTPUT_UNPARSEABLE` | `registry::admit`, `headless/finish.rs`, `tui::require_registered` | stable |

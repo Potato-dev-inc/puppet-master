@@ -63,6 +63,7 @@ mod first_run;
 mod plain_mode;
 mod plans_report;
 mod prompt_risk;
+mod package_check;
 pub mod questions;
 mod push;
 pub mod redact;
@@ -212,6 +213,9 @@ pub fn run() {
             commands::keep_going_brief,
             commands::keep_going_settings_get,
             commands::keep_going_settings_set,
+            commands::package_check_lookup,
+            commands::package_check_settings_get,
+            commands::package_check_settings_set,
             commands::pane_message_send,
             commands::pane_message_cancel,
             commands::pane_messages_list,

@@ -1,0 +1,23 @@
+{
+  "name": "pm-demo-gem",
+  "downloads": 12345,
+  "version": "2.1.0",
+  "version_name": "2.1.0",
+  "version_created_at": "2024-05-02T10:00:00.000Z",
+  "version_downloads": 300,
+  "platform": "ruby",
+  "authors": "Made Up Author",
+  "info": "Made-up demo gem for tests.",
+  "licenses": ["MIT"],
+  "metadata": {},
+  "sha": "0000000000000000000000000000000000000000000000000000000000000000",
+  "project_uri": "https://rubygems.org/gems/pm-demo-gem",
+  "gem_uri": "https://rubygems.org/gems/pm-demo-gem-2.1.0.gem",
+  "homepage_uri": null,
+  "source_code_uri": "https://github.com/example-user/pm-demo-gem",
+  "bug_tracker_uri": null,
+  "dependencies": {
+    "development": [],
+    "runtime": []
+  }
+}

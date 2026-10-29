@@ -2,6 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { UserGesture } from './user-gesture';
+import type { PackageList } from './package-check';
 
 export type UiMode = 'orchestration' | 'individual';
 
@@ -29,6 +30,8 @@ export interface PanePrompt {
   choices: PromptChoice[];
   /** Absent on older backends: the UI then shows the plain question. */
   risk?: PromptRisk;
+  /** Package check: the packages this command installs. Absent when it installs none. */
+  packages?: PackageList;
 }
 
 export interface PaneRunInfo {

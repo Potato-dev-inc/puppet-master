@@ -10,11 +10,13 @@ import { CAUTION, LEVEL_WORD, choiceWords, firstReason, isStartupGate, layoutCho
 import { gestureOf, type UserGesture } from '../../lib/user-gesture';
 import '../../styles/approval-card.css';
 import { CardButton, InboxCard, InlineCode, RiskGlyph, focusWithRing } from './InboxCard';
+import { PackageFacts } from './PackageFacts';
 
 export function ApprovalPrompt({
   prompt,
   onAnswer,
   variant,
+  paneId,
   autoFocus = true,
   who,
   age,
@@ -26,6 +28,8 @@ export function ApprovalPrompt({
   /** `gesture` is the click that chose it (`lib/user-gesture.ts`); the backend needs it. */
   onAnswer: (choice: PromptChoice, gesture: UserGesture) => void;
   variant: 'card' | 'bar';
+  /** The pane that shows the prompt. Package check looks up its packages only when this is set. */
+  paneId?: string;
   /** High risk only: move the keyboard to Deny when the card appears. */
   autoFocus?: boolean;
   /** Card: who is asking and where, e.g. "Codex · billing-service". */
@@ -67,7 +71,9 @@ export function ApprovalPrompt({
   const command = (prompt.summary || prompt.text || '').trim();
   // The first reason is already on the card; Details adds what it does not repeat.
   const furtherReasons = risk.reasons.slice(1);
-  const hasDetails = command.length > 0 || furtherReasons.length > 0;
+  // Package check shows when the command installs something: its rows sit on the card, its facts in Details.
+  const hasPackages = (prompt.packages?.items.length ?? 0) > 0 || (prompt.packages?.hidden ?? 0) > 0;
+  const hasDetails = command.length > 0 || furtherReasons.length > 0 || hasPackages;
   const small = variant === 'bar';
   const cardTitle = asksQuestion && prompt.summary ? prompt.summary : risk.headline;
 
@@ -93,6 +99,8 @@ export function ApprovalPrompt({
       </CardButton>
     );
   };
+
+  const packageFacts = hasPackages && <PackageFacts paneId={paneId} prompt={prompt} details={details} variant={small ? 'bar' : 'card'} />;
 
   const detailsPanel = details && hasDetails && (
     <div className={variant === 'card' ? 'ib-details' : 'ck-appr-details'}>
@@ -127,7 +135,14 @@ export function ApprovalPrompt({
           age={age ?? null}
           reason={firstReason(risk) || null}
           caution={high ? CAUTION : null}
-          body={detailsPanel || null}
+          body={
+            packageFacts || detailsPanel ? (
+              <>
+                {packageFacts}
+                {detailsPanel}
+              </>
+            ) : null
+          }
           actions={
             <>
               {layout.visible.map(button)}
@@ -166,6 +181,7 @@ export function ApprovalPrompt({
       </div>
       {firstReason(risk) && <p className="ck-appr-reason">{firstReason(risk)}</p>}
       {high && <p className="ck-appr-caution">{CAUTION}</p>}
+      {packageFacts}
       {hasDetails && (
         <button type="button" data-role="details" className="ck-appr-toggle" aria-expanded={details} onClick={() => setDetails((d) => !d)}>
           {details ? 'Hide details' : 'Show details'}

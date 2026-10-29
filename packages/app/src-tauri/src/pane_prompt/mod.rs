@@ -102,7 +102,29 @@ pub(crate) fn attach_risk(prompt: &mut Value, workspace: Option<&str>) {
     if let Ok(value) = serde_json::to_value(&risk) {
         prompt["risk"] = value;
     }
+    attach_packages(prompt, command.as_deref());
 }
+
+/// Put the packages an install command names on the prompt (`packages`, Package check). Read from the raw command,
+/// like the risk, and only when there is something to show. Facts only: nothing here changes the id, the choices
+/// or the risk. A command that may be cut at the edge of the screen marks its last name as cut.
+fn attach_packages(prompt: &mut Value, command: Option<&str>) {
+    let Some(command) = command else { return };
+    let trimmed = command.trim_end();
+    let may_be_cut = prompt.get("fully_drawn").and_then(Value::as_bool) == Some(false)
+        || trimmed.ends_with(ELLIPSIS)
+        || trimmed.ends_with("...");
+    let list = crate::prompt_risk::packages::extract(command, may_be_cut);
+    if list.items.is_empty() && list.hidden == 0 {
+        return;
+    }
+    if let Ok(value) = serde_json::to_value(&list) {
+        prompt["packages"] = value;
+    }
+}
+
+/// How a TUI shows a command it cut at the edge of the screen.
+const ELLIPSIS: char = '…';
 
 /// [`detect_in_screen`], and when no profile describes what the pane shows: a menu read by its shape
 /// (`generic_menu`), but only for a pane whose observed `status` is `waiting_input`. A pane that is working, idle or
@@ -579,6 +601,9 @@ pub struct PanePrompt {
     /// What saying yes would do and how risky it is. Optional so older UIs keep working.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risk: Option<crate::prompt_risk::Risk>,
+    /// The packages an install command names (Package check). Present only when there are any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packages: Option<crate::prompt_risk::packages::model::PackageList>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -625,6 +650,10 @@ impl PanePrompt {
             summary: text_of("summary"),
             choices,
             risk: prompt.get("risk").and_then(|v| serde_json::from_value(v.clone()).ok()),
+            packages: prompt
+                .get("packages")
+                .and_then(|v| serde_json::from_value::<crate::prompt_risk::packages::model::PackageList>(v.clone()).ok())
+                .filter(|list| !list.items.is_empty() || list.hidden > 0),
         })
     }
 }

@@ -1242,6 +1242,10 @@ mod night;
 #[path = "fake_tui_issue_intake.rs"]
 mod issue_intake;
 
+// ---- Package check: facts from a fake registry on 127.0.0.1 beside an install approval (zero tokens) -----------------
+
+#[path = "fake_tui_package_check.rs"]
+mod package_check;
 // ---- Focus: a turn held back, one summary at the end, approvals quiet or through (SPEC n33 FT-12) ------------------
 
 #[path = "fake_tui_focus.rs"]

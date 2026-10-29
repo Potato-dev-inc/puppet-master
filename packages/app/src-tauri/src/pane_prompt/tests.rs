@@ -219,7 +219,7 @@ fn pane_prompt_serializes_camel_case_and_prettifies_choice_labels() {
 
 #[test]
 fn prompt_events_fire_on_enter_change_and_leave_only() {
-    let p = |id: &str| PanePrompt { prompt_id: id.into(), kind: "k".into(), text: String::new(), summary: None, choices: vec![], risk: None };
+    let p = |id: &str| PanePrompt { prompt_id: id.into(), kind: "k".into(), text: String::new(), summary: None, choices: vec![], risk: None, packages: None };
     let mut t = PromptTrack::default();
     assert_eq!(next_prompt_event(&mut t, false, || panic!("no detect when not waiting")), None);
     assert_eq!(next_prompt_event(&mut t, true, || Some(p("a"))), Some(Some(p("a"))));
@@ -325,4 +325,92 @@ fn a_menu_with_allow_once_in_it_is_read_as_a_menu_where_the_shared_guess_would_t
     let trust = trust_screen("\u{280b}", 1, "", "/work/a").replace("IDPROBE", "MENUPROBE");
     assert_eq!(detect_in_screen_with_status("menuprobe", &trust, false, Some("waiting_input")).expect("a card")["kind"], "workspace_trust");
     crate::tui::registry::registry().remove_transient("menuprobe");
+}
+
+// ---- Package check: `packages` on the prompt (facts only; the id, the choices and the buttons do not depend on it) ----
+
+const LODAHS_SCREEN: &str = " $ npm install lodahs\n\n Run this command?\n Run once (y)\n Skip (esc or n)\n\n → Add follow-up\n";
+
+#[test]
+fn an_install_approval_carries_its_packages_and_the_ui_shape_serializes_them() {
+    let prompt = detect_in_screen("cursor_agent", LODAHS_SCREEN, false).unwrap();
+    let item = &prompt["packages"]["items"][0];
+    assert_eq!(item["name"], "lodahs");
+    assert_eq!(item["lookup"], true);
+    assert!(item["first"].as_str().unwrap().starts_with("Looks like lodash"), "{item}");
+    let ui = PanePrompt::from_detected(&prompt).unwrap();
+    let packages = ui.packages.as_ref().expect("packages on the UI prompt");
+    assert_eq!(packages.items.len(), 1);
+    assert_eq!(serde_json::to_value(&ui).unwrap()["packages"]["items"][0]["name"], "lodahs");
+    // The risk is the offline look-alike one, already on the first paint.
+    assert_eq!(ui.risk.as_ref().unwrap().headline, "Install a package with a look-alike name");
+}
+
+#[test]
+fn a_prompt_without_an_install_has_no_packages_key() {
+    let prompt = detect_in_screen("cursor_agent", " $ cargo test --lib\n\n Run this command?\n Run once (y)\n Skip (esc or n)\n", false).unwrap();
+    assert!(prompt.get("packages").is_none(), "{prompt}");
+    assert!(PanePrompt::from_detected(&prompt).unwrap().packages.is_none());
+    let json = serde_json::to_value(PanePrompt::from_detected(&prompt).unwrap()).unwrap();
+    assert!(json.get("packages").is_none());
+}
+
+#[test]
+fn a_trust_gate_has_no_packages() {
+    let prompt = detect_in_screen("cursor_agent", TRUST_PENDING, false).unwrap();
+    assert_eq!(prompt["kind"], "workspace_trust");
+    assert!(prompt.get("packages").is_none());
+    assert!(PanePrompt::from_detected(&prompt).unwrap().packages.is_none());
+}
+
+#[test]
+fn a_command_not_fully_drawn_marks_its_last_package_cut() {
+    let drawing = " $ npm install lodash lodahs\n\n Run this command?\n";
+    let prompt = detect_in_screen("cursor_agent", drawing, false).unwrap();
+    assert_eq!(prompt["fully_drawn"], false);
+    let items = prompt["packages"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["cut"], false);
+    assert_eq!(items[1]["cut"], true);
+    assert_eq!(items[1]["lookup"], false);
+    assert!(items[1].get("lookalike").is_none(), "a cut name is never judged: {}", items[1]);
+    // Once the options are drawn the same command is whole.
+    let whole = detect_in_screen("cursor_agent", LODAHS_SCREEN, false).unwrap();
+    assert_eq!(whole["packages"]["items"][0]["cut"], false);
+}
+
+#[test]
+fn a_command_ending_in_an_ellipsis_marks_its_last_package_cut() {
+    for command in ["npm install lodash lodahs\u{2026}", "npm install lodash lodahs..."] {
+        let mut prompt = json!({"agent_type": "cursor_agent", "kind": "command_approval", "command": command});
+        attach_risk(&mut prompt, None);
+        let items = prompt["packages"]["items"].as_array().unwrap();
+        assert_eq!(items.last().unwrap()["cut"], true, "{command}");
+        assert_eq!(items.first().unwrap()["cut"], false, "{command}");
+    }
+}
+
+#[test]
+fn the_prompt_id_and_choices_do_not_depend_on_packages() {
+    let prompt = detect_in_screen("cursor_agent", LODAHS_SCREEN, false).unwrap();
+    assert!(prompt.get("packages").is_some());
+    let mut stripped = prompt.clone();
+    stripped.as_object_mut().unwrap().remove("packages");
+    assert_eq!(prompt_id_for(&stripped).as_deref(), prompt["prompt_id"].as_str());
+    // Reading the same screen again gives the same id and the same answers.
+    let again = detect_in_screen("cursor_agent", LODAHS_SCREEN, false).unwrap();
+    assert_eq!(again["prompt_id"], prompt["prompt_id"]);
+    assert_eq!(again["choices"], prompt["choices"]);
+    assert_eq!(PanePrompt::from_detected(&prompt).unwrap().choices, PanePrompt::from_detected(&stripped).unwrap().choices);
+}
+
+#[test]
+fn a_name_that_looks_like_a_secret_is_counted_not_listed_on_the_prompt() {
+    let mut prompt = json!({"prompt_id": "p1", "agent_type": "cursor_agent", "kind": "command_approval", "command": "npm i sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"});
+    attach_risk(&mut prompt, None);
+    assert_eq!(prompt["packages"]["hidden"], 1);
+    assert!(prompt["packages"]["items"].as_array().unwrap().is_empty());
+    let ui = PanePrompt::from_detected(&prompt).unwrap();
+    assert_eq!(ui.packages.unwrap().hidden, 1);
+    assert!(!prompt["packages"].to_string().contains("sk-ant-api03"), "the secret-looking name must not be in the packages");
 }

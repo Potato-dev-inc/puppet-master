@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "api-version": "1.1",
+    "_last-serial": 1
+  },
+  "name": "demo-widget",
+  "project-status": {
+    "status": "active"
+  },
+  "files": [
+    {
+      "filename": "demo-widget-1.0.0.tar.gz",
+      "url": "https://files.example.test/demo-widget-1.0.0.tar.gz",
+      "hashes": {},
+      "requires-python": ">=3.8",
+      "upload-time": "2023-01-10T08:00:00.000000Z",
+      "yanked": false
+    },
+    {
+      "filename": "demo_widget-1.0.0-py3-none-any.whl",
+      "url": "https://files.example.test/demo_widget-1.0.0-py3-none-any.whl",
+      "hashes": {},
+      "upload-time": "2023-01-11T08:00:00.123456Z"
+    },
+    {
+      "filename": "demo_widget-1.1.0-py3-none-any.whl",
+      "url": "https://files.example.test/demo_widget-1.1.0-py3-none-any.whl",
+      "hashes": {},
+      "upload-time": "2024-06-01T09:30:00.000000Z",
+      "yanked": false
+    },
+    {
+      "filename": "demo-widget-1.2.0.tar.gz",
+      "url": "https://files.example.test/demo-widget-1.2.0.tar.gz",
+      "hashes": {},
+      "upload-time": "2025-02-01T10:00:00.000000Z",
+      "yanked": "broken build"
+    },
+    {
+      "filename": "demo_widget-1.2.0-py3-none-any.whl",
+      "url": "https://files.example.test/demo_widget-1.2.0-py3-none-any.whl",
+      "hashes": {},
+      "upload-time": "2025-02-01T10:01:00.000000Z",
+      "yanked": true
+    },
+    {
+      "filename": "README.txt",
+      "url": "https://files.example.test/README.txt",
+      "hashes": {},
+      "upload-time": "2026-01-01T00:00:00.000000Z"
+    }
+  ]
+}
