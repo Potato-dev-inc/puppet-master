@@ -27,6 +27,8 @@ import type { CompanionView } from '../../lib/companion';
 import { stateWord } from '../../lib/companion';
 import { Avatar } from '../companion/Avatar';
 import { isCompanionPaneId } from './companion/model';
+import { focusPaletteItems, lastFocusMinutes } from './palette-focus';
+import { useFocusView } from './useFocusView';
 
 interface Item {
   id: string;
@@ -112,6 +114,8 @@ export function Palette({
   const liveStatus = useContext(LiveStatusContext);
   const liveOn = liveStatus?.live === true;
   const nightOn = useNightEnabled();
+  // Focus rows: the start lengths while off; End Focus and +15 min while on.
+  const [focus] = useFocusView();
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     const multiLogin = multiLoginAgents(c.registry.paneList.map((p) => p.info));
@@ -351,6 +355,7 @@ export function Palette({
         run: onOpenStore,
       });
     }
+    out.push(...focusPaletteItems(focus, Date.now(), lastFocusMinutes(), c.notify));
     out.push(...settingsShortcuts(c, { missionsOn, nightOn, onOpenMorning, projectPath: c.selectedId ? (c.registry.panes.get(c.selectedId)?.info?.cwd ?? null) : null }));
     out.push(
       {
@@ -385,7 +390,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onOpenStore, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onOpenStore, onUndoLastTurn, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn, focus]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

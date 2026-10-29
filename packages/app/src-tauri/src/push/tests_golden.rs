@@ -539,6 +539,21 @@ fn the_night_shift_morning_push_is_counts_only() {
     assert_eq!(payload_for(&deliveries, "dev-h")["body"], json!(HIDDEN_PUSH));
 }
 
+// ---- focus -----------------------------------------------------------------------------------------
+
+/// The end-of-Focus message as a phone receives it: the counts for a phone that may watch, and the fixed
+/// sentence for one with "Hide details" on. No agent, pane or task text in either.
+#[test]
+fn the_focus_end_push_is_counts_only() {
+    use crate::push::focus::{Message, HIDDEN_BODY};
+    let hub = hub("focus");
+    let message = Message::summary("4 turns done, 1 failed, 2 asked for you. 1 still waits.");
+    let deliveries = hub.focus_deliveries(&message, 1_000);
+    check("focus", &payload_for(&deliveries, "dev-a"));
+    check("focus_hidden", &payload_for(&deliveries, "dev-h"));
+    assert_eq!(payload_for(&deliveries, "dev-h")["body"], json!(HIDDEN_BODY));
+}
+
 /// Every golden file is exercised: a stray file means a case was dropped.
 #[test]
 fn no_golden_file_is_orphaned() {
@@ -553,4 +568,106 @@ fn no_golden_file_is_orphaned() {
     for name in names {
         assert!(src.contains(&format!("check(\"{name}\"")), "golden/{name}.json is not used by any test");
     }
+}
+
+// ---- Focus: a card that waits for the person arrives with `"quiet": true`; the words and buttons do not change ----
+
+use crate::attention::focus::live::testing::{force, force_default};
+use crate::attention::focus::model::Settings;
+
+fn medium_approval() -> Candidate {
+    waiting(Some("auth refactor"), Some(prompt(Some((RiskLevel::Medium, "Install packages")), "Run command: npm install left-pad")))
+}
+
+fn question_candidate() -> Candidate {
+    Candidate {
+        kind: Kind::Question,
+        key: "q-1".into(),
+        pane_id: None,
+        agent_label: "Claude Code".into(),
+        heading: None,
+        prompt: Some(PromptInfo { prompt_id: String::new(), text: "Keep the old /login route as a redirect, or remove it?".into(), actionable: false, risk: None }),
+        item: None,
+        detail: None,
+    }
+}
+
+fn trust_candidate() -> Candidate {
+    Candidate {
+        kind: Kind::TrustGate,
+        key: "pane-1".into(),
+        pane_id: Some("pane-1".into()),
+        agent_label: "Claude Code".into(),
+        heading: Some("auth refactor".into()),
+        prompt: Some(PromptInfo { prompt_id: "pid-t".into(), text: "Trust this workspace?".into(), actionable: false, risk: None }),
+        item: item("T7rustAb"),
+        detail: Some("shop".into()),
+    }
+}
+
+/// The payload of `candidate` with Focus off and then on, as `(off, on)`.
+fn off_and_on(name: &str, candidate: &Candidate) -> (Value, Value) {
+    let off = payload_for(&plan(&format!("{name}-off"), candidate), "dev-a");
+    let _focus = force_default();
+    let on = payload_for(&plan(&format!("{name}-on"), candidate), "dev-a");
+    (off, on)
+}
+
+#[test]
+fn approval_medium_android_quiet() {
+    let (off, on) = off_and_on("q-medium", &medium_approval());
+    assert!(off.get("quiet").is_none(), "Focus off: the payload is exactly today's");
+    assert_eq!(on["quiet"], true);
+    check("approval_medium_android_quiet", &on);
+}
+
+#[test]
+fn question_quiet() {
+    let (off, on) = off_and_on("q-question", &question_candidate());
+    assert!(off.get("quiet").is_none());
+    check("question_quiet", &on);
+}
+
+#[test]
+fn trust_gate_quiet() {
+    let (off, on) = off_and_on("q-trust", &trust_candidate());
+    assert!(off.get("quiet").is_none());
+    check("trust_gate_quiet", &on);
+}
+
+#[test]
+fn quiet_changes_nothing_but_the_flag() {
+    for (name, candidate) in [("medium", medium_approval()), ("question", question_candidate()), ("trust", trust_candidate())] {
+        let (off, mut on) = off_and_on(&format!("same-{name}"), &candidate);
+        on.as_object_mut().unwrap().remove("quiet");
+        assert_eq!(off, on, "{name}: same title, body, tag and buttons");
+    }
+}
+
+#[test]
+fn things_that_must_get_through_are_never_quiet() {
+    let high = waiting(Some("auth refactor"), Some(prompt(Some((RiskLevel::High, "Delete a folder outside this project")), "Run command: rm -rf ../build-cache")));
+    let budget = Candidate {
+        kind: Kind::Budget,
+        key: "q-b1".into(),
+        pane_id: None,
+        agent_label: "Claude Code".into(),
+        heading: None,
+        prompt: info("Claude Code used its 20 turns."),
+        item: item("B9dgetXy"),
+        detail: Some("20 of 20 turns".into()),
+    };
+    let consent = Candidate { kind: Kind::Consent, key: "q-c1".into(), ..budget.clone() };
+    for (name, candidate) in [("high", high), ("budget", budget), ("consent", consent)] {
+        let (off, on) = off_and_on(&format!("loud-{name}"), &candidate);
+        assert_eq!(off, on, "{name} goes at full strength during Focus");
+        assert!(on.get("quiet").is_none(), "{name}");
+    }
+}
+
+#[test]
+fn with_the_switch_off_waiting_cards_are_not_quiet() {
+    let _focus = force(Settings { default_minutes: 45, quiet_blocking: false });
+    let payload = payload_for(&plan("q-switch-off", &medium_approval()), "dev-a");
+    assert!(payload.get("quiet").is_none());
 }
