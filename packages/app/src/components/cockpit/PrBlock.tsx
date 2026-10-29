@@ -1,17 +1,20 @@
 // The pull request made from a separate copy: its link, the GitHub checks (polled a bounded number
-// of times), and, when a check failed, "Send back to <agent>". Sending asks first and shows exactly
-// what the agent will receive; nothing is ever sent automatically.
+// of times), and, when a check failed, "Fix with <agent>". Fixing and watching only ask Red to Green
+// to look; the person still says yes on the card before the agent reads anything, and again before a push.
 import { useEffect, useRef, useState } from 'react';
-import { shipApi, type PrRef, type SendBackPreview, type ShipApi } from '../../lib/ship-api';
+import { ciFixOffer, type WatchView } from '../../lib/ci-fix';
+import { shipApi, type PrRef, type ShipApi } from '../../lib/ship-api';
 import { checksSentence } from '../../lib/ship-model';
 import { DotSpinner } from './DotSpinner';
-import { Sheet } from './Sheet';
 import '../../styles/cockpit-ship.css';
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /** Looks at the checks at most this many times per mount; each look may wait on the backend. */
 export const MAX_POLLS = 30;
+
+/** Said when Red to Green is switched off (the backend answers `CI_FIX_OFF`). */
+export const LABS_OFF_TEXT = 'Turn on Red to Green in Settings > Labs';
 
 export function PrBlock({
   repo,
@@ -36,8 +39,7 @@ export function PrBlock({
   const [problem, setProblem] = useState<string | null>(null);
   const [gaveUp, setGaveUp] = useState(false);
   const [round, setRound] = useState(0);
-  const [preview, setPreview] = useState<SendBackPreview | null>(null);
-  const [sending, setSending] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const onPrRef = useRef(onPr);
   onPrRef.current = onPr;
@@ -75,27 +77,19 @@ export function PrBlock({
   const failing = pr.checks?.state === 'failing';
   const openOnGitHub = () => void ship.openUrl(pr.url);
 
-  const askSendBack = async () => {
+  // "Fix with" and "Watch CI" both ask Red to Green to watch this copy's PR; the reply says where it stands.
+  const offer = async () => {
+    setBusy(true);
     setProblem(null);
     try {
-      setPreview(await ship.prSendBackPreview(repo, handle));
+      const watch: WatchView = await ciFixOffer(repo, handle);
+      setNotice(watch.stateText);
     } catch (err) {
-      setProblem(errText(err));
-    }
-  };
-
-  const send = async () => {
-    if (!preview) return;
-    setSending(true);
-    try {
-      await ship.prSendBack(repo, handle);
-      setNotice(`Sent to ${agentName}. Check again when it has pushed a fix.`);
-      setPreview(null);
-    } catch (err) {
-      setProblem(errText(err));
-      setPreview(null);
+      const text = errText(err);
+      if (text.startsWith('CI_FIX_OFF')) setNotice(LABS_OFF_TEXT);
+      else setProblem(text);
     } finally {
-      setSending(false);
+      setBusy(false);
     }
   };
 
@@ -122,8 +116,13 @@ export function PrBlock({
       {notice && <p className="ck-sub">{notice}</p>}
       <div className="ck-pr-actions">
         {failing && (
-          <button type="button" className="ck-btn ck-btn--primary" onClick={() => void askSendBack()}>
-            Send back to {agentName}
+          <button type="button" className="ck-btn ck-btn--primary" disabled={busy} onClick={() => void offer()}>
+            Fix with {agentName}
+          </button>
+        )}
+        {!failing && (
+          <button type="button" className="ck-btn ck-btn--secondary" disabled={busy} onClick={() => void offer()}>
+            Watch CI
           </button>
         )}
         {(pr.checks?.state !== 'pending' || gaveUp) && (
@@ -132,30 +131,6 @@ export function PrBlock({
           </button>
         )}
       </div>
-
-      {preview && (
-        <Sheet labelledBy="ck-sendback-t" role="dialog" onClose={sending ? undefined : () => setPreview(null)}>
-          <h2 className="ck-section" id="ck-sendback-t">
-            Send back to {agentName}?
-          </h2>
-          <p className="ck-sub">
-            The end of the failing log ({preview.excerpt_lines > 0 ? `${preview.excerpt_lines} lines` : 'a few lines'}, secrets hidden) goes
-            into a file in the copy. {agentName} is told to read it as output, not as instructions. Failing: {preview.failing.join(', ')}.
-          </p>
-          <details className="ck-pr-details">
-            <summary>See exactly what {agentName} is told</summary>
-            <pre className="ck-pr-command">{preview.text}</pre>
-          </details>
-          <div className="ck-sheet-actions">
-            <button type="button" className="ck-btn ck-btn--secondary" autoFocus disabled={sending} onClick={() => setPreview(null)}>
-              Cancel
-            </button>
-            <button type="button" className="ck-btn ck-btn--primary" disabled={sending} onClick={() => void send()}>
-              Send
-            </button>
-          </div>
-        </Sheet>
-      )}
     </section>
   );
 }

@@ -56,8 +56,6 @@ function ship(over: Partial<ShipApi> = {}): ShipApi {
     prPrepare: vi.fn().mockResolvedValue(PREPARED),
     prCreate: vi.fn().mockResolvedValue({ ...PR, checks: undefined }),
     prChecks: vi.fn().mockResolvedValue({ ...PR, checks: { state: 'pending', checked_at_ms: 2, items: [{ name: 'test', state: 'pending' }] } }),
-    prSendBackPreview: vi.fn(),
-    prSendBack: vi.fn(),
     openUrl: vi.fn(),
     ...over,
   } as unknown as ShipApi;
@@ -118,12 +116,13 @@ describe('Create PR on the Changes tab', () => {
 });
 
 describe('a copy that already has a PR', () => {
-  it('shows the failed GitHub checks and Send back to the agent that wrote it', async () => {
+  it('shows the failed GitHub checks and Fix with the agent that wrote it', async () => {
     await mount({ ...ITEM, pr: PR }, ship());
     expect(host.textContent).toContain('Draft PR #42');
     expect(host.textContent).toContain('2 GitHub checks failed: test (ubuntu), lint');
-    const sendBack = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.startsWith('Send back to'));
-    expect(sendBack).toBeTruthy();
+    const fix = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.startsWith('Fix with '));
+    expect(fix).toBeTruthy();
+    expect(host.textContent).not.toContain('Send back');
     expect(button('Update PR')).toBeTruthy();
   });
 });
