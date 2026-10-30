@@ -1,15 +1,17 @@
-// A fresh profile shows the welcome once; Skip setup closes it. (Every other test starts with the welcome switched off.)
+// A fresh profile shows the welcome once; Skip setup closes it. (Every other test starts with the welcome kept off, see calm().)
 export const meta = {
   id: 'app.first-run-welcome',
   title: 'A fresh profile shows the welcome and Skip setup closes it',
   area: 'app',
   tags: ['first-run'],
-  seed: { onboarding_done: null }, // start the app with no "welcome finished" setting
 };
 
 export async function run(t) {
-  // The launcher may have opened a helper pane to get a window; the welcome stays away once this window has seen a
-  // pane (localStorage). Forget that and load the page again, as a first start would.
+  // A fresh profile has no "welcome finished" setting and this window has never seen a pane. Make it so (no app restart
+  // needed: a restart can mix up the launcher when other apps run at the same time, see forgetBridgePort in _area.mjs).
+  for (const p of await t.panes()) await t.bridge.del(`/panes/${encodeURIComponent(p.id)}`).catch(() => {});
+  await t.expect.eventually(async () => (await t.panes()).length === 0, { message: 'no panes at the start' });
+  await t.page.eval(`window.__TAURI_INTERNALS__.invoke('settings_patch', { patch: { onboarding_done: null, onboarding_step: null } }).then(() => true)`);
   await t.page.eval('localStorage.clear()');
   await t.page.reload();
 
