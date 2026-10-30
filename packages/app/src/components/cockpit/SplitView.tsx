@@ -155,6 +155,7 @@ function SplitSideView({
   const screenAsk: ScreenAsk = {
     waiting,
     idle: pane.status === 'idle',
+    running: pane.status === 'running',
     covered: asking,
     fallbackText: prompt?.summary || prompt?.risk?.headline,
     onOpenTerminal: () => openAlone(),

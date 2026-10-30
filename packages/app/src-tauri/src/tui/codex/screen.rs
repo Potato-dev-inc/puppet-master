@@ -508,6 +508,21 @@ mod tests {
         }
     }
 
+    /// The update menu ("enter continue / esc skip") is a dismiss gate for the bridge, so `classify_screen` leaves it
+    /// alone, but the person still has to be able to answer it: the generic menu rule reads it as a question.
+    #[test]
+    fn the_update_menu_is_a_waiting_pane_and_the_ready_screens_are_not() {
+        use crate::pty::status::{classify_agent_observation, PaneStatus};
+        for menu in [LIVE_UPDATE_MENU, LIVE_UPDATE_MENU_0_164] {
+            assert_eq!(classify_agent_observation("codex", menu, ""), PaneStatus::WaitingInput, "{menu:.60}");
+            // The bridge's readiness code reads the gate itself and still dismisses it.
+            assert!(startup_gate(menu).is_some(), "{menu:.60}");
+        }
+        for other in [LIVE_READY_BANNER, LIVE_UNSENT, LIVE_SUBMITTED, LIVE_WORKING, READY, WORKING, TYPED, UPDATE] {
+            assert_ne!(classify_agent_observation("codex", other, ""), PaneStatus::WaitingInput, "{other:.60}");
+        }
+    }
+
     #[test]
     fn the_clear_sequence_is_only_ctrl_u() {
         assert!(CLEAR_COMPOSER.chars().all(|ch| ch == '\u{15}'));

@@ -34,6 +34,8 @@ export interface ScreenAsk {
   waiting: boolean;
   /** The pane's status is idle. */
   idle: boolean;
+  /** The pane's status is running (its screen is read for a menu that holds still). */
+  running?: boolean;
   /** An approval or question card already answers the pane: nothing is added. */
   covered: boolean;
   fallbackText?: string | null;
@@ -92,6 +94,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
               paneId={paneId}
               waiting={screenAsk.waiting}
               idle={screenAsk.idle}
+              running={screenAsk.running}
               covered={screenAsk.covered}
               queued={outbox.messages}
               fallbackText={screenAsk.fallbackText}

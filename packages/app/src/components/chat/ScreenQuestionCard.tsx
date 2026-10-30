@@ -5,10 +5,15 @@
 // screen (`lib/screen-question.ts`: numbers, a pointer, y/n; no agent is named) and offers what a hand would do in the
 // terminal: pick a row, say yes or no, type an answer, press a key. "Open terminal" stays as a quiet way out.
 //
-// It shows while the pane waits. It is also a safety net for a pane that is not working (idle) when its screen shows a
-// menu with a cursor, or when a message the person wrote has been stuck in the queue for a few seconds: no agent is
-// known here, so an agent whose menus no profile reads is still answered in Chat. The screen is read about once a
-// second and the card follows it: when the question is gone from the screen, so is the card.
+// It shows in three cases, and the card follows the screen: when the question is gone from it, so is the card.
+//   1. The pane waits (its status says so): any menu, y/n question or line on the screen is shown.
+//   2. The pane is idle (a safety net): its screen shows a menu with a cursor, or a message the person wrote has been
+//      stuck in the queue for a few seconds. Plain text never counts.
+//   3. The pane's status says it is running, but its screen shows a menu with a cursor that has not changed for
+//      STABLE_MS. A working agent redraws (a spinner, a timer); a question sits still. This is for a question that no
+//      profile reads, so the status never moved off "running". Read every RUNNING_POLL_MS; the card goes away at the
+//      first read where the screen is no longer that menu.
+// No agent is known here, so an agent whose menus no profile reads is still answered in Chat.
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { OutboxMessage } from '../../lib/paneOutbox';
 import { tauri } from '../../lib/tauri';
@@ -30,6 +35,10 @@ const POLL_MS = 1000;
 const IDLE_POLL_MS = 1500;
 /** A queued message that waited this long (ms) while the pane was not working is stuck behind something. */
 export const STUCK_MS = 4000;
+/** A menu on a running pane must stay unchanged this long (ms) before it counts as a question. */
+export const STABLE_MS = 3000;
+/** How often the screen of a running pane is read (ms). */
+const RUNNING_POLL_MS = 1500;
 
 const NO_MESSAGES: readonly OutboxMessage[] = [];
 
@@ -37,6 +46,9 @@ const NO_MESSAGES: readonly OutboxMessage[] = [];
 export function hasStuckMessage(messages: readonly OutboxMessage[], now: number): boolean {
   return messages.some((m) => m.state === 'queued' && now - m.createdAt >= STUCK_MS);
 }
+
+/** A menu's identity: its rows, whichever one the cursor is on. */
+const rowsKey = (question: ScreenQuestion) => question.options.map((o) => o.label).join('|');
 
 const KEYS: ReadonlyArray<{ label: string; send: string }> = [
   { label: 'Up', send: KEY_UP },
@@ -50,6 +62,7 @@ export function ScreenQuestionCard({
   paneId,
   waiting,
   idle = false,
+  running = false,
   covered = false,
   queued,
   fallbackText,
@@ -60,6 +73,8 @@ export function ScreenQuestionCard({
   waiting: boolean;
   /** The pane is idle: not working, not waiting. Its screen is read for a menu with a cursor (the safety net). */
   idle?: boolean;
+  /** The pane's status says it is running. Its screen is read for a menu that holds still (see the top of the file). */
+  running?: boolean;
   /** Another card (an approval or a question) already answers this pane: nothing is shown here, nothing is read. */
   covered?: boolean;
   /** The pane's messages (the chat's outbox). One that waited a few seconds while the pane is not working is stuck. */
@@ -73,6 +88,7 @@ export function ScreenQuestionCard({
   const [text, setText] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const atRest = !covered && (waiting || idle);
+  const watching = !covered && running && !waiting && !idle;
   const messages = queued ?? NO_MESSAGES;
   const anyQueued = messages.some((m) => m.state === 'queued');
   useEffect(() => {
@@ -112,6 +128,58 @@ export function ScreenQuestionCard({
     };
   }, [paneId, atRest, waiting, strict]);
 
+  // A running pane: a menu that has held still for STABLE_MS is a question; a screen that keeps changing is work.
+  useEffect(() => {
+    if (!watching) return;
+    let alive = true;
+    let last: string | null = null;
+    let since = 0;
+    /** The rows of the menu the card shows now, or null while no card is shown. */
+    let shown: string | null = null;
+    const menuOf = (screen: string): ScreenQuestion | null => {
+      const parsed = parseScreenQuestion(screen, { strict: true });
+      return parsed && parsed.options.length >= 2 ? parsed : null;
+    };
+    const hide = () => {
+      shown = null;
+      setQuestion(null);
+    };
+    const read = () => {
+      void Promise.resolve()
+        .then(() => tauri.readSnapshot(paneId))
+        .then((screen) => {
+          if (!alive) return;
+          const now = Date.now();
+          if (screen !== last) {
+            last = screen;
+            since = now;
+            // The screen moved. The card stays only while the same menu is still up (the cursor moved); the wait
+            // for a new question starts over.
+            const menu = shown === null ? null : menuOf(screen);
+            if (menu && rowsKey(menu) === shown) setQuestion(menu);
+            else hide();
+            return;
+          }
+          if (shown !== null || now - since < STABLE_MS) return;
+          const menu = menuOf(screen);
+          if (menu) {
+            shown = rowsKey(menu);
+            setQuestion(menu);
+          }
+        })
+        .catch(() => {
+          if (alive) hide();
+        });
+    };
+    setQuestion(null);
+    read();
+    const timer = window.setInterval(read, RUNNING_POLL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [paneId, watching]);
+
   const send = useCallback(
     (plan: KeyPlan | null) => {
       if (!plan) return;
@@ -132,8 +200,8 @@ export function ScreenQuestionCard({
     setText('');
   };
 
-  if (!atRest) return null;
-  // A pane that is only idle shows the card for a menu (or, with a stuck message, a y/n question); never for plain text.
+  if (!atRest && !watching) return null;
+  // A pane that is only idle (or running) shows the card for a menu (or, with a stuck message, a y/n question); never for plain text.
   if (!waiting && !(question && (question.options.length >= 2 || (stuck && question.yesNo)))) return null;
   const lines = question?.lines ?? (fallbackText ? [fallbackText] : []);
   if (lines.length === 0) return null;
