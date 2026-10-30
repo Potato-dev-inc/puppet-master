@@ -94,6 +94,18 @@
   right: auto;
   z-index: 60;
 }
+/* The pane row menu: the header menu's size and look, a little narrower. */
+.cockpit .ck-menu--compact {
+  min-width: 172px;
+}
+.cockpit .ck-menu--compact .ck-menu-ic {
+  width: 16px;
+  height: 16px;
+}
+.cockpit .ck-menu--compact .ck-menu-item:focus-visible {
+  background: var(--fill-active);
+  outline: none;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .cockpit .ck-split-side,

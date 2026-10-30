@@ -14,6 +14,7 @@ import {
 import { configureDesktopXtermTextarea, isTerminalPasteShortcut } from './xterm-textarea';
 import { TouchScrollController } from './touch-scroll';
 import { OwnerGrid } from './owner-follow';
+import { DRIFT_CONFIRM_MS, DRIFT_DEBOUNCE_MS, DriftMonitor } from './grid-drift';
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
@@ -74,6 +75,11 @@ export class TerminalSession {
   private lastSettleAt = 0;
   /** What this owner window asked of the PTY, what it has, and whether a phone holds it. */
   private readonly ownerGrid = new OwnerGrid();
+  /** Viewer/PTY grid drift: the PTY's real grid (from the pane list), the check timer and its rules. */
+  private knownPty: { cols: number; rows: number } | null = null;
+  private readonly driftMonitor = new DriftMonitor();
+  private driftTimer: number | null = null;
+  private driftCleanup: (() => void) | null = null;
   private ptyCols: number;
   private ptyRows: number;
   /**
@@ -135,6 +141,82 @@ export class TerminalSession {
     this.unlistenData = subscribe(this.options.paneId, onData, this.paneResizeHandler ?? undefined);
     this.scheduleRefresh();
     return true;
+  }
+
+  /**
+   * The PTY's real grid, as the pane list reports it (null: unknown, or a phone holds the PTY).
+   * A change is a reason to compare it with this window's grid.
+   */
+  setKnownPtyGrid(grid: { cols: number; rows: number } | null): void {
+    const same = this.knownPty?.cols === grid?.cols && this.knownPty?.rows === grid?.rows;
+    this.knownPty = grid ? { ...grid } : null;
+    if (!same) this.scheduleDriftCheck();
+  }
+
+  /**
+   * Something that can change the viewer's grid happened (tab or split switch, sidebar, window
+   * resize, font load, DPI change, window shown): compare the grids once things settle. Debounced.
+   * Only the owner window (`syncPTYResize`) ever acts; the app ignores a resize from any other window.
+   */
+  scheduleDriftCheck(delayMs: number = DRIFT_DEBOUNCE_MS): void {
+    if (!this.syncPTYResize || this.disposed) return;
+    if (this.driftTimer !== null) window.clearTimeout(this.driftTimer);
+    this.driftTimer = window.setTimeout(() => {
+      this.driftTimer = null;
+      this.runDriftCheck();
+    }, delayMs);
+  }
+
+  private runDriftCheck(): void {
+    const terminal = this.term;
+    if (!terminal || this.disposed || !this.syncPTYResize) return;
+    // A changed container, font or DPI is a legitimate resize first (deduped: sends nothing when unchanged).
+    this.invalidateGridMetrics();
+    this.fitAndNotify();
+    const verdict = this.driftMonitor.check(
+      { cols: terminal.cols, rows: terminal.rows },
+      this.knownPty,
+      this.ownerGrid.following,
+      Date.now(),
+    );
+    if (verdict === 'confirm') {
+      this.scheduleDriftCheck(DRIFT_CONFIRM_MS + 50);
+    } else if (verdict === 'correct') {
+      // What Reflow does, after forgetting what was "sent": the PTY did not get it.
+      this.ownerGrid.forgetSent();
+      this.nudgeReflow({ redrawAltBuffer: true });
+    }
+  }
+
+  private installDriftWatchers(): void {
+    if (!this.syncPTYResize) return;
+    const check = () => this.scheduleDriftCheck();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') check();
+    };
+    window.addEventListener('resize', check);
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', onVisible);
+    // A DPI change (another monitor, display scaling) moves the cell size without moving the container.
+    let dprQuery: MediaQueryList | null = null;
+    const onDpr = () => {
+      check();
+      watchDpr();
+    };
+    const watchDpr = () => {
+      dprQuery?.removeEventListener?.('change', onDpr);
+      dprQuery =
+        typeof window.matchMedia === 'function' ? window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`) : null;
+      dprQuery?.addEventListener?.('change', onDpr);
+    };
+    watchDpr();
+    this.driftCleanup = () => {
+      window.removeEventListener('resize', check);
+      window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', onVisible);
+      dprQuery?.removeEventListener?.('change', onDpr);
+      dprQuery = null;
+    };
   }
 
   /** The agent reprints its conversation on every resize: wipe scrollback at each one. */
@@ -459,6 +541,8 @@ export class TerminalSession {
       this.fontsListener = () => {
         this.invalidateGridMetrics();
         this.scheduleRefresh();
+        // The cell size changed under an unchanged container: the grid has to be fitted again.
+        this.scheduleDriftCheck();
       };
       document.fonts?.addEventListener('loadingdone', this.fontsListener);
       if (this.scaleViewport) {
@@ -525,6 +609,7 @@ export class TerminalSession {
         this.touchScroll = this.createTouchScroll(container, terminal);
       }
       this.installResizeObservers(container);
+      this.installDriftWatchers();
       this.installFocusHandlers(container);
       this.installThemeObserver(terminal);
       if (this.syncPTYResize) {
@@ -567,6 +652,12 @@ export class TerminalSession {
       this.fontsListener = null;
     }
     this.invalidateGridMetrics();
+    if (this.driftTimer !== null) {
+      window.clearTimeout(this.driftTimer);
+      this.driftTimer = null;
+    }
+    this.driftCleanup?.();
+    this.driftCleanup = null;
 
     this.unlistenData?.();
     this.unlistenData = null;
@@ -618,6 +709,7 @@ export class TerminalSession {
     this.resizeObserver = new ResizeObserver(() => {
       this.invalidateGridMetrics();
       this.scheduleFit();
+      this.scheduleDriftCheck();
     });
     this.resizeObserver.observe(observed);
 
@@ -630,6 +722,7 @@ export class TerminalSession {
               // fires on every scroll that brings a pane back into view.
               this.fitAndNotify();
               this.scheduleRefresh();
+              this.scheduleDriftCheck();
             } else {
               this.applyMirrorDimensions();
             }

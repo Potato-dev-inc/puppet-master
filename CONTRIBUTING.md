@@ -14,6 +14,11 @@ Local agent and editor configuration is intentionally not tracked:
 
 Use `.mcp.json.example` or the host-specific examples in `MCP_HOSTS.md` as a starting point, then keep your actual local paths and credentials outside git.
 
+## Faster loop
+
+`node scripts/test-changed.mjs` runs only the tests your change can reach; `node scripts/check.mjs` runs what CI runs, side by side, before you push;
+`node scripts/where.mjs <word>` finds where a feature lives. Measurements and ranked ideas: [docs/DEV-SPEED.md](docs/DEV-SPEED.md).
+
 ## Faster Rust test runs
 
 CI runs the Rust tests with [cargo-nextest](https://nexte.st), which runs every test in its own
@@ -43,7 +48,9 @@ Two opt-in speed-ups for your own shell (nothing in the repo turns them on for y
   $env:RUSTC_WRAPPER = "sccache"
   $env:SCCACHE_DIR = "D:\sccache"          # a disk with room; the default is under %LOCALAPPDATA%
   $env:SCCACHE_CACHE_SIZE = "30G"
-  $env:CARGO_INCREMENTAL = "0"             # sccache cannot cache incremental builds
+  # CARGO_INCREMENTAL=0 is optional: cargo only builds the app crate incrementally (registry dependencies never are), and sccache
+  # does not cache that crate anyway. Leaving it on keeps edits at ~30 s instead of ~2 min (docs/DEV-SPEED.md; sccache itself not
+  # tested here).
   sccache --show-stats                     # hits and misses
   ```
 

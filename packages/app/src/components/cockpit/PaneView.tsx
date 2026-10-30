@@ -14,7 +14,8 @@ import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
 import { pointApi } from '../../lib/point-api';
 import { dockItems, headerStateLine, DOCK_LABEL } from './pane-chrome';
-import { IconClose, IconGlobe, IconCopy, IconInfo, IconMore, IconRail, IconReflow, IconRename, IconStop } from './Icons';
+import { IconGlobe, IconRail } from './Icons';
+import { subscribePaneActions, type PaneAction } from '../../lib/pane-actions';
 import { SessionRail } from './rail/SessionRail';
 import { useRailLayout } from './rail/useRailLayout';
 import { helperRows } from './rail/helperRows';
@@ -127,11 +128,9 @@ export function PaneView({
 }) {
   const pane = c.registry.panes.get(paneId);
   const [tab, setTab] = useState<Tab>('terminal');
-  const [menu, setMenu] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [reflowKey, setReflowKey] = useState(0);
-  const menuRef = useRef<HTMLDivElement>(null);
   const getSelectionRef = useRef<(() => string) | null>(null);
   const run = useRunData(paneId, tab !== 'terminal' && tab !== 'chat', pane?.status ?? '');
   const lastTurn = useLastTurn(paneId);
@@ -154,7 +153,6 @@ export function PaneView({
 
   useEffect(() => {
     setTab('terminal');
-    setMenu(false);
     setConfirm(false);
     setRenaming(false);
     setDetails(false);
@@ -192,20 +190,6 @@ export function PaneView({
     if (tab === 'chat' && !chatAllowed) setTab('terminal');
   }, [tab, worktree, mission, chatAllowed]);
 
-  useEffect(() => {
-    if (!menu) return;
-    const away = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenu(false);
-    };
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setMenu(false);
-    window.addEventListener('mousedown', away);
-    window.addEventListener('keydown', esc);
-    return () => {
-      window.removeEventListener('mousedown', away);
-      window.removeEventListener('keydown', esc);
-    };
-  }, [menu]);
-
   const copySelection = useCallback(async () => {
     const text = tab === 'terminal' ? (getSelectionRef.current?.() ?? '') : (window.getSelection()?.toString() ?? '');
     if (!text) {
@@ -219,6 +203,27 @@ export function PaneView({
       c.notify('Copy failed');
     }
   }, [c, tab]);
+
+  // The pane's actions (Rename, Reflow, Copy selection, Details, Close) are asked for from the sidebar row's
+  // right-click menu and the command palette (lib/pane-actions.ts); this view runs them for its own pane.
+  const paneStatus = pane?.status ?? '';
+  const runPaneAction = (action: PaneAction) => {
+    if (action === 'rename') setRenaming(true);
+    else if (action === 'reflow') {
+      setTab('terminal');
+      setReflowKey((k) => k + 1);
+    } else if (action === 'copy') void copySelection();
+    else if (action === 'details') setDetails(true);
+    else if (action === 'close') {
+      void confirmCloseEnabled().then((on) => {
+        if (needsCloseConfirm(paneStatus, on)) setConfirm(true);
+        else void c.closePane(paneId);
+      });
+    }
+  };
+  const runPaneActionRef = useRef(runPaneAction);
+  runPaneActionRef.current = runPaneAction;
+  useEffect(() => subscribePaneActions(paneId, (action) => runPaneActionRef.current(action)), [paneId]);
 
   if (!pane) {
     return (
@@ -350,100 +355,6 @@ export function PaneView({
             <IconRail />
           </button>
         )}
-        <div className="ck-menu-wrap" ref={menuRef}>
-          <button
-            type="button"
-            className="ck-icon-btn"
-            aria-label="Pane actions"
-            aria-haspopup="menu"
-            aria-expanded={menu}
-            onClick={() => setMenu((v) => !v)}
-          >
-            <IconMore />
-          </button>
-          {menu && (
-            <div className="ck-menu" role="menu">
-              <button
-                type="button"
-                role="menuitem"
-                className="ck-menu-item"
-                onClick={() => {
-                  setMenu(false);
-                  setRenaming(true);
-                }}
-              >
-                <span className="ck-menu-ic"><IconRename /></span>
-                <span>Rename</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="ck-menu-item"
-                onClick={() => {
-                  setMenu(false);
-                  setTab('terminal');
-                  setReflowKey((k) => k + 1);
-                }}
-              >
-                <span className="ck-menu-ic"><IconReflow /></span>
-                <span>Reflow</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="ck-menu-item"
-                onClick={() => {
-                  setMenu(false);
-                  void copySelection();
-                }}
-              >
-                <span className="ck-menu-ic"><IconCopy /></span>
-                <span>Copy selection</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="ck-menu-item"
-                onClick={() => {
-                  setMenu(false);
-                  void c.interrupt(paneId);
-                }}
-              >
-                <span className="ck-menu-ic"><IconStop /></span>
-                <span>Interrupt</span>
-                <kbd className="ck-kbd">⌃C</kbd>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="ck-menu-item"
-                onClick={() => {
-                  setMenu(false);
-                  setDetails(true);
-                }}
-              >
-                <span className="ck-menu-ic"><IconInfo /></span>
-                <span>Details</span>
-              </button>
-              <div className="ck-menu-sep" />
-              <button
-                type="button"
-                role="menuitem"
-                className="ck-menu-item"
-                onClick={() => {
-                  setMenu(false);
-                  void confirmCloseEnabled().then((on) => {
-                    if (needsCloseConfirm(pane.status, on)) setConfirm(true);
-                    else void c.closePane(paneId);
-                  });
-                }}
-              >
-                <span className="ck-menu-ic"><IconClose /></span>
-                <span>Close</span>
-              </button>
-            </div>
-          )}
-        </div>
       </header>
 
       <div className="ck-tabs-bar">

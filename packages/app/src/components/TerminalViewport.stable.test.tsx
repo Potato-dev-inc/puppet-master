@@ -13,6 +13,7 @@ const probe = vi.hoisted(() => ({
   disposed: 0,
   nudges: [] as Array<unknown>,
   held: [] as Array<[number, number]>,
+  known: [] as Array<{ cols: number; rows: number } | null>,
 }));
 
 vi.mock('../terminal', () => ({
@@ -35,6 +36,9 @@ vi.mock('../terminal', () => ({
       probe.held.push([cols, rows]);
     }
     afterReclaim() {}
+    setKnownPtyGrid(grid: { cols: number; rows: number } | null) {
+      probe.known.push(grid);
+    }
     isScrolledUp() {
       return false;
     }
@@ -85,6 +89,7 @@ beforeEach(() => {
   probe.constructed = probe.mounted = probe.disposed = 0;
   probe.nudges.length = 0;
   probe.held.length = 0;
+  probe.known.length = 0;
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -93,6 +98,19 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.useRealTimers();
+});
+
+describe('TerminalViewport tells the session the PTY grid (viewer/PTY drift check)', () => {
+  it('passes the pane list grid, and null while a phone holds the PTY', async () => {
+    await render(pane());
+    await render(pane({ cols: 120, rows: 40 }));
+    await render(pane({ viewer_held: true, cols: 44, rows: 20 }));
+    await render(pane({ viewer_held: false, cols: 120, rows: 40 }));
+    await frames();
+    expect(probe.known).toEqual([{ cols: 100, rows: 30 }, { cols: 120, rows: 40 }, null, { cols: 120, rows: 40 }]);
+    expect(probe.constructed).toBe(1);
+    expect(probe.nudges).toEqual([]);
+  });
 });
 
 describe('TerminalViewport stays put while an agent drives the pane', () => {

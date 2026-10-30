@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, afterEach, beforeEach } from 'vitest';
 import {
   containerFitDimensions,

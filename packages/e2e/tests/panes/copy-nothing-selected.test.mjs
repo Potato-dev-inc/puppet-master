@@ -16,7 +16,7 @@ export async function run(t) {
   await t.expect.text('NIMBUS 0.4.2');
 
   await t.step('Pane menu > Copy selection');
-  await t.click('aria=Pane actions');
+  await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.click('exact=Copy selection');
 
   await t.step('A notice says nothing was selected');

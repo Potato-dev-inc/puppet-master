@@ -24,7 +24,7 @@ export async function run(t) {
 
   await t.step('Give the second pane a name of its own');
   await openPane(t, 'Nimbus 2');
-  await t.click('aria=Pane actions');
+  await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.click('exact=Rename');
   await t.page.fill('aria=Pane name', 'Beta work');
   await t.press('Enter');

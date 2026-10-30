@@ -171,7 +171,7 @@ jobs:
           if-no-files-found: error
 
   rust:
-    # ~2,800 tests, each in its own process: split over three runners. Many spawn git and node (missions,
+    # ~7,800 tests (about 2,600 per shard), each in its own process: split over three runners. Many spawn git and node (missions,
     # worktrees, checkpoints) and slow each other down when several share a 4-vCPU runner.
     name: Rust unit tests (${{ matrix.shard }}/3)
     needs: [changes, web-dist]
