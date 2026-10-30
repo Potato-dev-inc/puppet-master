@@ -10,12 +10,14 @@
 //! Env: `PM_LIVE_CWD` (default `D:/pm-demo`), `PM_CAPTURE_DIR` (writes the screens it sees).
 
 use super::*;
-use crate::agent_runs::delivery::{deliver_prompt_traced, Delivery, DeliveryIo};
+use crate::agent_runs::delivery::{self, deliver_prompt_traced, Delivery, DeliveryIo};
 use crate::agent_runs::readiness::{self, HostShell, Observation, Readiness};
 use crate::pty::agent_proc::{self, AgentProcess};
 use crate::pty::WriteOrigin;
 use crate::tui::{profile_for, ComposerState, TuiProfile};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+mod send_probe;
 
 struct LivePane {
     id: String,
@@ -28,20 +30,28 @@ struct LivePane {
     child: PtyChild,
     /// Bytes this harness wrote into the PTY, in order (what reached the terminal).
     written: Vec<String>,
+    /// The pane status the app's PTY reader and idle watcher would hold for this screen.
+    status: Arc<send_probe::LiveStatus>,
 }
 
 impl LivePane {
     #[cfg(windows)]
     fn start(agent: &'static str, kind: AgentType) -> Self {
         let cwd = std::env::var("PM_LIVE_CWD").unwrap_or_else(|_| "D:/pm-demo".into());
-        let cmd = build_command(kind, &cwd, &[], &crate::tui::LaunchEnv::default());
+        Self::start_in(agent, kind, &cwd, &[])
+    }
+
+    #[cfg(windows)]
+    fn start_in(agent: &'static str, kind: AgentType, cwd: &str, extra_args: &[String]) -> Self {
+        let cmd = build_command(kind, cwd, extra_args, &crate::tui::LaunchEnv::default());
         let child = open_pty_child(cmd, 30, 120).expect("start the agent on a PTY");
         let parser = Arc::new(Mutex::new(vt100::Parser::new(30, 120, 1000)));
         let pos = Arc::new(AtomicU64::new(0));
         let last_output = Arc::new(Mutex::new(Instant::now()));
+        let status = send_probe::LiveStatus::start(agent);
         let mut reader = child.master.try_clone_reader().expect("reader");
         {
-            let (parser, pos, last_output) = (Arc::clone(&parser), Arc::clone(&pos), Arc::clone(&last_output));
+            let (parser, pos, last_output, status) = (Arc::clone(&parser), Arc::clone(&pos), Arc::clone(&last_output), Arc::clone(&status));
             thread::spawn(move || {
                 let mut buf = [0u8; 4096];
                 while let Ok(n) = reader.read(&mut buf) {
@@ -52,6 +62,7 @@ impl LivePane {
                     screen.process(&buf[..n]);
                     pos.fetch_add(n as u64, Ordering::SeqCst);
                     *last_output.lock() = Instant::now();
+                    status.feed(n, &screen.screen().contents());
                 }
             });
         }
@@ -65,6 +76,7 @@ impl LivePane {
             last_output,
             child,
             written: Vec::new(),
+            status,
         }
     }
 
@@ -108,6 +120,7 @@ impl LivePane {
 
 impl Drop for LivePane {
     fn drop(&mut self) {
+        self.status.stop();
         crate::pty::proc_tree::kill_process_tree(self.child.pid);
         let _ = self.child.child.kill();
     }
