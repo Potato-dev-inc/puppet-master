@@ -1,4 +1,6 @@
 // Settings opens inside the cockpit on the Agents page and lists the sections.
+import { calm } from './_area.mjs';
+
 export const meta = {
   id: 'settings.opens',
   title: 'Settings opens on the Agents page with all its sections',
@@ -7,6 +9,7 @@ export const meta = {
 };
 
 export async function run(t) {
+  await calm(t);
   await t.step('Open Settings');
   await t.click('exact=Settings');
 
