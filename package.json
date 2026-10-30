@@ -32,6 +32,9 @@
     "test:mcp-package": "node scripts/test-mcp-package.mjs",
     "test:mcp-operations": "node scripts/test-mcp-operations.mjs",
     "test:fake-tui": "cargo test --manifest-path packages/app/src-tauri/Cargo.toml --features dev-fake-tui --test fake_tui_e2e -- --test-threads=1",
+    "e2e": "npm run e2e --workspace=@puppet-master/e2e --",
+    "e2e:dashboard": "npm run dashboard --workspace=@puppet-master/e2e --",
+    "e2e:build": "npm run build --workspace=@puppet-master/e2e --",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "clean": "rimraf \"packages/*/dist\" \"packages/*/.turbo\" \"packages/app/src-tauri/target\""
   },

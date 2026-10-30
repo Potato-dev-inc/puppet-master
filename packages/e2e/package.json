@@ -1,0 +1,15 @@
+{
+  "name": "@puppet-master/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end tests that drive the real app (WebView2 over CDP) with fake agents and record a video of every test",
+  "scripts": {
+    "e2e": "node src/cli.mjs",
+    "dashboard": "node src/dashboard-server.mjs",
+    "build": "node scripts/build.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
