@@ -4,14 +4,12 @@
 import { useEffect, useState } from 'react';
 import type { AvatarId, CompanionAgentOption, CompanionPersona, CompanionTransport, CompanionView } from '../../../lib/companion';
 import { shipApi, type ShipApi } from '../../../lib/ship-api';
-import { tauri } from '../../../lib/tauri';
-import { isValidProjectPath } from '../../../lib/project-path';
 import { useAgentRegistry } from '../../../lib/agentRegistry';
 import { chatAllowedFor } from '../../../lib/mobile-pane-view';
 import { Avatar } from '../../companion/Avatar';
 import { AVATARS } from '../../companion/avatars';
 import { Sheet } from '../Sheet';
-import { PERSONA_OPTIONS, isValidName } from './model';
+import { PERSONA_OPTIONS, isValidName, ownFolderIn, plainError } from './model';
 import '../../../styles/cockpit-companion.css';
 
 const FACES = Object.keys(AVATARS) as AvatarId[];
@@ -39,8 +37,10 @@ export function CompanionSetupSheet({
   // Once the person types a name, changing the face keeps their name.
   const [nameTouched, setNameTouched] = useState(false);
   const [persona, setPersona] = useState<Exclude<CompanionPersona, 'custom'>>(DEFAULT_PERSONA);
-  const [folder, setFolder] = useState<string | null>(null);
-  const [folderName, setFolderName] = useState('');
+  // The folder the person picked to hold it. Null: the default folder, which Puppet Master makes. The home itself is
+  // always a folder of its own inside the picked one (`<picked>\<id>`), never the picked folder: agents that work
+  // anywhere below a home read the companion's brief, so a home must not hold other projects.
+  const [parent, setParent] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,15 +56,6 @@ export function CompanionSetupSheet({
       .catch((err: unknown) => {
         if (live) setError(err instanceof Error ? err.message : 'Could not read the agents.');
       });
-    // The open project is the starting folder; the person can change it in step 5.
-    tauri
-      .getProjectPath()
-      .then((path) => {
-        if (!live || !isValidProjectPath(path)) return;
-        setFolder(path);
-        setFolderName(path.split(/[\\/]/).filter(Boolean).pop() ?? '');
-      })
-      .catch(() => undefined);
     return () => {
       live = false;
     };
@@ -74,7 +65,9 @@ export function CompanionSetupSheet({
   const listing = useAgentRegistry();
   const shown = agents?.filter((a) => chatAllowedFor(listing, a.id)) ?? null;
   const chosen = agents?.find((a) => a.id === agentType) ?? null;
-  const valid = isValidName(name) && !!folder && !!chosen?.ok;
+  const valid = isValidName(name) && !!chosen?.ok;
+  // What the draft sends. Empty means the default folder.
+  const folder = parent ? ownFolderIn(parent, name.trim() || 'companion') : '';
 
   const pickFace = (id: AvatarId) => {
     setAvatar(id);
@@ -85,17 +78,14 @@ export function CompanionSetupSheet({
     setError(null);
     try {
       const picked = await ship.pickFolder();
-      if (picked) {
-        setFolder(picked.path);
-        setFolderName(picked.name);
-      }
+      if (picked) setParent(picked.path);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not open the folder picker.');
     }
   };
 
   const create = async () => {
-    if (!valid || !folder || !agentType) return;
+    if (!valid || !agentType) return;
     setBusy(true);
     setError(null);
     try {
@@ -112,7 +102,7 @@ export function CompanionSetupSheet({
       });
       onCreated(view);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not make the companion.');
+      setError(err instanceof Error ? plainError(err.message) : 'Could not make the companion.');
     } finally {
       setBusy(false);
     }
@@ -201,8 +191,8 @@ export function CompanionSetupSheet({
       <fieldset className="ck-companion-step">
         <legend className="ck-caption">5. Where does it live?</legend>
         <div className="ck-companion-folder">
-          <span className="ck-companion-folder-name" title={folder ?? undefined}>
-            {folderName || 'No folder yet'}
+          <span className="ck-companion-folder-name" title={folder || undefined}>
+            {folder ? folder : 'A folder of its own, made for it'}
           </span>
           <button type="button" className="ck-btn ck-btn--sm ck-btn--secondary" onClick={() => void changeFolder()} disabled={busy}>
             Change folder
@@ -215,7 +205,7 @@ export function CompanionSetupSheet({
           {error}
         </p>
       )}
-      <p className="ck-sub ck-companion-privacy">Its files stay on this computer, in {folder ?? 'the folder you pick'}. It never posts anything in public.</p>
+      <p className="ck-sub ck-companion-privacy">Its files stay on this computer, in {folder || 'a folder of its own that Puppet Master makes'}. It never posts anything in public.</p>
 
       <div className="ck-sheet-actions">
         <button type="button" className="ck-btn ck-btn--plain" onClick={onClose} disabled={busy}>

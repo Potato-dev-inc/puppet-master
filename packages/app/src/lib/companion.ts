@@ -78,6 +78,18 @@ export interface CompanionView {
   untilMs?: number | null;
   /** A move that waits until the companion is free ("Moves when Mochi is free"). */
   queuedMove?: QueuedMove | null;
+  /**
+   * Desktop only. The home folder is too broad (the Desktop, a drive, a folder of projects), so other agents below it
+   * read the companion's brief. Missing or null: the home is fine.
+   */
+  homeProblem?: HomeProblem | null;
+}
+
+/** Why a companion's home is a problem, and where `Move to its own folder` would put it. */
+export interface HomeProblem {
+  /** In a few words: "your Desktop", "a folder with other projects in it". */
+  place: string;
+  suggestedFolder: string;
 }
 
 export interface QueuedMove {
@@ -186,6 +198,8 @@ export interface CompanionTransport {
   update(id: string, patch: CompanionPatch): Promise<CompanionView>;
   archive(id: string): Promise<void>;
   restart(id: string): Promise<CompanionView>;
+  /** Moves the companion out of a broad home into a folder of its own. An error leaves everything as it was. */
+  rehome(id: string): Promise<CompanionView>;
   saveMemory(id: string, file: MemoryFile, text: string): Promise<MemoryView>;
   decideOutsideChange(id: string, file: MemoryFile, decision: 'keep' | 'undo'): Promise<MemoryView>;
   tidyUp(id: string): Promise<void>;
@@ -227,6 +241,7 @@ export const tauriCompanionTransport: CompanionTransport = {
   update: (id, patch) => call<CompanionView>('companion_update', { id, patch }),
   archive: (id) => call<void>('companion_archive', { id }),
   restart: (id) => call<CompanionView>('companion_restart', { id }),
+  rehome: (id) => call<CompanionView>('companion_rehome', { id }),
   saveMemory: (id, file, text) => call<MemoryView>('companion_memory_save', { id, file, text }),
   decideOutsideChange: (id, file, decision) => call<MemoryView>('companion_outside_change_decide', { id, file, decision }),
   tidyUp: (id) => call<void>('companion_tidy_up', { id }),
@@ -275,6 +290,7 @@ export function bridgeCompanionTransport(bridge: BridgeClient): CompanionTranspo
     update: refuse,
     archive: refuse,
     restart: refuse,
+    rehome: refuse,
     saveMemory: refuse,
     decideOutsideChange: refuse,
     tidyUp: refuse,
@@ -463,6 +479,16 @@ export function fakeCompanionTransport(seed: FakeCompanionSeed = {}): FakeCompan
         companions.delete(id);
       }),
     restart: (id) => log('restart', [id], () => withState(id, 'starting')),
+    rehome: (id) =>
+      log('rehome', [id], () => {
+        const view = find(id);
+        const next = { ...view, homeProblem: null };
+        if (view.homeProblem) {
+          next.folder = view.homeProblem.suggestedFolder;
+          next.folderName = view.homeProblem.suggestedFolder.split(/[\\/]/).filter(Boolean).pop() ?? '';
+        }
+        return put(next);
+      }),
     saveMemory: (id, file, text) =>
       log('saveMemory', [id, file, text], () => {
         memory = { ...memory, [file]: text };

@@ -108,6 +108,22 @@ describe('CompanionPage', () => {
     expect(host.querySelector('[data-testid="chat"]')?.textContent).not.toContain('New session');
   });
 
+  it('a companion whose home is too broad shows the card, and the button moves it', async () => {
+    const problem = { place: 'your Desktop', suggestedFolder: 'C:/Users/you/PuppetMaster/companions/mochi' };
+    const { transport, props } = await render(view({ homeProblem: problem }));
+    expect(host.textContent).toContain("Mochi's home is your Desktop, so other agents there think they are Mochi.");
+    expect(transport.calls.some((c) => c.method === 'rehome')).toBe(false);
+    await act(async () => button('Move Mochi to its own folder')!.click());
+    expect(transport.calls.filter((c) => c.method === 'rehome').map((c) => c.args)).toEqual([['mochi']]);
+    expect(props.onChanged).toHaveBeenCalled();
+  });
+
+  it('a companion with a folder of its own shows no such card', async () => {
+    await render(view());
+    expect(host.textContent).not.toContain('think they are');
+    expect(button('Move Mochi to its own folder')).toBeUndefined();
+  });
+
   it('Sleep sends the sleep command', async () => {
     const { transport, props } = await render(view());
     await act(async () => button('Sleep')!.click());

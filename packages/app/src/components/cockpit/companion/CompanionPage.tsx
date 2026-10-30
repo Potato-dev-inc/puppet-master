@@ -13,6 +13,7 @@ import { Sheet } from '../Sheet';
 import { CheckInsCard } from './CheckInsCard';
 import { MemoryCard } from './MemoryCard';
 import { AgentRow } from './AgentRow';
+import { HomeProblemCard } from './HomeProblemCard';
 import { PendingCard } from './PendingCard';
 import { ShareTodayToggle } from './ShareTodayToggle';
 import { StartAtSignInHint } from './StartAtSignInHint';
@@ -166,6 +167,18 @@ export function CompanionPage(props: CompanionPageProps) {
             </button>
           </div>
         </header>
+
+        {companion.homeProblem && (
+          <div className="ck-companion-home-problem">
+            <HomeProblemCard
+              companion={companion}
+              onMove={async (id) => {
+                await transport.rehome(id);
+                onChanged();
+              }}
+            />
+          </div>
+        )}
 
         {sleeping ? (
           <div className="ck-companion-asleep">

@@ -8,10 +8,6 @@ import { fakeCompanionTransport, type CompanionAgentOption } from '../../../lib/
 import type { ShipApi } from '../../../lib/ship-api';
 import { CompanionSetupSheet } from './CompanionSetupSheet';
 
-vi.mock('../../../lib/tauri', () => ({
-  tauri: { getProjectPath: vi.fn(async () => 'C:\\work\\shop') },
-}));
-
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let host: HTMLDivElement;
@@ -83,7 +79,7 @@ describe('CompanionSetupSheet', () => {
       avatar: 'lumen',
       persona: 'plain',
       agentType: 'claude',
-      folder: 'C:\\work\\shop',
+      folder: '',
       autoStart: true,
       memoryReview: true,
       napAt: { h: 4, m: 0 },
@@ -120,11 +116,33 @@ describe('CompanionSetupSheet', () => {
     expect(button('Wake up Mochi').disabled).toBe(true);
   });
 
-  it('changes the folder through the folder picker', async () => {
-    const ship = { pickFolder: vi.fn(async () => ({ path: 'D:\\notes\\home', name: 'home', state: 'folder' as const, last_used_ms: 0 })) };
-    await render(AGENTS, ship as unknown as Pick<ShipApi, 'pickFolder'>);
+  it('starts with a folder of its own that Puppet Master makes, not the open project', async () => {
+    await render();
+    expect(host.querySelector('.ck-companion-folder-name')?.textContent).toBe('A folder of its own, made for it');
+    expect(host.textContent).toContain('a folder of its own that Puppet Master makes');
+  });
+
+  it('a folder the person picks holds a folder of its own for the companion, never the picked folder itself', async () => {
+    const ship = { pickFolder: vi.fn(async () => ({ path: 'D:\\notes', name: 'notes', state: 'folder' as const, last_used_ms: 0 })) };
+    const { transport } = await render(AGENTS, ship as unknown as Pick<ShipApi, 'pickFolder'>);
     await act(async () => button('Change folder').click());
-    expect(host.querySelector('.ck-companion-folder-name')?.textContent).toBe('home');
-    expect(host.textContent).toContain('Its files stay on this computer, in D:\\notes\\home.');
+    expect(host.querySelector('.ck-companion-folder-name')?.textContent).toBe('D:\\notes\\mochi');
+    expect(host.textContent).toContain('Its files stay on this computer, in D:\\notes\\mochi.');
+    // It follows the name.
+    setValue(nameInput(), 'Pipi');
+    expect(host.querySelector('.ck-companion-folder-name')?.textContent).toBe('D:\\notes\\pipi');
+    await act(async () => button('Wake up Pipi').click());
+    const create = transport.calls.find((c) => c.method === 'create');
+    expect((create?.args[0] as { folder: string }).folder).toBe('D:\\notes\\pipi');
+  });
+
+  it('shows the refusal of a broad folder as a plain sentence, without the code', async () => {
+    const { transport } = await render();
+    transport.create = () =>
+      Promise.reject(new Error("COMPANION_FOLDER_BROAD: Pick a folder of its own. Your Desktop has other projects in it, and agents there would read Mochi's notes. Try C:\\x\\mochi."));
+    await act(async () => button('Wake up Mochi').click());
+    const alert = host.querySelector('[role="alert"]')!.textContent!;
+    expect(alert).toBe("Pick a folder of its own. Your Desktop has other projects in it, and agents there would read Mochi's notes. Try C:\\x\\mochi.");
+    expect(button('Wake up Mochi').disabled).toBe(false);
   });
 });

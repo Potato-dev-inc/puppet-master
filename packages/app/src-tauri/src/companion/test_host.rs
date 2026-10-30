@@ -62,6 +62,8 @@ pub struct FakeHost {
     pub recall_enabled: AtomicBool,
     pub recall_hits: Mutex<Vec<(String, RecallHit)>>,
     pub recall_asked: Mutex<Vec<Vec<String>>>,
+    /// The account's known folders (`Host::places`): a fake home that is not a real folder.
+    pub places: Mutex<super::broad::Places>,
 }
 
 impl FakeHost {
@@ -98,6 +100,7 @@ impl FakeHost {
             recall_enabled: AtomicBool::new(false),
             recall_hits: Mutex::new(Vec::new()),
             recall_asked: Mutex::new(Vec::new()),
+            places: Mutex::new(super::broad::Places::for_home(std::path::Path::new("C:/Users/you"))),
         })
     }
 
@@ -240,6 +243,10 @@ impl Host for FakeHost {
 
     fn clear_stopped(&self, companion_id: &str) {
         self.cleared.lock().push(companion_id.to_string());
+    }
+
+    fn places(&self) -> super::broad::Places {
+        self.places.lock().clone()
     }
 
     fn agent_ok(&self, agent_type: &str, _folder: &str) -> Result<(), String> {

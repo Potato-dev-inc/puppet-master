@@ -14,7 +14,7 @@ use super::model::{
 use super::service::{pane_id_of, Inner, OutKind, Outgoing, Service, Slot};
 use super::store::{self, Runtime};
 use super::skills::{self, SkillFull, SkillRef};
-use super::{agents, brief, files, memory, today, view};
+use super::{agents, brief, broad, files, memory, today, view};
 
 /// `null` and "missing" are different in a patch: `Some(None)` clears the value.
 fn double_option<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
@@ -165,6 +165,8 @@ impl Service {
             pane_ids: vec![pane_id_of(&id)],
         };
         validate_profile(&profile)?;
+        // A home must be a folder of its own: agents below it read the brief.
+        broad::check_home(Path::new(&profile.folder), &profile.name, &profile.id, &self.host.places())?;
         self.check_agent(&profile)?;
         files::ensure_home(&self.root, &profile)?;
 
@@ -228,6 +230,9 @@ impl Service {
             next.checkins = checkins;
         }
         validate_profile(&next)?;
+        if next.folder != before.folder {
+            broad::check_home(Path::new(&next.folder), &next.name, &next.id, &self.host.places())?;
+        }
         let launch_changed = next.launch_args != before.launch_args
             || next.account != before.account
             || next.folder != before.folder;
@@ -617,7 +622,7 @@ impl Service {
     }
 
     /// Tells the host if any view changed, and returns this companion's desktop view.
-    fn finish(&self, inner: &mut Inner, id: &str, now: i64) -> CompanionView {
+    pub(super) fn finish(&self, inner: &mut Inner, id: &str, now: i64) -> CompanionView {
         self.publish_if_changed(inner, now);
         let index = inner.profiles.iter().position(|p| p.id == id).unwrap_or(0);
         self.view_of(inner, index, now)

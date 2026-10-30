@@ -143,3 +143,30 @@ export const skillFileChars = (title: string, body: string): number => countChar
 
 /** The longest title (`SKILL_TITLE_CAP` in `companion/model.rs`). */
 export const SKILL_TITLE_MAX = 60;
+
+/** The title of the card for a companion whose home is too broad: where the home is, and what that does. */
+export const homeProblemTitle = (name: string, place: string): string =>
+  `${name}'s home is ${place}, so other agents there think they are ${name}.`;
+
+/** `COMPANION_FOLDER_BROAD: Pick a folder...` without the code in front: the plain sentence the person reads. */
+export const plainError = (message: string): string => message.replace(/^[A-Z][A-Z0-9_]+: /, '');
+
+/** The refusal of a home that is too broad (`COMPANION_FOLDER_BROAD`). */
+export const isBroadFolderError = (message: string): boolean => message.startsWith('COMPANION_FOLDER_BROAD');
+
+/** The id the backend makes of a name: lower case letters, digits and dashes, at most 24 (`slug_from_name`). */
+export function companionSlug(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24)
+    .replace(/-+$/g, '');
+  return slug || 'companion';
+}
+
+/** `<parent>\<id>`: a folder of its own inside the folder the person picked, with the picked folder's slash. */
+export function ownFolderIn(parent: string, name: string): string {
+  const sep = parent.includes('/') && !parent.includes('\\') ? '/' : '\\';
+  return `${parent.replace(/[\\/]+$/, '')}${sep}${companionSlug(name)}`;
+}

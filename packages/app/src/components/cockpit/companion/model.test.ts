@@ -3,15 +3,20 @@ import {
   buildWhen,
   checkInLabel,
   clockValue,
+  companionSlug,
   countChars,
   formatCount,
+  homeProblemTitle,
+  isBroadFolderError,
   isCompanionPaneId,
   isValidName,
   movedNote,
   movesWhenFree,
   newCheckInId,
   nextClockMs,
+  ownFolderIn,
   parseClock,
+  plainError,
   stateLineOf,
   untilText,
 } from './model';
@@ -113,5 +118,31 @@ describe('moving to another agent', () => {
     expect(movedNote({ previousAgentLabel: 'Claude Code', untilMs: new Date(2026, 9, 28, 17, 0, 0).getTime() }, now)).toBe(
       'Moved from Claude Code. Goes back at 17:00.',
     );
+  });
+});
+
+describe('a home folder that is too broad', () => {
+  it('the card title says where the home is and what that does', () => {
+    expect(homeProblemTitle('Pipi', 'your Desktop')).toBe("Pipi's home is your Desktop, so other agents there think they are Pipi.");
+    expect(homeProblemTitle('Pipi', 'a folder with other projects in it')).toBe(
+      "Pipi's home is a folder with other projects in it, so other agents there think they are Pipi.",
+    );
+  });
+
+  it('the code in front of an error is taken off, other text is not', () => {
+    expect(plainError('COMPANION_FOLDER_BROAD: Pick a folder of its own.')).toBe('Pick a folder of its own.');
+    expect(plainError('Could not move it.')).toBe('Could not move it.');
+    expect(isBroadFolderError('COMPANION_FOLDER_BROAD: Pick a folder of its own.')).toBe(true);
+    expect(isBroadFolderError('COMPANION_LIMIT: no')).toBe(false);
+  });
+
+  it('the folder of its own is the picked folder plus the id the backend makes of the name', () => {
+    expect(companionSlug('Pipi')).toBe('pipi');
+    expect(companionSlug('  Mo Chi!  ')).toBe('mo-chi');
+    expect(companionSlug('!!!')).toBe('companion');
+    expect(companionSlug('a'.repeat(30))).toBe('a'.repeat(24));
+    expect(ownFolderIn('D:/notes', 'Pipi')).toBe('D:/notes/pipi');
+    expect(ownFolderIn('D:/notes/', 'Pipi')).toBe('D:/notes/pipi');
+    expect(ownFolderIn(String.fromCharCode(68, 58, 92, 110), 'Pipi')).toBe(String.fromCharCode(68, 58, 92, 110, 92) + 'pipi');
   });
 });

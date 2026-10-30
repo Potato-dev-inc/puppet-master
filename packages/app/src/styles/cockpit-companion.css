@@ -58,6 +58,11 @@
 .cockpit .ck-companion-face-big {
   flex: none;
 }
+/* The card for a home folder that is too broad sits under the header, above the chat. */
+.cockpit .ck-companion-home-problem {
+  flex: none;
+  padding: 12px 20px 0;
+}
 .cockpit .ck-companion-head-main {
   flex: 1;
   min-width: 0;

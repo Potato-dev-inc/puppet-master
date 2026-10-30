@@ -21,6 +21,22 @@ pub const COMPANION_NOTE: &str =
 /// The file a profile with no declared instruction file gets. Harmless, and widely read.
 pub const GENERIC_TARGET: &str = "AGENTS.md";
 
+/// The first lines of the managed block: agents that are not the companion must ignore the block.
+///
+/// Coding agents read instruction files from every parent of their working folder, so a brief written
+/// for a companion also reaches agents working in a folder below its home. This line is keyed on the
+/// exact home folder, so only the companion's own agent follows the notes.
+pub fn guard_line(name: &str, home: &str) -> String {
+    format!(
+        "These notes are only for the Puppet Master companion {name}, whose working folder is exactly {home}. If your working folder is anywhere else (even a folder inside it), ignore everything in this block."
+    )
+}
+
+/// `text` (the composed brief) with the guard line in front, ready to be written.
+pub fn guarded(name: &str, home: &str, text: &str) -> String {
+    format!("{}\n\n{text}", guard_line(name, home))
+}
+
 /// The three memory texts a brief is built from (already capped).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Texts {
@@ -204,6 +220,54 @@ pub fn write(home: &Path, body: &str, files: &[InstructionFile]) -> CompanionRes
     }
 }
 
+/// What `remove_block` did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Removed {
+    /// The file or the block was not there. Nothing changed.
+    NoBlock,
+    /// The block was cut out; the rest of the file stays exactly as it was.
+    Edited,
+    /// The block was all that was in the file (only whitespace was left), so the file was removed.
+    FileRemoved,
+}
+
+/// Takes the companion block out of the instruction file in `home` and nothing else. A file that is
+/// only whitespace afterwards is removed. Other files in the folder (also the `.bak` copy) are not touched.
+pub fn remove_block(home: &Path, files: &[InstructionFile]) -> CompanionResult<Removed> {
+    let (rel, _) = target(files);
+    if !one_brain::relative_path_ok(&rel) {
+        return Err(CompanionError::new("COMPANION_FOLDER_INVALID", "The agent's instruction file path is not allowed."));
+    }
+    let full = home.join(&rel);
+    let bytes = match fs::read(&full) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Removed::NoBlock),
+        Err(e) => return Err(io_error(&full, &e)),
+    };
+    let outcome = one_brain::render_between(Some(&bytes), COMPANION_START, COMPANION_END, COMPANION_NOTE, None, "").map_err(|_| {
+        CompanionError::new(
+            "COMPANION_MARKER_DAMAGED",
+            format!("The companion markers in {rel} are damaged. Fix or delete them, then try again."),
+        )
+    })?;
+    match outcome {
+        Outcome::NoChange => Ok(Removed::NoBlock),
+        Outcome::Delete => {
+            fs::remove_file(&full).map_err(|e| io_error(&full, &e))?;
+            Ok(Removed::FileRemoved)
+        }
+        Outcome::Write(rest) => {
+            let tmp = PathBuf::from(format!("{}.pm-tmp", full.display()));
+            fs::write(&tmp, &rest).map_err(|e| io_error(&tmp, &e))?;
+            fs::rename(&tmp, &full).map_err(|e| {
+                let _ = fs::remove_file(&tmp);
+                io_error(&full, &e)
+            })?;
+            Ok(Removed::Edited)
+        }
+    }
+}
+
 fn io_error(path: &Path, e: &std::io::Error) -> CompanionError {
     CompanionError::new(
         "COMPANION_FOLDER_INVALID",
@@ -214,6 +278,110 @@ fn io_error(path: &Path, e: &std::io::Error) -> CompanionError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp(prefix: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("{prefix}-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Writes a brief for "Bit" into `home` the way the service does.
+    fn write_guarded(home: &Path) {
+        let body = guarded("Bit", &home.display().to_string(), &compose("Bit", &texts()));
+        write(home, &body, &[]).unwrap();
+    }
+
+    #[test]
+    fn the_guard_names_the_companion_and_its_exact_folder_and_is_short_and_plain() {
+        let line = guard_line("Pipi", "C:\\Users\\you\\PuppetMaster\\companions\\pipi");
+        assert_eq!(
+            line,
+            "These notes are only for the Puppet Master companion Pipi, whose working folder is exactly C:\\Users\\you\\PuppetMaster\\companions\\pipi. If your working folder is anywhere else (even a folder inside it), ignore everything in this block."
+        );
+        assert!(!line.contains('\n'));
+        assert!(line.len() < 300);
+        // It names no agent.
+        assert!(!line.to_lowercase().contains("claude") && !line.to_lowercase().contains("codex"));
+    }
+
+    #[test]
+    fn the_guard_is_the_first_line_of_the_managed_block_and_the_brief_follows() {
+        let home = temp("pm-brief-guard");
+        write_guarded(&home);
+        let text = fs::read_to_string(home.join("AGENTS.md")).unwrap().replace("\r\n", "\n");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], COMPANION_START);
+        assert_eq!(lines[1], COMPANION_NOTE);
+        assert_eq!(lines[2], guard_line("Bit", &home.display().to_string()));
+        assert_eq!(lines[3], "");
+        assert_eq!(lines[4], "# You are Bit");
+        // Writing the same brief again changes nothing.
+        let body = guarded("Bit", &home.display().to_string(), &compose("Bit", &texts()));
+        assert_eq!(write(&home, &body, &[]).unwrap(), None);
+    }
+
+    #[test]
+    fn removing_the_block_keeps_every_other_line_of_the_file() {
+        let home = temp("pm-brief-remove");
+        fs::write(home.join("AGENTS.md"), "# My rules\n\nBe kind.\n").unwrap();
+        write_guarded(&home);
+        assert!(fs::read_to_string(home.join("AGENTS.md")).unwrap().contains("# You are Bit"));
+        assert_eq!(remove_block(&home, &[]).unwrap(), Removed::Edited);
+        assert_eq!(fs::read_to_string(home.join("AGENTS.md")).unwrap(), "# My rules\n\nBe kind.\n");
+        // The copy made before the block was added is left alone.
+        assert_eq!(fs::read_to_string(home.join("AGENTS.md.bak")).unwrap(), "# My rules\n\nBe kind.\n");
+        // Nothing more to remove.
+        assert_eq!(remove_block(&home, &[]).unwrap(), Removed::NoBlock);
+    }
+
+    #[test]
+    fn text_after_the_block_stays_too() {
+        let home = temp("pm-brief-after");
+        write_guarded(&home);
+        let path = home.join("AGENTS.md");
+        let mut text = fs::read_to_string(&path).unwrap();
+        text.push_str("\nMy notes under the block.\n");
+        fs::write(&path, &text).unwrap();
+        assert_eq!(remove_block(&home, &[]).unwrap(), Removed::Edited);
+        let rest = fs::read_to_string(&path).unwrap();
+        assert!(rest.contains("My notes under the block."));
+        assert!(!rest.contains(COMPANION_START) && !rest.contains("# You are Bit"));
+    }
+
+    #[test]
+    fn a_file_with_only_the_block_is_removed_and_a_missing_file_is_fine() {
+        let home = temp("pm-brief-only");
+        assert_eq!(remove_block(&home, &[]).unwrap(), Removed::NoBlock);
+        write_guarded(&home);
+        assert_eq!(remove_block(&home, &[]).unwrap(), Removed::FileRemoved);
+        assert!(!home.join("AGENTS.md").exists());
+        // Another file in the same folder is never touched.
+        fs::write(home.join("README.md"), "mine").unwrap();
+        write_guarded(&home);
+        remove_block(&home, &[]).unwrap();
+        assert_eq!(fs::read_to_string(home.join("README.md")).unwrap(), "mine");
+    }
+
+    #[test]
+    fn a_damaged_block_is_not_cut() {
+        let home = temp("pm-brief-damaged");
+        let text = format!("Mine.\n{COMPANION_START}\nhalf a block\n");
+        fs::write(home.join("AGENTS.md"), &text).unwrap();
+        assert_eq!(remove_block(&home, &[]).unwrap_err().code, "COMPANION_MARKER_DAMAGED");
+        assert_eq!(fs::read_to_string(home.join("AGENTS.md")).unwrap(), text);
+    }
+
+    #[test]
+    fn the_block_is_cut_from_the_declared_instruction_file_not_from_agents_md() {
+        let home = temp("pm-brief-declared");
+        let declared = vec![InstructionFile::new("rules/brief.md")];
+        let body = guarded("Bit", &home.display().to_string(), &compose("Bit", &texts()));
+        write(&home, &body, &declared).unwrap();
+        assert_eq!(remove_block(&home, &[]).unwrap(), Removed::NoBlock);
+        assert_eq!(remove_block(&home, &declared).unwrap(), Removed::FileRemoved);
+        assert!(!home.join("rules").join("brief.md").exists());
+        assert_eq!(remove_block(&home, &[InstructionFile::new("../escape.md")]).unwrap_err().code, "COMPANION_FOLDER_INVALID");
+    }
 
     fn texts() -> Texts {
         Texts { soul: "I am calm.\n".into(), user: "Works at night.".into(), memory: "- Likes short answers.\n".into() }
