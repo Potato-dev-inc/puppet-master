@@ -55,6 +55,11 @@ interface UseTerminalSessionOptions {
   remountEpoch?: number;
   /** With `remountEpoch` > 0: the PTY's grid right now, so the remount's first fit sends nothing if it matches. */
   assumePtyGrid?: { cols: number; rows: number };
+  /**
+   * The PTY's real grid from the pane list (null: unknown, or a phone holds the PTY). When this
+   * window's grid differs from it for a while, the owner window re-syncs by itself (what Reflow does).
+   */
+  knownPtyGrid?: { cols: number; rows: number } | null;
 }
 
 /** Before the first successful measurement (xterm still settling after mount). */
@@ -93,6 +98,7 @@ export function useTerminalSession({
   reprintsOnResize = false,
   remountEpoch = 0,
   assumePtyGrid,
+  knownPtyGrid,
 }: UseTerminalSessionOptions): {
   containerRef: RefObject<HTMLDivElement>;
   nudgeReflow: () => void;
@@ -164,6 +170,13 @@ export function useTerminalSession({
   useEffect(() => {
     sessionRef.current?.setReprintsOnResize(reprintsOnResize);
   }, [reprintsOnResize, paneId, sessionKey]);
+
+  // The PTY's real grid, for the drift check (also after a remount: the new session starts blank).
+  const knownCols = knownPtyGrid?.cols;
+  const knownRows = knownPtyGrid?.rows;
+  useEffect(() => {
+    sessionRef.current?.setKnownPtyGrid(knownCols !== undefined && knownRows !== undefined ? { cols: knownCols, rows: knownRows } : null);
+  }, [knownCols, knownRows, paneId, sessionKey, remountEpoch]);
 
   // A window opened while a phone already holds the pane gets no resize event: follow the held size.
   const heldCols = heldPtySize?.cols;

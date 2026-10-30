@@ -1,4 +1,6 @@
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { PaneContextMenu } from './PaneContextMenu';
+import { requestPaneAction, type PaneAction } from '../../lib/pane-actions';
 import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
 import { shipApi, type GitState, type ShipApi } from '../../lib/ship-api';
 import { tauri } from '../../lib/tauri';
@@ -51,6 +53,7 @@ export function Sidebar({
   onOpenCompanion,
   onNewCompanion,
   onOpenToSide,
+  onPaneAction,
   ship = shipApi,
 }: {
   c: CockpitApi;
@@ -66,8 +69,10 @@ export function Sidebar({
   onOpenMorning?: () => void;
   /** The "More agents…" row of the New agent menu opens the Agent Store. Absent: no row. */
   onOpenStore?: () => void;
-  /** A pane's row menu: "Open to the side" (split view). Absent: the row has no menu. */
+  /** The pane row menu's "Open to the side" (split view). Absent: the menu has no such item. */
   onOpenToSide?: (paneId: string) => void;
+  /** Runs a pane action of the row menu (rename, reflow, copy, details, close). Absent: select the pane, then ask its view. */
+  onPaneAction?: (paneId: string, action: PaneAction) => void;
   /** The companions, above Inbox. Absent or null: no companion rows (no backend, or not read yet). */
   companions?: CompanionView[] | null;
   /** The companion whose page is open, if any: its row is the active one. */
@@ -101,20 +106,18 @@ export function Sidebar({
   const [menuOpen, setMenuOpen] = useState(false);
   // The right-click menu of a pane row: where it opened, and which pane it is for.
   const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  const rowMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!rowMenu) return;
-    const away = (e: MouseEvent) => {
-      if (!rowMenuRef.current?.contains(e.target as Node)) setRowMenu(null);
-    };
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setRowMenu(null);
-    window.addEventListener('mousedown', away);
-    window.addEventListener('keydown', esc);
-    return () => {
-      window.removeEventListener('mousedown', away);
-      window.removeEventListener('keydown', esc);
-    };
-  }, [rowMenu]);
+  // The row the menu opened from: the keyboard goes back to it when the menu closes with Escape.
+  const rowMenuFrom = useRef<HTMLElement | null>(null);
+  const closeRowMenu = useCallback((refocus: boolean) => {
+    setRowMenu(null);
+    if (refocus) rowMenuFrom.current?.focus();
+  }, []);
+  // An action of the row's pane: the pane opens (selected) and its own view runs it, or it is run here (Interrupt).
+  const runPaneAction = (id: string, action: PaneAction) => (onPaneAction ?? defaultPaneAction)(id, action);
+  const defaultPaneAction = (id: string, action: PaneAction) => {
+    c.select(id);
+    requestPaneAction(id, action);
+  };
   // The folder step: an explicit choice wins, else the selected pane's project.
   const [chosen, setChosen] = useState<ProjectChoice | null>(null);
   const selectedCwd = c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined;
@@ -219,14 +222,14 @@ export function Sidebar({
         type="button"
         className={`ck-row${active ? ' is-active' : ''}${p.status === 'waiting_input' || questionPanes.has(id) ? ' is-needs' : ''}`}
         onClick={() => c.select(id)}
-        onContextMenu={
-          onOpenToSide
-            ? (e) => {
-                e.preventDefault();
-                setRowMenu({ id, x: e.clientX, y: e.clientY });
-              }
-            : undefined
-        }
+        onContextMenu={(e) => {
+          e.preventDefault();
+          rowMenuFrom.current = e.currentTarget;
+          // Opened from the keyboard (the context-menu key, Shift+F10): there is no pointer, so it opens at the row.
+          const r = e.currentTarget.getBoundingClientRect();
+          const fromKeyboard = e.clientX === 0 && e.clientY === 0;
+          setRowMenu({ id, x: fromKeyboard ? r.left + 24 : e.clientX, y: fromKeyboard ? r.bottom - 4 : e.clientY });
+        }}
         title={lastTurn.get(id)?.sentence}
         aria-current={active ? 'true' : undefined}
       >
@@ -394,21 +397,15 @@ export function Sidebar({
         {list.length === 0 && c.registry.initialReady && <p className="ck-side-empty">No agents running.</p>}
       </nav>
 
-      {rowMenu && onOpenToSide && (
-        <div ref={rowMenuRef} className="ck-menu ck-menu--fixed" role="menu" style={{ left: rowMenu.x, top: rowMenu.y }}>
-          <button
-            type="button"
-            role="menuitem"
-            className="ck-menu-item"
-            onClick={() => {
-              const id = rowMenu.id;
-              setRowMenu(null);
-              onOpenToSide(id);
-            }}
-          >
-            <span>Open to the side</span>
-          </button>
-        </div>
+      {rowMenu && (
+        <PaneContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          onSide={onOpenToSide ? () => onOpenToSide(rowMenu.id) : undefined}
+          onAction={(action) => runPaneAction(rowMenu.id, action)}
+          onInterrupt={() => void c.interrupt(rowMenu.id)}
+          onClose={closeRowMenu}
+        />
       )}
 
       <div className="ck-side-foot">

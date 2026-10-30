@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import type { LiveStatus } from '../../lib/live-room';
 import { PaneView } from './PaneView';
+import { requestPaneAction } from '../../lib/pane-actions';
 import { LiveStatusContext } from './live/useLiveRoom';
 
 const invoke = vi.fn(async (cmd: string) => (cmd === 'checkpoints_list' ? { state: 'ok', message: '', items: [] } : null) as unknown);
@@ -75,10 +76,10 @@ afterEach(() => {
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 const tab = (name: string) => [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith(name))!;
 const header = () => host.querySelector('.ck-pane-head')!.textContent ?? '';
+// The pane's actions are asked for from the sidebar row's right-click menu (Sidebar.paneMenu.test.tsx): the view runs them.
 const openMenuItem = async (label: string) => {
-  await act(async () => host.querySelector<HTMLElement>('[aria-label="Pane actions"]')!.click());
-  const item = [...host.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((m) => m.textContent === label)!;
-  await act(async () => item.click());
+  const action = { Details: 'details', Close: 'close' }[label] as 'details' | 'close';
+  await act(async () => requestPaneAction('p1', action));
   await flush();
 };
 
@@ -91,6 +92,14 @@ const room = (over: Partial<LiveStatus> = {}): LiveStatus => ({
   hidden: 0,
   stopped: null,
   ...over,
+});
+
+describe('pane header: no actions button', () => {
+  it('has no "..." button: the pane menu is the right-click menu of its sidebar row', async () => {
+    await act(async () => root.render(<PaneView c={cockpit('C:\work\shop', false)} paneId="p1" />));
+    await flush();
+    expect(host.querySelector('[aria-label="Pane actions"]')).toBeNull();
+  });
 });
 
 describe('pane header: Live Room chip', () => {

@@ -20,7 +20,7 @@ export async function run(t) {
   await t.expect.text('Working');
 
   await t.step('Pane menu > Close asks first');
-  await t.click('aria=Pane actions');
+  await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.click('exact=Close');
   await t.expect.text('Close Nimbus?');
   await t.expect.text('It is still running.');
@@ -32,7 +32,7 @@ export async function run(t) {
   t.expect.equal((await t.panes()).length, 1, 'the pane still runs');
 
   await t.step('Close again and confirm');
-  await t.click('aria=Pane actions');
+  await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.click('exact=Close');
   await t.click('exact=Close agent');
   await t.expect.count(PANE_ROW, 0);

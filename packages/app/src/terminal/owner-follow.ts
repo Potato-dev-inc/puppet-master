@@ -57,6 +57,11 @@ export class OwnerGrid {
     return this.follow !== null;
   }
 
+  /** Forget what was sent: the next fit is sent again even at the same size (the PTY may not have it). */
+  forgetSent(): void {
+    this.lastSent = { cols: 0, rows: 0 };
+  }
+
   /** A fit measured the container: the size to send to the app, or null when it already has it. */
   fitted(cols: number, rows: number): GridSize | null {
     if (cols <= 0 || rows <= 0) return null;
