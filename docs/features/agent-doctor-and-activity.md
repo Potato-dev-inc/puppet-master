@@ -6,7 +6,7 @@ Branch `feat/agent-doctor`. Two features, committed separately.
 
 ### What and why
 Personas B (vibecoders) and C (non-technical): "which of my AI agents work, and how do I fix the ones that don't?"
-The app starts tray-only with no first-run hint, so a new user sees an empty cockpit and has no idea why an agent will not start.
+The app starts with no first-run hint, so a new user sees an empty cockpit and has no idea why an agent will not start.
 
 User story: open Set up agents, see one row per agent (state, version, plain reason), copy the install command for a missing one, open a visible pane to log in, press Test to prove an agent can answer.
 
