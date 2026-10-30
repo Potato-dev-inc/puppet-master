@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json && vite build && node ../../scripts/bundle-cloudflared.mjs && node ../../scripts/stage-pwa-dist.mjs && node ../../scripts/bundle-mcp.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile ../../node_modules/.cache/pm/tsc-app.tsbuildinfo && tsc --noEmit -p tsconfig.sw.json --incremental --tsBuildInfoFile ../../node_modules/.cache/pm/tsc-sw.tsbuildinfo",
     "test": "vitest run",
     "test:watch": "vitest"
   },

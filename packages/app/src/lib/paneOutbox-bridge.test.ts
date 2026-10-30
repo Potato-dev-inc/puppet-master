@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BridgeClient } from './bridge-types';
 import type { OutboxMessage } from './paneOutbox';
