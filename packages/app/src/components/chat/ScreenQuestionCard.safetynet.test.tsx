@@ -18,7 +18,7 @@ vi.mock('../../lib/tauri', () => ({
   },
 }));
 
-import { hasStuckMessage, ScreenQuestionCard, STUCK_MS } from './ScreenQuestionCard';
+import { hasStuckMessage, ScreenQuestionCard, STABLE_MS, STUCK_MS } from './ScreenQuestionCard';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -184,5 +184,104 @@ describe('ScreenQuestionCard on a waiting pane', () => {
     expect(lines).toContain('Choose the text style that looks best with your terminal');
     expect(lines).toContain('Dark mode (ANSI colors only)');
     expect(lines).not.toMatch(/function greet|Syntax theme|\.{4,}|╌/);
+  });
+});
+
+// A pane whose status says "running" but whose screen holds a menu still: a working agent redraws (a spinner, a
+// timer), a question sits still. The card shows once the menu stayed the same for STABLE_MS.
+describe('ScreenQuestionCard on a running pane', () => {
+  const menu = (cursor: number) =>
+    [
+      '  Update available · 1.2.3 → 1.2.4',
+      '',
+      ...['Update now', 'Skip', 'Skip until next version'].map((label, i) => `${i === cursor ? '›' : ' '} ${i + 1}. ${label}`),
+      '',
+      '  enter continue · esc skip',
+      ...Array.from({ length: 20 }, () => ''),
+    ].join('\n');
+  const MENU_SCREEN = menu(0);
+
+  const tick = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  async function showRunning(props: Partial<Parameters<typeof ScreenQuestionCard>[0]> = {}) {
+    await act(async () => root.render(<ScreenQuestionCard paneId="p1" waiting={false} idle={false} running {...props} />));
+    await tick(0);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows a menu that stayed the same for three seconds, and answers a row with arrows and Enter', async () => {
+    readSnapshot.mockResolvedValue(MENU_SCREEN);
+    await showRunning();
+    expect(card()).toBeNull();
+    await tick(1500);
+    expect(card()).toBeNull();
+    await tick(STABLE_MS - 1500);
+    expect(card()).not.toBeNull();
+    expect(host.textContent).toContain('Agent is asking');
+    expect(buttons().map((b) => b.textContent)).toEqual(expect.arrayContaining(['Update now', 'Skip', 'Skip until next version']));
+    await act(async () => buttons().find((b) => b.textContent === 'Skip')!.click());
+    await tick(0);
+    expect(writeInput.mock.calls).toEqual([
+      ['p1', '\u001b[B', false],
+      ['p1', '', true],
+    ]);
+  });
+
+  it('does not show a menu while the screen keeps changing, as a working agent redraws', async () => {
+    let n = 0;
+    readSnapshot.mockImplementation(async () => `${MENU_SCREEN}\nWorking (${n++}s)`);
+    await showRunning();
+    await tick(15_000);
+    expect(readSnapshot.mock.calls.length).toBeGreaterThan(5);
+    expect(card()).toBeNull();
+  });
+
+  it('does not show plain text that holds still, nor the idle input box of an agent', async () => {
+    for (const screen of ['Setting up.\nWhat should the project be called?', 'Overwrite config.json? (y/n)', NUMBERED, CLAUDE_IDLE, CODEX_IDLE]) {
+      readSnapshot.mockResolvedValue(screen);
+      await showRunning();
+      await tick(10_000);
+      expect(card()).toBeNull();
+    }
+  });
+
+  it('goes away at the first read where the screen is no longer that menu', async () => {
+    readSnapshot.mockResolvedValue(MENU_SCREEN);
+    await showRunning();
+    await tick(STABLE_MS);
+    expect(card()).not.toBeNull();
+    readSnapshot.mockResolvedValue('Updating...\n');
+    await tick(1500);
+    expect(card()).toBeNull();
+  });
+
+  it('stays while the same menu is up with the cursor on another row', async () => {
+    readSnapshot.mockResolvedValue(MENU_SCREEN);
+    await showRunning();
+    await tick(STABLE_MS);
+    expect(card()).not.toBeNull();
+    readSnapshot.mockResolvedValue(menu(1));
+    await tick(1500);
+    expect(card()).not.toBeNull();
+  });
+
+  it('reads nothing and adds nothing next to a card that already answers the pane, or when the pane is not running', async () => {
+    readSnapshot.mockResolvedValue(MENU_SCREEN);
+    await showRunning({ covered: true });
+    await tick(5000);
+    expect(readSnapshot).not.toHaveBeenCalled();
+    expect(card()).toBeNull();
+    await showRunning({ running: false });
+    await tick(5000);
+    expect(readSnapshot).not.toHaveBeenCalled();
+    expect(card()).toBeNull();
   });
 });

@@ -6,7 +6,8 @@
 //!
 //! 1. the profile's own prompt tables match the visible tail (`TuiProfile::declares_prompt`);
 //! 2. a menu is the LAST thing on the screen: a cursor row (`❯` / `>` / `›`) among listed options, and a menu hint
-//!    footer under it (`enter to select`, `↑/↓`, `navigate`, `esc to cancel`, or the profile's own `[tui.menu]`).
+//!    footer under it: a short row that names a key (`enter`, `esc`, an arrow, `ctrl+`; see `names_a_key`), one of the
+//!    known hint phrases (`enter to select`, `navigate`, ...), or the profile's own `[tui.menu]`.
 //!
 //! The second rule is deliberately strict, because the screens it must NOT take are common: an idle input box (`> `
 //! with a hint line), a finished reply that contains a numbered list, a draft, a spinner. Each of those lacks the
@@ -42,9 +43,32 @@ fn is_rule_row(row: &str) -> bool {
     row.chars().count() >= 3 && row.chars().all(rule)
 }
 
+/// The longest row (trimmed, in characters) that can be a footer: a footer is a few words, prose is not.
+const MAX_FOOTER_CHARS: usize = 100;
+
+/// Whole words that name a key.
+const KEY_WORDS: &[&str] = &["enter", "return", "esc", "escape", "space", "tab"];
+
+/// Whether a short row names a key a hand would press: a whole word (`enter`, `esc`, ...), an arrow glyph, or `ctrl+`.
+/// Any agent's footer says it, so no list of exact phrases is needed.
+fn names_a_key(row: &str) -> bool {
+    let row = row.trim();
+    if row.chars().count() > MAX_FOOTER_CHARS {
+        return false;
+    }
+    if row.contains(['\u{2191}', '\u{2193}', '\u{2190}', '\u{2192}']) {
+        return true;
+    }
+    let lower = row.to_lowercase();
+    if lower.contains("ctrl+") || lower.contains("ctrl-") {
+        return true;
+    }
+    lower.split(|ch: char| !ch.is_alphanumeric()).any(|word| KEY_WORDS.contains(&word))
+}
+
 fn says_hint(row: &str, hints: &[&str]) -> bool {
     let lower = row.to_lowercase();
-    hints.iter().any(|hint| lower.contains(hint))
+    hints.iter().any(|hint| lower.contains(hint)) || names_a_key(row)
 }
 
 /// Whether the last rows of `visible_tail` (ANSI-stripped, the last 12 non-empty rows) are a menu waiting for a pick.
