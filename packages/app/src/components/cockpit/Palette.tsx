@@ -16,7 +16,8 @@ import { ChatHitDetail, ChatHitRows, SEARCH_CHATS_HINT, SEARCH_CHATS_TITLE } fro
 import { ChatFilterChips, type ChipKey } from './ChatFilterChips';
 import { T as WELCOME } from '../firstrun/copy';
 import { DotSpinner } from './DotSpinner';
-import { IconChart, IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSearch, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
+import { IconChart, IconClose, IconCopy, IconGlobe, IconInfo, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconRename, IconSearch, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
+import { requestPaneAction } from '../../lib/pane-actions';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 import { settingsShortcuts } from './palette-shortcuts';
 import { useMissionsEnabled } from '../../lib/missions';
@@ -188,6 +189,25 @@ export function Palette({
         hint: '⌃C',
         run: () => void c.interrupt(sel),
       });
+      // The pane menu's actions (the sidebar row's right-click menu has the same ones), for the selected pane.
+      const paneActions = [
+        { id: 'rename', title: 'Rename this agent', icon: <IconRename />, keywords: 'rename title name' },
+        { id: 'reflow', title: 'Reflow the terminal', icon: <IconReflow />, keywords: 'reflow redraw garbled fix layout resize' },
+        { id: 'copy', title: 'Copy selection', icon: <IconCopy />, keywords: 'copy selection clipboard' },
+        { id: 'details', title: 'Agent details', icon: <IconInfo />, keywords: 'details info about' },
+        { id: 'close', title: 'Close this agent', icon: <IconClose />, keywords: 'close end quit remove' },
+      ] as const;
+      for (const a of paneActions) {
+        out.push({
+          id: `act:${a.id}`,
+          group: 'Actions',
+          title: a.title,
+          desc: c.names.get(sel),
+          keywords: a.keywords,
+          icon: a.icon,
+          run: () => requestPaneAction(sel, a.id),
+        });
+      }
       if (onUndoLastTurn) {
         out.push({
           id: 'act:undo',

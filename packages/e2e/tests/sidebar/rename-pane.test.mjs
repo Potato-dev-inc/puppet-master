@@ -1,4 +1,4 @@
-// Double-click the title (or the pane menu > Rename) to name a pane. The name shows in the sidebar, the header and the palette.
+// Double-click the title (or right-click its row > Rename) to name a pane. The name shows in the sidebar, the header and the palette.
 import { calm, PANE_TITLE, paneHeading, openPalette, paletteTitles, sidebarTitles } from './_area.mjs';
 
 export const meta = {
@@ -15,7 +15,7 @@ export async function run(t) {
   await t.waitFor(PANE_TITLE);
 
   await t.step('Pane menu > Rename');
-  await t.click('aria=Pane actions');
+  await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.click('exact=Rename');
   await t.waitFor('aria=Pane name');
 

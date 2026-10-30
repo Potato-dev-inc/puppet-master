@@ -15,7 +15,7 @@ export async function run(t) {
   await openPane(t, 'Nimbus');
 
   await t.step('Pane menu > Details');
-  await t.click('aria=Pane actions');
+  await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.click('exact=Details');
   await t.waitFor('css=.ck-facts--details');
 
