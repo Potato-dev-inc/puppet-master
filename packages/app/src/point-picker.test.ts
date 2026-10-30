@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Tests for the Point and Fix click-to-pick script (PF-7).
 // The script is src-tauri/src/point/picker.js. Each load() runs it on a fresh fake
 // `window` (own top, location, ng, and listener list), so no test sees another

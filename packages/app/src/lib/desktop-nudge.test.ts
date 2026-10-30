@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Terminal } from '@xterm/xterm';
 import { NudgeScheduler, NUDGE_MIN_GAP_MS, NUDGE_SETTLE_MS } from './nudge-scheduler';
