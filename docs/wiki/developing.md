@@ -26,6 +26,18 @@ Do not edit `src-tauri` while `scripts/pm-regression.mjs` or a live worker run i
 
 Debug builds re-stamp `PM_BUILD_ID` only when sources or the git ref change (`PM_FORCE_NEW_BUILD_ID=1` to force). Release builds always re-stamp.
 
+## Fast loop (find, test what you changed, check before you push)
+
+```bash
+node scripts/where.mjs approval prompt   # which file owns it: matching rows of REPO_MAP and FEATURES, not 220 KB of reading
+node scripts/test-changed.mjs            # only the tests your change can reach (add --dry-run to see the plan)
+node scripts/check.mjs                   # everything CI runs, lanes side by side; run it once before you push
+```
+
+Numbers, what each setting is worth and what to try next: [DEV-SPEED.md](../DEV-SPEED.md). Two habits that matter more than any flag:
+keep your cargo settings the same from one run to the next (a changed `CARGO_INCREMENTAL` or `CARGO_PROFILE_*_DEBUG` rebuilds the whole 220k-line crate),
+and leave incremental compilation on while you iterate (about 30 s per edit instead of about 2 minutes).
+
 ## Tests
 
 ```bash
@@ -37,12 +49,14 @@ cd packages/app/src-tauri && cargo test --bin puppet-master-mcp
 
 # JS
 npm test
-npm run typecheck
+npm run typecheck   # incremental: ~5 s when nothing changed (cache in node_modules/.cache/pm)
 
 # MCP shim vs mock bridge (no paid workers)
 npm run test:mcp-operations
 npm run test:mcp-package
 ```
+
+Vitest runs in the `node` environment. A test that needs `document` or `window` says so on its first line: `// @vitest-environment jsdom` (building a jsdom window for all 470 files cost about 40 % of a full run).
 
 Tests that touch Tauri **window** APIs crash the test binary. Gate that code with `cfg(test)` stubs (see `pane_windows.rs`). Handle names in tests must be unique — `resolve_agent_run` searches a process-wide index.
 

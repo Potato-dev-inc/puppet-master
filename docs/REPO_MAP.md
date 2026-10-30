@@ -5,6 +5,9 @@ Orientation for coding agents. For product concepts and how to keep developing, 
 functions are cited by name (line numbers rot). When something here disagrees with the code, the
 code wins: fix this file.
 
+Do not read all of it. `node scripts/where.mjs <word> <word>` prints the rows of this file (and of FEATURES.md) that match, with their
+heading, in under a second. How fast the build and the tests are, and what to do about it: [`DEV-SPEED.md`](DEV-SPEED.md).
+
 Existing docs this file links to rather than repeats:
 
 | Doc | Covers |
@@ -18,6 +21,7 @@ Existing docs this file links to rather than repeats:
 | `packages/app/src-tauri/src/tui/README.md` | TUI profile folder layout, add-a-TUI checklist, symptom-to-file table |
 | `packages/mcp-server/README.md` | MCP package/launcher |
 | [`docs/FEATURES.md`](FEATURES.md) | full user-facing feature list with where-it-lives and status |
+| [`docs/DEV-SPEED.md`](DEV-SPEED.md) | measured build and test times, the fast-loop scripts (`scripts/check.mjs`, `scripts/test-changed.mjs`, `scripts/where.mjs`), ranked ideas to go faster |
 | [`docs/TEST-PLAN.md`](TEST-PLAN.md) | automated suites (commands, expected counts) + manual/live test cases, known flaky tests and gaps |
 | `docs/specs/agent-definitions/` | declarative agent spec: `SPEC.md`, `DEFINITION-FORMAT.md`, `AGENT-CHOICE.md`, `PLAN.md`, `REPORT.md` (+ "After T37"), `phases/` |
 

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // "Finish without me" (SPEC 11.19), the front end's side: the switch, the writer pick, the AI look (prompt and reply),
 // the capture driven with no click, the visible test watched, and the whole run end to end with stand-in drafter and
 // classifier replies and a mock of the Rust side. Nobody presses a button anywhere in these tests.

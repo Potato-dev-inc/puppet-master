@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SPLIT_MEMORY_KEY, clearSplitMemory, parseSplitMemory, readSplitMemory, restorableSplit, writeSplitMemory } from './split-memory';
 
