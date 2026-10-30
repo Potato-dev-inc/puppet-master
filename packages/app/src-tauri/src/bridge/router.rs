@@ -136,6 +136,15 @@ pub(super) fn route(
         registry,
         app,
     };
+    // A helper started from a pane is nested under that pane: the process on the other end of the connection says which.
+    let _caller = (is_helper_start_route(method, segments) && !mobile_pairing::requires_pairing_token(headers, peer_loopback)).then(|| {
+        crate::pty::pane_parent::RequestCaller::enter(crate::companion::peer::caller_pane(
+            registry,
+            &crate::companion::peer::SystemTcp,
+            &crate::pty::agent_proc::snapshot,
+            peer,
+        ))
+    });
     routes::dispatch(&cx).unwrap_or_else(|| {
         Err((
             404,
@@ -147,6 +156,11 @@ pub(super) fn route(
     })
 }
 
+/// The routes that start a new agent (a helper): `run_agent`, `quick_ask`, `followup_task`, `delegate_work`, `spawn_agent`.
+fn is_helper_start_route(method: &str, segments: &[&str]) -> bool {
+    method == "POST" && matches!(segments, ["agents", "run" | "quick" | "followup"] | ["operations", "delegate"] | ["panes"])
+}
+
 /// `POST /panes/{id}/input` and `POST /panes/{id}/key`: typing into a pane.
 fn is_pane_typing_route(method: &str, segments: &[&str]) -> bool {
     method == "POST" && matches!(segments, ["panes", _, "input" | "key"])
@@ -154,7 +168,18 @@ fn is_pane_typing_route(method: &str, segments: &[&str]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_pane_typing_route;
+    use super::{is_helper_start_route, is_pane_typing_route};
+
+    #[test]
+    fn the_routes_that_start_a_helper_are_the_ones_that_record_a_caller() {
+        assert!(is_helper_start_route("POST", &["agents", "run"]));
+        assert!(is_helper_start_route("POST", &["agents", "quick"]));
+        assert!(is_helper_start_route("POST", &["operations", "delegate"]));
+        assert!(is_helper_start_route("POST", &["panes"]));
+        assert!(!is_helper_start_route("GET", &["panes"]));
+        assert!(!is_helper_start_route("POST", &["panes", "p1", "input"]));
+        assert!(!is_helper_start_route("POST", &["agents", "send"]));
+    }
 
     #[test]
     fn only_pane_input_and_keys_count_as_typing() {

@@ -42,6 +42,7 @@ fn request(project: &str, handle: &str, turn: u32, agent: &str) -> DelegateWorkR
         keep_pane: false,
         placement: None,
         owner_session_id: Some("delivery-session".into()),
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: Some(handle.into()),
         turn_index: turn,

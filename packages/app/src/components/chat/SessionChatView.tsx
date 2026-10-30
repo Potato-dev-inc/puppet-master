@@ -13,6 +13,8 @@ import { formatDuration } from './chatFormat';
 import { useChatViewMode, type ChatViewMode } from './chatViewMode';
 import { ChatMarkdown } from './ChatMarkdown';
 import { HelperRow } from './HelperRow';
+import { PaneHelperRows } from './PaneHelperRows';
+import { placeHelpers, type ChatHelper } from '../../lib/chat-helpers';
 import { NoticeLine } from './NoticeLine';
 import { RememberSelection } from './RememberSelection';
 import { currentPlan, PlanCard } from './PlanCard';
@@ -72,6 +74,10 @@ export interface SessionChatViewProps {
   canBranch?: boolean;
   /** `Branch` was pressed on the turn that the message with this id starts. */
   onBranch?: (userItemId: string) => void;
+  /** The helpers this pane's agent started through Puppet Master: compact rows in the turn they were started in. */
+  helpers?: readonly ChatHelper[];
+  /** A helper row was pressed: open that pane. */
+  onOpenPane?: (paneId: string) => void;
 }
 
 /** The button on a finished turn's end line. `always`: shown without hover (the newest finished turn). */
@@ -132,7 +138,7 @@ function TurnEndDivider({ turn, clip, branch }: { turn: ChatTurn; clip?: TurnCli
   );
 }
 
-function TurnView({ turn, fromScreen, markdown, mode, clip, branch }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean; mode: ChatViewMode; clip?: TurnClip; branch?: TurnBranch }) {
+function TurnView({ turn, fromScreen, markdown, mode, clip, branch, helpers, onOpenPane }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean; mode: ChatViewMode; clip?: TurnClip; branch?: TurnBranch; helpers?: readonly ChatHelper[]; onOpenPane?: (paneId: string) => void }) {
   const verbose = mode === 'verbose';
   // A turn with no end yet is still running: its rows without a result are live.
   const live = turn.end === null;
@@ -162,12 +168,13 @@ function TurnView({ turn, fromScreen, markdown, mode, clip, branch }: { turn: Ch
         }
         return <TextStep key={step.id} step={step} markdown={markdown} mode={mode} />;
       })}
+      {helpers && helpers.length > 0 && <PaneHelperRows helpers={helpers} onOpen={onOpenPane} />}
       {turn.end && <TurnEndDivider turn={turn} clip={clip} branch={branch} />}
     </section>
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, banner, overlay, aside, jump, readOnly, canClip, onMakeClip, canBranch, onBranch }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, banner, overlay, aside, jump, readOnly, canClip, onMakeClip, canBranch, onBranch, helpers, onOpenPane }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
   const markdown = source === 'file' || source === 'api';
@@ -178,6 +185,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
   // The same rule for `Branch`.
   const showBranch = !!canBranch && !!onBranch && !readOnly;
   const newestBranchable = useMemo(() => (showBranch ? lastClippableId(turns) : null), [showBranch, turns]);
+  const placedHelpers = useMemo(() => placeHelpers(turns, helpers ?? []), [turns, helpers]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
 
@@ -276,6 +284,8 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
               mode={mode}
               clip={canClip && onMakeClip && isClippable(turn) ? { onMake: () => onMakeClip(turn.user.id), always: turn.id === newestClippable } : undefined}
               branch={canBranch && !readOnly && onBranch && isClippable(turn) ? { onBranch: () => onBranch(turn.user.id), always: turn.id === newestBranchable } : undefined}
+              helpers={placedHelpers.get(turn.id)}
+              onOpenPane={onOpenPane}
             />
           ))}
         {state !== 'unavailable' && pending}

@@ -278,6 +278,7 @@ fn running_turn(project: &str, checks: Vec<super::checks::Check>) -> operations:
         keep_pane: true,
         placement: None,
         owner_session_id: Some("cap-session".into()),
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: Some(format!("cap-{}", Uuid::new_v4().simple())),
         turn_index: 0,

@@ -35,6 +35,7 @@ pub(super) fn request(dir: &Path, key: &str) -> DelegateWorkRequest {
         keep_pane: false,
         placement: None,
         owner_session_id: None,
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: None,
         turn_index: 0,

@@ -38,6 +38,7 @@ fn start_turn(project: &str, handle: &str, index: u32) -> operations::OperationS
         keep_pane: false,
         placement: None,
         owner_session_id: Some("budget-test".into()),
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: Some(handle.into()),
         turn_index: index,

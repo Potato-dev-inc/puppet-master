@@ -586,6 +586,7 @@ pub fn run_agent(
         keep_pane: request.keep_pane,
         placement: request.placement.clone(),
         owner_session_id: session_id,
+        parent_pane_id: crate::pty::pane_parent::request_caller(),
         worker_has_mcp_tools: false,
         agent_run_id: request.agent_run_id.clone(),
         turn_index: request.turn_index,

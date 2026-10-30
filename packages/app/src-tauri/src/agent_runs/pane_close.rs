@@ -345,6 +345,7 @@ mod tests {
             keep_pane,
             placement: None,
             owner_session_id: None,
+            parent_pane_id: None,
             worker_has_mcp_tools: false,
             agent_run_id: Some("handle".into()),
             turn_index: 0,
@@ -434,6 +435,7 @@ mod tests {
                 keep_pane: true,
                 placement: None,
                 owner_session_id: None,
+                parent_pane_id: None,
                 worker_has_mcp_tools: false,
                 // The run's own copy: a real isolated run's worktree carries the run's handle. A different
                 // handle means the run joined someone else's copy (a mission's), which it never discards.

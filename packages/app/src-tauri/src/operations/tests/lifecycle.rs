@@ -98,6 +98,7 @@ fn cancel_persisted_queued_operation() {
         placement: None,
         keep_pane_requested: None,
         owner_session_id: None,
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: "test-run".into(),
         turn_index: 0,
@@ -299,5 +300,27 @@ fn legacy_startup_resume_succeeds_for_observed_idle_pane() {
     assert_eq!(resumed.status, OperationStatus::Starting);
     assert_eq!(resumed.pane_state.as_deref(), Some("idle"));
     assert_eq!(resumed.required_action, None);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_operation_remembers_the_pane_its_request_came_from() {
+    let dir = temp();
+    let (plain, _) = create_operation(request(&dir, "no-caller")).unwrap();
+    assert_eq!(plain.parent_pane_id, None);
+    let (nested, _) = {
+        let _caller = crate::pty::pane_parent::RequestCaller::enter(Some("lead-pane".into()));
+        create_operation(request(&dir, "from-a-pane")).unwrap()
+    };
+    assert_eq!(nested.parent_pane_id.as_deref(), Some("lead-pane"));
+    // Kept: the stored record says the same.
+    let stored = get_operation(&dir.to_string_lossy(), &nested.operation_id).unwrap();
+    assert_eq!(stored.parent_pane_id.as_deref(), Some("lead-pane"));
+    // A body can never name a parent: the field is not read from JSON.
+    let from_body: DelegateWorkRequest = serde_json::from_value(serde_json::json!({
+        "project_path": "x", "task": "t", "idempotency_key": "k", "parent_pane_id": "forged"
+    }))
+    .unwrap();
+    assert_eq!(from_body.parent_pane_id, None);
     let _ = fs::remove_dir_all(dir);
 }

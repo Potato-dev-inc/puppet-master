@@ -434,6 +434,7 @@ mod tests {
             keep_pane: false,
             placement: None,
             owner_session_id: Some("agent-gone".into()),
+            parent_pane_id: None,
             worker_has_mcp_tools: false,
             agent_run_id: Some("agent-gone-run".into()),
             turn_index: 0,

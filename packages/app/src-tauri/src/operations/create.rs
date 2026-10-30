@@ -187,6 +187,7 @@ pub fn create_operation(
         keep_pane_requested: Some(req.keep_pane),
         placement: req.placement.clone(),
         owner_session_id: req.owner_session_id,
+        parent_pane_id: req.parent_pane_id.or_else(crate::pty::pane_parent::request_caller),
         worker_has_mcp_tools: req.worker_has_mcp_tools,
         agent_run_id,
         turn_index: req.turn_index,

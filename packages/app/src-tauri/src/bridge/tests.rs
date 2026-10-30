@@ -355,6 +355,7 @@ fn run_agent_unknown_type_returns_unknown_agent_type() {
         placement: None,
         keep_pane_requested: None,
         owner_session_id: None,
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: "run".into(),
         turn_index: 0,
@@ -408,6 +409,7 @@ fn delegate_work_unknown_type_keeps_invalid_agent_type() {
         keep_pane: false,
         placement: None,
         owner_session_id: None,
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: None,
         turn_index: 0,
@@ -1098,9 +1100,40 @@ mod pane_parent {
         let session = uuid::Uuid::new_v4().to_string();
         crate::mcp_sessions::note_session_pane(&session, &parent);
         crate::mcp_sessions::note_session_pid(&session, std::process::id());
-        note_pane_parent(&registry, Some(&session), &child);
+        note_pane_parent(&registry, Some(&session), None, &child);
         assert_eq!(parent_of(&registry, &child).as_deref(), Some(parent.as_str()));
         assert_eq!(parent_of(&registry, &parent), None, "the parent itself is untouched");
+    }
+
+    #[test]
+    fn a_helper_started_by_plain_http_from_a_pane_is_nested_under_the_pane_the_os_placed_it_in() {
+        // No MCP session, no header: the caller pane came from the connection's own process tree.
+        let (registry, parent, child) = registry(1);
+        note_pane_parent(&registry, None, Some(&parent), &child);
+        assert_eq!(parent_of(&registry, &child).as_deref(), Some(parent.as_str()));
+        assert_eq!(parent_of(&registry, &parent), None, "the parent itself is untouched");
+    }
+
+    #[test]
+    fn the_caller_pane_wins_over_a_forged_hint_and_is_kept_for_the_panes_life() {
+        let (registry, parent, child) = registry(1);
+        let session = uuid::Uuid::new_v4().to_string();
+        crate::mcp_sessions::note_session_pane(&session, "some-other-pane");
+        note_pane_parent(&registry, Some(&session), Some(&parent), &child);
+        assert_eq!(parent_of(&registry, &child).as_deref(), Some(parent.as_str()));
+        // Set once: a later call (a second run on the pane) does not move it.
+        note_pane_parent(&registry, None, Some("another"), &child);
+        assert_eq!(parent_of(&registry, &child).as_deref(), Some(parent.as_str()));
+    }
+
+    #[test]
+    fn a_caller_pane_that_is_gone_or_is_the_child_itself_earns_nothing() {
+        let (registry, parent, child) = registry(1);
+        *registry.lock().panes[&parent].exited.lock() = true;
+        note_pane_parent(&registry, None, Some(&parent), &child);
+        note_pane_parent(&registry, None, Some(&child), &child);
+        note_pane_parent(&registry, None, Some("no-such-pane"), &child);
+        assert_eq!(parent_of(&registry, &child), None);
     }
 
     #[test]
@@ -1117,7 +1150,7 @@ mod pane_parent {
         let session = uuid::Uuid::new_v4().to_string();
         crate::mcp_sessions::note_session_pane(&session, &companion);
         crate::mcp_sessions::note_session_pid(&session, std::process::id());
-        note_pane_parent(&registry, Some(&session), &child);
+        note_pane_parent(&registry, Some(&session), None, &child);
         assert_eq!(parent_of(&registry, &child).as_deref(), Some(companion.as_str()));
     }
 
@@ -1128,7 +1161,7 @@ mod pane_parent {
         let session = uuid::Uuid::new_v4().to_string();
         crate::mcp_sessions::note_session_pane(&session, &parent);
         crate::mcp_sessions::note_session_pid(&session, std::process::id());
-        note_pane_parent(&registry, Some(&session), &child);
+        note_pane_parent(&registry, Some(&session), None, &child);
         if crate::pty::agent_proc::snapshot().is_some() {
             assert_eq!(parent_of(&registry, &child), None);
         }
@@ -1139,14 +1172,14 @@ mod pane_parent {
         let (registry, parent, child) = registry(std::process::id());
         let silent = uuid::Uuid::new_v4().to_string();
         crate::mcp_sessions::note_session_pid(&silent, std::process::id());
-        note_pane_parent(&registry, Some(&silent), &child);
-        note_pane_parent(&registry, None, &child);
+        note_pane_parent(&registry, Some(&silent), None, &child);
+        note_pane_parent(&registry, None, None, &child);
         assert_eq!(parent_of(&registry, &child), None);
         // A hint for a pane that does not exist is dropped too.
         let ghost = uuid::Uuid::new_v4().to_string();
         crate::mcp_sessions::note_session_pane(&ghost, "no-such-pane");
         crate::mcp_sessions::note_session_pid(&ghost, std::process::id());
-        note_pane_parent(&registry, Some(&ghost), &child);
+        note_pane_parent(&registry, Some(&ghost), None, &child);
         assert_eq!(parent_of(&registry, &child), None);
         let _ = parent;
     }

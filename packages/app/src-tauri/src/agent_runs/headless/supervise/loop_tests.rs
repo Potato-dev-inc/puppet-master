@@ -26,6 +26,7 @@ fn run_with_timeout(timeout_ms: u64) -> OperationSnapshot {
         keep_pane: false,
         placement: None,
         owner_session_id: Some("supervisor-loop".into()),
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: None,
         turn_index: 0,

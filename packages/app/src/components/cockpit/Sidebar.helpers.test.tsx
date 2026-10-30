@@ -110,3 +110,27 @@ describe('sidebar helpers', () => {
     expect(c.select).toHaveBeenCalledWith('h1');
   });
 });
+
+describe('sidebar helpers: the fold is remembered per parent', () => {
+  const two = () => api([pane('p', 'running', 'Refactor auth'), pane('h1', 'running', 'Check tests', 'p'), pane('q', 'running', 'Write docs'), pane('h2', 'running', 'Read specs', 'q')]);
+
+  it('keeps a folded parent folded after the sidebar is shown again, and leaves the other parent open', async () => {
+    await render(two());
+    const chips = () => [...host.querySelectorAll<HTMLButtonElement>('.ck-helper-chip')];
+    await act(async () => chips()[0].click());
+    expect(titles()).toEqual(['Refactor auth', 'Write docs', 'Read specs']);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await render(two());
+    expect(titles()).toEqual(['Refactor auth', 'Write docs', 'Read specs']);
+    expect(chips().map((c) => c.getAttribute('aria-expanded'))).toEqual(['false', 'true']);
+    await act(async () => chips()[0].click());
+    expect(titles()).toEqual(['Refactor auth', 'Check tests', 'Write docs', 'Read specs']);
+  });
+
+  it('starts open when storage holds nothing usable', async () => {
+    localStorage.setItem('pm.sidebar.helpersFolded', '{not json');
+    await render(two());
+    expect(titles()).toEqual(['Refactor auth', 'Check tests', 'Write docs', 'Read specs']);
+  });
+});

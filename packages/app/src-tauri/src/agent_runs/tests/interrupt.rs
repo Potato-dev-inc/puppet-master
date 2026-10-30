@@ -27,6 +27,7 @@ fn cancellation_selection_orders_all_active_turns_newest_first() {
             keep_pane: false,
             placement: None,
             owner_session_id: Some("cancel-test-session".into()),
+            parent_pane_id: None,
             worker_has_mcp_tools: false,
             agent_run_id: Some("cancel-test-handle".into()),
             turn_index,

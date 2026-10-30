@@ -17,7 +17,7 @@ import '../../styles/cockpit-helpers.css';
 import { DotSpinner } from './DotSpinner';
 import { IconChart, IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, spinnerStatus } from './model';
-import { groupHelperTree, helperChipText, type HelperNode } from '../../lib/pane-helpers';
+import { groupHelperTree, helperChipText, readFoldedParents, writeFoldedParents, type HelperNode } from '../../lib/pane-helpers';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
@@ -91,11 +91,12 @@ export function Sidebar({
   const questionPanes = needsYouPaneIds(needs);
   const groups = groupHelperTree(panes, questionPanes);
   // Parents whose helpers the person folded away (the helpers that need you stay listed in Needs you).
-  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const [folded, setFolded] = useState<ReadonlySet<string>>(readFoldedParents);
   const toggleFolded = (id: string) =>
     setFolded((prev) => {
       const next = new Set(prev);
       if (!next.delete(id)) next.add(id);
+      writeFoldedParents(next);
       return next;
     });
   const waiting = blockingItems(needs).length;

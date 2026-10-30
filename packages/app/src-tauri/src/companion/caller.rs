@@ -70,6 +70,22 @@ pub fn companion_panes(registry: &Arc<Mutex<PaneRegistry>>) -> Vec<CompanionPane
         .collect()
 }
 
+/// Every live pane of the registry (companion or not), for placing a caller in the pane whose process tree it sits in
+/// (`peer::caller_pane`: the parent a helper is nested under).
+pub fn live_panes(registry: &Arc<Mutex<PaneRegistry>>) -> Vec<CompanionPane> {
+    let reg = registry.lock();
+    reg.panes
+        .iter()
+        .map(|(id, pane)| {
+            let mut roots = vec![pane.info.pid];
+            if let Some(serve) = pane.opencode.as_ref().and_then(|link| link.serve_pid()) {
+                roots.push(serve);
+            }
+            CompanionPane { id: id.clone(), roots, exited: *pane.exited.lock() }
+        })
+        .collect()
+}
+
 /// A companion's whole territory: its own pane, and every pane started under it (the `parent_pane_id` chain, so
 /// its helpers and their helpers). One entry per pane of the territory, named by the companion pane at the top,
 /// so a process in a helper's tree is placed in the companion's. Not for `companion_recall`: a helper is not the

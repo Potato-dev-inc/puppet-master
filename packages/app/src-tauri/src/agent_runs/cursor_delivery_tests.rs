@@ -200,6 +200,7 @@ fn closing_a_run_parked_on_workspace_trust_does_not_claim_an_interrupted_turn() 
         keep_pane: false,
         placement: None,
         owner_session_id: Some("trust-session".into()),
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: Some("trusty".into()),
         turn_index: 0,

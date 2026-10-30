@@ -101,5 +101,32 @@ pub fn set_parent(registry: &Arc<Mutex<PaneRegistry>>, child: &str, parent: &str
     }
 }
 
+thread_local! {
+    static REQUEST_CALLER: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// While alive, the pane whose agent is on the other end of the bridge request this thread is serving (found by the
+/// router from the TCP connection's process, `companion::peer::caller_pane`). Operations created and panes spawned on
+/// this thread record it as their parent. Cleared when dropped, so a pooled thread never carries it to the next request.
+pub struct RequestCaller(());
+
+impl RequestCaller {
+    pub fn enter(pane: Option<String>) -> Self {
+        REQUEST_CALLER.with(|slot| *slot.borrow_mut() = pane);
+        RequestCaller(())
+    }
+}
+
+impl Drop for RequestCaller {
+    fn drop(&mut self) {
+        REQUEST_CALLER.with(|slot| *slot.borrow_mut() = None);
+    }
+}
+
+/// The pane the request being served on this thread came from (see [`RequestCaller`]).
+pub fn request_caller() -> Option<String> {
+    REQUEST_CALLER.with(|slot| slot.borrow().clone())
+}
+
 #[cfg(test)]
 mod tests;

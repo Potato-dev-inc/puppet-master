@@ -19,6 +19,7 @@ import { subscribePaneActions, type PaneAction } from '../../lib/pane-actions';
 import { SessionRail } from './rail/SessionRail';
 import { useRailLayout } from './rail/useRailLayout';
 import { helperRows } from './rail/helperRows';
+import { chatHelpers } from '../../lib/chat-helpers';
 import { DockedCards } from './DockedCards';
 import { HelperQuestions, helperQuestionIds } from './HelperQuestions';
 import { formatElapsed, spinnerStatus, stateText } from './model';
@@ -274,6 +275,10 @@ export function PaneView({
   // The Chat tab shows the same docked cards as the Terminal tab, under the conversation.
   // The questions of this pane's helpers (its direct helpers and, for the top pane, every helper under it) wait here too.
   const helperAsks = helperQuestionIds(c, paneId);
+  // The helpers this pane's agent started: compact rows in its chat, in the turn they began in. A card waiting on the
+  // person counts as "needs you" whatever the helper's status says.
+  const askingPanes = new Set(c.asked.questions.map((q) => q.pane_id).filter((id): id is string => !!id));
+  const startedHelpers = chatHelpers(c.registry.paneList, paneId, (p) => c.names.get(p.info.id) ?? p.info.agent_type, askingPanes);
   const chatDock =
     dockNow || helperAsks.length > 0 ? (
       <>
@@ -402,7 +407,7 @@ export function PaneView({
           )}
           {tab === 'chat' && chatAllowed && (
             <div className="ck-scroll ck-fade-in" key="chat">
-              <SessionChatPanel paneId={paneId} dock={chatDock} screenAsk={screenAsk} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} onOpenPane={(id) => c.select(id)} />
+              <SessionChatPanel paneId={paneId} dock={chatDock} screenAsk={screenAsk} helpers={startedHelpers} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} onOpenPane={(id) => c.select(id)} />
             </div>
           )}
           {tab === 'changes' && worktree && (

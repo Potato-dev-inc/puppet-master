@@ -109,3 +109,26 @@ export function helperOfLabel<T extends PaneLike>(
   const parent = parentId ? list.find((p) => p.info.id === parentId) : undefined;
   return parent && parentId ? { parentId, text: `Helper of ${titleOf(parent)}` } : null;
 }
+
+/** localStorage key: the ids of parents whose helpers the person folded away. */
+export const LS_HELPERS_FOLDED = 'pm.sidebar.helpersFolded';
+const MAX_FOLDED = 200;
+
+/** The parents folded last time (empty when nothing was kept or storage is unavailable). */
+export function readFoldedParents(): Set<string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(LS_HELPERS_FOLDED) ?? 'null');
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string').slice(-MAX_FOLDED) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Remember the folded parents (the newest ones when there are many). Never throws. */
+export function writeFoldedParents(folded: ReadonlySet<string>): void {
+  try {
+    localStorage.setItem(LS_HELPERS_FOLDED, JSON.stringify([...folded].slice(-MAX_FOLDED)));
+  } catch {
+    /* the fold is a convenience; it works without storage */
+  }
+}

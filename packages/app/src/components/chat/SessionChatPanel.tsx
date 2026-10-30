@@ -19,6 +19,7 @@ import { ScreenQuestionCard } from './ScreenQuestionCard';
 import { lastClippableId, SessionChatView } from './SessionChatView';
 import { useSideQuestion } from './useSideQuestion';
 import { useChatJump } from '../../lib/chatJump';
+import type { ChatHelper } from '../../lib/chat-helpers';
 
 export interface ChatReply {
   /** Why the message box is switched off, or null. */
@@ -42,7 +43,7 @@ export interface ScreenAsk {
   onOpenTerminal?: () => void;
 }
 
-export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOpenPane, screenAsk }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; clipApi?: ClipApi; onOpenPane?: (paneId: string) => void; screenAsk?: ScreenAsk }) {
+export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOpenPane, screenAsk, helpers }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; clipApi?: ClipApi; onOpenPane?: (paneId: string) => void; screenAsk?: ScreenAsk; /** The helpers this pane started through Puppet Master (rows in the turn they began in). */ helpers?: readonly ChatHelper[] }) {
   const chat = useSessionChat(paneId, true);
   const outbox = usePaneOutbox(tauriOutboxTransport, paneId, !!reply);
   const userTexts = useMemo(() => chat.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [chat.turns]);
@@ -71,6 +72,8 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
         cliVersion={chat.cliVersion}
         paneId={paneId}
         jump={jump}
+        helpers={helpers}
+        onOpenPane={onOpenPane}
         remember
         emptyNote={emptyNote}
         headerExtra={chat.state === 'unavailable' ? undefined : side.button}
