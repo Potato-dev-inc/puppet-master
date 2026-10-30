@@ -1,6 +1,8 @@
 // Two panes side by side in the sidebar; each one keeps its own folder.
 import { PANE_ROW, selectPane } from '../_helpers.mjs';
 
+import { calm } from './_area.mjs';
+
 export const meta = {
   id: 'panes.two-agents',
   title: 'Two agent panes are listed and each shows its own folder',
@@ -11,6 +13,7 @@ export const meta = {
 const folderShown = async (t) => (await t.page.text()).match(/Folder\s*\n([^\n]+)/)?.[1] || '';
 
 export async function run(t) {
+  await calm(t);
   await t.step('Start two fake agents in two folders');
   await t.spawnPane('nimbus', { cwd: t.project('alpha') });
   await t.spawnPane('nimbus', { cwd: t.project('beta') });
