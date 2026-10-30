@@ -718,6 +718,10 @@ impl TuiProfile for DeclarativeProfile {
         self.def.hooks.clone()
     }
 
+    fn pane_mcp_table(&self) -> Option<crate::tui::pane_mcp::PaneMcpTable> {
+        self.def.pane_mcp.clone()
+    }
+
     fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
         self.chat_source.map(|source| source as &'static dyn crate::session_chat::SessionSource)
     }

@@ -144,6 +144,22 @@ afterEach(async () => {
   await m?.unmount();
 });
 
+describe('Agents: helper tools inside agent panes', () => {
+  it('is on by default and saves only {pane_mcp_enabled} when switched', async () => {
+    await mount();
+    expect(rowOf('helper-tools')).toBeTruthy();
+    expect(switchFor('Puppet Master helpers inside agents')!.getAttribute('aria-checked')).toBe('true');
+    await click(switchFor('Puppet Master helpers inside agents'));
+    expect(m.env.patches).toEqual([{ pane_mcp_enabled: false }]);
+  });
+
+  it('reads a saved off as off', async () => {
+    m = await mountRows(agentsRows, { settings: { ...BASE_SETTINGS, pane_mcp_enabled: false } });
+    await settle(10);
+    expect(switchFor('Puppet Master helpers inside agents')!.getAttribute('aria-checked')).toBe('false');
+  });
+});
+
 describe('Agents: every row renders', () => {
   it('shows the three rows, each with its key controls', async () => {
     await mount();
@@ -183,10 +199,10 @@ describe('Agents: every row renders', () => {
     expect(buttonByText(m.host, 'Save changes')).toBeUndefined();
   });
 
-  it('groups the rows: Logins, Speed, Updates, Live updates, Keep going, Linux, Same file, then Definitions (whose own block carries the title)', async () => {
+  it('groups the rows: Logins, Speed, Helpers, Updates, Live updates, Keep going, Linux, Same file, then Definitions (whose own block carries the title)', async () => {
     await mount();
     const heads = [...m.host.querySelectorAll('section.st-group')].map((g) => g.querySelector(':scope > h2')?.textContent?.trim() ?? '');
-    expect(heads).toEqual(['Logins', 'Speed', 'Updates', 'Live updates', 'Keep going', 'Linux', 'Same file', '']);
+    expect(heads).toEqual(['Logins', 'Speed', 'Helpers', 'Updates', 'Live updates', 'Keep going', 'Linux', 'Same file', '']);
   });
 
   it('mounts the same-file switch under Same file and it is found by search', async () => {

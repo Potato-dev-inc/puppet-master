@@ -21,6 +21,7 @@ pub mod generic;
 pub mod install;
 pub mod menu_shape;
 pub mod opencode;
+pub mod pane_mcp;
 pub mod registry;
 pub mod shell;
 pub mod side_panel;

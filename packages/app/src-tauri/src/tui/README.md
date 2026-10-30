@@ -10,6 +10,7 @@ tui/
   profile.rs      TuiProfile trait (every per-agent behaviour, with generic defaults)
   types.rs        Kind, Features, LaunchSpec, HeadlessLaunch, Reply, Warning, RunFacts
   generic.rs      default prompt handling + the profile for unregistered agent types
+  pane_mcp.rs     Puppet Master's own MCP server for one launch: types, the `[pane_mcp]` table, `render` (an agent's own way: `pane_mcp.toml` or `pane_mcp.rs` in its folder; the orchestration is `crate::pane_mcp`)
   conformance.rs  rules every registered profile must pass (runs for new profiles automatically)
   declarative/    agents defined by TOML files (schema, loader, approvals, DeclarativeProfile); see "Adding an agent without code"
   cursor/         Cursor Agent CLI (`agent` alias preferred) + interactive `cursor` alias

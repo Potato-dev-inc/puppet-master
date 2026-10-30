@@ -88,6 +88,21 @@ export const agentsRows: RowDef[] = [
     render: (env) => <PreloadSettings onSaved={env.markSaved} />,
   },
   {
+    id: 'helper-tools',
+    label: 'Puppet Master helpers inside agents',
+    hint: 'Give every agent you open here the Puppet Master helper tools, ready with no setup.',
+    keywords: 'mcp helpers helper tools run agent wait agents subagent spawn inside pane panes automatic setup bridge claude codex opencode',
+    group: 'Helpers',
+    render: (env) => (
+      <SettingToggle
+        label="Puppet Master helpers inside agents"
+        description="Claude Code, Codex and OpenCode panes started here get Puppet Master's helper tools ready, so you can say: use Puppet Master helpers. Your own agent settings files are never changed. Applies to panes you open after switching."
+        checked={env.settings.pane_mcp_enabled ?? true}
+        onChange={(value) => void env.patch({ pane_mcp_enabled: value })}
+      />
+    ),
+  },
+  {
     id: 'versions',
     label: 'Agent versions',
     hint: 'Check that an agent still starts the way Puppet Master expects after it updates.',

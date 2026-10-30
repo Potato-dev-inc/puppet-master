@@ -1,0 +1,9 @@
+# Puppet Master's MCP server for one Claude Code launch, with no change to the person's own config.
+# Checked live on 2.1.314: `--mcp-config <file>` adds the server next to the person's own servers
+# (it is not `--strict-mcp-config`) and `--append-system-prompt` appends to the default prompt.
+# `--mcp-config` takes several values, so the table's arguments come last, before any other flag.
+shape = "mcp_servers"
+args = ["--mcp-config", "{config_file}"]
+note_args = ["--append-system-prompt", "{note}"]
+# The person chose their own system text: the server is still added, the note is not.
+note_unless_arg = ["--append-system-prompt", "--system-prompt"]

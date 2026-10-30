@@ -35,6 +35,7 @@ mod events;
 mod mcp_hints;
 mod mcp_install;
 mod mcp_runtime;
+mod pane_mcp;
 pub mod mcp_sessions;
 mod mcp_status;
 mod missions;

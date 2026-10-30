@@ -147,3 +147,92 @@ fn model_matches_filter_respects_provider_and_model() {
         Some("deepseek")
     ));
 }
+
+// ---- a refused connection is retried; anything that may have arrived is not ----
+
+fn free_port() -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap().port()
+}
+
+#[test]
+fn a_refused_connection_is_a_connect_failure_and_an_http_error_is_not() {
+    let port = free_port();
+    let error = ureq::post(&format!("http://127.0.0.1:{port}/x")).timeout(Duration::from_secs(2)).call().unwrap_err();
+    assert!(is_connect_failure(&error.to_string()), "{error}");
+    assert!(is_connect_failure("opencode prompt_async: Connection Failed: Connect error"));
+    // The request may have arrived in each of these: it must never be sent twice.
+    assert!(!is_connect_failure("opencode prompt_async: timed out reading response"));
+    assert!(!is_connect_failure("opencode prompt_async: connection reset by peer"));
+    assert!(!is_connect_failure("opencode create session: HTTP 500 connection refused upstream"));
+}
+
+#[test]
+fn the_retry_waits_the_given_pauses_then_returns_the_last_error() {
+    let mut slept = Vec::new();
+    let mut tries = 0;
+    let delays = [Duration::from_millis(1), Duration::from_millis(2)];
+    let result: Result<(), String> = retry_never_arrived(&delays, |d| slept.push(d), |e: &String| e == "refused", || {
+        tries += 1;
+        Err("refused".to_string())
+    });
+    assert_eq!(result, Err("refused".to_string()));
+    assert_eq!((tries, slept.len()), (3, 2), "the first try plus one per pause");
+}
+
+#[test]
+fn the_retry_stops_at_once_on_an_error_that_may_have_arrived_or_on_success() {
+    let mut tries = 0;
+    let result: Result<(), String> = retry_never_arrived(&[Duration::ZERO; 3], |_| {}, |e: &String| e == "refused", || {
+        tries += 1;
+        Err("timed out".to_string())
+    });
+    assert!(result.is_err());
+    assert_eq!(tries, 1);
+    let mut tries = 0;
+    let ok: Result<u8, String> = retry_never_arrived(&[Duration::ZERO; 3], |_| {}, |e: &String| e == "refused", || {
+        tries += 1;
+        if tries < 3 { Err("refused".into()) } else { Ok(7) }
+    });
+    assert_eq!((ok, tries), (Ok(7), 3));
+}
+
+#[test]
+fn a_prompt_sent_while_the_server_is_still_coming_up_gets_through() {
+    use std::io::{Read, Write};
+    let port = free_port();
+    // The server binds half a second AFTER the first try: the old code failed the run there.
+    let server = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        let listener = std::net::TcpListener::bind(("127.0.0.1", port)).expect("bind the same port");
+        let (mut stream, _) = listener.accept().unwrap();
+        // Read the whole request (headers and body) before answering, or the close resets the connection.
+        let mut buf = [0u8; 4096];
+        let mut seen = Vec::new();
+        stream.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+        while let Ok(n) = stream.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            seen.extend_from_slice(&buf[..n]);
+            if String::from_utf8_lossy(&seen).contains("\"hello\"") {
+                break;
+            }
+        }
+        let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+    });
+    let result = prompt_async(&format!("http://127.0.0.1:{port}"), "ses_x", None, "hello", None);
+    server.join().unwrap();
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn a_server_that_never_comes_up_still_fails_with_the_connection_error() {
+    let port = free_port();
+    let started = Instant::now();
+    let error = prompt_async(&format!("http://127.0.0.1:{port}"), "ses_x", None, "hello", None).unwrap_err();
+    assert_eq!(error.status, 0);
+    assert!(is_connect_failure(&error.body), "{}", error.body);
+    // Bounded: four tries (Windows takes ~2 s to refuse each) and 2.5 s of pauses, never the 30 s request timeout per try.
+    assert!(started.elapsed() < Duration::from_secs(25), "{:?}", started.elapsed());
+}

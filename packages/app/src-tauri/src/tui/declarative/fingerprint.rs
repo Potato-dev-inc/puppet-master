@@ -84,6 +84,11 @@ pub fn canonical_value(def: &Definition, source: Source, project: Option<&str>, 
     if let Some(chat) = &def.session_chat {
         value["session_chat"] = serde_json::to_value(chat).unwrap_or(Value::Null);
     }
+    // It adds arguments and variables to every pane launch, so it is approved with the definition.
+    // Added only when present, like the tables above.
+    if let Some(table) = &def.pane_mcp {
+        value["pane_mcp"] = serde_json::to_value(table).unwrap_or(Value::Null);
+    }
     value
 }
 

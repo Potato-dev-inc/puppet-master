@@ -75,6 +75,10 @@ impl TuiProfile for Claude {
         crate::tui::declarative::hooks::parse_hooks_toml(include_str!("hooks.toml"))
     }
 
+    fn pane_mcp_table(&self) -> Option<crate::tui::pane_mcp::PaneMcpTable> {
+        crate::tui::pane_mcp::parse_pane_mcp_toml(include_str!("pane_mcp.toml"))
+    }
+
     fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
         Some(&session_source::SOURCE)
     }

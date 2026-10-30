@@ -112,6 +112,8 @@ export const SettingsSchema = z.object({
   agent_hooks_mode: z.enum(['off', 'shadow', 'evidence']).optional(),
   /** Per-agent override of agent_hooks_mode, keyed by agent id. */
   agent_hooks_agents: z.record(z.string(), z.enum(['off', 'shadow', 'evidence'])).optional(),
+  /** Puppet Master's helper tools (run_agent, wait_agents) given to every agent pane for its launch. On unless false. Rust: pane_mcp. */
+  pane_mcp_enabled: z.boolean().optional(),
   /** Missions (Preview, Settings › General › Labs): goal + checks + budget, worked on in rounds. Off unless chosen. Rust: missions. */
   missions_enabled: z.boolean().optional(),
   /** Night Shift (Settings › General › Labs): plan tasks for tonight, review them in the morning. Off unless chosen. Rust: night_shift. */

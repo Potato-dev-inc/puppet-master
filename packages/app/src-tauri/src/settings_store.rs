@@ -24,6 +24,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "budget_default_minutes",
     "agent_hooks_mode",
     "agent_hooks_agents",
+    "pane_mcp_enabled",
     "missions_enabled",
     "night_shift_enabled",
 ];
@@ -50,6 +51,8 @@ pub fn default_public_settings() -> Value {
         // Hook Lane (founder decision 2026-10-14): watch-only hooks for agents that declare them.
         "agent_hooks_mode": "shadow",
         "agent_hooks_agents": {},
+        // Puppet Master's helper tools ready inside every agent pane (on unless the person turns it off).
+        "pane_mcp_enabled": true,
         // Missions (Preview): off until the person turns them on in Settings › General › Labs.
         "missions_enabled": false,
         // Night Shift (Labs): hours of unattended work, so off until the person turns it on.
@@ -94,6 +97,7 @@ pub fn mirror_public_patch(app: &AppHandle, patch: &Value) -> Value {
     }
     crate::bridge::push_settings_sse(&merged);
     crate::agent_hooks::apply_settings(&merged);
+    crate::pane_mcp::apply_settings(&merged);
 
     if let Some(backend) = merged.get("orchestrator_backend").and_then(Value::as_str) {
         if backend != "api" {
@@ -136,6 +140,7 @@ pub fn load_saved_public_settings(app: &AppHandle) {
     crate::chat_index::apply_setting(file.get("settings").unwrap_or(&Value::Null));
     crate::bridge::push_settings_sse(&merged);
     crate::agent_hooks::apply_settings(&merged);
+    crate::pane_mcp::apply_settings(&merged);
 }
 
 #[cfg(test)]
