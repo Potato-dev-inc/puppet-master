@@ -77,7 +77,7 @@ depends on, rebuild the dist MCP exe with a separate `CARGO_TARGET_DIR` and rena
 
 ## 2. Manual / live cases
 
-Setup: dev app running (tray-only: no main window ever appears), bridge healthy (`GET /health` gives `build_id`), `kilo` installed and its definition approved. "Bridge" = `http://127.0.0.1:17321`.
+Setup: dev app running (started with `--no-window` / `PUPPET_MASTER_NO_WINDOW=1`, so no window appears on the screen), bridge healthy (`GET /health` gives `build_id`), `kilo` installed and its definition approved. "Bridge" = `http://127.0.0.1:17321`.
 
 ### 2.1 Agent definitions (Settings > Agents)
 1. **Import to active (Kiro).** Import `kiro.toml` (Import button). Expect: row appears at once, state "Needs approval", no restart. Open Review: argv shown (`kiro-cli chat --output-format stream-json ...`), binary path, warnings, diff. Approve. Expect: state Active; toast says the registry updated, no restart needed. File > New session menu lists Kiro greyed (headless-only) with a reason; the Overview Agents card lists it. Both update without restart.
@@ -104,8 +104,8 @@ Setup: dev app running (tray-only: no main window ever appears), bridge healthy 
 10. **Slow-start TUI.** A visible run on a TUI that takes seconds to draw: the prompt is delivered once drawn (up to 20 s), no lost first turn.
 
 ### 2.3 Panes-first windows and lifecycle (replaces the grid/main-window cases)
-1. **Tray start.** Start the app (dev: the "puppet-master dev app" tab). Expect no window at all, the log line "tray icon created", `GET /panes` = `[]`, and no Puppet Master window rows from the window-monitor script. The tray menu (show hidden icons) has New pane / Panes / Settings... / Quit; left-click opens Settings. **Human step, unverified by agents:** clicking the real tray icon and menu entries.
-2. **Settings via second launch.** A second launch of the exe (by hand, or a hidden `Start-Process` in dev) opens the Settings window on the Agents tab (focus allowed, user-opened) and the second process exits. No main window appears.
+1. **Start.** Start the app normally (dev: the "puppet-master dev app" tab). Expect the primary window (cockpit in Orchestration mode, Settings in Individual mode) to open focused with a taskbar button, the log line "tray icon created" and `GET /panes` = `[]`. A sign-in start (`--background`), a `--worker` host and a `--no-window` / `PUPPET_MASTER_NO_WINDOW=1` start open no primary window (tray only; the window-monitor script lists no Puppet Master rows). Closing the window leaves the app in the tray. The tray menu (show hidden icons) has New pane / Panes / Settings... / Quit; left-click opens Settings. **Human step, unverified by agents:** clicking the real tray icon and menu entries.
+2. **Settings via second launch.** A second launch of the exe (by hand, or a hidden `Start-Process` in dev) opens the Settings window on the Agents tab (focus allowed, user-opened) and the second process exits.
 3. **New pane.** `puppet-master.exe --new-pane kilo` (or tray New pane > kilo): one pane window, unfocused, on the anchor monitor; a second one is cascaded (offset) from the first.
 4. **Close pane window kills pane.** Close a pane window (X / WM_CLOSE): `GET /panes` no longer lists it and its process is gone.
 5. **Window anchor on the secondary monitor (dev).** With `packages/app/src-tauri/pm-dev.local.json` present the app logs "window anchor <x>,<y> (pm-dev.local.json)"; Settings and pane windows open there and `scripts/check-window-monitor.ps1` exits 0. Priority is `PM_WINDOW_ANCHOR` > `settings.json` `pane_window_position` > primary monitor.
@@ -121,7 +121,7 @@ Setup: dev app running (tray-only: no main window ever appears), bridge healthy 
 5. **Hostile project folder.** A project containing `.puppet-master/agents/*.toml` loads nothing until consent plus approval.
 
 ### 2.5 External MCP clients
-**Codex external run (panes-first proof, PF3):** `codex exec ...` asking it to call `run_agent` for kilo with no `headless`/`placement`: expect a kilo pane window to open and close, the result text, `fallback: null`, and no main window.
+**Codex external run (panes-first proof, PF3):** `codex exec ...` asking it to call `run_agent` for kilo with no `headless`/`placement`: expect a kilo pane window to open and close, the result text, `fallback: null`, and no extra window beyond the primary one.
 
 Codex as an external client (PowerShell-quoted; adjust the model id if unavailable):
 ```

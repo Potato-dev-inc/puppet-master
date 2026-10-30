@@ -4,7 +4,7 @@ expression: timeline.render()
 ---
       0 ms  status    running (start)
     200 ms  composer  Empty
-   5200 ms  status    idle (screen held still)
+   1000 ms  status    idle (screen held still)
   10000 ms  resize    141x51
   10040 ms  status    idle (screen read running, held back)
   20000 ms  status    running

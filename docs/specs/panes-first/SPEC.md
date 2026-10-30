@@ -1,5 +1,7 @@
 # Panes-first: product direction and phases
 
+> Update 2026-10-30: the "no main window at startup" rule below is superseded. A normal start now opens the primary window like any app; a sign-in start (`--background`), a `--worker` host and a `--no-window` start stay tray-only. See docs/FEATURES.md section 0.
+
 Decided by the user on 2026-10-12.
 
 ## Decisions

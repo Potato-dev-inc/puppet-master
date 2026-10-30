@@ -37,7 +37,7 @@ Paths are relative to `packages/app/src/` (UI) or `packages/app/src-tauri/src/` 
 - Menu rebuilds on pane / definition / standby changes. New-pane failures are only logged.
 
 ### 1.2 App lifecycle & windows (`lib.rs`, `app_windows.rs`, `pane_windows.rs`)
-- **Tray-only start**, no first-run hint. **Second launch** opens Settings; `--new-pane <agent>` opens just that pane.
+- **Normal start** opens the primary window (cockpit or Settings); a sign-in start (`--background`) stays tray-only; no first-run hint. **Second launch** opens Settings; `--new-pane <agent>` opens just that pane.
 - Closing the last window does not quit.
 - **Settings window** 1100×760 (min 720×480), opens on the **Agents** tab, X only hides it.
 - **Pane window**: title `agentid · id8` (never changes), size from grid (cols×7.25, rows×16), unfocused when an agent opens it, focused when the user asked; placement by anchor (`PM_WINDOW_ANCHOR` env → `settings.json pane_window_position` (no UI) → primary monitor) + 28 px cascade.
@@ -340,7 +340,7 @@ Paths are relative to `packages/app/src/` (UI) or `packages/app/src-tauri/src/` 
   - "Download & install" only opens a page.
   - Agent-specific copy in generic settings ("Claude reprints").
 - **First-run & feedback.**
-  - Tray-only start with no hint.
+  - Start with no hint.
   - Silent failures (tray New pane).
   - Phone offline state is only a small dot.
   - No PWA update notice.
