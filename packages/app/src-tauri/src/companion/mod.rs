@@ -22,6 +22,7 @@
 //!   registry, outbox, attention list and session chat, and runs the thread `companion-keeper`
 //! - `service`: the tick over every companion; `manage`: create, edit, wake, sleep, memory, check-ins
 //! - `moving`: move a companion to another agent and back (never while it is busy)
+//! - `broad`: which folders are too broad to be a home; `rehome`: move a companion out of one
 //! - `today`: `today.md`, the day's turns of the person's other agents (opt-in per companion)
 //! - `view`: `CompanionView` for the desktop (with the folder) and the phone (without)
 //!
@@ -38,6 +39,7 @@
 //! goes through `pane_outbox` only: the companion never types into a pane or answers its dialogs.
 
 pub mod agents;
+pub mod broad;
 pub mod brief;
 pub mod caller;
 pub mod delegate;
@@ -53,6 +55,7 @@ pub mod moving;
 pub mod peer;
 pub mod personas;
 pub mod recall;
+pub mod rehome;
 pub mod schedule;
 pub mod service;
 pub mod skills;
@@ -68,6 +71,8 @@ mod foreman_tests;
 mod gate_tests;
 #[cfg(test)]
 mod move_tests;
+#[cfg(test)]
+mod rehome_tests;
 #[cfg(test)]
 mod service_tests;
 #[cfg(test)]

@@ -115,6 +115,9 @@ pub(super) struct Slot {
     pub notice_open: bool,
     /// When the keeper last pressed that notice's dismiss keys (epoch ms); they wait `GATE_RETRY_MS` before another try.
     pub notice_pressed_ms: Option<i64>,
+    /// Whether the home folder is too broad (`broad::problem_of`), for the folder it was looked at for.
+    /// Looked at again only when the folder changes: the search reads the disk.
+    pub home_problem: Option<(String, Option<super::broad::HomeProblem>)>,
 }
 
 pub(super) struct Inner {
@@ -152,6 +155,7 @@ impl Slot {
             today: TodayState::default(),
             notice_open: false,
             notice_pressed_ms: None,
+            home_problem: None,
         }
     }
 }
@@ -195,6 +199,10 @@ impl Service {
         let pane_id = pane_id_of(&profile.id);
         let offset = self.host.offset_secs();
         let Some(slot) = inner.slots.get_mut(&profile.id) else { return };
+        if slot.home_problem.as_ref().map(|(folder, _)| folder.as_str()) != Some(profile.folder.as_str()) {
+            let problem = super::broad::problem_of(Path::new(&profile.folder), &profile.id, &self.host.places());
+            slot.home_problem = Some((profile.folder.clone(), problem));
+        }
         let mut runtime_dirty = false;
         let mut finished_once: Vec<String> = Vec::new();
 
@@ -369,6 +377,8 @@ impl Service {
         // Titles and paths of the approved skills only, never the bodies. A skills folder that cannot be read just lists none.
         let skills = super::skills::brief_lines(&self.root, &profile.id, home).unwrap_or_default();
         let text = brief::compose_full(&profile.name, &texts, rules, &skills);
+        // Agents below the home read this file too; the first line tells them it is not for them.
+        let text = brief::guarded(&profile.name, &profile.folder, &text);
         brief::write(home, &text, &instruction_files).map_err(|e| e.to_string())?;
         Ok(instruction_files)
     }
@@ -611,6 +621,7 @@ impl Service {
                     agent_label: self.host.agent_label(&m.agent_type),
                     until_ms: m.until_ms,
                 }),
+                home_problem: slot.home_problem.as_ref().and_then(|(_, problem)| problem.clone()),
             },
             None => view::Live {
                 state: CompanionState::Sleeping,
@@ -623,6 +634,7 @@ impl Service {
                 agent_label: profile.agent_type.clone(),
                 previous_agent_label: previous_label,
                 queued_move: None,
+                home_problem: None,
             },
         };
         view::build(profile, &live)

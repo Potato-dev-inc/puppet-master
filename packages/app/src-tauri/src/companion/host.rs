@@ -137,6 +137,12 @@ pub trait Host: Send + Sync + 'static {
     fn raise_stopped(&self, companion_id: &str, name: &str);
     fn clear_stopped(&self, companion_id: &str);
 
+    /// The folders every program of this account looks in (home, Desktop, OneDrive, ...), for the
+    /// "a home must be a folder of its own" rule (`broad.rs`). The default reads the environment.
+    fn places(&self) -> super::broad::Places {
+        super::broad::Places::from_env()
+    }
+
     /// Whether the agent can be a companion here, and why not (`agents::agent_ok`).
     fn agent_ok(&self, agent_type: &str, folder: &str) -> Result<(), String>;
     fn agent_label(&self, agent_type: &str) -> String;

@@ -226,6 +226,10 @@ pub struct CompanionView {
     pub until_ms: Option<i64>,
     /// A move that waits until the companion is free.
     pub queued_move: Option<QueuedMove>,
+    /// Desktop only: the home folder is too broad (the Desktop, a drive, a folder of projects), so other
+    /// agents below it read the companion's brief. The card offers `Move to its own folder`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub home_problem: Option<super::broad::HomeProblem>,
 }
 
 /// A move that is waiting for the companion to be free ("Moves when Mochi is free").

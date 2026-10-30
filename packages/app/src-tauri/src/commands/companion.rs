@@ -89,6 +89,14 @@ pub async fn companion_restart(id: String) -> Result<CompanionView, String> {
     run(move |s| s.restart(&id)).await
 }
 
+/// `Move <name> to its own folder`: repairs a companion whose home is too broad (the Desktop, a drive, a folder of projects).
+/// Copies its files, cuts its brief out of the old instruction file and starts it again in the new folder. Nothing runs
+/// until the person presses the button; an error leaves everything as it was.
+#[tauri::command]
+pub async fn companion_rehome(id: String) -> Result<CompanionView, String> {
+    run(move |s| s.rehome(&id)).await
+}
+
 #[tauri::command]
 pub async fn companion_memory_get(id: String) -> Result<MemoryView, String> {
     run(move |s| s.memory_view(&id, false)).await

@@ -21,6 +21,8 @@ pub struct Live {
     /// The display name of the agent it moved from.
     pub previous_agent_label: Option<String>,
     pub queued_move: Option<QueuedMove>,
+    /// The home folder is too broad (`broad::problem_of`).
+    pub home_problem: Option<super::broad::HomeProblem>,
 }
 
 /// The last path segment of a folder (either slash), or the whole text when it has none.
@@ -60,6 +62,7 @@ pub fn build(profile: &CompanionProfile, live: &Live) -> CompanionView {
         previous_agent: profile.previous_agent.as_ref().map(|p| p.agent_type.clone()),
         until_ms: profile.until_ms,
         queued_move: live.queued_move.clone(),
+        home_problem: live.home_problem.clone(),
     }
 }
 
@@ -68,6 +71,8 @@ pub fn phone_copy(view: &CompanionView) -> CompanionView {
     let mut copy = view.clone();
     let folder = copy.folder.take();
     copy.checkins = None;
+    // The folder's place is for the computer only.
+    copy.home_problem = None;
     let clean = |text: &str| scrub(text, folder.as_deref());
     copy.state_line = clean(&copy.state_line);
     copy.needs = copy.needs.map(|needs| NeedsRef { title: clean(&needs.title), ..needs });
@@ -126,6 +131,7 @@ mod tests {
             agent_label: "Claude Code".into(),
             previous_agent_label: None,
             queued_move: None,
+            home_problem: None,
         }
     }
 

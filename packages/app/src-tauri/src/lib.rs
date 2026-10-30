@@ -598,6 +598,7 @@ pub fn run() {
             commands::companion_wake,
             commands::companion_sleep,
             commands::companion_restart,
+            commands::companion_rehome,
             commands::companion_memory_get,
             commands::companion_memory_save,
             commands::companion_pending_decide,
