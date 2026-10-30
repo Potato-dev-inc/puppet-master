@@ -82,6 +82,11 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
         e.0.extend(super::hooks::validate_hooks(hooks));
     }
     e.0.extend(def.session_chat.iter().flat_map(crate::session_chat::validate_session_chat));
+    if let Some(table) = &def.pane_mcp {
+        for (path, message) in crate::tui::pane_mcp::validate_pane_mcp(table) {
+            e.add("AGENT_DEF_PANE_MCP_INVALID", &path, message);
+        }
+    }
     check_profile(def, &mut e);
     check_regexes(&regexes, &mut e);
     e.0

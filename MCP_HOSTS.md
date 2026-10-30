@@ -39,6 +39,25 @@ Most hosts should prefer the published package form:
 }
 ```
 
+## Inside Puppet Master panes (nothing to set up)
+
+An agent that runs in a Puppet Master pane already has this MCP server. Each pane launch hands it over for that launch
+only, pointing at this app's own bridge (the port file of this profile, never a fixed port) and naming the pane, so a
+helper the agent starts is nested under it. Your own config files are never written, and your own MCP servers stay.
+
+| Agent | How the server is handed over | Note for the agent |
+| --- | --- | --- |
+| Claude Code | `--mcp-config <app data>/pane-mcp/<pane>.mcp.json` | `--append-system-prompt` (not added if you pass your own) |
+| OpenCode | `OPENCODE_CONFIG_CONTENT` (not touched if you already set it) | the file `helpers-note.md` in the config's `instructions` |
+| Codex | three `-c mcp_servers.puppet-master.*` overrides | none (`developer_instructions` would replace yours); the server's own instructions describe the tools |
+| Cursor Agent | none: it only reads config files (and asks to approve servers), so it needs the install above | none |
+| TOML agents | the definition's `[pane_mcp]` table (`docs/specs/agent-definitions/DEFINITION-FORMAT.md` 8.1) | its `note_*` fields |
+
+Not added: panes that run inside Linux (WSL), and any build that has no bundled MCP server. Turn it off in
+Settings > Agents > "Puppet Master helpers inside agents" (setting `pane_mcp_enabled`, on by default); it applies to panes
+opened afterwards. Code: `pane_mcp/` (decides, writes the files), `tui/pane_mcp.rs` (shared types and the table renderer),
+`tui/<agent>/` (each agent's own way).
+
 ## Cursor
 
 **Cursor → Settings → Features → Model Context Protocol → Add new global MCP server:**

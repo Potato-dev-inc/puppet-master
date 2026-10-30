@@ -505,6 +505,23 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// How this agent takes Puppet Master's own MCP server for ONE launch, without touching the
+    /// person's config files (a flag, or an env var holding config text). `None` (the default): the
+    /// agent has no such way, so its pane starts exactly as before. Only declare it for a way the
+    /// agent's own docs or a live check proves. The orchestration is `crate::pane_mcp`.
+    fn pane_mcp_table(&self) -> Option<pane_mcp::PaneMcpTable> {
+        None
+    }
+
+    /// The env, arguments and files that hand the server to this agent for one launch. The default
+    /// renders `pane_mcp_table`; an agent whose way is not JSON text overrides it.
+    fn pane_mcp(&self, request: &pane_mcp::PaneMcpRequest<'_>) -> pane_mcp::PaneMcpLaunch {
+        match self.pane_mcp_table() {
+            Some(table) => pane_mcp::render(&table, request, &|name| std::env::var_os(name).is_some_and(|v| !v.is_empty())),
+            None => pane_mcp::PaneMcpLaunch::default(),
+        }
+    }
+
     /// Where this agent writes the session file the chat view reads (`crate::session_chat`). `None` (the
     /// default): the agent has no file Puppet Master can read, and the chat view falls back to reading the
     /// screen (`screen_chat`).

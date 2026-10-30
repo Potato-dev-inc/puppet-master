@@ -203,8 +203,18 @@ pub fn spawn_pane(
     } else {
         crate::agent_hooks::prepare_spawn(profile.id(), &pane_id, &cwd, &user_args)
     };
+    // Puppet Master's own helper tools (`run_agent`, `wait_agents`) for this one launch, where the agent
+    // can take a server that way. Nothing is added for a Linux pane (the app's program is a Windows
+    // one) or when the Settings switch is off. The person's own config files are never written.
+    let pane_mcp = if linux.is_some() {
+        crate::tui::pane_mcp::PaneMcpLaunch::default()
+    } else {
+        crate::pane_mcp::prepare(profile.as_ref(), &pane_id, &user_args)
+    };
     // Names the pane to any MCP shim the agent starts, so a helper it starts can be nested under it.
-    let account_env = compose_pane_env(account_env, hooks.env, &pane_id, guard_env);
+    let mut own_env = hooks.env;
+    own_env.extend(pane_mcp.env);
+    let account_env = compose_pane_env(account_env, own_env, &pane_id, guard_env);
     // An agent that serves its session over a local API is told where (the chat view reads it from there).
     let api_args = profile.prepare_session_api(&pane_id, &user_args);
     // An agent that can be told its session id gets one now, so the chat view finds this pane's own file.
@@ -214,7 +224,7 @@ pub fn spawn_pane(
         crate::tui::LaunchSession::Unmanaged => (None, Vec::new()),
     };
     let extra_args: Vec<String> =
-        user_args.into_iter().chain(hooks.extra_args).chain(api_args).chain(session_args).collect();
+        user_args.into_iter().chain(hooks.extra_args).chain(api_args).chain(session_args).chain(pane_mcp.args).collect();
     let cmd = linux::pane_command(
         profile.as_ref(),
         &crate::tui::SpawnRequest {

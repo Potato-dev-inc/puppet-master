@@ -406,6 +406,29 @@ deliver the task through `[headless.stdin]`; this is refused for project and ext
   The writer needs an approved definition, copies the file to `<file>.bak` before the first change, and a second run
   changes nothing. YAML entries are written as one-line flow mappings.
 
+- **`[pane_mcp]`** (optional) gives the agent Puppet Master's helper tools (`run_agent`, `wait_agents`) in every pane it
+  starts, for that launch only. Nothing in the person's own config is written. Use it only when the tool has a way to take
+  an MCP server from a flag or a variable (check it live):
+
+  ```toml
+  [pane_mcp]
+  shape = "mcp_servers"                   # mcp_servers = {"mcpServers": {name: {command, args, env}}}
+                                          # opencode    = {"mcp": {name: {type: "local", command: [..], environment}}}
+  args = ["--mcp-config", "{config_file}"]   # added after the person's own arguments
+  note_args = ["--append-system-prompt", "{note}"]   # optional: one or two sentences telling the agent the tools exist
+  note_unless_arg = ["--append-system-prompt"]       # optional: no note when the person passed one of these
+  [pane_mcp.env]                          # optional: variables instead of (or as well as) arguments
+  SOME_CONFIG = "{config}"
+  # also: note_env, note_in_config (opencode shape: the note file joins the config's `instructions`),
+  #       skip_if_env = ["SOME_CONFIG"] (a variable the person already set is never replaced), skip_if_arg
+  ```
+
+  Placeholders: `{config}` (the config as one line of JSON), `{config_file}` (a file holding it, written to
+  `<app data>/pane-mcp/`), `{note}`, `{note_file}`. The server entry always points at this app's bridge port file and
+  names the pane the agent runs in. At most 16 arguments and 16 variables; `args` or `env` must use `{config}` or
+  `{config_file}` (`AGENT_DEF_PANE_MCP_INVALID` otherwise). The table is part of the fingerprint: changing it asks for
+  approval again. Settings > Agents > "Puppet Master helpers inside agents" turns it off for every agent.
+
 ## 9. Things that are refused (on purpose)
 
 - Shells and interpreters as the program (`bash`, `cmd`, `powershell`, `python`, `node`, ...) unless

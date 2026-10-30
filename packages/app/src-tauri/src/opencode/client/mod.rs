@@ -22,6 +22,15 @@ const HEALTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
 /// The idle watcher asks once a second at most; a server that does not answer in this long is
 /// treated as unknown, and the screen alone decides.
 const SESSION_STATUS_TIMEOUT: Duration = Duration::from_secs(2);
+/// Pauses before each new try of a request that never reached the server (its port refused the
+/// connection). `serve` restarting or still binding answers again within a second or two, and the
+/// run that was about to send would otherwise fail on the first refusal. Windows takes about 2 s to
+/// refuse a connection to a closed loopback port, so four tries are about 10 s at most.
+const CONNECT_RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_millis(300),
+    Duration::from_millis(700),
+    Duration::from_millis(1500),
+];
 
 fn encode_query_component(value: &str) -> String {
     value
@@ -65,6 +74,38 @@ pub fn wait_for_health(base_url: &str, timeout: Duration) -> Result<(), String> 
     ))
 }
 
+/// Whether `error` says the connection was never made, so the server cannot have seen the request
+/// and sending it again cannot do it twice. A timeout or a reset is NOT one: the request may have
+/// arrived.
+pub fn is_connect_failure(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    ["connection failed", "connection refused", "10061", "tcp connect", "dns failed"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+        && !lower.contains("http 4")
+        && !lower.contains("http 5")
+}
+
+/// Run `op`; while it fails with an error `never_arrived` accepts, wait the next delay and run it
+/// again. Any other error, or running out of delays, returns the last error. `sleep` is injected.
+fn retry_never_arrived<T, E>(
+    delays: &[Duration],
+    mut sleep: impl FnMut(Duration),
+    never_arrived: impl Fn(&E) -> bool,
+    mut op: impl FnMut() -> Result<T, E>,
+) -> Result<T, E> {
+    let mut delays = delays.iter();
+    loop {
+        match op() {
+            Err(error) if never_arrived(&error) => match delays.next() {
+                Some(delay) => sleep(*delay),
+                None => return Err(error),
+            },
+            other => return other,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct OpenCodeSession {
     pub id: String,
@@ -73,10 +114,12 @@ pub struct OpenCodeSession {
 pub fn create_session(base_url: &str, title: &str) -> Result<OpenCodeSession, String> {
     let base = normalize_base_url(base_url);
     let url = format!("{base}/session");
-    let response = ureq::post(&url)
-        .timeout(DEFAULT_TIMEOUT)
-        .send_json(json!({ "title": title }))
-        .map_err(|err| format!("opencode create session: {err}"))?;
+    let response = retry_never_arrived(&CONNECT_RETRY_DELAYS, std::thread::sleep, |e: &String| is_connect_failure(e), || {
+        ureq::post(&url)
+            .timeout(DEFAULT_TIMEOUT)
+            .send_json(json!({ "title": title }))
+            .map_err(|err| format!("opencode create session: {err}"))
+    })?;
     if !(200..300).contains(&response.status()) {
         return Err(format!(
             "opencode create session: HTTP {} {}",
@@ -138,10 +181,12 @@ pub fn switch_session_model(
 ) -> Result<(), String> {
     let base = normalize_base_url(base_url);
     let url = with_directory_query(&format!("{base}/api/session/{session_id}/model"), directory);
-    let response = ureq::post(&url)
-        .timeout(DEFAULT_TIMEOUT)
-        .send_json(switch_session_model_body(model))
-        .map_err(|err| format!("opencode switch session model: {err}"))?;
+    let response = retry_never_arrived(&CONNECT_RETRY_DELAYS, std::thread::sleep, |e: &String| is_connect_failure(e), || {
+        ureq::post(&url)
+            .timeout(DEFAULT_TIMEOUT)
+            .send_json(switch_session_model_body(model))
+            .map_err(|err| format!("opencode switch session model: {err}"))
+    })?;
     if response.status() == 204 || (200..300).contains(&response.status()) {
         return Ok(());
     }
@@ -177,13 +222,20 @@ pub fn prompt_async(
         &format!("{base}/session/{session_id}/prompt_async"),
         directory,
     );
-    let response = ureq::post(&url)
-        .timeout(DEFAULT_TIMEOUT)
-        .send_json(prompt_async_body(text, model))
-        .map_err(|err| PromptAsyncError {
-            status: 0,
-            body: format!("opencode prompt_async: {err}"),
-        })?;
+    let response = retry_never_arrived(
+        &CONNECT_RETRY_DELAYS,
+        std::thread::sleep,
+        |e: &PromptAsyncError| e.status == 0 && is_connect_failure(&e.body),
+        || {
+            ureq::post(&url)
+                .timeout(DEFAULT_TIMEOUT)
+                .send_json(prompt_async_body(text, model))
+                .map_err(|err| PromptAsyncError {
+                    status: 0,
+                    body: format!("opencode prompt_async: {err}"),
+                })
+        },
+    )?;
     if response.status() == 204 || (200..300).contains(&response.status()) {
         return Ok(());
     }

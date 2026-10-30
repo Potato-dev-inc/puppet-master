@@ -11,6 +11,7 @@ mod headless;
 mod history;
 #[cfg(test)]
 mod idle_tests;
+mod pane_mcp;
 mod prompt;
 pub mod session_file;
 mod session_extra;
@@ -63,6 +64,10 @@ impl TuiProfile for Codex {
 
     fn hook_scheme(&self) -> Option<crate::tui::declarative::hooks::HooksTable> {
         crate::tui::declarative::hooks::parse_hooks_toml(include_str!("hooks.toml"))
+    }
+
+    fn pane_mcp(&self, request: &crate::tui::pane_mcp::PaneMcpRequest<'_>) -> crate::tui::pane_mcp::PaneMcpLaunch {
+        pane_mcp::launch(request)
     }
 
     fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {

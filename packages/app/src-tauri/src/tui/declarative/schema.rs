@@ -72,6 +72,8 @@ pub struct Definition {
     pub hooks: Option<super::hooks::HooksTable>,
     /// Where this agent writes a JSONL transcript the Chat tab reads (`[session_chat]`); absent = the screen is read.
     pub session_chat: Option<crate::session_chat::SessionChatTable>,
+    /// How this agent takes Puppet Master's own MCP server for one launch (`[pane_mcp]`); absent = it is not added.
+    pub pane_mcp: Option<crate::tui::pane_mcp::PaneMcpTable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

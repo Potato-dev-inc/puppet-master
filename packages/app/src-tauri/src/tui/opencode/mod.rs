@@ -128,6 +128,10 @@ impl TuiProfile for OpenCode {
         crate::toolbelt::host_from_toml(MCP_HOST)
     }
 
+    fn pane_mcp_table(&self) -> Option<crate::tui::pane_mcp::PaneMcpTable> {
+        crate::tui::pane_mcp::parse_pane_mcp_toml(include_str!("pane_mcp.toml"))
+    }
+
     fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
         crate::agent_pack::skills_host_from_toml(SKILLS_HOST)
     }
