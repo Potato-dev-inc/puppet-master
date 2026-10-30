@@ -416,9 +416,9 @@ mod tests {
         let ready = include_str!("../tui/codex/fixtures/standby_ready_live.txt");
         let mut pane = ReplayPane::new(cast_of("codex", &[(0.2, menu), (300.0, ready)]));
         pane.run_to(Duration::from_secs(1));
-        assert_eq!(pane.status(), PaneStatus::Running);
+        assert_eq!(pane.status(), PaneStatus::WaitingInput);
         pane.run_to(Duration::from_secs(250));
-        assert_eq!(pane.status(), PaneStatus::Running, "minutes of a menu on screen is still not idle");
+        assert_eq!(pane.status(), PaneStatus::WaitingInput, "minutes of a menu on screen is still not idle");
         assert!(pane.transitions.iter().all(|(_, status)| *status != PaneStatus::Idle), "{:?}", pane.transitions);
         // The menu is closed: the ready composer is idle after the usual quiet spell.
         pane.run_to(Duration::from_secs(400));
@@ -433,7 +433,7 @@ mod tests {
         pane.run_to(Duration::from_secs(60));
         assert_eq!(pane.status(), PaneStatus::Idle);
         pane.run_to(Duration::from_secs(200));
-        assert_eq!(pane.status(), PaneStatus::Running, "a menu drew over the composer");
+        assert_eq!(pane.status(), PaneStatus::WaitingInput, "a menu drew over the composer");
     }
 
     #[test]

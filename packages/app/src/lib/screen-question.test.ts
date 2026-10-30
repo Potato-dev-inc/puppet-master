@@ -127,3 +127,40 @@ describe('parseScreenQuestion', () => {
     expect(q.options).toEqual([]);
   });
 });
+
+describe('a menu with a short key footer', () => {
+  // A pointer on a numbered row, a wrapped first option, and a footer that only names keys. Blank rows follow, as in a
+  // snapshot of a tall terminal.
+  const SCREEN = [
+    '',
+    '  Update available · 1.2.3 → 1.2.4',
+    '  Release notes: https://example.com/releases/latest',
+    '',
+    "› 1. Update now (runs `powershell -ExecutionPolicy Bypass -c 'irm https://example.com/",
+    "    install.ps1 | iex'`)",
+    '  2. Skip',
+    '  3. Skip until next version',
+    '',
+    '  enter continue · esc skip',
+    ...Array.from({ length: 30 }, () => ''),
+  ].join('\n');
+
+  it('is a strict menu with its three rows, the pointer on the first', () => {
+    const q = parseScreenQuestion(SCREEN, { strict: true })!;
+    expect(q).not.toBeNull();
+    expect(q.options.map((o) => o.label.slice(0, 11))).toEqual(['Update now ', 'Skip', 'Skip until ']);
+    expect(q.options.map((o) => o.selected)).toEqual([true, false, false]);
+    expect(q.lines.some((l) => l.includes('enter continue'))).toBe(true);
+  });
+
+  it('is answered with the arrow keys and Enter', () => {
+    const q = parseScreenQuestion(SCREEN, { strict: true })!;
+    expect(keysForOption(q, 1)).toEqual({ text: KEY_DOWN, enter: true });
+    expect(keysForOption(q, 2)).toEqual({ text: KEY_DOWN + KEY_DOWN, enter: true });
+    expect(keysForOption(q, 0)).toEqual({ text: '', enter: true });
+  });
+
+  it('is not a menu once the same list has no pointer', () => {
+    expect(parseScreenQuestion(SCREEN.replace('› 1.', '  1.'), { strict: true })).toBeNull();
+  });
+});
