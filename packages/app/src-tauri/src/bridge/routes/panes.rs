@@ -175,7 +175,7 @@ fn spawn(cx: &Ctx) -> RouteResult {
         let _ = crate::pty::viewer_size::claim(registry, &pane_id, viewer, cols, rows);
     }
     register_spawned_pane(session, &agent_type, &pane_id).map_err(operation_http_error)?;
-    note_pane_parent(registry, session, &pane_id);
+    note_pane_parent(registry, session, crate::pty::pane_parent::request_caller().as_deref(), &pane_id);
     present_spawned_pane(registry, app, &pane_id, placement.as_deref());
     Ok((
         201,

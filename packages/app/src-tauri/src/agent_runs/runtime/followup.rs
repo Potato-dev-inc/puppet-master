@@ -246,6 +246,7 @@ pub(in crate::agent_runs) fn enqueue_followup(
         keep_pane: previous.keep_pane,
         placement: None,
         owner_session_id: session_id.or(previous.owner_session_id.clone()),
+        parent_pane_id: crate::pty::pane_parent::request_caller(),
         worker_has_mcp_tools: false,
         agent_run_id: Some(handle.to_string()),
         turn_index: next_turn,

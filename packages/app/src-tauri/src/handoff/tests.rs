@@ -676,6 +676,7 @@ fn running_run(env: &TestEnv) -> OperationSnapshot {
         idempotency_key: uuid::Uuid::new_v4().to_string(),
         timeout_ms: 600_000,
         owner_session_id: Some("handoff-test".into()),
+        parent_pane_id: None,
         ..Default::default()
     };
     let (op, _) = crate::operations::create_operation(request).unwrap();

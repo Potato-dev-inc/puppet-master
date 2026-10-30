@@ -31,6 +31,7 @@ fn run_request(project: &str, handle: &str) -> DelegateWorkRequest {
         keep_pane: true,
         placement: None,
         owner_session_id: None,
+        parent_pane_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: Some(handle.into()),
         turn_index: 0,

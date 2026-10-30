@@ -98,3 +98,22 @@ fn the_claimed_pane_is_read_from_the_live_registry() {
     assert_eq!(claim.roots.len(), 1);
     assert!(claimed_pane(&registry, "nope").is_none());
 }
+
+#[test]
+fn the_request_caller_lives_only_as_long_as_its_scope() {
+    assert_eq!(request_caller(), None);
+    {
+        let _scope = RequestCaller::enter(Some("pane-a".into()));
+        assert_eq!(request_caller().as_deref(), Some("pane-a"));
+    }
+    assert_eq!(request_caller(), None, "a pooled thread never carries it to the next request");
+    // A request nobody could place in a pane has no caller either.
+    let _scope = RequestCaller::enter(None);
+    assert_eq!(request_caller(), None);
+}
+
+#[test]
+fn the_request_caller_is_per_thread() {
+    let _scope = RequestCaller::enter(Some("pane-a".into()));
+    assert_eq!(std::thread::spawn(request_caller).join().unwrap(), None);
+}

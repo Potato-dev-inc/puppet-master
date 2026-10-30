@@ -263,6 +263,25 @@ pub fn recall_caller_pane(
     decide(&panes, Some(&procs), Some(pid), None).verified
 }
 
+/// The pane (any pane, not only a companion's) whose agent is on the other end of this connection: the process that
+/// owns the client socket sits in that live pane's process tree. This is what a helper is nested under when an agent
+/// starts it by plain HTTP or MCP (`pty::pane_parent`, display-only, never a right). Decided only by the OS, like
+/// `recall_caller_pane`; where the owner or the process table is unknown, `None`.
+pub fn caller_pane(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    owner: &dyn TcpOwner,
+    snapshot: &dyn Fn() -> Option<Vec<ProcEntry>>,
+    peer: Option<Peer>,
+) -> Option<String> {
+    let pid = owner.owner_pid(&peer?)?;
+    let panes = super::caller::live_panes(registry);
+    if panes.is_empty() {
+        return None;
+    }
+    let procs = snapshot()?;
+    decide(&panes, Some(&procs), Some(pid), None).verified
+}
+
 /// The router's check for a request from a local (token-less) caller, over the real process table. `peer` is the
 /// connection; `None` when it could not be read.
 pub fn check(
@@ -710,6 +729,42 @@ mod tests {
         crate::mcp_sessions::note_session_pid(key, 103);
         assert_eq!(crate::mcp_sessions::session_pid(key), Some(103));
         assert_eq!(recall(Some(301), true, true), None);
+    }
+
+    // ---- helper lineage: which pane's agent is on the other end ----
+
+    fn caller(owner: Option<u32>, peer_known: bool, table_known: bool) -> Option<String> {
+        let procs = || table_known.then(table);
+        caller_pane(&registry(), &FakeTcp(owner), &procs, peer_known.then(peer))
+    }
+
+    #[test]
+    fn the_caller_pane_is_the_pane_whose_tree_holds_the_connection_s_process() {
+        // Any pane counts, not only a companion's: an ordinary agent's curl, a companion's shell, a helper's own shell.
+        assert_eq!(caller(Some(301), true, true).as_deref(), Some("ordinary-1"));
+        assert_eq!(caller(Some(300), true, true).as_deref(), Some("ordinary-1"));
+        assert_eq!(caller(Some(103), true, true).as_deref(), Some("companion-mochi"));
+        assert_eq!(caller(Some(403), true, true).as_deref(), Some("helper-1"), "a helper that starts a helper of its own");
+    }
+
+    #[test]
+    fn the_caller_pane_is_none_for_a_process_in_no_pane_and_when_nothing_can_be_checked() {
+        // The person's own program, an orphan, a stranger.
+        for pid in [500, 600, 4242] {
+            assert_eq!(caller(Some(pid), true, true), None, "{pid}");
+        }
+        assert_eq!(caller(None, true, true), None, "no TCP owner (another OS)");
+        assert_eq!(caller(Some(301), false, true), None, "no peer");
+        assert_eq!(caller(Some(301), true, false), None, "no process table");
+        let empty = Arc::new(Mutex::new(PaneRegistry::new()));
+        assert_eq!(caller_pane(&empty, &FakeTcp(Some(301)), &|| Some(table()), Some(peer())), None);
+    }
+
+    #[test]
+    fn the_caller_pane_ignores_a_pane_whose_process_has_exited() {
+        let reg = registry();
+        *reg.lock().panes.get("ordinary-1").unwrap().exited.lock() = true;
+        assert_eq!(caller_pane(&reg, &FakeTcp(Some(301)), &|| Some(table()), Some(peer())), None);
     }
 
     #[cfg(not(windows))]

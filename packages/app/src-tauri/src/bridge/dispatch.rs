@@ -381,7 +381,7 @@ fn assign_pane(
     }
     if pane_created {
         // Nested under the pane of the agent that asked for this run, when it ran from one.
-        note_pane_parent(registry, operation.owner_session_id.as_deref(), &pane_id);
+        note_pane_parent(registry, operation.owner_session_id.as_deref(), operation.parent_pane_id.as_deref(), &pane_id);
     }
     if pane_created && standby_claim.is_none() {
         present_spawned_pane(registry, app, &pane_id, operation.placement.as_deref());
@@ -1159,6 +1159,7 @@ mod guard_tests {
             keep_pane: false,
             placement: None,
             owner_session_id: None,
+            parent_pane_id: None,
             worker_has_mcp_tools: false,
             agent_run_id: None,
             turn_index: 0,
@@ -1289,6 +1290,7 @@ mod tests {
             keep_pane: false,
             placement: None,
             owner_session_id: Some("gates".into()),
+            parent_pane_id: None,
             worker_has_mcp_tools: false,
             agent_run_id: None,
             turn_index: 0,
