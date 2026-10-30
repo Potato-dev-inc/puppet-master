@@ -75,6 +75,7 @@ export function TerminalViewport({
   const { containerRef, afterReclaim, isScrolledUp, getSelection } = useTerminalSession({
     remountEpoch: epoch,
     assumePtyGrid: { cols: pane.info.cols, rows: pane.info.rows },
+    knownPtyGrid: pane.info.viewer_held ? null : { cols: pane.info.cols, rows: pane.info.rows },
     paneId: pane.info.id,
     sessionKey: pane.info.created_at,
     subscribePaneData: registry.subscribePaneData,

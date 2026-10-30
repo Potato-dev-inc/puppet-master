@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-// The pane row's right-click menu: "Open to the side" (split view). Shown only when the shell gives a handler.
+// The pane row's right-click menu: "Open to the side" (split view) is there only when the shell gives a handler.
+// The rest of the menu is in Sidebar.paneMenu.test.tsx.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -102,9 +103,11 @@ describe('sidebar: Open to the side', () => {
     expect(host.querySelector('[role="menuitem"]')).toBeNull();
   });
 
-  it('without a handler the row has no menu at all', async () => {
+  it('without a handler the row menu has the pane actions but no "Open to the side"', async () => {
     await render(fakeApi());
     await act(async () => rightClick(rowOf('Codex two')));
-    expect(host.querySelector('[role="menuitem"]')).toBeNull();
+    const labels = [...host.querySelectorAll('[role="menuitem"]')].map((b) => b.textContent);
+    expect(labels).toContain('Rename');
+    expect(labels).not.toContain('Open to the side');
   });
 });

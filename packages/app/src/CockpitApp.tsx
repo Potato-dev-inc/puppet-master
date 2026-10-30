@@ -9,6 +9,7 @@ import { LastTurnContext } from './components/cockpit/away-context';
 import { AwayDigest } from './components/cockpit/AwayDigest';
 import { Inbox } from './components/cockpit/Inbox';
 import { PaneView } from './components/cockpit/PaneView';
+import { requestPaneAction } from './lib/pane-actions';
 import { Palette, type PaletteMode } from './components/cockpit/Palette';
 import { NeedsYouContext, useNeedsYouSource } from './hooks/useNeedsYou';
 import { useMissions } from './lib/missions';
@@ -355,6 +356,12 @@ export default function CockpitApp() {
         onOpenCompanion={openCompanion}
         onNewCompanion={() => setSetupOpen(true)}
         onOpenToSide={openToSide}
+        onPaneAction={(id, action) => {
+          // The actions run in a pane's own view: a split view gives way to it.
+          setSplit(null);
+          nav.select(id);
+          requestPaneAction(id, action);
+        }}
       />
       <main className="ck-main">
         {c.mode === 'individual' ? (

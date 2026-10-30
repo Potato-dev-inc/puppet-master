@@ -22,7 +22,7 @@ export async function run(t) {
   await t.expect.text('Working');
 
   await t.step('Pane menu > Interrupt');
-  await t.click('aria=Pane actions');
+  await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.click('Interrupt');
   await t.expect.eventually(async () => (await toasts(t)).some((x) => x.includes('Sent Ctrl+C')), { message: 'a notice says Ctrl+C was sent' });
 

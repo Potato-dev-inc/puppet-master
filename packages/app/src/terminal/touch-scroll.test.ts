@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { Terminal } from '@xterm/xterm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {

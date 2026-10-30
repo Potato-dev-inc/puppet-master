@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, beforeEach } from 'vitest';
 import type { Ctx2D } from './clipDraw';
 import {

@@ -16,7 +16,7 @@ export async function run(t) {
   await t.waitFor(PANE_TITLE);
 
   await t.step('Pane menu > Close');
-  await t.click('aria=Pane actions');
+  await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.click('exact=Close');
 
   await t.step('The pane is gone and nothing asked first');

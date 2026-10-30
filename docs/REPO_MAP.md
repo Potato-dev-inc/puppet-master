@@ -5,6 +5,9 @@ Orientation for coding agents. For product concepts and how to keep developing, 
 functions are cited by name (line numbers rot). When something here disagrees with the code, the
 code wins: fix this file.
 
+Do not read all of it. `node scripts/where.mjs <word> <word>` prints the rows of this file (and of FEATURES.md) that match, with their
+heading, in under a second. How fast the build and the tests are, and what to do about it: [`DEV-SPEED.md`](DEV-SPEED.md).
+
 Existing docs this file links to rather than repeats:
 
 | Doc | Covers |
@@ -18,6 +21,7 @@ Existing docs this file links to rather than repeats:
 | `packages/app/src-tauri/src/tui/README.md` | TUI profile folder layout, add-a-TUI checklist, symptom-to-file table |
 | `packages/mcp-server/README.md` | MCP package/launcher |
 | [`docs/FEATURES.md`](FEATURES.md) | full user-facing feature list with where-it-lives and status |
+| [`docs/DEV-SPEED.md`](DEV-SPEED.md) | measured build and test times, the fast-loop scripts (`scripts/check.mjs`, `scripts/test-changed.mjs`, `scripts/where.mjs`), ranked ideas to go faster |
 | [`docs/TEST-PLAN.md`](TEST-PLAN.md) | automated suites (commands, expected counts) + manual/live test cases, known flaky tests and gaps |
 | `docs/specs/agent-definitions/` | declarative agent spec: `SPEC.md`, `DEFINITION-FORMAT.md`, `AGENT-CHOICE.md`, `PLAN.md`, `REPORT.md` (+ "After T37"), `phases/` |
 
@@ -360,7 +364,9 @@ started ahead of time; `run_agent` claims it instead of spawning. Settings + his
 
 Every PTY resize makes an inline TUI reprint its whole screen, so a pane that did not really change size must never get one.
 - **Only a desktop window asks.** The one caller of `registry_resize` besides phone leases (`pty/viewer_size.rs`) is the `resize_pane` command, sent by the owner window's terminal (`terminal/terminal-session.ts`: `fitAndNotify`, deduped by `OwnerGrid.fitted`). Nothing an agent does over MCP (`read_terminal_buffer`, `press_key`, `run_agent`, `take_over`) resizes a PTY; `tests/fake_tui_e2e.rs` (`another_pane_coming_and_going_and_a_lead_driving_a_pane_never_resize_it`) counts resizes on a real ConPTY.
-- **Reflow is explicit and per pane.** `TerminalSession.nudgeReflow()` = re-fit + local repaint (sends nothing when the grid is unchanged). `nudgeReflow({ redrawAltBuffer: true })` also resizes the PTY rows-1 then rows (alternate-screen TUIs): only for the `redrawKey` prop (the pane menu's Reflow, a pane that came back from a pop-out) and the pane's own "Nudge layout reflow" button, never for a pane scrolling into view or a neighbour opening/closing. `TerminalGrid` (legacy `App.tsx`) animates and reflows only panes that left `detachedPaneIds`.
+- **Reflow is explicit and per pane.** `TerminalSession.nudgeReflow()` = re-fit + local repaint (sends nothing when the grid is unchanged). `nudgeReflow({ redrawAltBuffer: true })` also resizes the PTY rows-1 then rows (alternate-screen TUIs): only for the `redrawKey` prop (the pane menu's Reflow, a pane that came back from a pop-out, and the drift correction below) and the pane's own "Nudge layout reflow" button, never for a pane scrolling into view or a neighbour opening/closing. `TerminalGrid` (legacy `App.tsx`) animates and reflows only panes that left `detachedPaneIds`.
+- **The pane menu** is the right-click menu of a sidebar pane row (`Sidebar.tsx` + `PaneContextMenu.tsx`; also Shift+F10 on a focused row); the pane header has no "..." button. Actions that live in `PaneView` (rename, reflow, copy selection, details, close) are asked through `lib/pane-actions.ts` (`requestPaneAction`; the palette uses it too), run by the view of that pane once it is selected.
+- **Viewer/PTY drift fixes itself.** The owner window compares its xterm grid with the PTY's real grid (`pane.info.cols/rows`, passed as `knownPtyGrid`) after window resize, focus, tab/split/sidebar layout changes (ResizeObserver, IntersectionObserver), font load and DPI change (`TerminalSession.scheduleDriftCheck`, debounced). A drift that persists 500 ms is corrected once by forgetting what was sent and running the Reflow (`nudgeReflow({ redrawAltBuffer: true })`); at most 2 tries per grid pair, 2 s apart (`terminal/grid-drift.ts`, `DriftMonitor`). Non-owner windows are still ignored by the app's `resize_pane`.
 - **Layout must not move the terminal.** The cockpit's question card (`.ck-dock`, `styles/pane-chrome.css`) floats over the terminal; in flow it resized the PTY at every approval. Anything new above or beside the terminal slot must do the same (`styles/pane-chrome.css.test.ts`).
 - `usePaneRegistry` keeps unchanged `PaneData` objects (`nextPaneMap`), so `pty://panes-changed` (also fired by standby spawn/shutdown; hidden standbys are not listed) re-renders nothing when nothing changed.
 

@@ -158,3 +158,13 @@ describe('owner window: phone lease then reclaim', () => {
     expect(o.app.pty).not.toEqual(o.container);
   });
 });
+
+describe('OwnerGrid.forgetSent (drift correction)', () => {
+  it('sends the same size again after forgetting what was sent', () => {
+    const g = new OwnerGrid();
+    expect(g.fitted(100, 30)).toEqual({ cols: 100, rows: 30 });
+    expect(g.fitted(100, 30)).toBeNull();
+    g.forgetSent();
+    expect(g.fitted(100, 30)).toEqual({ cols: 100, rows: 30 });
+  });
+});

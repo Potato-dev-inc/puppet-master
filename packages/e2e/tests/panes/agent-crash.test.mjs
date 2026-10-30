@@ -39,7 +39,7 @@ steps = [
   await t.expect.text('kaboom internal error');
 
   await t.step('Close the dead pane: no question, it is not running');
-  await t.click('aria=Pane actions');
+  await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.click('exact=Close');
   await t.expect.count(PANE_ROW, 0);
   await t.expect.text('No agents running.');
