@@ -4,7 +4,7 @@
 //! registry.
 //!
 //! The sign-in entry passes `--background`. A start with that argument opens no window and takes no
-//! focus: it only leaves the tray icon and the companion keeper running.
+//! focus (a normal start opens the primary window, see `cockpit::startup_window`): it only leaves the tray icon and the companion keeper running.
 
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_autostart::ManagerExt;

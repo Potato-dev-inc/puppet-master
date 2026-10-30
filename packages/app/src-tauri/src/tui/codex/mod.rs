@@ -9,6 +9,8 @@
 
 mod headless;
 mod history;
+#[cfg(test)]
+mod idle_tests;
 mod prompt;
 pub mod session_file;
 mod session_extra;
@@ -245,6 +247,17 @@ impl TuiProfile for Codex {
     /// is provably not work and the pane stays idle instead of flashing "Working 0s".
     fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
         Some(screen::shows_work_in_progress(visible_tail))
+    }
+
+    /// No `Working (… esc to interrupt)` row and 800 ms of stillness: the turn is over. Without this a
+    /// finished Codex pane held `running` for the whole default window (5 s) after its last repaint, and
+    /// a Chat message waited that long for the `idle` the outbox needs (measured live on 0.162.1: the
+    /// answer drew at 12.5 s, the footer's title spinner repainted until 13.65 s, `idle` came at 18.7 s,
+    /// the message was typed at 18.9 s). A turn that is running always shows the row (it repaints the
+    /// elapsed seconds each second, and the longer window still applies while it is up), so a gap in
+    /// repaints cannot read as the end of a turn.
+    fn quiet_idle_after(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(800)
     }
 
     /// The composer is readable (`composer_state`), so a typed task is confirmed on screen before

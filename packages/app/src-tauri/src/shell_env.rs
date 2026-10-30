@@ -129,12 +129,31 @@ fn which_on_path(name: &str, path: &str) -> Option<String> {
 }
 
 fn discover_interactive_path() -> String {
-    if let Some(path) = read_login_shell_path() {
-        if !path.is_empty() {
-            return dedupe_path(&path);
+    let path = match read_login_shell_path() {
+        Some(path) if !path.is_empty() => dedupe_path(&path),
+        _ => dedupe_path(&build_fallback_path()),
+    };
+    prepend_e2e_dirs(path)
+}
+
+/// Dev only (`dev-fake-tui`): the end-to-end runner (`packages/e2e`) puts folders holding fake agent programs
+/// first on PATH with `PM_E2E_PATH_PREPEND` (folders joined by the platform's PATH separator). On Windows the
+/// PATH is rebuilt from the registry, so the environment alone cannot add a folder. Not compiled into a
+/// release or normal build.
+#[cfg(feature = "dev-fake-tui")]
+fn prepend_e2e_dirs(path: String) -> String {
+    match std::env::var("PM_E2E_PATH_PREPEND") {
+        Ok(extra) if !extra.trim().is_empty() => {
+            let sep = if cfg!(windows) { ';' } else { ':' };
+            dedupe_path(&format!("{}{sep}{path}", extra.trim()))
         }
+        _ => path,
     }
-    dedupe_path(&build_fallback_path())
+}
+
+#[cfg(not(feature = "dev-fake-tui"))]
+fn prepend_e2e_dirs(path: String) -> String {
+    path
 }
 
 #[cfg(unix)]

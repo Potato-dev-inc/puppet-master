@@ -140,6 +140,7 @@ puppet-master/
         src/                Rust sources (section 3)
     cli/                    `puppet-master` CLI (src/index.ts: gui, mcp, worker, watch, version;
                             watch.ts + watch-args.ts = the watch command; launch-worker.ts)
+    e2e/                    end-to-end tests with video: real app + fake agents, CLI and local dashboard (`npm run e2e`, `npm run e2e:dashboard`; see `packages/e2e/README.md`)
     mcp-server/             MCP packaging: src/index.ts (legacy TS MCP entry: startup mode + handlers;
                             bridge-client / catalog / tool-router / registry-call / timeouts / errors /
                             types / util alongside, all `src/*.ts`), src/launcher.ts (picks the Rust binary),
@@ -1119,6 +1120,10 @@ cargo test --features dev-fake-tui --test fake_tui_e2e -- --test-threads=1 --ign
 **Two-person Team test** (`tests/fake_tui_team.rs`, included from `fake_tui_e2e.rs`, so it runs in the fake-agent CI shards): Maya and Leo are two Puppet Master *processes* (the Team service, audit log and pane registry are process-wide): the test process and a second run of the same test binary (`fake_tui/team.rs`: `Person` = one person's app with an in-memory key store and the cockpit's calls as `call(op, args)`; `Remote` = the child process over a loopback socket). They share a real `pm-relay` on a loopback port and a bare git origin with a push-logging hook. Flow: create team, invite, join, approve, Maya's fake agent writes, commits and pushes (`run` step), Tell the team, Leo's card, Queue my agent, conflict resolved by a fake agent in the separate copy, Apply; then forged, replayed and post-removal envelopes and the relay leak check (`team/leakcheck.rs`, shared with `tests_v1.rs`). Test hooks, all `dev-fake-tui` only, in `team/service.rs`: `init_for_e2e`, `e2e_watched`, `e2e_session`, `e2e_inject`.
 
 Every live bug fixed from now on can ship its quirk as a script here (`tools/pm-fake-tui/README.md`, "Script format").
+
+### End-to-end tests with video (`packages/e2e`)
+
+A workspace package that drives the REAL app window (WebView2 over CDP) with fake agents only, one file per test (`tests/<area>/<name>.test.mjs`, `meta` + `run(t)`), a video and a `result.json` per test in `e2e-results/` (ignored), and a local dashboard (`npm run e2e:dashboard`). `src/launcher.mjs` starts the debug app with its own profile, temp `APPDATA`/`HOME`/WebView2 folder, a random debugging port and a fake agent definition (`fixtures/agents/nimbus.toml` + copies of `tools/pm-fake-tui` first on PATH through the dev-only `PM_E2E_PATH_PREPEND` in `shell_env.rs`, feature `dev-fake-tui`); `src/page.mjs` (click/type/waitFor by visible text), `expect.mjs`, `testctx.mjs` (the `t` object), `recorder.mjs` (screencast to mp4), `runner.mjs` (one app per run, reset between tests), `cli.mjs`, `dashboard-server.mjs` + `dashboard/`. Build once with `npm run e2e:build`; how to run and write tests: `packages/e2e/README.md`. Rust-side end-to-end without a UI is the Fake TUI section above.
 
 ### Live regression (`scripts/pm-regression.mjs`)
 

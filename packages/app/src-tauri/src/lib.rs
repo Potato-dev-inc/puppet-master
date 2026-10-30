@@ -155,7 +155,7 @@ pub fn run() {
         // A second launch opens the running app's Settings window and exits, so it never starts
         // another bridge or rewrites the bridge port file.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            // Panes-first: a second launch opens the Settings window; `--new-pane <agent>` opens only
+            // A second launch opens the primary window (cockpit or Settings); `--new-pane <agent>` opens only
             // a pop-out pane (no Settings) through the same code path as the tray's "New pane" menu.
             match tray::second_launch_action(args.as_slice()) {
                 tray::SecondLaunch::Settings => cockpit::open_primary_window(app),
@@ -742,18 +742,24 @@ pub fn run() {
             checkpoints::bisect::live::live().sweep_stale();
             settings_store::load_saved_public_settings(app.handle());
             ui_mode::load_saved();
-            // Panes-first: no main window. A standalone worker host (`--worker`) is the one
-            // exception: it is a user-launched single-terminal window and needs its webview.
-            if worker_launch::worker_launch().is_some() {
+            // A standalone worker host (`--worker`) is a user-launched single-terminal window with
+            // its own webview, and opens nothing else.
+            let worker = worker_launch::worker_launch().is_some();
+            if worker {
                 app_windows::open_worker_host_window(app.handle());
             }
             if let Err(e) = tray::init(app.handle()) {
                 tracing::warn!(error = %e, "tray icon failed to start");
             }
-            // A sign-in start opens no window (none is opened at startup in any mode); it only
-            // leaves the tray and the companion keeper running.
-            if autostart::is_background_start(&std::env::args().collect::<Vec<_>>()) {
-                tracing::info!("started at sign-in: tray only, no window");
+            // A normal start opens the primary window (same as a tray click: the cockpit in
+            // orchestration mode, Settings in individual mode). A sign-in start, a worker host and a
+            // headless start (`--no-window` / `PUPPET_MASTER_NO_WINDOW`) leave only the tray.
+            let args = std::env::args().collect::<Vec<_>>();
+            let no_window_env = std::env::var(cockpit::NO_WINDOW_ENV).ok();
+            if cockpit::startup_window(&args, worker, no_window_env.as_deref()) {
+                cockpit::open_primary_window(app.handle());
+            } else {
+                tracing::info!(worker, "started without a window: tray only");
             }
             ambient::init(app.handle());
             standby::init(registry_for_panes.clone(), app.handle().clone());
@@ -798,7 +804,7 @@ pub fn run() {
         .build(context)
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // Tray-only: closing the last window (a pane, Settings) must not end the app.
+            // Closing the last window (cockpit, a pane, Settings) must not end the app: it stays in the tray.
             if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
                 if code.is_none() {
                     api.prevent_exit();

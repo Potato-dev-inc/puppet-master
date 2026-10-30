@@ -1,0 +1,67 @@
+# Nimbus: a made-up agent (the fake agent of the wizard tests, tools/pm-fake-tui, layout nimbus).
+# This is what the wizard wrote for it from the captures in src/tui/declarative/fixtures/nimbus/ and it is the
+# worked visible example in the draft prompt (lib/agentWizardPrompt.ts). The test words appear masked, as the
+# drafter sees them.
+schema_version = 1
+
+[agent]
+id = "nimbus"
+label = "Nimbus"
+description = "Nimbus: a made-up agent with a boxed input row (the wizard's test agent)."
+experimental = true
+
+[binary]
+names = ["nimbus"]
+install_hint = "install nimbus"
+
+[tui]
+argv = []
+idle_after_ms = 1500
+quiet_idle_after_ms = 800
+
+# The empty input box: the placeholder inside the box. A running turn, a question or the trust screen is never ready.
+[tui.ready]
+regex = '\|\s*>\s*type a task'
+not_regex = ['ctrl\+c to stop', 'allow nimbus', 'do you trust']
+
+# The stop hint sits next to the spinner for the whole turn and is gone when the reply is done.
+[tui.busy]
+working_regex = ['ctrl\+c to stop']
+idle_regex = ['\|\s*>\s*type a task']
+
+# Banner, the box and its edges, the footer hint and the "done in" row are chrome. Rows are lowercase.
+[tui.chrome]
+line_regex = [
+  '^nimbus\s+[\d.]+',
+  '^[+|\-\s]+$',
+  '^\|\s*>\s*type a task',
+  '^/help for commands',
+  '^done in \d+s$',
+]
+
+[tui.tool_activity]
+line_regex = ['^tool:\s', '^->\s']
+
+# Rows the agent prints while it thinks or works are thinking rows. The row it prints once after a turn (a bullet, then
+# "Thought for 3s, 298 tokens") is a summary row: the bullet does not matter. None of them is ever part of a reply.
+[tui.thinking]
+line_regex = ['^~\s*thinking']
+
+[tui.summary]
+line_regex = ['^thought for \d+s']
+
+[[tui.prompt]]
+kind = "trust_folder"
+detect_regex = 'do you trust the files in this folder'
+choices = [
+  { id = "allow_once", text = "1" },
+  { id = "deny", text = "2" },
+]
+
+[[tui.prompt]]
+kind = "command_approval"
+detect_regex = 'allow nimbus to .*\[y/n\]'
+choices = [
+  { id = "allow_once", key = "y" },
+  { id = "deny", key = "n" },
+]
