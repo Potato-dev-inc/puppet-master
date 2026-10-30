@@ -1,6 +1,8 @@
 // A fake agent pane started through the bridge shows up in the sidebar and its terminal shows the agent.
 import { PANE_ROW, selectPane } from '../_helpers.mjs';
 
+import { calm } from './_area.mjs';
+
 export const meta = {
   id: 'panes.fake-agent-in-sidebar',
   title: 'A new agent pane appears in the sidebar and shows its terminal',
@@ -9,6 +11,7 @@ export const meta = {
 };
 
 export async function run(t) {
+  await calm(t);
   await t.step('Start a fake agent');
   const pane = await t.spawnPane('nimbus');
 

@@ -1,6 +1,8 @@
 // Edge case: the agent program quits with an error code. The pane shows an Error state and says the agent is not running.
 import { openChat, sendChat } from '../_helpers.mjs';
 
+import { calm } from './_area.mjs';
+
 export const meta = {
   id: 'panes.agent-exits-with-error',
   title: 'A pane whose agent exits with an error shows the Error state',
@@ -10,6 +12,7 @@ export const meta = {
 };
 
 export async function run(t) {
+  await calm(t);
   t.fake.script(`
 boot_ms = 100
 inline = true
