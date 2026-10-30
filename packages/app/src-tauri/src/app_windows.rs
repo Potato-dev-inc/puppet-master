@@ -365,7 +365,7 @@ mod runtime {
     }
 
     /// The standalone worker host (`--worker`) window, label `main` (the frontend routes it to the
-    /// worker-host bootstrap). Only created in worker mode; the normal app has no main window.
+    /// worker-host bootstrap). Only created in worker mode; the normal app's window is the cockpit or Settings.
     pub fn open_worker_host_window(app: &AppHandle) {
         if app.get_webview_window("main").is_some() {
             return;

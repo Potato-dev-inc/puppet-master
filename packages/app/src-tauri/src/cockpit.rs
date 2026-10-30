@@ -103,6 +103,23 @@ pub fn open_primary_window(app: &AppHandle) {
     }
 }
 
+/// The argument that starts the app without its window (scripts, tests, a launch that must stay
+/// off the screen). The env var `PUPPET_MASTER_NO_WINDOW=1` does the same.
+pub const NO_WINDOW_ARG: &str = "--no-window";
+pub const NO_WINDOW_ENV: &str = "PUPPET_MASTER_NO_WINDOW";
+
+/// Whether a normal start opens the primary window. The app starts like any other app: its window
+/// is on screen and focused. Three starts stay window-free: a sign-in start (`--background`, tray
+/// only), a standalone `--worker` host (it opens its own single-terminal window and nothing else)
+/// and an explicit headless start (`--no-window`, or `PUPPET_MASTER_NO_WINDOW` set to `1`/`true`).
+pub fn startup_window(args: &[String], worker: bool, no_window_env: Option<&str>) -> bool {
+    let env_off = no_window_env.is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+    !(worker
+        || env_off
+        || crate::autostart::is_background_start(args)
+        || args.iter().any(|a| a == NO_WINDOW_ARG))
+}
+
 /// The switch to Individual opens a pop-out for each live pane except a background one (a companion).
 fn gets_window_on_switch(pane_id: &str) -> bool {
     !crate::companion::service::is_pane_id(pane_id)
@@ -164,6 +181,40 @@ mod tests {
         assert_eq!(placement(UiMode::Orchestration, Origin::Agent), Placement::Nothing);
         assert_eq!(placement(UiMode::Orchestration, Origin::Tray), Placement::ShowCockpit);
         assert_eq!(placement(UiMode::Orchestration, Origin::CockpitUi), Placement::SelectOnly);
+    }
+
+    fn argv(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_normal_start_opens_the_primary_window() {
+        assert!(startup_window(&argv(&["puppet_master_app.exe"]), false, None));
+        assert!(startup_window(&argv(&["puppet_master_app.exe", "--new-pane", "claude"]), false, None));
+        // An env var that is not an opt-out does not count.
+        assert!(startup_window(&argv(&["puppet_master_app.exe"]), false, Some("0")));
+        assert!(startup_window(&argv(&["puppet_master_app.exe"]), false, Some("")));
+    }
+
+    #[test]
+    fn a_sign_in_start_stays_in_the_tray() {
+        assert!(!startup_window(&argv(&["puppet_master_app.exe", "--background"]), false, None));
+        assert!(!startup_window(&argv(&["puppet_master_app.exe", "--new-pane", "x", "--background"]), false, None));
+        // A similar word is not the flag.
+        assert!(startup_window(&argv(&["puppet_master_app.exe", "--background-task"]), false, None));
+    }
+
+    #[test]
+    fn a_worker_host_opens_no_extra_window() {
+        assert!(!startup_window(&argv(&["puppet_master_app.exe", "--worker"]), true, None));
+        assert!(!startup_window(&argv(&["puppet_master_app.exe"]), true, None));
+    }
+
+    #[test]
+    fn a_headless_flag_or_env_opens_no_window() {
+        assert!(!startup_window(&argv(&["puppet_master_app.exe", "--no-window"]), false, None));
+        assert!(!startup_window(&argv(&["puppet_master_app.exe"]), false, Some("1")));
+        assert!(!startup_window(&argv(&["puppet_master_app.exe"]), false, Some("TRUE")));
     }
 
     #[test]

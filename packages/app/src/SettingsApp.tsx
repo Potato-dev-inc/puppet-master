@@ -1,7 +1,7 @@
 // Standalone Settings window (label "settings"): the Settings panel rendered full-window. This is Individual
 // mode's Settings; in Orchestration mode Settings opens inside the cockpit instead (components/cockpit/SettingsView).
 // Closing it closes only this window; the Rust side hides it and the app keeps running in the tray.
-// There is no main window, so the update check (and its banner) lives here.
+// The update check (and its banner) lives here.
 import { useEffect, useMemo, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { SettingsPanel } from './components/SettingsPanel';
