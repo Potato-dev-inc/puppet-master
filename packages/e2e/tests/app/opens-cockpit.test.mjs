@@ -1,4 +1,6 @@
 // The app starts and shows the cockpit: sidebar, inbox and the empty state.
+import { calm } from './_area.mjs';
+
 export const meta = {
   id: 'app.opens-cockpit',
   title: 'The cockpit opens with an empty sidebar and an empty inbox',
@@ -7,6 +9,7 @@ export const meta = {
 };
 
 export async function run(t) {
+  await calm(t);
   await t.step('The cockpit is on screen');
   await t.expect.text('Puppet Master');
   await t.expect.visible('Inbox');
