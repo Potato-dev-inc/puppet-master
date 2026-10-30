@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Puppet Master E2E</title>
+<style>
+  :root {
+    --bg: #101011; --panel: #161617; --line: #262628; --line2: #333336; --text: #e7e7e9; --dim: #8e8e94; --faint: #5c5c62;
+    --hi: #f4f4f5; --chip: #1d1d1f; --ok: #e7e7e9; --bad: #f4f4f5; --run: #b8b8be;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace; --sans: Inter, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) { --bg: #f6f6f7; --panel: #fff; --line: #e3e3e6; --line2: #cfcfd4; --text: #1b1b1d; --dim: #6b6b72; --faint: #9a9aa1; --hi: #000; --chip: #efeff1; --ok: #1b1b1d; --bad: #000; --run: #55555c; }
+  }
+  :root[data-theme="light"] { --bg: #f6f6f7; --panel: #fff; --line: #e3e3e6; --line2: #cfcfd4; --text: #1b1b1d; --dim: #6b6b72; --faint: #9a9aa1; --hi: #000; --chip: #efeff1; --ok: #1b1b1d; --bad: #000; --run: #55555c; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.4 var(--sans); display: grid; grid-template-rows: auto auto 1fr auto; overflow: hidden; }
+  button, input, select { font: inherit; color: inherit; }
+  button { background: var(--chip); border: 1px solid var(--line2); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  button:hover { border-color: var(--dim); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--hi); color: var(--bg); border-color: var(--hi); font-weight: 600; }
+  input[type=search] { background: var(--panel); border: 1px solid var(--line2); border-radius: 6px; padding: 4px 9px; min-width: 220px; }
+  header { display: flex; gap: 14px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 13px; margin: 0; letter-spacing: .02em; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); } .mono { font-family: var(--mono); font-size: 12px; }
+  .spacer { flex: 1; }
+  #bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+  .chip { border: 1px solid var(--line2); border-radius: 999px; padding: 1px 9px; font-size: 12px; color: var(--dim); background: transparent; cursor: pointer; }
+  .chip.on { background: var(--hi); color: var(--bg); border-color: var(--hi); }
+  label.opt { display: inline-flex; gap: 5px; align-items: center; color: var(--dim); cursor: pointer; }
+  main { display: grid; grid-template-columns: minmax(380px, 46%) 1fr; min-height: 0; }
+  #list { overflow: auto; border-right: 1px solid var(--line); }
+  .area { position: sticky; top: 0; background: var(--bg); display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-bottom: 1px solid var(--line); font-weight: 600; z-index: 1; }
+  .area .count { color: var(--faint); font-weight: 400; }
+  .row { display: grid; grid-template-columns: 74px 1fr auto auto; gap: 10px; align-items: center; padding: 5px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .row:hover { background: var(--panel); }
+  .row.sel { background: var(--panel); box-shadow: inset 2px 0 0 var(--hi); }
+  .row .id { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .row .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-family: var(--mono); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--faint); display: inline-block; }
+  .pass .dot { background: var(--ok); border-color: var(--ok); }
+  .fail .dot { background: transparent; border-color: var(--bad); box-shadow: inset 0 0 0 2px var(--bg), inset 0 0 0 5px var(--bad); }
+  .fail { color: var(--hi); font-weight: 700; }
+  .skip .dot { border-style: dashed; }
+  .running .dot { border-color: var(--run); border-top-color: transparent; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tag { font-size: 11px; color: var(--faint); font-family: var(--mono); }
+  #detail { overflow: auto; padding: 14px 18px; min-width: 0; }
+  #detail h2 { margin: 0 0 2px; font-size: 15px; }
+  #detail h3 { margin: 16px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 600; }
+  video { width: 100%; max-width: 960px; background: #000; border: 1px solid var(--line2); border-radius: 8px; display: block; }
+  img.shot { max-width: 100%; border: 1px solid var(--line2); border-radius: 8px; }
+  .steps { margin: 0; padding: 0; list-style: none; font-family: var(--mono); font-size: 12px; }
+  .steps li { display: flex; gap: 10px; padding: 1px 0; cursor: pointer; } .steps li:hover { color: var(--hi); }
+  .steps .t { color: var(--faint); min-width: 52px; text-align: right; }
+  pre.err { background: var(--panel); border: 1px solid var(--line2); border-radius: 6px; padding: 8px 10px; margin: 0; white-space: pre-wrap; word-break: break-word; font: 12px/1.45 var(--mono); }
+  table.hist { border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
+  table.hist td { padding: 2px 14px 2px 0; } table.hist tr { cursor: pointer; } table.hist tr:hover td { color: var(--hi); }
+  #logwrap { border-top: 1px solid var(--line); background: var(--panel); }
+  #logbar { display: flex; gap: 10px; align-items: center; padding: 4px 14px; border-bottom: 1px solid var(--line); }
+  #log { height: 190px; overflow: auto; margin: 0; padding: 6px 14px; font: 12px/1.45 var(--mono); white-space: pre-wrap; }
+  #logwrap.min #log { display: none; }
+  .empty { padding: 40px; color: var(--faint); text-align: center; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } #detail { display: none; } body.showdetail #detail { display: block; } body.showdetail #list { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>PUPPET MASTER &nbsp;E2E</h1>
+  <span id="build" class="dim mono"></span>
+  <span class="spacer"></span>
+  <span id="jobstate" class="mono dim">idle</span>
+  <button id="stop" disabled>Stop</button>
+  <button id="theme" title="Light or dark">Theme</button>
+</header>
+<div id="bar">
+  <input id="q" type="search" placeholder="Search id, title, tag" autocomplete="off">
+  <span id="tags"></span>
+  <span class="spacer"></span>
+  <label class="opt"><input type="checkbox" id="optVideo" checked> video</label>
+  <label class="opt"><input type="checkbox" id="optFresh"> fresh app per test</label>
+  <label class="opt"><input type="checkbox" id="optHeadless"> off-screen</label>
+  <button id="runShown" class="primary">Run all shown</button>
+</div>
+<main>
+  <section id="list"></section>
+  <section id="detail"><div class="empty">Pick a test to see its last run and video.</div></section>
+</main>
+<div id="logwrap">
+  <div id="logbar"><strong>Live log</strong><span id="logsub" class="dim mono"></span><span class="spacer"></span><button id="logclear">Clear</button><button id="logtoggle">Hide</button></div>
+  <pre id="log"></pre>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
