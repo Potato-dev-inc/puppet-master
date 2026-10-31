@@ -301,7 +301,7 @@ export async function nightSetup(t) {
 /** Every Labs switch these tests use, off (the default), and no night left over. */
 export async function labsOff(t) {
   await resetNight(t);
-  await setSettings(t, { missions_enabled: false, night_shift_enabled: false, simple_mode: false });
+  await setSettings(t, { missions_enabled: false, night_shift_enabled: false, simple_mode: false, potato_bot_enabled: false });
 }
 
 /** Click a pane row in the sidebar by its name, so the app knows the project it is working on. */
