@@ -104,6 +104,14 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Result<Option<Request>, St
 /// else needs a paired-device bearer unless it is the local app (see `requires_pairing_token`).
 /// `/events/ws` may carry its bearer in the `pm-bearer.<token>` subprotocol offer.
 pub(super) fn gate(req: &Request) -> Result<mobile_pairing::Caller, (u16, serde_json::Value)> {
+    gate_with(req, crate::potato::auth::brains())
+}
+
+/// [`gate`] over a given set of Potato Bot brains (the tests give it their own).
+pub(super) fn gate_with(
+    req: &Request,
+    brains: &crate::potato::auth::Brains,
+) -> Result<mobile_pairing::Caller, (u16, serde_json::Value)> {
     if req.method == "OPTIONS" {
         return Ok(mobile_pairing::Caller::Public);
     }
@@ -112,6 +120,13 @@ pub(super) fn gate(req: &Request) -> Result<mobile_pairing::Caller, (u16, serde_
     let segments = mobile_pairing::normalize_bridge_segments(&raw_segments).to_vec();
     // Hook Lane: a hook token is good for `POST /hooks/event` only (403 HOOK_TOKEN_SCOPE elsewhere).
     crate::agent_hooks::route::scope_guard(&req.headers_raw, &segments, &req.method)?;
+    // Potato Bot: a brain is served `/potato/brain/*` and nothing else (404 for anyone who is not one, 403
+    // POTATO_SCOPE for its token anywhere else, and for its own process asking without the token).
+    match crate::potato::auth::gate(brains, &req.method, &segments, &req.headers_raw, req.peer_loopback, req.peer) {
+        crate::potato::auth::Verdict::Pass => {}
+        crate::potato::auth::Verdict::Brain(bot_id) => return Ok(mobile_pairing::Caller::Brain { bot_id }),
+        crate::potato::auth::Verdict::Refuse(status, body) => return Err((status, body)),
+    }
     if segments == ["events", "ws"] {
         let offer =
             mobile_pairing::header_value(&req.headers_raw, "Sec-WebSocket-Protocol").unwrap_or("");
@@ -177,14 +192,30 @@ pub(super) fn handle_connection(
     };
     let cors = cors_lines(&req.headers_raw);
     let mut stream = CorsStream { stream: &mut stream, cors: &cors };
+    // Brain routes send no CORS headers, whatever the answer (a preflight for them is just a 404).
+    if req.method == "OPTIONS" && is_brain_target(&req.target) {
+        return write_json(stream.stream, 404, &json!({ "error": "not found" }));
+    }
     if req.method == "OPTIONS" {
         return write_json_cors(&mut stream, 204, &json!({}));
     }
     // Fail closed before any route, SSE or WebSocket handler runs. Each handler below checks again.
     let caller = match gate(&req) {
         Ok(caller) => caller,
+        Err((status, value)) if is_brain_target(&req.target) => return write_json(stream.stream, status, &value),
         Err((status, value)) => return write_json_cors(&mut stream, status, &value),
     };
+    // A Potato Bot brain: its own routes, answered here and never handed to the router. No CORS headers.
+    if let mobile_pairing::Caller::Brain { bot_id } = &caller {
+        let (path, query) = split_target(&req.target);
+        let raw: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+        let segments = mobile_pairing::normalize_bridge_segments(&raw).to_vec();
+        let (status, value) = match crate::potato::live::service() {
+            Some(service) => super::routes::potato_brain::respond(&service, bot_id, &req.method, &segments, query, &req.body),
+            None => super::routes::potato_brain::not_found(),
+        };
+        return write_json(stream.stream, status, &value);
+    }
     if caller == mobile_pairing::Caller::Local {
         // S3, log-only: a local caller without the app's per-launch key is logged and still served.
         // The hook emitter never gets the secret (it would sit in every agent tool's env); its
@@ -313,6 +344,13 @@ pub(super) fn handle_connection(
         mobile_pairing::hide_pane_titles(&mut value);
     }
     write_json_cors(&mut stream, status, &value)
+}
+
+/// Whether a request target is under `/potato/brain/` (the routes of a Potato Bot brain).
+fn is_brain_target(target: &str) -> bool {
+    let (path, _) = split_target(target);
+    let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    crate::potato::auth::is_brain_path(&segments)
 }
 
 pub(super) fn parse_json<T: for<'de> Deserialize<'de>>(
@@ -487,22 +525,36 @@ pub(super) fn request_session(headers: &str) -> Option<&str> {
 /// request, i.e. whether the route layer would treat the caller as the desktop app itself.
 #[cfg(test)]
 pub(crate) fn spawn_gate_listener() -> std::net::SocketAddr {
-    spawn_test_listener(false)
+    spawn_test_listener(false, None)
+}
+
+/// [`spawn_gate_listener`] with its own Potato Bot brains and service: a brain that passes the gate is
+/// answered by the real brain routes over that service, and anything else gets the stub reply.
+#[cfg(test)]
+pub(crate) fn spawn_potato_listener(
+    brains: Arc<crate::potato::auth::Brains>,
+    service: Arc<crate::potato::service::Service>,
+) -> std::net::SocketAddr {
+    spawn_test_listener(false, Some((brains, service)))
 }
 
 /// [`spawn_gate_listener`], but `GET /events/poll` runs the real long-poll handler (per-device
 /// terminal filtering) instead of the stub reply.
 #[cfg(test)]
 pub(crate) fn spawn_device_gate_listener() -> std::net::SocketAddr {
-    spawn_test_listener(true)
+    spawn_test_listener(true, None)
 }
 
 #[cfg(test)]
-fn spawn_test_listener(real_poll: bool) -> std::net::SocketAddr {
+type TestPotato = Option<(Arc<crate::potato::auth::Brains>, Arc<crate::potato::service::Service>)>;
+
+#[cfg(test)]
+fn spawn_test_listener(real_poll: bool, potato: TestPotato) -> std::net::SocketAddr {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind test bridge");
     let addr = listener.local_addr().expect("test bridge addr");
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
+            let potato = potato.clone();
             std::thread::spawn(move || {
                 let mut stream = stream;
                 let Ok(Some(req)) = read_request(&mut stream) else {
@@ -511,12 +563,29 @@ fn spawn_test_listener(real_poll: bool) -> std::net::SocketAddr {
                 let cors = cors_lines(&req.headers_raw);
                 let mut stream = CorsStream { stream: &mut stream, cors: &cors };
                 let (path, query) = split_target(&req.target);
-                let gated = gate(&req);
+                if req.method == "OPTIONS" && is_brain_target(&req.target) {
+                    let _ = write_json(stream.stream, 404, &json!({ "error": "not found" }));
+                    return;
+                }
+                let gated = match &potato {
+                    Some((brains, _)) => gate_with(&req, brains),
+                    None => gate(&req),
+                };
                 if gated == Ok(mobile_pairing::Caller::Local) {
                     mobile_pairing::local_secret::observe_local_request(&req.headers_raw, &req.method, path);
                 }
                 let _ = match gated {
+                    Err((status, value)) if is_brain_target(&req.target) => write_json(stream.stream, status, &value),
                     Err((status, value)) => write_json_cors(&mut stream, status, &value),
+                    Ok(mobile_pairing::Caller::Brain { bot_id }) => {
+                        let raw: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+                        let segments = mobile_pairing::normalize_bridge_segments(&raw).to_vec();
+                        let (status, value) = match &potato {
+                            Some((_, service)) => super::routes::potato_brain::respond(service, &bot_id, &req.method, &segments, query, &req.body),
+                            None => super::routes::potato_brain::not_found(),
+                        };
+                        write_json(stream.stream, status, &value)
+                    }
                     // The real long-poll handler, so tests see what a device really receives.
                     Ok(caller) if real_poll && path.trim_start_matches("/bridge") == "/events/poll" => {
                         write_json_cors(&mut stream, 200, &events_poll(&caller, query))

@@ -25,6 +25,20 @@ pub fn is_provider_secret(name: &str) -> bool {
     PROVIDER_SECRETS.contains(&name)
 }
 
+/// Secrets only a Potato Bot brain process reads (the model key, a chat app's bot token). The UI may set,
+/// read masked and delete them like a provider key; but they are NEVER handed to the webview:
+/// `secret_get_for_llm` stays provider-only. The brain gets them in its own environment at spawn.
+pub const SIDECAR_SECRETS: &[&str] = &["deepseek_api_key", "discord_bot_token"];
+
+pub fn is_sidecar_secret(name: &str) -> bool {
+    SIDECAR_SECRETS.contains(&name)
+}
+
+/// Names the UI may set, read masked and delete.
+pub fn is_ui_secret(name: &str) -> bool {
+    is_provider_secret(name) || is_sidecar_secret(name)
+}
+
 pub trait SecretBackend: Send + Sync {
     fn get(&self, name: &str) -> Result<Option<String>, String>;
     fn set(&self, name: &str, value: &str) -> Result<(), String>;
@@ -341,6 +355,18 @@ mod tests {
         assert!(is_provider_secret("openrouter_api_key"));
         assert!(!is_provider_secret("opencode_profile_a"));
         assert!(!is_provider_secret("../etc"));
+    }
+
+    #[test]
+    fn sidecar_secrets_are_ui_addressable_but_not_provider_secrets() {
+        for name in SIDECAR_SECRETS {
+            assert!(is_sidecar_secret(name), "{name}");
+            assert!(is_ui_secret(name), "{name}");
+            assert!(!is_provider_secret(name), "{name} must not be a provider key");
+        }
+        assert!(is_ui_secret("anthropic_api_key"));
+        assert!(!is_ui_secret("../deepseek_api_key"));
+        assert!(!is_sidecar_secret("openai_api_key"));
     }
 
     #[test]

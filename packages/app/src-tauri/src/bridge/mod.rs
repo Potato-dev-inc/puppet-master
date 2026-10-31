@@ -16,7 +16,7 @@ mod event_log;
 mod handoff;
 mod http;
 #[cfg(test)]
-pub(crate) use http::{spawn_device_gate_listener, spawn_gate_listener};
+pub(crate) use http::{spawn_device_gate_listener, spawn_gate_listener, spawn_potato_listener};
 #[cfg(feature = "dev-fake-tui")]
 pub(crate) use routes::team_mcp::{handle_request as team_agent_request, LiveTeam};
 mod locks;
@@ -72,6 +72,27 @@ use state::{BRIDGE_APP, BRIDGE_REGISTRY};
 pub(crate) fn install_for_e2e(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle) {
     let _ = BRIDGE_APP.set(app);
     let _ = BRIDGE_REGISTRY.set(registry);
+}
+
+/// Dev only (`dev-fake-tui`): the bridge's own connection handler (gate, brain routes, router) on a free
+/// port the OS picks, for the Potato Bot end-to-end test. It writes no port file and never binds the
+/// app's own range (17321 and up), so a running Puppet Master is never touched.
+#[cfg(feature = "dev-fake-tui")]
+pub(crate) fn serve_for_e2e(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle) -> Result<u16, String> {
+    let listener = TcpListener::bind((HOST, 0)).map_err(|err| format!("bind a test bridge: {err}"))?;
+    let port = listener.local_addr().map_err(|err| err.to_string())?.port();
+    thread::Builder::new()
+        .name("e2e-http-bridge".into())
+        .spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let (registry, app) = (registry.clone(), app.clone());
+                thread::spawn(move || {
+                    let _ = http::handle_connection(stream, registry, app);
+                });
+            }
+        })
+        .map_err(|err| format!("spawn the test bridge thread: {err}"))?;
+    Ok(port)
 }
 
 /// Tell the desktop windows to re-read pane info (`pty://panes-changed`) and the bridge viewers.
@@ -183,6 +204,7 @@ pub fn start_embedded_bridge(
     let (listener, port) = bind_listener()?;
     let url = format!("http://{HOST}:{port}");
     crate::agent_hooks::set_bridge_port(port);
+    crate::potato::live::set_bridge_port(port);
     // S3: this launch's local secret, written before the port file so a client that finds the new
     // port also finds the new secret. Log-only for now, so a failure here never stops the bridge.
     if let Err(err) = mobile_pairing::local_secret::init(&port_file) {

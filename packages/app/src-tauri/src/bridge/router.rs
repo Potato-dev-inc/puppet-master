@@ -39,6 +39,11 @@ pub(super) fn route(
     peer: Option<crate::companion::peer::Peer>,
 ) -> RouteResult {
     mobile_pairing::authorize_bridge_request(headers, peer_loopback, segments, method)?;
+    // Potato Bot brain routes are answered by `http::handle_connection` for an authenticated brain and by
+    // nobody else: the router never serves them (the token itself was refused above, 403 POTATO_SCOPE).
+    if crate::potato::auth::is_brain_path(segments) {
+        return Err((404, json!({ "error": "not found" })));
+    }
     // Hook Lane: append-only, local-only, its own token (agent_hooks::route); before body parsing.
     if crate::agent_hooks::route::is_hook_ingest(method, segments) {
         let (status, value) = crate::agent_hooks::route::handle(headers, body, peer_loopback);

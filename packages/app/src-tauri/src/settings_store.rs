@@ -27,6 +27,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "pane_mcp_enabled",
     "missions_enabled",
     "night_shift_enabled",
+    "potato_bot_enabled",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -57,6 +58,9 @@ pub fn default_public_settings() -> Value {
         "missions_enabled": false,
         // Night Shift (Labs): hours of unattended work, so off until the person turns it on.
         "night_shift_enabled": false,
+        // Potato Bot (Labs): a chat friend with its own brain that costs money per message, so off until chosen.
+        // It is also the kill switch: off stops every brain (`potato::live::apply_settings`).
+        "potato_bot_enabled": false,
     })
 }
 
@@ -98,6 +102,7 @@ pub fn mirror_public_patch(app: &AppHandle, patch: &Value) -> Value {
     crate::bridge::push_settings_sse(&merged);
     crate::agent_hooks::apply_settings(&merged);
     crate::pane_mcp::apply_settings(&merged);
+    crate::potato::live::apply_settings(&merged);
 
     if let Some(backend) = merged.get("orchestrator_backend").and_then(Value::as_str) {
         if backend != "api" {
@@ -141,6 +146,7 @@ pub fn load_saved_public_settings(app: &AppHandle) {
     crate::bridge::push_settings_sse(&merged);
     crate::agent_hooks::apply_settings(&merged);
     crate::pane_mcp::apply_settings(&merged);
+    crate::potato::live::apply_settings(&merged);
 }
 
 #[cfg(test)]

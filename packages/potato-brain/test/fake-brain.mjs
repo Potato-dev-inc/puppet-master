@@ -8,6 +8,9 @@
 //                              usage 10/5 (prompt/completion), typing off
 //   send "work: <task>"        the same, plus a helper_request for <task>
 //   send "crash"               exits with code 1 at once
+//   send "probe: /path"        asks the app for /path twice, with the token and without it, and
+//                              replies with the two status codes (the app must answer 403 to both
+//                              on any route that is not a brain route)
 //   helper_update (not started) a reply "Fish heard: helper <status>"
 //   shutdown                   exits with code 0
 //   anything else              ignored
@@ -51,6 +54,23 @@ async function handle(item) {
     if (text.trim() === "crash") process.exit(1);
     const conversationId = String(item.conversationId);
     const events = [{ type: "typing", conversationId, on: true }];
+    let said = `Fish heard: ${text}`;
+    const probe = /^probe:\s*(\/\S*)$/i.exec(text.trim());
+    if (probe) {
+      const target = new URL((probe[1] ?? "").replace(/^\//, ""), base);
+      const status = async (h) => {
+        try {
+          const res = await fetch(target, { headers: h, redirect: "error" });
+          await res.arrayBuffer().catch(() => {});
+          return res.status;
+        } catch {
+          return 0;
+        }
+      };
+      const withToken = await status(headers);
+      const without = await status({});
+      said = `Fish probed ${probe[1]}: ${withToken} with the token, ${without} without`;
+    }
     const work = /^work:\s*(.+)$/is.exec(text.trim());
     if (work) {
       const requestId = `fake-${++counter}`;
@@ -63,7 +83,7 @@ async function handle(item) {
       });
     }
     events.push(
-      { type: "reply", conversationId, inReplyTo: item.id, segments: [`Fish heard: ${text}`] },
+      { type: "reply", conversationId, inReplyTo: item.id, segments: [said] },
       { type: "mood", mood: "genki", intensity: 2, energy: 60, hunger: 30 },
       { type: "usage", model: "fake", promptTokens: 10, completionTokens: 5, cacheHitTokens: 0, cacheMissTokens: 10 },
       { type: "typing", conversationId, on: false },

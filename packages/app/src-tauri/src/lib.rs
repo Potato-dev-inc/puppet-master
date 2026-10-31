@@ -45,6 +45,7 @@ pub mod night_shift;
 mod tunnel_config;
 mod one_brain;
 mod companion;
+mod potato;
 mod crews;
 mod opencode;
 pub mod operations;
@@ -619,6 +620,18 @@ pub fn run() {
             commands::companion_checkins_set,
             commands::companion_feed,
             commands::companion_open_folder,
+            commands::potato_state,
+            commands::potato_messages,
+            commands::potato_send,
+            commands::potato_bot_add,
+            commands::potato_set_persona,
+            commands::potato_bot_start,
+            commands::potato_bot_stop,
+            commands::potato_mark_read,
+            commands::potato_forget_talk_memory,
+            commands::potato_settings_get,
+            commands::potato_settings_set,
+            commands::potato_log,
         ])
         .setup(|app| {
             // Before the first window: an older version's desktop service worker would serve its UI.
@@ -790,6 +803,8 @@ pub fn run() {
             issue_intake::live::start(registry_for_panes.clone(), app.handle().clone());
             ci_fix::live::start(registry_for_panes.clone(), app.handle().clone());
             companion::live::start(app.handle().clone(), registry_for_panes.clone());
+            // Potato Bot: the engine and its supervisor thread. No brain starts here; one starts on its first message.
+            potato::live::start(Some(app.handle().clone()));
             // A room a crash left on the relay is ended now (its own thread: it may wait for the network).
             live_room::service::cleanup_at_boot(app_paths::app_data_dir());
             app.handle().listen("pty://panes-changed", move |_event| {
@@ -832,6 +847,8 @@ pub fn run() {
                     room.stop_all(live_room::publisher::StopReason::AppQuit);
                 }
                 standby::shutdown();
+                // Potato Bot's brains leave with the app: asked first, then their whole tree is stopped.
+                potato::live::stop_all(std::time::Duration::from_secs(2));
                 // The computer may sleep again: a Night Shift hold must not outlive the app.
                 night_shift::power::release_all();
                 if let Some(chat) = app_handle.try_state::<commands::SessionChatState>() {
