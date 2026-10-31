@@ -82,7 +82,8 @@ pub enum RunState {
     Running,
     /// The run's record cannot be read (yet, or any more).
     Gone,
-    Done { status: HelperStatus, summary: String },
+    /// `pane_id` is the pane the run worked in, as its record says now (the start may not have had one yet).
+    Done { status: HelperStatus, summary: String, pane_id: Option<String> },
 }
 
 /// Everything the helpers do outside their own memory. The real one is `live::LiveHands`; the tests have a
@@ -411,11 +412,11 @@ impl Service {
         };
         for helper in due {
             match hands.poll(&helper.project, &helper.operation_id) {
-                RunState::Done { status, summary } => self.finish_helper(&helper, status, &summary),
+                RunState::Done { status, summary, pane_id } => self.finish_helper(&helper, status, &summary, pane_id),
                 RunState::Running => {
                     self.helpers.inner.lock().gone.remove(&helper.request_id);
                     if now - helper.started_ms > WATCH_LIMIT_MS {
-                        self.finish_helper(&helper, HelperStatus::Stopped, "");
+                        self.finish_helper(&helper, HelperStatus::Stopped, "", None);
                     } else {
                         self.keep_awake(&helper.bot);
                     }
@@ -428,7 +429,7 @@ impl Service {
                         *n
                     };
                     if misses >= GONE_LIMIT {
-                        self.finish_helper(&helper, HelperStatus::Stopped, "");
+                        self.finish_helper(&helper, HelperStatus::Stopped, "", None);
                     }
                 }
             }
@@ -436,7 +437,7 @@ impl Service {
     }
 
     /// A helper ended. Exactly once: the book gives it up before anything is said.
-    fn finish_helper(&self, helper: &Running, status: HelperStatus, summary: &str) {
+    fn finish_helper(&self, helper: &Running, status: HelperStatus, summary: &str, pane_id: Option<String>) {
         {
             let mut inner = self.helpers.inner.lock();
             let before = inner.book.running.len();
@@ -454,7 +455,7 @@ impl Service {
         let now = self.host().now_ms();
         let mut row = Message::new(now, FromKind::Note, None, MsgKind::HelperResult, &finished_line(status, &helper.folder_name));
         row.request_id = Some(helper.request_id.clone());
-        row.pane_id = helper.pane_id.clone();
+        row.pane_id = pane_id.or_else(|| helper.pane_id.clone());
         if let Err(e) = self.save(bot, &store::app_conversation(bot), row) {
             tracing::debug!(error = %e, "could not save a helper result");
         }

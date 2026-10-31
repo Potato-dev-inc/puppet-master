@@ -183,10 +183,11 @@ impl Hands for LiveHands {
     fn poll(&self, project: &str, operation_id: &str) -> RunState {
         use crate::operations::OperationStatus;
         let Ok(op) = crate::operations::get_operation(project, operation_id) else { return RunState::Gone };
+        let pane_id = op.pane_id.clone();
         match op.status {
-            OperationStatus::Completed => RunState::Done { status: HelperStatus::Finished, summary: op.result.unwrap_or_default() },
-            OperationStatus::Failed => RunState::Done { status: HelperStatus::Failed, summary: op.error.map(|e| e.message).unwrap_or_default() },
-            OperationStatus::Cancelled => RunState::Done { status: HelperStatus::Stopped, summary: String::new() },
+            OperationStatus::Completed => RunState::Done { status: HelperStatus::Finished, summary: op.result.unwrap_or_default(), pane_id },
+            OperationStatus::Failed => RunState::Done { status: HelperStatus::Failed, summary: op.error.map(|e| e.message).unwrap_or_default(), pane_id },
+            OperationStatus::Cancelled => RunState::Done { status: HelperStatus::Stopped, summary: String::new(), pane_id },
             _ => RunState::Running,
         }
     }

@@ -26,6 +26,10 @@ struct FakeHands {
     fail_start: Mutex<Option<String>>,
     key: Mutex<std::result::Result<(), String>>,
     polls: Mutex<u32>,
+    /// The pane the run's record names when it ends.
+    pane_at_end: Mutex<Option<String>>,
+    /// Whether `start` already knows the pane.
+    pane_at_start: Mutex<bool>,
 }
 
 impl Hands for FakeHands {
@@ -44,7 +48,8 @@ impl Hands for FakeHands {
         }
         let mut started = self.started.lock();
         started.push(request);
-        Ok(Started { operation_id: format!("op-{}", started.len()), pane_id: Some(format!("pane-{}", started.len())) })
+        let pane_id = (*self.pane_at_start.lock()).then(|| format!("pane-{}", started.len()));
+        Ok(Started { operation_id: format!("op-{}", started.len()), pane_id })
     }
     fn poll(&self, _project: &str, _operation_id: &str) -> RunState {
         *self.polls.lock() += 1;
@@ -106,6 +111,8 @@ fn world(name: &str) -> World {
         fail_start: Mutex::new(None),
         key: Mutex::new(Ok(())),
         polls: Mutex::new(0),
+        pane_at_end: Mutex::new(None),
+        pane_at_start: Mutex::new(true),
     });
     rig.svc.set_hands(hands.clone());
     World { rig, hands, base }
@@ -136,7 +143,7 @@ impl World {
 
     /// The helper ends: the next watch sees it.
     fn end_with(&self, status: HelperStatus, summary: &str) {
-        *self.hands.run.lock() = RunState::Done { status, summary: summary.to_string() };
+        *self.hands.run.lock() = RunState::Done { status, summary: summary.to_string(), pane_id: self.hands.pane_at_end.lock().clone() };
         self.rig.advance(3_000);
         self.rig.svc.tick();
     }
@@ -218,6 +225,8 @@ fn world_hands_for(rig: &Rig) -> Arc<FakeHands> {
         fail_start: Mutex::new(None),
         key: Mutex::new(Ok(())),
         polls: Mutex::new(0),
+        pane_at_end: Mutex::new(None),
+        pane_at_start: Mutex::new(true),
     });
     rig.svc.set_hands(hands.clone());
     hands
@@ -505,6 +514,19 @@ fn a_helper_end_gives_a_row_and_exactly_one_brain_turn() {
 }
 
 #[test]
+fn the_open_button_uses_the_pane_the_record_names_when_the_start_did_not_know_one_yet() {
+    let w = world("h-pane");
+    *w.hands.pane_at_start.lock() = false;
+    *w.hands.pane_at_end.lock() = Some("pane-77".into());
+    w.ask("h-1", "add a readme", Some("demo-a"));
+    w.rig.svc.helper_start("nimbus", "h-1", None).unwrap();
+    assert_eq!(w.rig.svc.running_helpers()[0].pane_id, None);
+    w.end_with(HelperStatus::Finished, "done");
+    let row = w.rig.thread().into_iter().find(|m| m.text == "Helper finished in demo-a.").unwrap();
+    assert_eq!(row.pane_id.as_deref(), Some("pane-77"));
+}
+
+#[test]
 fn a_failed_or_stopped_helper_says_so_in_its_row_and_to_the_brain() {
     for (status, word, line) in [(HelperStatus::Failed, "failed", "Helper could not finish in demo-a."), (HelperStatus::Stopped, "stopped", "Helper stopped in demo-a.")] {
         let w = world(&format!("h-end-{word}"));
@@ -566,16 +588,14 @@ fn a_helper_still_working_keeps_the_brain_from_going_idle() {
         w.rig.advance(3_000);
         w.rig.svc.tick();
     }
-    let (items, _) = w.rig.inbox(0);
-    assert!(items.iter().all(|i| i["type"] != "shutdown"), "a brain with a helper out is not idle");
+    assert!(w.rig.child(0).running(), "a brain with a helper out is not idle, so it was never asked to leave");
     // and once the helper is over, the usual idle timer runs again
     w.end_with(HelperStatus::Finished, "done");
     for _ in 0..700 {
         w.rig.advance(3_000);
         w.rig.svc.tick();
     }
-    let (items, _) = w.rig.inbox(0);
-    assert!(items.iter().any(|i| i["type"] == "shutdown"), "idle again: it leaves after 30 quiet minutes");
+    assert!(!w.rig.child(0).running(), "idle again: it was asked to leave after 30 quiet minutes, and the fake never leaves by itself, so it was killed");
 }
 
 // ---- Check key and the key never leaving ----------------------------------------------------------------
