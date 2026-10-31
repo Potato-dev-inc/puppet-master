@@ -28,7 +28,11 @@
       "resources/puppet-master-cli.bundle.mjs",
       "resources/pwa-dist/*",
       "resources/pwa-dist/assets/*",
-      "resources/bin/*"
+      "resources/bin/*",
+      "resources/potato-brain/*",
+      "resources/potato-brain/persona/*",
+      "resources/potato-brain/persona/packs/fish/*",
+      "resources/potato-brain/persona/packs/potato/*"
     ],
     "icon": [
       "icons/32x32.png",

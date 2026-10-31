@@ -136,11 +136,19 @@ puppet-master/
         tests/agent-definitions/kilo.toml  proof definition copy (bundled set is empty; install into <app data>/agents/)
         capabilities/ icons/ gen/ (gen is gitignored)
         resources/          bin/ (cloudflared, staged puppet-master-mcp), mcp-stdio.bundle.cjs,
-                            puppet-master-cli.bundle.mjs (CLI bundle), pwa-dist/ (staged PWA)
+                            puppet-master-cli.bundle.mjs (CLI bundle), pwa-dist/ (staged PWA),
+                            potato-brain/ (gitignored: brain.mjs + persona/, built by bundle-potato-brain.mjs)
         src/                Rust sources (section 3)
     cli/                    `puppet-master` CLI (src/index.ts: gui, mcp, worker, watch, version;
                             watch.ts + watch-args.ts = the watch command; launch-worker.ts)
     e2e/                    end-to-end tests with video: real app + fake agents, CLI and local dashboard (`npm run e2e`, `npm run e2e:dashboard`; see `packages/e2e/README.md`)
+    potato-brain/           Potato Bot brain (vendored fishd, MIT, see NOTICE.md): a Node program the app starts as a sidecar,
+                            not a library. src/pm.ts = entry (exit 2 without PM_POTATO_URL/PM_POTATO_TOKEN; no .env read when
+                            PM_POTATO_URL is set), src/channels/potato.ts = channel protocol v1 client (long-poll inbox, post
+                            events, one Agent per conversationId on one shared vault, error codes only, no response bodies),
+                            src/core/helper-tool.ts = ask_helper (only under pm.ts), src/agents.ts = Agent factory,
+                            src/core + memory + persona = the harness; persona/ = protocol.md + packs/{fish,potato}/;
+                            test/fake-brain.mjs = no-dependency stand-in for Rust tests. `npm test -w @puppet-master/potato-brain`
     mcp-server/             MCP packaging: src/index.ts (legacy TS MCP entry: startup mode + handlers;
                             bridge-client / catalog / tool-router / registry-call / timeouts / errors /
                             types / util alongside, all `src/*.ts`), src/launcher.ts (picks the Rust binary),
@@ -150,6 +158,7 @@ puppet-master/
   scripts/
     build-rust-mcp.mjs      cargo build of puppet-master-mcp -> packages/mcp-server/dist
     bundle-mcp.mjs          stages MCP exe + esbuilds CLI bundle and mcp-stdio bundle into resources/
+    bundle-potato-brain.mjs esbuilds packages/potato-brain/src/pm.ts -> resources/potato-brain/brain.mjs (ESM, node20, no discord.js) + copies persona/; called from bundle-mcp.mjs and (when missing) ensure-tauri-resources.mjs
     bundle-cloudflared.mjs, stage-pwa-dist.mjs, ensure-tauri-resources.mjs, ensure-workspace-built.mjs
     with-cargo-path.mjs / cargo-with-path.mjs   run cargo/tauri with ~/.cargo/bin on PATH (`npm run dev` goes through with-cargo-path.mjs)
     check-window-monitor.ps1  lists visible puppet_master_app windows, exits 1 if any is on the primary monitor (run after live visible-pane tests)
