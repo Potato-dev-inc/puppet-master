@@ -95,8 +95,11 @@ Deviations and additions, none of which change the table above:
   `LazyStore` sees it; React must change the mode with `set_ui_mode`, never by writing the settings key (Rust keeps
   the live mode in memory).
 - `set_ui_mode` to the current mode emits `ui://mode-changed` but moves no windows.
-- `answer_pane_prompt` never opts into broad approvals (`allow_broad=false`), so `allow_all` is refused as on
-  `/agents/answer`; `pane_prompt` / `pty://prompt` choices are the non-broad ones. Errors read `CODE: message`.
+- `answer_pane_prompt` does not opt into broad approvals for a profile's prompt (`allow_broad=false`), so `allow_all` is
+  refused as on `/agents/answer`; `pane_prompt` / `pty://prompt` choices are the non-broad ones. The one exception is a
+  card read by its shape (`kind: unknown_question`), which lists every option on the screen: a trusted click on one of
+  them (a `gesture` is present) is the person's consent and sends it, including "Always allow in this project". Without
+  a click nothing broad goes out, and an agent over MCP still needs `allow_broad` itself. Errors read `CODE: message`.
 - `PanePrompt.choices[].label` is the choice id prettified (`allow_once` -> `Allow once`).
 - `pane://spawn-stage`: `claiming` (pane_id null) -> warm: `attached`+`ready` (warm true); cold: `spawning` ->
   `attached` -> `ready` on the pane's first output or 1.5 s after attach, whichever is first. `ready` never waits

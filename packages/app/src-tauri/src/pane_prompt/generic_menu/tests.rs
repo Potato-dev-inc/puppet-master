@@ -73,6 +73,18 @@ fn the_id_survives_the_cursor_moving_and_a_spinner_under_the_menu_but_not_anothe
 }
 
 #[test]
+fn the_id_is_the_same_while_the_menu_is_still_being_drawn() {
+    // wait_agents read the pane with two of the three rows drawn; answer_prompt re-reads the finished menu.
+    let head = "NIMBUS 0.4.2\n\n> ask me with a menu\n\nRun this command?\n  echo hi\n\n";
+    let full = format!("{head}> 1. Allow once\n  2. Always allow in this project\n  3. Deny\n");
+    let partial = format!("{head}> 1. Allow once\n  2. Always allow in this project\n");
+    let (a, b) = (card(&partial), card(&full));
+    assert_eq!(a["options"].as_array().unwrap().len(), 2);
+    assert_eq!(b["options"].as_array().unwrap().len(), 3);
+    assert_eq!(id_of(&a), id_of(&b), "the same question has one id however much of the menu was drawn");
+}
+
+#[test]
 fn a_cursor_menu_is_answered_by_moving_the_cursor_and_the_route_adds_enter() {
     let c = card(&arrow(0));
     assert_eq!(reply(&c, "option_1", false).unwrap().key.as_deref(), Some(""));
