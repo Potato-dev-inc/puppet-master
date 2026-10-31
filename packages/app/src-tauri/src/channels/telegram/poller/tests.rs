@@ -125,6 +125,7 @@ fn text_update(id: i64, text: &str) -> Update {
             date_s: (T0 / 1000) as i64 - 5,
             text: Some(text.into()),
             reply_to: None,
+            ..InMessage::default()
         }),
     }
 }
@@ -351,4 +352,24 @@ fn without_a_paired_chat_nothing_else_is_sent() {
     assert!(r.api.sent.lock().unwrap().is_empty());
     assert!(r.api.edits.lock().unwrap().is_empty());
     assert!(r.api.answers.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_group_reply_goes_to_the_group_under_the_tagged_message() {
+    let r = rig(vec![]);
+    let c = ctx(&r);
+    deliver(&c, Effect::Reply { chat_id: -100_555_000_001, reply_to: 42, out: plain("It is true.") });
+    assert_eq!(*r.api.sent.lock().unwrap(), vec![(-100_555_000_001, "It is true.".to_string(), Some(42))]);
+}
+
+#[test]
+fn a_refused_group_reply_does_not_stop_the_poller() {
+    // The bot may have been removed from that group: that says nothing about the paired chat.
+    let r = rig(vec![]);
+    r.api.send_fail.lock().unwrap().push_back(ApiError::Forbidden);
+    let c = ctx(&r);
+    deliver(&c, Effect::Reply { chat_id: -100_555_000_001, reply_to: 42, out: plain("It is true.") });
+    assert!(r.api.sent.lock().unwrap().is_empty());
+    assert_eq!(r.link.lock().unwrap().error, None, "a group refusal must not mark the link blocked");
+    assert!(c.alive());
 }

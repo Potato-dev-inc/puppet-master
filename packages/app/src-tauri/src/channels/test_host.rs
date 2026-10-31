@@ -3,7 +3,8 @@
 //! No test using it talks to Telegram or to a real pane.
 
 use super::config::{PairedChat, TelegramConfig};
-use super::host::{CompanionLine, Host, PaneLine};
+use super::host::{AgentOption, CompanionLine, GroupAsk, GroupAskOutcome, Host, PaneLine};
+use super::tag_log::GroupAnswerRecord;
 use crate::attention::answer::{Reply, Request};
 use crate::attention::caps::DeviceCaps;
 use crate::attention::model::{Counts, Item, Kind, Lane, Level, PaneRef, RiskView, Snapshot, State};
@@ -36,6 +37,12 @@ pub struct FakeHost {
     pub answer_reply: Mutex<Reply>,
     pub audits: Mutex<Vec<(AuditKind, String, Value)>>,
     pub changed_count: AtomicUsize,
+    /// Every `GroupAsk` the engine made, oldest first.
+    pub asks: Mutex<Vec<GroupAsk>>,
+    /// What the next `ask_group` returns.
+    pub ask_outcome: Mutex<GroupAskOutcome>,
+    pub group_records: Mutex<Vec<GroupAnswerRecord>>,
+    pub agents: Mutex<Vec<AgentOption>>,
 }
 
 impl FakeHost {
@@ -70,6 +77,10 @@ impl FakeHost {
             answer_reply: Mutex::new((200, json!({"outcome": "answered", "choice_label": "Allowed once"}))),
             audits: Mutex::new(Vec::new()),
             changed_count: AtomicUsize::new(0),
+            asks: Mutex::new(Vec::new()),
+            ask_outcome: Mutex::new(GroupAskOutcome { agent_label: "Test Agent".into(), answer: Some("Yes, that is right.".into()) }),
+            group_records: Mutex::new(Vec::new()),
+            agents: Mutex::new(vec![AgentOption { id: "test-agent".into(), label: "Test Agent".into() }]),
         }
     }
 
@@ -170,6 +181,23 @@ impl Host for FakeHost {
 
     fn changed(&self) {
         self.changed_count.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn ask_group(&self, ask: &GroupAsk) -> GroupAskOutcome {
+        self.asks.lock().push(ask.clone());
+        self.ask_outcome.lock().clone()
+    }
+
+    fn record_group_answer(&self, record: &GroupAnswerRecord) {
+        self.group_records.lock().push(record.clone());
+    }
+
+    fn recent_group_answers(&self) -> Vec<GroupAnswerRecord> {
+        self.group_records.lock().clone()
+    }
+
+    fn tag_agents(&self) -> Vec<AgentOption> {
+        self.agents.lock().clone()
     }
 }
 

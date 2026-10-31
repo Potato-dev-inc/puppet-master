@@ -4,6 +4,7 @@
 //! `settings.json`, so the settings mirror and the bridge can never patch it. `Control` is never kept:
 //! it is stripped on load and on save, so a chat can never be given the power to start or stop agents.
 
+use super::tag_config::{self, TagBotConfig};
 use crate::mobile_pairing::{Cap, Caps};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -42,6 +43,8 @@ pub struct TelegramConfig {
     pub short_mode: bool,
     /// The last update id Telegram handed us, so a restart does not replay messages.
     pub last_update_id: Option<i64>,
+    /// Tag Your Agent: the bot answering in approved groups. Off by default (see `tag_config`).
+    pub tag_bot: TagBotConfig,
 }
 
 impl Default for TelegramConfig {
@@ -56,6 +59,7 @@ impl Default for TelegramConfig {
             notify_runs: false,
             short_mode: false,
             last_update_id: None,
+            tag_bot: TagBotConfig::default(),
         }
     }
 }
@@ -68,6 +72,7 @@ pub fn default_caps() -> Caps {
 /// Remove what this channel may never hold. Used on load and on save.
 pub fn sanitize(mut config: TelegramConfig) -> TelegramConfig {
     config.caps = config.caps.with(Cap::Control, false);
+    config.tag_bot = tag_config::sanitize(config.tag_bot);
     config
 }
 
@@ -210,9 +215,42 @@ mod tests {
             notify_runs: true,
             short_mode: true,
             last_update_id: Some(77),
+            tag_bot: TagBotConfig::default(),
         };
         save_to(&path, &config).unwrap();
         assert_eq!(load_from(&path), config);
+    }
+
+    #[test]
+    fn the_group_bot_is_off_in_an_old_file_and_survives_a_round_trip() {
+        let old = parse(r#"{"enabled": true, "shortMode": true}"#);
+        assert!(!old.tag_bot.enabled);
+        assert!(old.tag_bot.groups.is_empty());
+        let path = temp_path("telegram.json");
+        let mut config = TelegramConfig::default();
+        config.tag_bot.enabled = true;
+        config.tag_bot.daily_cap = 12;
+        config.tag_bot.groups.push(tag_config::TagGroup {
+            chat_id: -100_555_000_001,
+            title: "Test Crew".into(),
+            who: tag_config::GroupWho::Anyone,
+            agent: Some("test-agent".into()),
+            folder: None,
+            style: "brief".into(),
+        });
+        save_to(&path, &config).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("\"tagBot\"") && raw.contains("\"anyone\""), "{raw}");
+        assert_eq!(load_from(&path), config);
+    }
+
+    #[test]
+    fn a_hand_edited_file_cannot_exceed_the_group_limits() {
+        let config = parse(r#"{"tagBot": {"enabled": true, "dailyCap": 0, "perPersonCap": 100000,
+            "groups": [{"chatId": -5, "title": "A", "style": "STYLE_PLACEHOLDER"}]}}"#.replace("STYLE_PLACEHOLDER", &"z".repeat(900)).as_str());
+        assert_eq!(config.tag_bot.daily_cap, 1);
+        assert!(config.tag_bot.per_person_cap <= 100);
+        assert_eq!(config.tag_bot.groups[0].style.chars().count(), 200);
     }
 
     #[test]

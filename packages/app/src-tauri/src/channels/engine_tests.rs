@@ -33,6 +33,7 @@ fn message(chat_id: i64, user: i64, text: &str, age_s: i64, reply_to: Option<i64
         date_s: (T0 / 1000) as i64 - age_s,
         text: Some(text.into()),
         reply_to,
+        ..InMessage::default()
     }
 }
 
@@ -73,14 +74,14 @@ fn texts(effects: &[Effect]) -> Vec<String> {
     let mut all = Vec::new();
     for effect in effects {
         match effect {
-            Effect::Send { out, .. } | Effect::SendTo { out, .. } | Effect::Edit { out, .. } => {
+            Effect::Send { out, .. } | Effect::SendTo { out, .. } | Effect::Edit { out, .. } | Effect::Reply { out, .. } => {
                 all.push(out.text.as_str().to_string());
                 for button in out.keyboard.iter().flatten() {
                     all.push(button.label.clone());
                 }
             }
             Effect::AnswerCallback { text: Some(t), .. } => all.push(t.as_str().to_string()),
-            Effect::AnswerCallback { text: None, .. } | Effect::Stop => {}
+            Effect::AnswerCallback { text: None, .. } | Effect::Stop | Effect::Ask(_) => {}
         }
     }
     all

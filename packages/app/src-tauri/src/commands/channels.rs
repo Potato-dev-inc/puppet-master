@@ -7,6 +7,7 @@
 //! never on the window's thread.
 
 use crate::channels::runtime::Runtime;
+use crate::channels::setup_tag::{GroupUpdate, TagBotView};
 use crate::channels::status::TelegramStatus;
 use std::sync::Arc;
 
@@ -59,4 +60,47 @@ pub async fn telegram_set_options(caps: Vec<String>, notify_runs: bool, short_mo
 #[tauri::command]
 pub async fn telegram_forget() -> Result<TelegramStatus, String> {
     with_runtime(|rt| rt.forget()).await
+}
+
+// ---- Tag Your Agent (the bot answering when tagged in an approved group) ----
+
+/// What the Tag Your Agent block shows.
+#[tauri::command]
+pub async fn telegram_tag_bot() -> Result<TagBotView, String> {
+    with_runtime(|rt| Ok(rt.tag_view())).await
+}
+
+#[tauri::command]
+pub async fn telegram_tag_set_enabled(on: bool) -> Result<TagBotView, String> {
+    with_runtime(move |rt| rt.tag_set_enabled(on)).await
+}
+
+/// Answers a day for the whole bot, and an hour for one person.
+#[tauri::command]
+pub async fn telegram_tag_set_caps(daily_cap: u32, per_person_cap: u32) -> Result<TagBotView, String> {
+    with_runtime(move |rt| rt.tag_set_caps(daily_cap, per_person_cap)).await
+}
+
+/// "Approve" a group that tagged the bot.
+#[tauri::command]
+pub async fn telegram_tag_approve(chat_id: i64) -> Result<TagBotView, String> {
+    with_runtime(move |rt| rt.tag_approve(chat_id)).await
+}
+
+/// "Ignore" a pending group.
+#[tauri::command]
+pub async fn telegram_tag_ignore(chat_id: i64) -> Result<TagBotView, String> {
+    with_runtime(move |rt| rt.tag_ignore(chat_id)).await
+}
+
+/// Who may tag, which agent answers, the folder (optional) and the style note of an approved group.
+#[tauri::command]
+pub async fn telegram_tag_update_group(chat_id: i64, update: GroupUpdate) -> Result<TagBotView, String> {
+    with_runtime(move |rt| rt.tag_update_group(chat_id, update)).await
+}
+
+/// "Remove" an approved group.
+#[tauri::command]
+pub async fn telegram_tag_remove(chat_id: i64) -> Result<TagBotView, String> {
+    with_runtime(move |rt| rt.tag_remove(chat_id)).await
 }
