@@ -72,6 +72,23 @@ export function nextPaneMap(prev: Map<string, PaneData>, list: PaneInfo[]): Map<
   return next;
 }
 
+/** The newest `pty://status` event of a pane and when it arrived (`at`: a counter that grows with every event). */
+type StatusEvent = { status: PaneInfo['status']; at: number };
+
+/**
+ * `list` with the status of every pane that a `pty://status` event changed AFTER the list was asked for. The
+ * answer is a picture from some moment between the request and its arrival; an event that came in meanwhile can be
+ * newer than that picture. Without this a pane that began working while the list was on its way (a helper started
+ * and given its first message at once) was put back to its older status, or its event was dropped because the pane
+ * was not in the map yet, and it stayed idle in the sidebar (and "done" in its parent's Chat) while it worked.
+ */
+export function withNewerStatuses(list: PaneInfo[], events: Map<string, StatusEvent>, askedAt: number): PaneInfo[] {
+  return list.map((info) => {
+    const event = events.get(info.id);
+    return event && event.at > askedAt && event.status !== info.status ? { ...info, status: event.status } : info;
+  });
+}
+
 export function usePaneRegistry(): PaneRegistryApi {
   const [panes, setPanes] = useState<Map<string, PaneData>>(EMPTY);
   const [initialReady, setInitialReady] = useState(false);
@@ -85,13 +102,21 @@ export function usePaneRegistry(): PaneRegistryApi {
   // write: a slower, older list would bring back a pane that just closed (a ghost sidebar row) or
   // hide one that just opened.
   const refreshSeq = useRef(0);
+  // The newest status event of each pane, kept even for a pane not listed yet (see withNewerStatuses).
+  const statusEvents = useRef(new Map<string, StatusEvent>());
+  const eventClock = useRef(0);
 
   const refresh = useCallback(async () => {
     const seq = ++refreshSeq.current;
+    const askedAt = eventClock.current;
     try {
       const list = await tauri.listPanes();
       if (seq !== refreshSeq.current) return;
-      setPanes((prev) => nextPaneMap(prev, list));
+      const events = statusEvents.current;
+      const current = withNewerStatuses(list, events, askedAt);
+      const listed = new Set(list.map((info) => info.id));
+      for (const [id, event] of events) if (!listed.has(id) && event.at <= askedAt) events.delete(id);
+      setPanes((prev) => nextPaneMap(prev, current));
     } catch (err) {
       console.error('[usePaneRegistry] refresh failed', err);
     } finally {
@@ -129,6 +154,7 @@ export function usePaneRegistry(): PaneRegistryApi {
         void e;
       });
       unsubStatus = await tauri.onPtyStatus((e: PaneStatusEvent) => {
+        statusEvents.current.set(e.pane_id, { status: e.status as PaneInfo['status'], at: ++eventClock.current });
         setPanes((prev) => {
           const existing = prev.get(e.pane_id);
           if (!existing || existing.status === e.status) return prev;

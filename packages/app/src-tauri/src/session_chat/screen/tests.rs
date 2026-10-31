@@ -258,7 +258,7 @@ fn a_reply_whose_message_scrolled_off_the_top_keeps_the_longest_text_seen() {
     viewer.look(&mut chat, &screen("three\nfour\nfive"), "running");
     assert_eq!(viewer.resets, 0);
     assert_eq!(viewer.lines()[1], "user:write four lines");
-    let reply = viewer.lines()[2].clone();
+    let reply = viewer.lines().into_iter().find(|line| line.starts_with("assistant")).expect("a reply");
     assert!(reply.contains("one") && reply.contains("four"), "the longer reading stays: {reply}");
 }
 
@@ -388,4 +388,21 @@ fn a_redraw_caught_half_way_is_not_a_cleared_screen() {
     settle(&mut viewer, &mut chat);
     assert_eq!(viewer.lines(), before);
     assert_eq!(viewer.resets, 0, "nothing was taken away from the viewer");
+}
+
+#[test]
+fn a_reply_longer_than_the_cap_keeps_its_newest_rows_and_says_the_earlier_ones_were_trimmed() {
+    let mut chat = chat();
+    let mut viewer = Viewer::default();
+    let rows: String = (1..=3000).map(|n| format!("output row {n}\n")).collect();
+    viewer.look(&mut chat, &screen(&format!("> print rows\n{rows}all rows printed\ndone in 9s")), "running");
+    let reply = viewer.lines().into_iter().find(|line| line.starts_with("assistant")).expect("a reply");
+    assert!(reply.ends_with("all rows printed"), "the end of the reply stays: {}", &reply[reply.len().saturating_sub(60)..]);
+    assert!(reply.contains("output row 3000"), "the newest rows stay");
+    assert!(!reply.contains("output row 1\n"), "the oldest rows are the ones dropped");
+    assert!(reply.starts_with("assistant:[earlier output trimmed]\n"), "the cut is said out loud: {}", &reply[..60]);
+    assert!(reply.chars().count() <= MAX_REPLY_CHARS + 80, "still bounded");
+    // The cut falls between rows, never inside one.
+    let first_row = reply.lines().nth(1).unwrap();
+    assert!(first_row.starts_with("output row "), "no half row: {first_row}");
 }

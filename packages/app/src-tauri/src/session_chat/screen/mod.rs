@@ -41,6 +41,8 @@ pub struct ScreenRead {
 const ENDED_AFTER_IDLE_POLLS: u8 = 2;
 /// Longest reply kept, in characters.
 const MAX_REPLY_CHARS: usize = 20_000;
+/// The first line of a reply that was cut at the top.
+const TRIMMED_NOTE: &str = "[earlier output trimmed]";
 /// Rows from the end of the text the model footer is looked for in.
 const MODEL_TAIL_ROWS: usize = 80;
 
@@ -244,7 +246,7 @@ impl ScreenChat {
                 items.push(ChatItem::Assistant {
                     id: format!("screen:{n}:reply"),
                     at: None,
-                    text: reply.chars().take(MAX_REPLY_CHARS).collect(),
+                    text: newest_part(reply),
                     model: self.model.clone(),
                     final_answer: ended,
                 });
@@ -255,6 +257,20 @@ impl ScreenChat {
         }
         items
     }
+}
+
+/// A reply short enough to show. A longer one keeps its NEWEST rows (the end is the answer, or the question the
+/// agent asks) and starts with a line saying the earlier output was left out. The cut falls between rows.
+fn newest_part(reply: &str) -> String {
+    let total = reply.chars().count();
+    if total <= MAX_REPLY_CHARS {
+        return reply.to_string();
+    }
+    let skip = reply.char_indices().nth(total - MAX_REPLY_CHARS).map_or(0, |(at, _)| at);
+    let kept = &reply[skip..];
+    // Start at the next row unless the cut fell exactly on a row start.
+    let kept = if reply[..skip].ends_with('\n') { kept } else { kept.split_once('\n').map_or(kept, |(_, rest)| rest) };
+    format!("{TRIMMED_NOTE}\n{kept}")
 }
 
 /// Where `parsed` begins among `turns`: the latest place its messages line up with the turns' messages.

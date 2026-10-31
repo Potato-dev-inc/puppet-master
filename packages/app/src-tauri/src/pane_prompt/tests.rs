@@ -414,3 +414,24 @@ fn a_name_that_looks_like_a_secret_is_counted_not_listed_on_the_prompt() {
     assert_eq!(ui.packages.unwrap().hidden, 1);
     assert!(!prompt["packages"].to_string().contains("sk-ant-api03"), "the secret-looking name must not be in the packages");
 }
+
+#[test]
+fn a_menu_that_gains_options_after_the_card_was_sent_is_sent_again_under_the_same_id() {
+    let card = |labels: &[&str]| PanePrompt {
+        prompt_id: "unknown_question|allowthiscommand".into(),
+        kind: "unknown_question".into(),
+        text: String::new(),
+        summary: None,
+        choices: labels.iter().enumerate().map(|(n, l)| PromptChoice { id: format!("option_{}", n + 1), label: (*l).into(), broad: false }).collect(),
+        risk: None,
+        packages: None,
+    };
+    let half = card(&["Yes", "Yes, always"]);
+    let whole = card(&["Yes", "Yes, always", "Deny"]);
+    let mut t = PromptTrack::default();
+    assert_eq!(next_prompt_event(&mut t, true, || Some(half.clone())), Some(Some(half.clone())), "the half-drawn menu is announced");
+    assert!(!t.last_was_refresh(), "entering is not a refresh");
+    assert_eq!(next_prompt_event(&mut t, true, || Some(whole.clone())), Some(Some(whole.clone())), "the finished menu replaces it: same id, new options");
+    assert!(t.last_was_refresh(), "the same question, redrawn: not a new occurrence");
+    assert_eq!(next_prompt_event(&mut t, true, || Some(whole.clone())), None, "unchanged: silent");
+}

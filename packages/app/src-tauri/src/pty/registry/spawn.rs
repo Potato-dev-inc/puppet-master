@@ -452,9 +452,14 @@ pub fn spawn_pane(
                                 crate::pane_prompt::detect_in_screen_with_status(&agent_type, &last_snapshot, false, Some("waiting_input"))
                                     .and_then(|p| crate::pane_prompt::PanePrompt::from_detected(&p))
                             }) {
-                                crate::attention::on_prompt(&pane_id, waiting, prompt.as_ref());
-                                // A new occurrence: an answer to it is not a repeat of the last one.
-                                crate::pane_prompt::answers::note_prompt_event(&pane_id);
+                                if prompt_track.last_was_refresh() {
+                                    // The same question with its menu now fully drawn: the card follows the screen.
+                                    crate::attention::on_prompt_refresh(&pane_id, prompt.as_ref());
+                                } else {
+                                    crate::attention::on_prompt(&pane_id, waiting, prompt.as_ref());
+                                    // A new occurrence: an answer to it is not a repeat of the last one.
+                                    crate::pane_prompt::answers::note_prompt_event(&pane_id);
+                                }
                                 let _ = app.emit(
                                     "pty://prompt",
                                     serde_json::json!({ "pane_id": pane_id, "prompt": prompt }),

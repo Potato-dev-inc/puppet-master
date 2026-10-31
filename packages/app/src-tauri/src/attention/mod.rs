@@ -66,6 +66,12 @@ pub fn on_prompt(pane_id: &str, waiting: bool, prompt: Option<&crate::pane_promp
     on_changed();
 }
 
+/// [`on_prompt`] for the same question redrawn with other options: the same occurrence.
+pub fn on_prompt_refresh(pane_id: &str, prompt: Option<&crate::pane_prompt::PanePrompt>) {
+    STORE.lock().refresh_prompt(pane_id, prompt.map(prompt_rec));
+    on_changed();
+}
+
 fn prompt_rec(p: &crate::pane_prompt::PanePrompt) -> PromptRec {
     PromptRec {
         prompt_id: Some(p.prompt_id.clone()),
