@@ -51,7 +51,11 @@ pub(crate) fn answer_decided(
 
 /// The desktop UI answering the prompt on a pane: the same path as `POST /agents/answer` with a
 /// bare `pane_id` (stale, replay and one-answer-per-occurrence guards included). Broad approvals are
-/// never opted into. `gesture` is the click that sent it (`pane_prompt::answers::UserGesture`):
+/// never opted into for a profile's prompt (its card does not list them). The one exception is a question read by
+/// its shape (`unknown_question`): its card lists every option the screen shows, "Always allow in this project"
+/// included, so the person's own click on that option is the consent (`allow_broad`). That needs a real click: with
+/// no `gesture` nothing broad is ever sent (`check_desktop_answer` lets only a refusal through without one), and an
+/// agent over MCP still needs `allow_broad` itself. `gesture` is the click that sent it (`pane_prompt::answers::UserGesture`):
 /// without one only a refusal of a prompt that is not a startup gate goes out (Simple mode's own No
 /// to a high-risk command); folder trust and every yes need the person's click.
 pub(crate) fn answer_for_pane(
@@ -65,6 +69,8 @@ pub(crate) fn answer_for_pane(
     let on_screen = crate::pane_prompt::detect(registry, pane_id, false);
     let kind = on_screen.as_ref().and_then(|prompt| prompt.get("kind")).and_then(Value::as_str);
     crate::pane_prompt::answers::check_desktop_answer(gesture, kind, choice, crate::pane_prompt::answers::now_ms())?;
+    // `check_desktop_answer` passed, so a gesture is a real click when one is present.
+    let allow_broad = gesture.is_some() && kind == Some("unknown_question");
     route_answer(
         AnswerPromptRequest {
             project_path: None,
@@ -72,7 +78,7 @@ pub(crate) fn answer_for_pane(
             pane_id: Some(pane_id.to_string()),
             prompt_id: prompt_id.to_string(),
             choice: choice.to_string(),
-            allow_broad: false,
+            allow_broad,
         },
         "",
         None,

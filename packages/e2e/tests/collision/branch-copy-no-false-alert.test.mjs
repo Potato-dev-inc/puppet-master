@@ -5,15 +5,12 @@ export const meta = {
   id: 'collision.branch-copy-no-false-alert',
   title: 'A Branch copy that only holds the files it was seeded with does not raise a "both made a new file" clash',
   area: 'collision',
-  tags: ['collision', 'branch', 'known-bug'],
+  tags: ['collision', 'branch'],
   edge: true,
-  skip: 'KNOWN BUG: after Branch from here the Inbox says the original and the copy "both made a new file" for files that were only copied into the copy',
   timeout: 120000,
 };
 
 export async function run(t) {
-  if (meta.skip && !process.env.E2E_RUN_KNOWN_BUGS) t.skip(meta.skip);
-
   const cwd = gitProject(t, 'app', { 'README.md': 'app\n' });
   t.fake.script(turnsScript([{ prompt: 'add notes', writes: [['notes.txt', 'first notes']] }]));
 

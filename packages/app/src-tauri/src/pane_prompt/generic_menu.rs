@@ -8,7 +8,7 @@
 //! - kind `unknown_question`, `recognised_by: "shape"`, and a summary that says so: it is not a profile's reading;
 //! - one choice per option, in the order shown: id `option_<n>`, the label as the screen words it, the keys that
 //!   would pick it, which row is highlighted;
-//! - an id made of the question and the options (item 1: it survives redraws).
+//! - an id made of the question (item 1: it survives redraws and a menu that is still being drawn).
 //!
 //! Nothing here presses a key. A caller picks an option with `answer_prompt` (by id, number or label), through the
 //! same guards as every answer: the pane must be waiting (never a busy pane), a stale id types nothing, and an option
@@ -95,11 +95,16 @@ pub(crate) fn unknown_question(agent_type: &str, screen: &str, status: Option<&s
         .iter()
         .map(|o| json!({"id": o.id, "label": o.label, "number": o.number, "highlighted": o.highlighted, "broad": o.broad}))
         .collect();
-    let identity = format!(
-        "unknown_question|{}|{}",
-        question.iter().map(|r| alnum(r)).collect::<String>(),
-        options.iter().map(|o| alnum(&o.label)).collect::<Vec<_>>().join("|")
-    );
+    // The id names the QUESTION, not the options drawn under it. A screen read while the menu is still being drawn
+    // (two of three rows so far) is the same question as the finished one; keying the id on the option list handed out
+    // an id (`wait_agents`) that `answer_prompt` then found STALE against the complete screen. Only a question that
+    // shows no text of its own falls back to its options.
+    let asked: String = question.iter().map(|r| alnum(r)).collect();
+    let identity = if asked.is_empty() {
+        format!("unknown_question|{}", options.iter().map(|o| alnum(&o.label)).collect::<Vec<_>>().join("|"))
+    } else {
+        format!("unknown_question|{asked}")
+    };
     let text = format!("{}\n{}", question.join("\n"), options.iter().map(|o| o.label.as_str()).collect::<Vec<_>>().join("\n"));
     Some(json!({
         "agent_type": agent_type,

@@ -67,6 +67,10 @@ pub struct Engine {
     armed: BTreeSet<String>,
     /// (checkout, file, modified time) -> the file's changed lines, or why they could not be read.
     hunks: HunkCache,
+    /// Pane id -> the family it belongs to (the id of the family's first pane). Panes of one family are a
+    /// source and its Branch from here copies. A copy starts with the save point's files, so those files are
+    /// new in both sides without either agent having made them: such a pair is never compared.
+    kin: BTreeMap<String, String>,
 }
 
 type HunkCache = BTreeMap<(String, String, u64), Result<FileHunks, ProbeError>>;
@@ -113,7 +117,37 @@ impl Engine {
             roots: BTreeMap::new(),
             armed: BTreeSet::new(),
             hunks: BTreeMap::new(),
+            kin: BTreeMap::new(),
         }
+    }
+
+    /// Tells the engine which panes are copies of each other: `links` are (source pane, copy pane) pairs.
+    /// Panes that are linked, directly or through others (two copies of one source), form a family, and the
+    /// members of a family are not compared with each other. The list replaces the previous one.
+    pub fn set_links(&mut self, links: &[(String, String)]) {
+        let mut family: BTreeMap<String, String> = BTreeMap::new();
+        for (from, to) in links {
+            if from.is_empty() || to.is_empty() || from == to {
+                continue;
+            }
+            let a = family_of(&family, from);
+            let b = family_of(&family, to);
+            if a != b {
+                // The smaller id leads, so the same links always make the same families.
+                let (lead, other) = if a < b { (a, b) } else { (b, a) };
+                for value in family.values_mut().filter(|v| **v == other) {
+                    *value = lead.clone();
+                }
+                family.insert(other, lead.clone());
+                family.insert(from.clone(), lead.clone());
+                family.insert(to.clone(), lead);
+            }
+        }
+        self.kin = family;
+    }
+
+    fn are_kin(&self, a: &str, b: &str) -> bool {
+        matches!((self.kin.get(a), self.kin.get(b)), (Some(x), Some(y)) if x == y)
     }
 
     /// One step of the watch. See the module doc for the order.
@@ -294,6 +328,9 @@ impl Engine {
         for group in grouped {
             for (i, a) in group.members.iter().enumerate() {
                 for b in &group.members[i + 1..] {
+                    if self.are_kin(&a.pane.pane_id, &b.pane.pane_id) {
+                        continue;
+                    }
                     let found = pair_finding(&self.roots, &self.panes, &mut self.hunks, probe, a, b, now);
                     out.extend(found);
                 }
@@ -301,6 +338,11 @@ impl Engine {
         }
         out
     }
+}
+
+/// The family a pane is in so far (itself when it has none).
+fn family_of(family: &BTreeMap<String, String>, pane: &str) -> String {
+    family.get(pane).cloned().unwrap_or_else(|| pane.to_string())
 }
 
 /// The overlap of two panes, as a finding. `None` when they do not overlap, or a side has no look yet.
@@ -456,6 +498,60 @@ mod tests {
 
     fn pair_id() -> String {
         AlertId::of(&[A, B])
+    }
+
+    fn added(path: &str, mtime: u64) -> Touched {
+        Touched { path: path.to_string(), kind: TouchKind::Added, mtime_ms: Some(mtime) }
+    }
+
+    /// Two copies of one repo where both sides list the same untracked file: what a Branch from here copy looks like
+    /// (the copy is seeded with the save point's files).
+    fn seeded_copy_world() -> (FakeProbe, [PaneFact; 2]) {
+        let probe = world(&[ROOT_A, ROOT_B]);
+        probe.push_sample(ROOT_A, Ok(look(vec![added("notes.txt", 5_000)])));
+        probe.push_sample(ROOT_B, Ok(look(vec![added("notes.txt", 5_000)])));
+        let panes = [pane(A, ROOT_A, PaneRun::Working, 1_000), pane(B, ROOT_B, PaneRun::Working, 1_000)];
+        (probe, panes)
+    }
+
+    #[test]
+    fn two_unrelated_copies_that_both_have_a_new_file_clash() {
+        let (first, _) = poll_ms();
+        let (probe, panes) = seeded_copy_world();
+        let mut engine = Engine::new();
+        run(&mut engine, &panes, &probe, 0);
+        let out = run(&mut engine, &panes, &probe, first);
+        assert_eq!(out.changes, vec![Change::Raised(pair_id())]);
+        assert_eq!(out.alerts[0].files[0].how, How::BothNew);
+    }
+
+    #[test]
+    fn a_branch_copy_and_its_source_are_not_compared() {
+        let (first, _) = poll_ms();
+        let (probe, panes) = seeded_copy_world();
+        let mut engine = Engine::new();
+        engine.set_links(&[(A.to_string(), B.to_string())]);
+        run(&mut engine, &panes, &probe, 0);
+        let out = run(&mut engine, &panes, &probe, first);
+        assert!(out.changes.is_empty() && out.alerts.is_empty(), "no alert for a Branch from here copy");
+    }
+
+    #[test]
+    fn two_copies_of_one_source_and_a_copy_of_a_copy_are_one_family() {
+        let mut engine = Engine::new();
+        engine.set_links(&[
+            ("src".to_string(), "c1".to_string()),
+            ("src".to_string(), "c2".to_string()),
+            ("c2".to_string(), "c3".to_string()),
+            ("x".to_string(), "y".to_string()),
+        ]);
+        for (a, b) in [("src", "c1"), ("c1", "c2"), ("c1", "c3"), ("src", "c3")] {
+            assert!(engine.are_kin(a, b), "{a} and {b}");
+        }
+        assert!(!engine.are_kin("src", "x") && !engine.are_kin("c3", "y"));
+        assert!(!engine.are_kin("src", "stranger") && !engine.are_kin("stranger", "other"));
+        engine.set_links(&[]);
+        assert!(!engine.are_kin("src", "c1"), "a new list replaces the old one");
     }
 
     #[test]

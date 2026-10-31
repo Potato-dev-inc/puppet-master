@@ -68,7 +68,7 @@
   padding: 0 8px;
   font-size: 11px;
 }
-.cockpit .ck-night-pop {
+.cockpit .ck-night-chip-pop {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
@@ -84,13 +84,13 @@
   color: var(--label-2);
   font-size: 12px;
 }
-.cockpit .ck-night-pop-head {
+.cockpit .ck-night-chip-pop-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
 }
-.cockpit .ck-night-pop-title {
+.cockpit .ck-night-chip-pop-title {
   color: var(--label);
   font-weight: 600;
 }
