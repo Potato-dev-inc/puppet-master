@@ -6,7 +6,7 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::Read;
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[test]
 fn bash_wrapper_uses_integer_status_and_cwd_marker() {
@@ -91,8 +91,9 @@ fn execution_requires_an_explicit_existing_pane() {
 fn powershell_pty_executes_commands_reports_failures_and_times_out() {
     let registry = disposable_powershell_registry();
     let pane_id = "shell-exec-integration";
+    wait_for_powershell_prompt(&registry, pane_id);
 
-    let success = super::execute(&registry, pane_id, "Write-Output 'shell-exec-ok'", 10_000)
+    let success = super::execute(&registry, pane_id, "Write-Output 'shell-exec-ok'", 60_000)
         .expect("command should complete");
     assert_eq!(success["exit_code"], 0);
     assert!(
@@ -130,6 +131,25 @@ fn powershell_pty_executes_commands_reports_failures_and_times_out() {
     if let Some(pane) = pane {
         let mut child = pane.child;
         let _ = child.kill();
+    }
+}
+
+/// A cold PowerShell can take well over 10 s to print its prompt on a busy CI runner, and
+/// `execute` only waits 10 s for a ready pane. Wait for the prompt here, with a generous
+/// deadline, so the first command never races PowerShell's startup.
+#[cfg(windows)]
+fn wait_for_powershell_prompt(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let buffer = crate::pty::registry_read_buffer(registry, pane_id, 80).unwrap_or_default();
+        if buffer.contains("PS ") {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "PowerShell prompt did not appear within 60 seconds; buffer: {buffer}"
+        );
+        thread::sleep(Duration::from_millis(50));
     }
 }
 
