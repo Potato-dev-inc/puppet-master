@@ -6,6 +6,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { ensureTauriResources } from '../../../scripts/ensure-tauri-resources.mjs';
 import { REPO, SRC_TAURI, CARGO_TARGET, FAKE_TUI_TARGET, FAKE_TUI_MANIFEST, APP_EXE_DEFAULT, FAKE_TUI_EXE_DEFAULT, BUILD_DIR, BUILD_INFO } from '../src/paths.mjs';
 
 const args = process.argv.slice(2);
@@ -31,8 +32,11 @@ if (!args.includes('--skip-ui')) {
   run('shared package', npm, ['run', 'build', '-w', 'packages/shared']);
   run('web UI (tsc + vite)', npx, ['--no-install', 'vite', 'build'], { cwd: path.join(REPO, 'packages', 'app') });
   run('stage UI', process.execPath, [path.join(REPO, 'scripts', 'stage-pwa-dist.mjs')]);
-  run('resource placeholders', process.execPath, [path.join(REPO, 'scripts', 'ensure-tauri-resources.mjs')]);
 }
+// Cargo's build script checks every bundle.resources glob, so the placeholders and the generated
+// bundles (pwa-dist, bin, potato-brain) must exist first, with or without --skip-ui.
+console.log('\n== resource placeholders');
+ensureTauriResources();
 if (!args.includes('--skip-rust')) {
   fs.mkdirSync(CARGO_TARGET, { recursive: true });
   run('app (cargo build, debug)', 'cargo', ['build', '--bin', 'puppet_master_app', '--features', 'dev-fake-tui'], { cwd: SRC_TAURI, env: { ...env, CARGO_TARGET_DIR: CARGO_TARGET } });
