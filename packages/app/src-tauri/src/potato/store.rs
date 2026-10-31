@@ -36,6 +36,17 @@ pub const MAX_BOTS: usize = 3;
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
+static FILES: once_cell::sync::Lazy<parking_lot::ReentrantMutex<()>> = once_cell::sync::Lazy::new(|| parking_lot::ReentrantMutex::new(()));
+
+/// One lock for every whole-file write of Potato Bot (`bots.json`, `settings.json`, `reads.json`, the usage
+/// files, the persona manifest, a channel thread) and for every read-then-write of them. Two commands or
+/// threads can write at once in the real app; `write_private` names its temp file after the target, so two
+/// writers of one file would collide on it, and a read-modify-write would lose a change. Reentrant, so a
+/// function that holds it may call another that takes it.
+pub(super) fn files_lock() -> parking_lot::ReentrantMutexGuard<'static, ()> {
+    FILES.lock()
+}
+
 /// `code` is a short wire word for the UI; `message` is plain English.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreError {
@@ -101,6 +112,7 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path, what: &str) -> StoreResu
 }
 
 fn write_json<T: Serialize>(path: &Path, value: &T, what: &str) -> StoreResult<()> {
+    let _files = files_lock();
     let text = serde_json::to_string_pretty(value).map_err(|e| io_error(&format!("save {what}"), e))?;
     secure_file::write_private(path, &text).map_err(|e| StoreError::new(INVALID, e))
 }
@@ -120,6 +132,7 @@ pub fn save_bots(root: &Path, bots: &[Bot]) -> StoreResult<()> {
 
 /// Adds a bot for a companion. The companion must exist (the caller checks); at most 3 bots.
 pub fn add_bot(root: &Path, id: &str, talk_persona: &str, now_ms: i64) -> StoreResult<Bot> {
+    let _files = files_lock();
     if !crate::companion::model::valid_id(id) {
         return Err(StoreError::new("POTATO_BOT_INVALID", "That is not a bot name Potato Bot can use."));
     }
@@ -140,6 +153,7 @@ pub fn add_bot(root: &Path, id: &str, talk_persona: &str, now_ms: i64) -> StoreR
 }
 
 pub fn set_talk_persona(root: &Path, id: &str, talk_persona: &str) -> StoreResult<Bot> {
+    let _files = files_lock();
     if !valid_pack(talk_persona) {
         return Err(StoreError::new("POTATO_PERSONA_INVALID", "Pick Fish or Potato."));
     }
@@ -404,6 +418,7 @@ fn append_line(path: &Path, line: &str) -> StoreResult<()> {
 /// at line 5000 as at line 5); a shared-channel thread is small and is rewritten whole through
 /// `secure_file::write_private`.
 pub fn append_message(root: &Path, conversation_id: &str, mut message: Message, home: Option<&str>) -> StoreResult<Message> {
+    let _files = files_lock();
     let path = conversation_path(root, conversation_id)?;
     message.text = clean_text(&message.text, home);
     let line = format!("{}\n", serde_json::to_string(&message).map_err(|e| io_error("save a message", e))?);
@@ -455,6 +470,7 @@ pub fn load_reads(root: &Path) -> StoreResult<BTreeMap<String, i64>> {
 }
 
 pub fn mark_read(root: &Path, bot: &str, at_ms: i64) -> StoreResult<()> {
+    let _files = files_lock();
     let mut reads = load_reads(root)?;
     reads.insert(bot.to_string(), at_ms);
     write_json(&reads_path(root), &reads, "reads.json")
@@ -524,6 +540,7 @@ pub struct Seeded {
 /// it is missing, and replaced by a newer one only if the person never edited it (the stored sha256 of
 /// the seeded copy still matches what is on disk). The folder stays writable for the persona-note tool.
 pub fn seed_persona(root: &Path, bot: &str, resource_persona: &Path) -> StoreResult<Seeded> {
+    let _files = files_lock();
     let target = persona_dir(root, bot)?;
     secure_file::create_private_dir(&target).map_err(|e| io_error("make the persona folder", e))?;
     let manifest_path = brain_dir(root, bot)?.join("persona.sha256");

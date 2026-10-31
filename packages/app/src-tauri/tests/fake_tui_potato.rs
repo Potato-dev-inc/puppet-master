@@ -49,15 +49,20 @@ fn bot_view(rig: &PotatoRig) -> Value {
     rig.state()["bots"].as_array().and_then(|b| b.iter().find(|b| b["id"] == BOT)).cloned().unwrap_or_default()
 }
 
-fn rig() -> &'static PotatoRig {
+/// The tests share one app, one bot and one brain, and cargo runs them on parallel threads by default: each
+/// one holds this lock for its whole length, so they take turns.
+static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn rig() -> (std::sync::MutexGuard<'static, ()>, &'static PotatoRig) {
+    let turn = TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let rig = PotatoRig::start();
     rig.add_bot(BOT).expect("a bot from the companion");
-    rig
+    (turn, rig)
 }
 
 #[test]
 fn a_send_produces_a_stored_redacted_reply_and_the_brain_gets_403_on_panes() {
-    let rig = rig();
+    let (_turn, rig) = rig();
     // Start from no brain, so the start below is the one the log sees.
     rig.stop_all();
     spawn_log::start();
@@ -121,7 +126,7 @@ fn a_send_produces_a_stored_redacted_reply_and_the_brain_gets_403_on_panes() {
 
 #[test]
 fn a_crash_is_seen_and_the_next_message_goes_to_a_new_brain() {
-    let rig = rig();
+    let (_turn, rig) = rig();
     rig.send(BOT, "wake up").expect("send");
     wait_for_bot_line(rig, "Fish heard: wake up");
     let first = rig.brain_pid(BOT).expect("the brain runs");
@@ -147,7 +152,7 @@ fn a_crash_is_seen_and_the_next_message_goes_to_a_new_brain() {
 
 #[test]
 fn the_kill_switch_kills_the_brain_and_a_message_is_refused_while_it_is_off() {
-    let rig = rig();
+    let (_turn, rig) = rig();
     rig.send(BOT, "before").expect("send");
     wait_for_bot_line(rig, "Fish heard: before");
     let pid = rig.brain_pid(BOT).expect("the brain runs");

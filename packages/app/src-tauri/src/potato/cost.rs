@@ -196,6 +196,7 @@ pub struct Charged {
 
 /// Adds one `usage` event to the day's total and judges it against the limit.
 pub fn charge(root: &Path, day: &str, bot: &str, surface: &str, model: &str, tokens: Tokens, limit_cents: u32) -> Result<Charged, String> {
+    let _files = super::store::files_lock();
     let mut file = load_month(root, day)?;
     file.v = USAGE_VERSION;
     let cost = price_tokens(model, tokens);

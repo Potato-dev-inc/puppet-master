@@ -308,3 +308,41 @@ fn the_brain_folders_are_made_and_a_bad_bot_id_cannot_escape() {
         assert!(brain_dir(&root, bad).is_err(), "{bad:?}");
     }
 }
+
+#[test]
+fn many_threads_writing_the_same_files_at_once_all_succeed_and_lose_nothing() {
+    let root = temp("concurrent");
+    let bots = ["a", "b", "c"];
+    for (n, id) in bots.iter().enumerate() {
+        add_bot(&root, id, "fish", n as i64).unwrap();
+    }
+    let threads = 24;
+    let per_thread = 25;
+    let handles: Vec<_> = (0..threads)
+        .map(|t| {
+            let root = root.clone();
+            std::thread::spawn(move || {
+                for i in 0..per_thread {
+                    // every whole-file writer, hammered together
+                    set_talk_persona(&root, bots[t % 3], if (t + i) % 2 == 0 { "fish" } else { "potato" }).expect("bots.json");
+                    save_settings(&root, &Settings { daily_limit_cents: 5 + (t * per_thread + i) as u32, ..Settings::default() }).expect("settings.json");
+                    mark_read(&root, &format!("bot{t}"), i as i64).expect("reads.json");
+                    super::cost::charge(&root, "2026-11-01", bots[t % 3], "app", "fake", super::cost::Tokens { prompt: 1, completion: 1, cache_hit: 0, cache_miss: 1 }, 50).expect("usage");
+                    append_message(&root, "app:dm:a", text((t * per_thread + i) as i64, FromKind::You, "x"), None).expect("a thread");
+                    append_message(&root, "outer:ch:a:1", text(i as i64, FromKind::Person, "y"), None).expect("a channel thread");
+                }
+            })
+        })
+        .collect();
+    for h in handles {
+        h.join().expect("a writer panicked");
+    }
+    // nothing lost: all bots there, one read mark per thread, every charge counted, every line written
+    assert_eq!(load_bots(&root).unwrap().len(), 3);
+    assert_eq!(load_reads(&root).unwrap().len(), threads);
+    assert!(load_settings(&root).is_ok());
+    let total: u64 = bots.iter().map(|b| super::cost::day_of(&root, "2026-11-01", b).unwrap().surfaces["app"].turns).sum();
+    assert_eq!(total, (threads * per_thread) as u64);
+    assert_eq!(read_messages(&root, "app:dm:a", 10_000, None).unwrap().len(), threads * per_thread);
+    assert_eq!(read_messages(&root, "outer:ch:a:1", 10_000, None).unwrap().len(), CHANNEL_KEEP.min(threads * per_thread));
+}
