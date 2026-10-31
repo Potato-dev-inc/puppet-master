@@ -7,11 +7,9 @@ export const meta = {
   area: 'point',
   tags: ['point'],
   edge: true,
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await t.step('The agent prints a public docs link, not a local server');
   useFakeClaude(t);
   t.fake.script(serveScript('Read more at https://example.com/docs/getting-started and http://203.0.113.9:8080/').replace('on_prompt = "serve the app"', 'on_prompt = "show the docs"'));

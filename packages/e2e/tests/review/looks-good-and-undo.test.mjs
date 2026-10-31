@@ -8,12 +8,10 @@ export const meta = {
   title: 'Looks good takes a folder turn off the desk, changes nothing, and Undo puts it back',
   area: 'review',
   tags: ['review'],
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 90000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await t.step('An agent finishes a turn that adds a file');
   const cwd = gitProject(t, 'site', { 'README.md': 'site\n' });
   const pane = await writingTurn(t, cwd, 'add a page', [['src/page.txt', 'hello page']]);

@@ -6,12 +6,10 @@ export const meta = {
   title: 'The To list shows both agents and the message goes only to the one you choose',
   area: 'point',
   tags: ['point'],
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 90000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   const site = await startDevServer();
   try {
     await t.step('Two agents: one serves the app, the other works on something else');

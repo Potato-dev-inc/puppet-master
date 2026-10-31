@@ -8,11 +8,9 @@ export const meta = {
   area: 'scores',
   tags: ['scores'],
   edge: true,
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await t.step('An agent is started in a new folder but is given no task');
   const cwd = projectDir(t, 'untouched');
   await t.spawnPane('nimbus', { cwd });

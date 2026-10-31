@@ -13,6 +13,9 @@ const VIEWPORT = () => {
   return { width: w || 1440, height: h || 900 };
 };
 
+/** Known-bug / unverified tests run only when asked. */
+export const runSkipped = () => ['E2E_RUN_KNOWN_BUGS', 'E2E_KNOWN_BUGS', 'E2E_UNVERIFIED'].some((k) => /^(1|true|yes)$/i.test(process.env[k] || ''));
+
 const writeJson = (file, data) => fs.writeFileSync(file, JSON.stringify(data, null, 2));
 
 async function prepareWindow(app, conn) {
@@ -27,12 +30,48 @@ async function prepareWindow(app, conn) {
   if (inner) app.viewport = inner;
 }
 
-/** Put the app back to a known state between tests: no panes, default fake script, a freshly loaded cockpit. */
-export async function resetApp(app, conn) {
+/**
+ * Keep the first-run welcome and the "While you were away" page off. The app keeps its own in-memory copy of the
+ * settings once any window patches them (opening Settings does), and that copy does not hold the harness's seed, so the
+ * welcome would cover the cockpit on the next page load; a slow run also gets the away page after five minutes.
+ * Saying it again through the app's own settings command keeps both off. A test that wants the welcome seeds
+ * `onboarding_done: null` (and the app restarts for it), so this is skipped for it.
+ */
+export async function keepOverlaysOff(conn, test) {
+  if (test && test.seed && 'onboarding_done' in test.seed && test.seed.onboarding_done !== true) return;
+  const patch = { onboarding_done: true, away_minutes: 0 };
+  await conn.evalJs(`window.__TAURI_INTERNALS__.invoke('settings_patch', { patch: ${JSON.stringify(patch)} }).then(() => true, () => false)`).catch(() => false);
+}
+
+/** Close every pane (also the ones runs created). A pane that will not close is retried; what stays is reported. */
+async function closeAllPanes(app, conn) {
+  let left = [];
+  for (let round = 0; round < 4; round++) {
+    const list = (await app.bridge.get('/panes')).body;
+    left = Array.isArray(list) ? list : [];
+    if (!left.length) return [];
+    for (const p of left) {
+      const r = await app.bridge.del(`/panes/${encodeURIComponent(p.id)}`).catch((e) => ({ status: 0, body: String(e.message) }));
+      if (r.status >= 300 && r.status !== 404) {
+        // A pane a run (MCP session) created is not closed by bare HTTP (403). The Close button of the app is: use the
+        // command it calls, from the cockpit page.
+        const viaUi = await conn.evalJs(`window.__TAURI_INTERNALS__.invoke('kill_pane_cmd', { paneId: ${JSON.stringify(p.id)} }).then(() => null, (e) => String((e && e.message) || e))`).catch((e) => e.message);
+        if (viaUi) closeRefusals.set(p.id, `${r.status} ${JSON.stringify(r.body).slice(0, 120)}; the app's Close: ${String(viaUi).slice(0, 120)}`);
+      }
+    }
+    await sleep(300 * (round + 1));
+  }
   const list = (await app.bridge.get('/panes')).body;
-  for (const p of Array.isArray(list) ? list : []) await app.bridge.del(`/panes/${encodeURIComponent(p.id)}`).catch(() => {});
-  await waitUntil(async () => { const l = (await app.bridge.get('/panes')).body; return !Array.isArray(l) || l.length === 0; }, 8000, 'the panes to close').catch(() => {});
+  return Array.isArray(list) ? list : [];
+}
+const closeRefusals = new Map();
+
+/** Put the app back to a known state between tests: no panes, default fake script, a freshly loaded cockpit. */
+export async function resetApp(app, conn, test) {
+  const stuck = await closeAllPanes(app, conn);
+  if (stuck.length) throw new Error(`could not close ${stuck.length} pane(s) between tests: ${stuck.map((p) => p.id.slice(0, 8) + ' ' + (closeRefusals.get(p.id) || 'still listed')).join('; ')}`);
   fs.writeFileSync(app.scriptPath, DEFAULT_SCRIPT);
+  await keepOverlaysOff(conn, test);
   const target = await findCockpit(app);
   const base = target ? target.url.split('?')[0] : 'http://tauri.localhost/index.html';
   await conn.evalJs('try{localStorage.clear();sessionStorage.clear()}catch(e){}').catch(() => {});
@@ -61,6 +100,7 @@ export async function runTests(tests, opts = {}, emit = () => {}) {
   let app = null;
   let conn = null;
   let consoleErrors = [];
+  let starts = 0;
   const closeApp = async () => {
     try { conn?.close(); } catch { /* closed */ }
     conn = null;
@@ -70,9 +110,23 @@ export async function runTests(tests, opts = {}, emit = () => {}) {
   };
   const openApp = async (settings) => {
     const tStart = Date.now();
-    app = await startApp({ runId, headless: opts.headless, anchor: opts.anchor, settings });
-    conn = await ensureCockpit(app);
-    await prepareWindow(app, conn);
+    // One retry: a start whose cockpit window never shows up on the debugging port is rare but happens.
+    for (let attempt = 1; ; attempt++) {
+      // Every start gets a folder of its own (-r2, -r3 ... next to the first): a restarted app never reads the bridge
+      // port/secret files, settings or webview data a previous instance left behind.
+      starts += 1;
+      try {
+        app = await startApp({ runId: starts === 1 ? runId : `${runId}-r${starts}`, headless: opts.headless, anchor: opts.anchor, settings });
+        conn = await ensureCockpit(app);
+        await prepareWindow(app, conn);
+        break;
+      } catch (e) {
+        try { conn?.close(); } catch { /* closed */ }
+        conn = null;
+        if (app) { await app.stop().catch(() => {}); app = null; }
+        if (attempt >= 2) throw e;
+      }
+    }
     conn.on((m) => {
       if (m.method === 'Runtime.exceptionThrown') consoleErrors.push(String(m.params.exceptionDetails?.exception?.description || m.params.exceptionDetails?.text).slice(0, 300));
       else if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') consoleErrors.push(m.params.args.map((a) => a.value ?? a.description ?? '').join(' ').slice(0, 300));
@@ -97,13 +151,17 @@ export async function runTests(tests, opts = {}, emit = () => {}) {
       let ctx = null;
       let aborted = false;
       try {
+        // A test whose meta carries skip is a known bug (or not yet verified): it stays listed and shows as skipped
+        // with its reason. E2E_RUN_KNOWN_BUGS=1 (or E2E_KNOWN_BUGS=1, E2E_UNVERIFIED=1, --known-bugs) runs it anyway.
+        if (test.skip && !runSkipped()) throw new SkipTest(test.skip);
         if (failedToStart) throw new Error('app did not start: ' + failedToStart);
         if (!app || !app.alive() || !conn || conn.closed || opts.fresh || test.fresh || test.seed || seeded) {
           await closeApp();
           try { await openApp(test.seed); seeded = !!test.seed; } catch (e) { failedToStart = e.message; throw new Error('app did not start: ' + e.message); }
           appFresh = true;
         }
-        if (!appFresh) await resetApp(app, conn);
+        if (!appFresh) await resetApp(app, conn, test);
+        else await keepOverlaysOff(conn, test);
         appFresh = false;
         consoleErrors = [];
         ctx = makeContext({ meta: test, app, conn, runDir: outDir, pace: video ? 1 : 0.2, isAborted: () => aborted || signal.stopped, emit, project: null });
@@ -143,7 +201,7 @@ export async function runTests(tests, opts = {}, emit = () => {}) {
       writeJson(path.join(outDir, 'result.json'), result);
       summary.results.push({ id: test.id, status: result.status, durationMs: result.durationMs });
       writeJson(path.join(runDir, 'run.json'), summary);
-      emit({ type: 'test-end', id: test.id, status: result.status, durationMs: result.durationMs, error: result.error?.message, video: result.video ? `${runId}/${test.id}/video.mp4` : null });
+      emit({ type: 'test-end', id: test.id, status: result.status, durationMs: result.durationMs, error: result.error?.message, skipReason: result.skipReason, video: result.video ? `${runId}/${test.id}/video.mp4` : null });
     }
   } finally {
     summary.status = signal.stopped ? 'stopped' : 'done';

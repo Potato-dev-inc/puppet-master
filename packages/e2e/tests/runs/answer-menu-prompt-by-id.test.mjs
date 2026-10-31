@@ -1,13 +1,12 @@
-// KNOWN BUG: for a numbered-menu question the id that wait_agents reports is not the id answer_prompt accepts.
+// The id wait_agents reports for a numbered-menu question is the id answer_prompt accepts (it names the question, not the rows drawn so far).
 import { mcp, firstRun, guarded, waitBlocked } from '../companion/_area.mjs';
 
 export const meta = {
   id: 'runs.answer-menu-prompt-by-id',
   title: 'A numbered-menu question can be answered with the id the run view gives',
   area: 'runs',
-  tags: ['mcp', 'known-bug'],
+  tags: ['mcp'],
   edge: true,
-  skip: 'wait_agents shows prompt id A for a numbered menu, answer_prompt demands id B (STALE_PROMPT); the [y/n] question is fine',
 };
 
 const MENU_SCRIPT = `
@@ -22,7 +21,6 @@ steps = [
 `;
 
 export const run = guarded(async (t) => {
-  if (meta.skip) t.skip(meta.skip);
   t.fake.script(MENU_SCRIPT);
   const project = t.project('menu');
   const m = mcp(t);

@@ -168,8 +168,7 @@ export const boxClick = (box, label) => box.eval(`(()=>{const b=[...document.que
 
 /**
  * A test whose meta carries `skip` stops here, before it does anything: a known bug stays in the list and in the
- * dashboard as "skipped" with its reason. (The harness registry does not read meta.skip yet, so the test asks itself.)
+ * dashboard as "skipped" with its reason. (The runner honours meta.skip itself; this helper is kept for old tests and does nothing.)
  */
 export function skipKnownBug(t, meta) {
-  if (meta.skip) t.skip(meta.skip);
 }

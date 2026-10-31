@@ -27,7 +27,6 @@ const setNumber = (t, label, value) =>
   })()`);
 
 export async function run(t) {
-  if (!process.env.E2E_UNVERIFIED) t.skip("unverified: failed in both of the last two full runs at opening the Tonight sheet (the plus menu moved under the click); a retry helper was added afterwards and has not been run (set E2E_UNVERIFIED=1 to run it)");
   const dir = gitProject(t, 'red-app', { 'check.js': CHECK });
   await t.spawnPane('nimbus', { cwd: dir });
   await openTonight(t);

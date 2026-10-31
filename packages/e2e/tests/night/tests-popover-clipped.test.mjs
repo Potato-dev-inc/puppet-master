@@ -1,18 +1,15 @@
-// KNOWN BUG: the Tests list of the first task opens upward and its top part (the "Found: ... Use" suggestion and the
-// close button) sits above the sheet's top edge, so Use cannot be pressed: the click lands outside the sheet and closes it.
-// Run with E2E_KNOWN_BUGS=1 to see the failure and record its video; otherwise the test is skipped.
+// The Tests list of the first task opens under its row, inside the sheet, so Use and the close button can be pressed.
 import { gitProject, nightSetup, openTonight, sclick } from './_area.mjs';
 
 export const meta = {
   id: 'night.tests-popover-clipped',
   title: 'Every button in the Tests list of the first task is inside the sheet',
   area: 'night',
-  tags: ['night', 'known-bug'],
+  tags: ['night'],
   edge: true,
 };
 
 export async function run(t) {
-  if (!process.env.E2E_KNOWN_BUGS) t.skip('known bug: the Tests list of task 1 opens above the sheet and its Use and close buttons cannot be pressed (set E2E_KNOWN_BUGS=1 to run)');
   const dir = gitProject(t, 'suggest-app', { 'package.json': JSON.stringify({ name: 'x', scripts: { test: 'node check.js' } }) });
   await t.spawnPane('nimbus', { cwd: dir });
   await openTonight(t);

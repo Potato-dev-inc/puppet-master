@@ -6,12 +6,10 @@ export const meta = {
   title: 'When the tests already pass, What broke the tests blames no turn',
   area: 'whatbroke',
   tags: ['whatbroke'],
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 120000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await t.step('Two agents finish turns that keep the tests green');
   const cwd = await sharedFolder(t, 'green', FIXTURES.green);
   await paneInFolder(t, cwd);

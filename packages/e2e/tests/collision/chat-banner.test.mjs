@@ -5,13 +5,11 @@ export const meta = {
   id: 'collision.chat-banner',
   title: 'The chat of each agent shows a row saying the other agent works in the same folder',
   area: 'collision',
-  tags: ['collision', 'flaky'],
-  skip: 'FLAKY under load: the chat row for the second agent did not show within 90 s in the full video run (it passed in 3 other runs); not yet understood',
+  tags: ['collision'],
   timeout: 120000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await twoWriters(t);
 
   await t.step('Open the Chat tab of the "edit alpha" agent');

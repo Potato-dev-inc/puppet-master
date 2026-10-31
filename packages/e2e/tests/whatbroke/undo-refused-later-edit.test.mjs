@@ -9,12 +9,10 @@ export const meta = {
   area: 'whatbroke',
   tags: ['whatbroke'],
   edge: true,
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 180000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await t.step('The second turn creates bad.flag, the third turn edits that same file');
   const cwd = await turnsFolder(t, 'undo-conflict', [
     { prompt: 'add notes', writes: [['notes.txt', 'first notes']] },
