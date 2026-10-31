@@ -45,6 +45,7 @@ pub mod night_shift;
 mod tunnel_config;
 mod one_brain;
 mod companion;
+mod potato;
 mod crews;
 mod opencode;
 pub mod operations;

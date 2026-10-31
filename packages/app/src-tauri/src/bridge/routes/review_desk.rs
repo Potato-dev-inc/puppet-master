@@ -54,7 +54,7 @@ pub(crate) fn handle_request(
         return None;
     }
     match crate::mobile_pairing::authorize_caller(headers, peer_loopback, raw_segments, method) {
-        Ok(Caller::Public) => return Some(not_for_agents()),
+        Ok(Caller::Public | Caller::Brain { .. }) => return Some(not_for_agents()),
         Ok(Caller::Local | Caller::Device { .. }) => {}
         Err(refusal) => return Some(Err(refusal)),
     }

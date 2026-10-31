@@ -156,13 +156,16 @@ pub enum Caller {
     Public,
     /// A paired device, with what it may do right now.
     Device { device_id: String, caps: Caps },
+    /// A Potato Bot brain process (`potato::auth`): it is served `/potato/brain/*` and nothing else,
+    /// and gets 403 `POTATO_SCOPE` on every other route. It has no caps at all.
+    Brain { bot_id: String },
 }
 
 impl Caller {
     pub fn may(&self, cap: Cap) -> bool {
         match self {
             Caller::Local => true,
-            Caller::Public => false,
+            Caller::Public | Caller::Brain { .. } => false,
             Caller::Device { caps, .. } => caps.has(cap),
         }
     }
@@ -198,6 +201,8 @@ pub fn viewer_for(caller: &Caller) -> Viewer {
     match caller {
         Caller::Device { device_id, .. } => Viewer::Device(device_id.clone()),
         Caller::Local | Caller::Public => Viewer::Local,
+        // A brain never streams: an id no device has closes the stream at once (fail closed).
+        Caller::Brain { .. } => Viewer::Device(String::new()),
     }
 }
 
@@ -219,6 +224,17 @@ pub fn authorize_caller(
     segments: &[&str],
     method: &str,
 ) -> Result<Caller, (u16, serde_json::Value)> {
+    // The Potato Bot token is good for the brain routes only, which `bridge/http.rs::gate` serves before
+    // it gets here. Anything that reaches this point with it is on another route: 403, even a public one.
+    if header_value(headers, crate::potato::auth::TOKEN_HEADER).is_some() {
+        return Err((
+            403,
+            serde_json::json!({
+                "code": crate::potato::auth::SCOPE_CODE,
+                "error": "the Potato Bot token is good for the brain routes only",
+            }),
+        ));
+    }
     let segments = normalize_bridge_segments(segments);
     if is_public_bridge_path(segments, method) {
         return Ok(Caller::Public);

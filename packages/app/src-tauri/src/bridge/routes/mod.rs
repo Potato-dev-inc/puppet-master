@@ -23,6 +23,7 @@ mod opencode;
 mod operations;
 mod pairing;
 mod plans;
+pub(super) mod potato_brain;
 mod review_desk;
 pub(super) mod panes;
 pub(super) mod previews;

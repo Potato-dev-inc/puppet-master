@@ -81,7 +81,7 @@ pub(crate) fn handle_request(
     let actor = match authorize_caller(headers, peer_loopback, raw_segments, method) {
         Ok(Caller::Local) => Actor::Local,
         Ok(Caller::Device { .. }) => Actor::Phone,
-        Ok(Caller::Public) => return Some(person_only()),
+        Ok(Caller::Public | Caller::Brain { .. }) => return Some(person_only()),
         Err(refusal) => return Some(Err(refusal)),
     };
     if session.is_some() {
