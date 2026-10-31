@@ -6,15 +6,10 @@ export const meta = {
   id: 'chat.question-approval-allow-always',
   title: 'Always allow in this project answers the agent and it carries on',
   area: 'chat',
-  tags: ['questions', 'approval', 'known-bug'],
-  // Bug: the card offers this button, but the app refuses the answer and shows the raw text
-  // `INVALID_PROMPT_CHOICE: "Always allow in this project" is a broad approval; it needs allow_broad`. The agent is not answered.
-  // Run it anyway with E2E_RUN_KNOWN_BUGS=1.
-  skip: 'The "Always allow" button on a generic numbered approval is refused by the app (INVALID_PROMPT_CHOICE ... needs allow_broad) and the agent is never answered',
+  tags: ['questions', 'approval'],
 };
 
 export async function run(t) {
-  if (meta.skip && !process.env.E2E_RUN_KNOWN_BUGS) t.skip(meta.skip);
   t.fake.script(script);
   await t.spawnPane('nimbus');
   await openChat(t);

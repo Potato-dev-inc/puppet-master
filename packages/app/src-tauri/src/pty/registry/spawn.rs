@@ -313,6 +313,7 @@ pub fn spawn_pane(
         let busy_state = busy_state.clone();
         let gate_up = gate_up.clone();
         let exited = exited.clone();
+        let folder = cwd.clone();
         thread::Builder::new()
             .name(format!("pty-reader-{pane_id}"))
             .spawn(move || {
@@ -392,10 +393,11 @@ pub fn spawn_pane(
 
                             // Classify the current VT screen. Historical prompt text in
                             // scrollback must not make a later agent response look blocked.
-                            let new_status = crate::pty::status::classify_agent_observation(
+                            let new_status = crate::pty::status::classify_agent_observation_in(
                                 &agent_type,
                                 &snapshot,
                                 "",
+                                Some(&folder),
                             );
                             let changed = {
                                 let mut s = status.lock();
