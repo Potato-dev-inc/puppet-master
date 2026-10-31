@@ -3,7 +3,7 @@ import { calm, S, oneTurn, openPane, waitStatus } from './_area.mjs';
 
 export const meta = {
   id: 'work.menu-lists-actions-on-working-pane',
-  title: 'Right-clicking a working pane lists Rename, Reflow, Copy selection, Interrupt, Details and Close; Escape closes it',
+  title: 'Right-clicking a working pane lists Rename, Reflow, Interrupt, Details and Close; Escape closes it',
   area: 'work',
   tags: ['work', 'menu'],
   timeout: 90000,
@@ -20,7 +20,8 @@ export async function run(t) {
   await t.step('Right-click the row');
   await t.page.rightClick('css=.ck-side .ck-row.is-active');
   await t.waitFor('aria=Pane actions');
-  for (const item of ['Rename', 'Reflow', 'Copy selection', 'Interrupt', 'Details', 'Close']) await t.expect.visible(`exact=${item}`);
+  for (const item of ['Rename', 'Reflow', 'Interrupt', 'Details', 'Close']) await t.expect.visible(`exact=${item}`);
+  await t.expect.notVisible('exact=Copy selection'); // it moved to the command palette
 
   await t.step('Escape closes the menu and the agent keeps working');
   await t.press('Escape');

@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fakeTuiExe } from '../../src/paths.mjs';
+import { fakeTuiExe, copyFakeTui } from '../../src/paths.mjs';
 import { PANE_ROW } from '../_helpers.mjs';
 
 export { PANE_ROW };
@@ -179,7 +179,7 @@ export async function installAgent(t, { id = 'ember', label = 'Ember', transcrip
   const app = t.app;
   fs.writeFileSync(path.join(app.dataDir, 'agents', `${id}.toml`), text);
   const exe = process.platform === 'win32' ? `${id}.exe` : id;
-  fs.copyFileSync(fakeTuiExe(), path.join(app.dirs.bin, exe));
+  copyFakeTui(path.join(app.dirs.bin, exe));
   await t.bridge.post('/agents/definitions/reload', {});
   const defs = (await t.bridge.get('/agents/definitions')).body?.definitions || [];
   const def = defs.find((d) => d.id === id);

@@ -34,3 +34,21 @@ export function newRunId() {
   return `${stamp}-${Math.random().toString(16).slice(2, 6)}`;
 }
 export const tmpBase = () => path.join(os.tmpdir(), 'pm-e2e');
+
+/**
+ * Put a copy of the fake agent at `dest`. A copy that an earlier test started may still be running (Windows will not
+ * overwrite it: EBUSY): it is the same fake, so an existing file of the same size is kept; a busy one is retried for a few seconds.
+ */
+export function copyFakeTui(dest) {
+  const src = fakeTuiExe();
+  try { if (fs.statSync(dest).size === fs.statSync(src).size) return dest; } catch { /* none yet */ }
+  const end = Date.now() + 8000;
+  for (;;) {
+    try { fs.copyFileSync(src, dest); return dest; } catch (e) {
+      const busy = ['EBUSY', 'EPERM', 'EACCES'].includes(e.code);
+      if (busy && fs.existsSync(dest)) return dest;
+      if (!busy || Date.now() > end) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    }
+  }
+}

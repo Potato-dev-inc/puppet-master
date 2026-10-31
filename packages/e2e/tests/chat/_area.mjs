@@ -1,7 +1,7 @@
 // Helpers shared by the chat, inbox and search tests (files that start with "_" are never run as tests).
 import fs from 'node:fs';
 import path from 'node:path';
-import { fakeTuiExe } from '../../src/paths.mjs';
+import { fakeTuiExe, copyFakeTui } from '../../src/paths.mjs';
 import { openChat as baseOpenChat, sendChat as baseSendChat, selectPane as baseSelectPane } from '../_helpers.mjs';
 
 /**
@@ -52,7 +52,7 @@ export async function installAgent(t, { id, idleMs = 1500, extra = '' }) {
     .replace('idle_after_ms = 1500', `idle_after_ms = ${idleMs}`);
   text += `\n${extra}\n`;
   fs.writeFileSync(target, text);
-  fs.copyFileSync(fakeTuiExe(), path.join(app.dirs.bin, `${id}.exe`));
+  copyFakeTui(path.join(app.dirs.bin, `${id}.exe`));
   await app.bridge.post('/agents/definitions/reload', {});
   const list = (await app.bridge.get('/agents/definitions')).body || {};
   const entries = Array.isArray(list) ? list : list.agents || list.definitions || list.entries || [];

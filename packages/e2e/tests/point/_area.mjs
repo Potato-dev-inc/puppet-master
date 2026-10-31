@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { fakeTuiExe } from '../../src/paths.mjs';
+import { fakeTuiExe, copyFakeTui } from '../../src/paths.mjs';
 import { connect, listTargets, sleep } from '../../src/cdp.mjs';
 import { Page } from '../../src/page.mjs';
 
@@ -53,7 +53,7 @@ steps = [
 export function useFakeClaude(t) {
   const exe = process.platform === 'win32' ? 'claude.exe' : 'claude';
   const dest = path.join(t.app.dirs.bin, exe);
-  if (!fs.existsSync(dest)) fs.copyFileSync(fakeTuiExe(), dest); // a copy that is running cannot be overwritten
+  copyFakeTui(dest);
 }
 
 /** A pane that "started a dev server": its screen shows the local address. (Claude-shaped, so a pasted message arrives whole.) */
