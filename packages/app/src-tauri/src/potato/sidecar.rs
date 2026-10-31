@@ -130,6 +130,19 @@ pub fn script_path(resources: Option<&Path>) -> Option<PathBuf> {
     script.is_file().then_some(script)
 }
 
+/// True when `PM_POTATO_BRAIN` replaces the brain, which only a `dev-fake-tui` build allows. A stand-in brain
+/// has no model to pay for, so the app asks it for no key (and never hands it the person's real one).
+pub fn fake_brain_active() -> bool {
+    #[cfg(feature = "dev-fake-tui")]
+    {
+        std::env::var_os("PM_POTATO_BRAIN").is_some_and(|p| !p.is_empty())
+    }
+    #[cfg(not(feature = "dev-fake-tui"))]
+    {
+        false
+    }
+}
+
 /// Looks for Node and asks its version, with a time limit.
 pub fn probe_node() -> NodeState {
     let tools = ToolEnv { path: Some(crate::shell_env::path_for_spawn().into()), extra: Vec::new() };

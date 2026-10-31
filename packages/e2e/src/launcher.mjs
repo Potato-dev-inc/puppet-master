@@ -10,7 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { appExe, fakeTuiExe, tmpBase, AGENT_FIXTURES } from './paths.mjs';
+import { appExe, fakeTuiExe, tmpBase, AGENT_FIXTURES, REPO } from './paths.mjs';
 import { assertSafePort, assertSafeProfile, isFoundersDataDir } from './guards.mjs';
 import { connect, listTargets, sleep } from './cdp.mjs';
 import { BridgeClient } from './bridge.mjs';
@@ -127,6 +127,8 @@ export async function startApp(opts) {
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
     PM_FAKE_TUI_SCRIPT: scriptPath,
     PM_E2E_PATH_PREPEND: dirs.bin,
+    // Potato Bot runs this stand-in for its brain (no model, no key, no network). Only a dev-fake-tui build reads it.
+    PM_POTATO_BRAIN: path.join(REPO, 'packages', 'potato-brain', 'test', 'fake-brain.mjs'),
     PM_FAKE_TUI_LOG: fakeLog,
     [pathKey]: dirs.bin + path.delimiter + (process.env[pathKey] || ''),
     RUST_LOG: process.env.RUST_LOG || 'info',

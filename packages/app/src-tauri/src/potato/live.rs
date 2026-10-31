@@ -93,6 +93,11 @@ impl Host for LiveHost {
     }
 
     fn secret(&self, name: &str) -> Option<String> {
+        // A stand-in brain (e2e builds only) needs no key: the page must not ask for one, and the person's real
+        // key in the credential store is neither read nor sent to it.
+        if super::sidecar::fake_brain_active() {
+            return (name == super::service::SECRET_DEEPSEEK).then(|| "e2e-stand-in-key".to_string());
+        }
         crate::secrets::read_secret(name)
     }
 
