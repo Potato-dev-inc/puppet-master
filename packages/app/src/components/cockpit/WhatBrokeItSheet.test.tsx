@@ -178,6 +178,18 @@ describe('WhatBrokeItSheet: set up', () => {
     expect(alertText()).toBe(message);
   });
 
+  it('the shell rejects with a WB_ code in front: the person reads only the sentence', async () => {
+    const { api } = mockApi({
+      wbOverview: vi.fn(async () => ({ ...OVERVIEW, tests: [] })),
+      wbDeclare: vi.fn(() => Promise.reject('WB_NO_TEST: A check cannot use `&&`. Write one plain command, like `npm test`.')),
+    });
+    await mount(api);
+    await typeInto(input('Test command')!, 'node check.mjs && echo done');
+    await act(async () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(alertText()).toBe('A check cannot use &&. Write one plain command, like npm test.');
+    expect(host.textContent).not.toContain('WB_NO_TEST');
+  });
+
   it('Find it is disabled and shows the reason when the backend says it cannot run', async () => {
     const { api } = mockApi({
       wbOverview: vi.fn(async () => ({ ...OVERVIEW, can: false, whyNot: 'A search is already running here.' })),

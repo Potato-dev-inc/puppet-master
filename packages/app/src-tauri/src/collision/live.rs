@@ -418,18 +418,40 @@ fn clean(raw: &str) -> String {
     crate::redact::text(raw).into_inner()
 }
 
+/// (source pane, copy pane) of every Branch from here that has its pane. A copy starts with the save point's
+/// files, so it is never compared with its source (or with the other copies of it).
+fn branch_links() -> Vec<(String, String)> {
+    let store = crate::branch_from::store::Store::at(crate::app_paths::app_data_dir().join("branches"));
+    store
+        .records()
+        .into_iter()
+        .filter(|record| !record.to.pane_id.is_empty())
+        .map(|record| (record.from.pane_id, record.to.pane_id))
+        .collect()
+}
+
 // ---- the watch ------------------------------------------------------------------------------------------------
 
 /// The owner of the engine. One per process, on the `collision-watch` thread.
 pub struct Watch {
     engine: Engine,
+    /// (source pane, copy pane) of every Branch from here, as the engine's family list.
+    links: Vec<(String, String)>,
     /// Alert ids that have an attention item right now.
     raised: BTreeSet<String>,
 }
 
 impl Watch {
     pub fn new() -> Watch {
-        Watch { engine: Engine::new(), raised: BTreeSet::new() }
+        Watch { engine: Engine::new(), links: Vec::new(), raised: BTreeSet::new() }
+    }
+
+    /// The panes that are copies of each other (Branch from here). Applies from the next step.
+    pub fn set_links(&mut self, links: Vec<(String, String)>) {
+        if links != self.links {
+            self.engine.set_links(&links);
+            self.links = links;
+        }
     }
 
     /// One step: the queued commands, the engine, then the snapshot, the phone items and the event.
@@ -481,6 +503,7 @@ pub fn start(registry: Arc<Mutex<PaneRegistry>>, app: tauri::AppHandle) {
             }
             let infos = registry.lock().list();
             let panes = pane_facts(&infos, &label_of, &|agent| crate::tui::is_agent_backend(agent));
+            watch.set_links(if panes.len() >= 2 { branch_links() } else { Vec::new() });
             watch.tick(&SHARED, &sink, &panes, &probe, crate::attention::now_ms());
         }
     });

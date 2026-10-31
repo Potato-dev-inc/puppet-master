@@ -77,6 +77,7 @@ export default function CockpitApp() {
   // returns to the resting view. Done while rendering, so no frame shows a stale view.
   const [seen, setSeen] = useState({ spawn: c.spawn, selectedId: c.selectedId });
   const [companionId, setCompanionId] = useState<string | null>(null);
+  const [inboxVisit, setInboxVisit] = useState(0);
   if (seen.spawn !== c.spawn || seen.selectedId !== c.selectedId) {
     setSeen({ spawn: c.spawn, selectedId: c.selectedId });
     // A companion's pane closes and starts again by itself (a move, a restart, a nap). Whoever was looking at it
@@ -340,6 +341,7 @@ export default function CockpitApp() {
     <div className="cockpit" data-theme={c.theme} onClickCapture={onClickCapture}>
       <Sidebar
         c={nav}
+        onOpenInbox={() => setInboxVisit((n) => n + 1)}
         onOpenPalette={() => {
           setPaletteMode('commands');
           setPaletteOpen(true);
@@ -439,6 +441,7 @@ export default function CockpitApp() {
         ) : (
           <Inbox
             c={nav}
+            visit={inboxVisit}
             onOpenDoctor={() => setView('doctor')}
             onSetUp={welcomeSetUp}
             companions={companions.companions}

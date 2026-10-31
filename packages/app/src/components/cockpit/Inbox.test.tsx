@@ -212,6 +212,22 @@ describe('keyboard', () => {
     expect(document.activeElement?.hasAttribute('data-ring')).toBe(true);
   });
 
+  it('choosing Inbox in the sidebar while the Inbox is already open moves the keyboard back to the first card', () => {
+    const { api } = fixture();
+    const sidebarRow = document.createElement('button');
+    document.body.appendChild(sidebarRow);
+    const render = (visit: number) => act(() => root.render(<Inbox c={api} visit={visit} />));
+    render(0);
+    sidebarRow.focus(); // the click puts the keyboard on the sidebar row
+    expect(document.activeElement).toBe(sidebarRow);
+    render(1);
+    expect(cards()[0].contains(document.activeElement)).toBe(true);
+    sidebarRow.focus();
+    render(1); // a re-render without a new visit leaves the keyboard alone
+    expect(document.activeElement).toBe(sidebarRow);
+    sidebarRow.remove();
+  });
+
   it('J and K move between cards; a card shows a ring when it has the focus', () => {
     const { api } = fixture();
     mount(api);

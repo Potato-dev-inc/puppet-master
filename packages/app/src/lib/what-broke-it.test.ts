@@ -12,6 +12,7 @@ import {
   onWhatBrokeItChanged,
   wbDeclare,
   wbDiff,
+  wbErrorText,
   wbFinding,
   wbFindings,
   wbOverview,
@@ -249,5 +250,20 @@ describe('kindOf', () => {
   it('falls back to failed for a kind the sheet does not know', () => {
     expect(kindOf(finding({ kind: 'something_new' }))).toBe('failed');
     expect(kindOf(finding({ kind: '' }))).toBe('failed');
+  });
+});
+
+describe('wbErrorText', () => {
+  it('shows the sentence of a shell refusal, never its WB_ code', () => {
+    const refused = 'WB_NO_TEST: A check cannot use `&&`. Write one plain command, like `npm test`.';
+    expect(wbErrorText(refused)).toBe('A check cannot use &&. Write one plain command, like npm test.');
+    expect(wbErrorText(new Error(refused))).toBe('A check cannot use &&. Write one plain command, like npm test.');
+    expect(wbErrorText('WB_TOO_FEW: Needs two save points.')).toBe('Needs two save points.');
+  });
+
+  it('leaves plain sentences alone and never shows an empty message', () => {
+    expect(wbErrorText('Could not read it.')).toBe('Could not read it.');
+    expect(wbErrorText('WB_INTERNAL: ')).toBe('Something went wrong. Try again.');
+    expect(wbErrorText(undefined)).toBe('Something went wrong. Try again.');
   });
 });

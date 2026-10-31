@@ -147,7 +147,8 @@ html.point-box-root #root {
 
 /* ---------- picks ---------- */
 /* Keeps its height in the column: without flex-shrink 0 the list (a scroll box) gives up space first and
-   shows one line. The min-height keeps one whole pick row, thumbnail included, in view. */
+   shows one line. The min-height keeps one whole pick row, thumbnail included, in view. The footer (Send) is
+   pinned, and the list scrolls past 150px. */
 .point-box-picks {
   list-style: none;
   margin: 0;
@@ -346,11 +347,19 @@ html.point-box-root #root {
 }
 
 /* ---------- buttons ---------- */
+/* Pinned to the bottom edge of the box: Send is always reachable, however many picks there are. */
 .point-box-foot {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  flex: none;
   gap: 6px;
+  position: sticky;
+  bottom: 0;
+  margin: auto -12px -12px;
+  padding: 8px 12px 12px;
+  background: var(--bg);
+  border-radius: 0 0 11px 11px;
 }
 
 .point-box-btn {

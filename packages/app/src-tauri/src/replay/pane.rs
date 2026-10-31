@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn the_status_steps_match_the_pty_reader() {
         let reader = include_str!("../pty/registry/spawn.rs");
-        let order = ["status::busy_marker(", "status::classify_agent_observation(", "status::settle_status_after_resize(", "resize_clock::recently_resized("];
+        let order = ["status::busy_marker(", "status::classify_agent_observation_in(", "status::settle_status_after_resize(", "resize_clock::recently_resized("];
         let mut from = 0;
         for call in order {
             let at = reader[from..].find(call).unwrap_or_else(|| panic!("spawn.rs no longer calls {call} in the replayed order"));

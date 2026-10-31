@@ -79,7 +79,14 @@ pub fn looks_like_prompt(text: &str) -> bool {
 
 /// Classify a fresh pane observation without treating ordinary agent input
 /// affordances (`>`, `:`, “Add follow-up”) as approval requests.
-pub fn classify_agent_observation(agent_type: &str, screen: &str, _recent: &str) -> PaneStatus {
+pub fn classify_agent_observation(agent_type: &str, screen: &str, recent: &str) -> PaneStatus {
+    classify_agent_observation_in(agent_type, screen, recent, None)
+}
+
+/// [`classify_agent_observation`] for a pane whose working `folder` is known. An agent's banner or status row names
+/// that folder, so a project called `deny` or `approve` read as a question on the very first screen (the run then
+/// failed `OPERATION_NOT_DISPATCHING`). The folder's path and its name as a path part are not read.
+pub fn classify_agent_observation_in(agent_type: &str, screen: &str, _recent: &str, folder: Option<&str>) -> PaneStatus {
     let clean_screen = strip_ansi(screen);
     let visible_tail = clean_screen
         .lines()
@@ -91,6 +98,7 @@ pub fn classify_agent_observation(agent_type: &str, screen: &str, _recent: &str)
         .rev()
         .collect::<Vec<_>>()
         .join("\n");
+    let visible_tail = mask_folder(&visible_tail, folder);
     let profile = crate::tui::profile_for(agent_type);
     if is_shell_agent(agent_type) {
         // A shell sitting at its prompt is ready for a command, not blocked on a question.
@@ -117,6 +125,46 @@ pub fn classify_agent_observation(agent_type: &str, screen: &str, _recent: &str)
     } else {
         PaneStatus::Running
     }
+}
+
+/// `text` with the working folder blanked out: its whole path (either slash), and its name wherever it stands as a path
+/// part (`~/work/deny`, `...\\deny`). Blanked with `_`, a word character, so no word-boundary pattern matches in it.
+pub(crate) fn mask_folder(text: &str, folder: Option<&str>) -> String {
+    let Some(folder) = folder.map(|f| f.trim().trim_end_matches(['/', '\\'])).filter(|f| !f.is_empty()) else { return text.to_string() };
+    let mut out = text.to_string();
+    let blank = |out: &mut String, needle: &str, part_of_path: bool| {
+        if needle.is_empty() {
+            return;
+        }
+        let lower = out.to_ascii_lowercase();
+        let needle = needle.to_ascii_lowercase();
+        let mut result = String::with_capacity(out.len());
+        let mut from = 0;
+        while let Some(found) = lower[from..].find(&needle) {
+            let (start, end) = (from + found, from + found + needle.len());
+            let before = lower[..start].chars().next_back();
+            let after = lower[end..].chars().next();
+            let whole_part = !part_of_path
+                || (before.is_some_and(|ch| matches!(ch, '/' | '\\' | '~'))
+                    && after.is_none_or(|ch| !(ch.is_alphanumeric() || ch == '_' || ch == '-' || ch == '.')));
+            if whole_part && out.is_char_boundary(start) && out.is_char_boundary(end) {
+                result.push_str(&out[from..start]);
+                result.push_str(&"_".repeat(end - start));
+            } else {
+                result.push_str(&out[from..end]);
+            }
+            from = end;
+        }
+        result.push_str(&out[from..]);
+        *out = result;
+    };
+    blank(&mut out, folder, false);
+    blank(&mut out, &folder.replace('\\', "/"), false);
+    blank(&mut out, &folder.replace('/', "\\"), false);
+    if let Some(name) = folder.rsplit(['/', '\\']).next().filter(|name| !name.is_empty() && *name != folder) {
+        blank(&mut out, name, true);
+    }
+    out
 }
 
 /// The profile's view of whether the screen shows work in progress (`None` = cannot tell). Built
@@ -242,6 +290,34 @@ mod tests {
         assert_eq!(settle_status_after_resize(Idle, WaitingInput, None, true), WaitingInput);
         assert_eq!(settle_status_after_resize(Running, Running, None, true), Running);
         assert_eq!(settle_status_after_resize(Idle, Running, Some(false), false), Idle);
+    }
+
+    /// A banner names the project folder; a folder called like a choice must not make the first screen a question.
+    #[test]
+    fn a_project_folder_named_like_a_choice_is_not_a_question() {
+        for name in ["deny", "approve", "allow", "yes", "no", "1", "Deny", "yes-no"] {
+            let folder = format!("C:\\Users\\me\\projects\\{name}");
+            let banner = format!("NIMBUS 0.4.2 | local | {folder}\n\n\n| > type a task\n+------+\n");
+            let status = classify_agent_observation_in("some-unregistered-agent", &banner, "", Some(&folder));
+            assert_ne!(status, PaneStatus::WaitingInput, "{name}: {status:?}");
+            // a short banner that shows the folder by its name only
+            let short = format!("nimbus ~/projects/{name}\n> ");
+            assert_ne!(classify_agent_observation_in("some-unregistered-agent", &short, "", Some(&folder)), PaneStatus::WaitingInput, "{name} (short)");
+        }
+        // the unmasked classifier is what read the folder as a question
+        let folder = "C:\\Users\\me\\projects\\deny";
+        let banner = format!("NIMBUS 0.4.2 | local | {folder}\n\n\n| > type a task\n");
+        assert_eq!(classify_agent_observation("some-unregistered-agent", &banner, ""), PaneStatus::WaitingInput);
+    }
+
+    #[test]
+    fn a_real_question_is_still_read_when_the_folder_is_known() {
+        let folder = "C:\\work\\deny";
+        let screen = format!("NIMBUS | {folder}\n\nRun this command?\n> 1. Allow once\n  2. Deny\n");
+        assert_eq!(classify_agent_observation_in("some-unregistered-agent", &screen, "", Some(folder)), PaneStatus::WaitingInput);
+        // the word on its own row is not part of the path
+        let own = format!("NIMBUS | {folder}\n\nDeny\n");
+        assert_eq!(classify_agent_observation_in("some-unregistered-agent", &own, "", Some(folder)), PaneStatus::WaitingInput);
     }
 
     #[test]
