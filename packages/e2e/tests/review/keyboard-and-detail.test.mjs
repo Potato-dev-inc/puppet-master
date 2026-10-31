@@ -6,12 +6,10 @@ export const meta = {
   title: 'J and K move between rows, Enter opens the files of a row, Escape closes the detail and then the desk',
   area: 'review',
   tags: ['review'],
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 120000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   const cwd = gitProject(t, 'shop', { 'README.md': 'shop\n', 'package.json': '{"name":"shop"}\n' });
   t.fake.script(turnsScript([
     { prompt: 'add a page', think: 6000, writes: [['src/page.txt', 'hello page']] },

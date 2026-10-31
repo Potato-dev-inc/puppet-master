@@ -4,9 +4,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Known-bug tests keep their steps but stop at the first line: see the harness README (a skip needs a reason). */
+/** Kept for old tests: the runner honours meta.skip itself, so this does nothing. */
 export function skipKnownBug(t, meta) {
-  if (meta.skip) t.skip(meta.skip);
 }
 
 /** Call a Tauri command from the cockpit page, the way the UI does. Returns { ok } or { err }. */

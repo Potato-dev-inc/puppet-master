@@ -6,9 +6,9 @@ export const meta = {
   id: 'collision.switch-off-stops-alerts',
   title: 'With the Settings switch off, two agents on one file raise no alert; on again, they do',
   area: 'collision',
-  tags: ['collision', 'flaky'],
+  tags: ['collision', 'known-bug'],
+  skip: 'KNOWN BUG (seen on 2 runs): after the switch goes off and on again, two agents that are still working on the same file raise no alert in 90 s; only a new start brings it back',
   edge: true,
-  skip: 'FLAKY: needs the Settings page; in the full run a first-run Welcome screen covered the cockpit before it, so it could not open Settings (passed alone up to the last step, which needs more than 115 s)',
   timeout: 200000,
 };
 
@@ -19,7 +19,6 @@ const showSwitch = async (t) => {
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await t.step('Settings > Agents has the switch, and it is on by default');
   await showSwitch(t);
   t.expect.equal(await switchIsOn(t), true, 'the collision switch is on by default');

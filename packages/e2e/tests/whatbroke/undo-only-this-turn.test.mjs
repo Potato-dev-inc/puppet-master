@@ -8,12 +8,10 @@ export const meta = {
   title: 'Undo only this turn puts back that turn alone, keeps later work, and the tests pass again',
   area: 'whatbroke',
   tags: ['whatbroke'],
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 180000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await t.step('Three agents each finish a turn; the second writes the file that fails the tests');
   const cwd = await turnsFolder(t, 'undo', [
     { prompt: 'add notes', writes: [['notes.txt', 'first notes']] },

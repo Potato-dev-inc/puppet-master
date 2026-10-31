@@ -7,11 +7,9 @@ export const meta = {
   area: 'review',
   tags: ['package-check'],
   edge: true,
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await lookupsOff(t);
   const pane = await claudeAtApproval(t, 'npm install lodahs', { deny: 'ok, not installing lodahs' });
 

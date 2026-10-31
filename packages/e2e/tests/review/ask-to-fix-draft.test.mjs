@@ -6,12 +6,10 @@ export const meta = {
   title: 'Ask to fix opens the agent chat with a draft built from the reasons and sends nothing',
   area: 'review',
   tags: ['review'],
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 90000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await t.step('An agent finishes a turn that changes the package list');
   const cwd = gitProject(t, 'shop', { 'README.md': 'shop\n', 'package.json': '{"name":"shop"}\n' });
   const pane = await writingTurn(t, cwd, 'add a dependency', [['package.json', '{"name":"shop","dependencies":{"left-pad":"1.3.0"}}\n']]);

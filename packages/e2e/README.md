@@ -37,6 +37,7 @@ npm run e2e -- --only chat.send-message --keep-app   # leave the app running to 
 |---|---|
 | `--no-video` | no recording, tests run about 5x faster (the cursor and waits are not slowed down) |
 | `--fresh` | restart the app before every test (default: one app per run, reset between tests) |
+| `--known-bugs` | also run tests whose `meta.skip` is set (known product bugs); same as `E2E_RUN_KNOWN_BUGS=1` |
 | `--keep-app` | leave the app running after the run (prints the pid and how to stop it) |
 | `--headless` | put the window off-screen (`-32000,-32000`) |
 | `--anchor x,y` | where the window opens (default `PM_WINDOW_ANCHOR`, else the left monitor, `-1852,121`) |
@@ -82,7 +83,7 @@ export async function run(t) {
 | | |
 |---|---|
 | `t.step(name)` | mark a step (video label, log, `result.json`) |
-| `t.click(target, {nth, within})`, `t.type(text, {into})`, `t.fill(target, text)`, `t.press('Enter' / 'Ctrl+K')`, `t.waitFor(target)`, `t.waitGone(target)` | the page driver (also under `t.page`; adds `hover`, `rightClick`, `doubleClick`, `value`, `count`, `text()`, `eval(js)`, `reload()`, `screenshot(file)`) |
+| `t.click(target, {nth, within})`, `t.rightClick`, `t.doubleClick`, `t.scrollIntoView`, `t.type(text, {into})`, `t.fill(target, text)`, `t.press('Enter' / 'Ctrl+K')`, `t.waitFor(target)`, `t.waitGone(target)` | the page driver (also under `t.page`; adds `hover`, `rightClick`, `doubleClick`, `value`, `count`, `text()`, `eval(js)`, `reload()`, `screenshot(file)`) |
 | `t.expect.text(strOrRegex)`, `noText`, `visible(target)`, `notVisible`, `count(target, n)`, `value(target, v)`, `eventually(fn)`, `equal`, `ok`, `includes`, `match` | assertions; the page ones poll until they hold |
 | `t.spawnPane(agent='nimbus', {cwd, script})` | start a fake agent pane and wait until it is idle. Returns a `Pane`: `screen()`, `waitScreen(text)`, `write(text)`, `key(name)`, `info()`, `kill()` |
 | `t.panes()` | the app's pane list |
@@ -102,13 +103,15 @@ The fake agent plays a `pm-fake-tui` script: see `tools/pm-fake-tui/README.md` (
 - **Assert what a person sees**: text, buttons, counts, the agent's received input. Not colours, class names or pixel positions. Use `css=` only to find an element.
 - **No sleeps.** `waitFor`, `expect.*` and `fake.waitEvent` poll. Wait for a pane to be idle before clicking rows in the sidebar (rows move while panes settle); `spawnPane` already does. With several panes select by name (`selectPane(t, 'Nimbus 2')`), not by position.
 - **Name tests after the feature list** (`docs/FEATURES.md`): `area` = the feature area, `title` = what a person would say. Use `step()` for every action worth seeing in the video.
+- **Known bugs.** A test for a real product bug stays in the list with `skip: 'KNOWN BUG: what happens'` in `meta`. The runner shows it as skipped with the reason and runs it only with `--known-bugs` / `E2E_RUN_KNOWN_BUGS=1`. Do not skip for flakiness: fix the test.
 - Keep a test under about 15 seconds; set `timeout` in `meta` (ms, default 60000) when it needs more.
 
 ## How it works
 
 - **Isolation.** The launcher starts the app binary with `PUPPET_MASTER_PROFILE=e2e` (its own app id, its own bridge port, never 17321 or 17322), `APPDATA`, `LOCALAPPDATA`, `HOME`, `USERPROFILE` and the WebView2 data folder pointing into `%TEMP%/pm-e2e/<run-id>/`, and a random free debugging port (never 9333). It refuses forbidden ports and the real app's data folder. Only the process tree it started is stopped, also on failure, Ctrl+C or a crash of the runner; a run that was killed hard leaves a record the next run uses to stop the leftover app (by pid, only if it is still a `puppet_master_app`). The run folders under `%TEMP%/pm-e2e` are kept for debugging (delete old ones by hand).
 - **Fake agents.** The app gets a declarative agent definition (`fixtures/agents/nimbus.toml`) and copies of `pm-fake-tui` named after it. On Windows the app rebuilds its PATH from the registry, so the dev-only feature `dev-fake-tui` adds `PM_E2E_PATH_PREPEND` (see `src-tauri/src/shell_env.rs`); a normal or release build ignores it. The script a fake agent plays is the file named in `PM_FAKE_TUI_SCRIPT`; `t.fake.script()` rewrites it before each pane starts.
-- **The window.** If the app opens its cockpit by itself (newer builds), the launcher uses it. Otherwise it spawns a shell pane through the bridge and detaches it, which opens the cockpit unfocused at the window anchor, then closes that pane.
+- **The window.** The launcher starts the app with `PUPPET_MASTER_NO_WINDOW=1` (a normal start now opens the cockpit by itself, but that startup window is not reachable on the debugging port in the harness: the run then times out with "timed out waiting for the cockpit window"; `E2E_STARTUP_WINDOW=1` turns this off). It then spawns a shell pane through the bridge and detaches it, which opens the cockpit unfocused at the window anchor, then closes that pane.
+- **Restarts.** Every start of the app (`fresh`, `seed`) gets a folder of its own (`<run-id>-r2`, ...) and waits for the new bridge port file, so a restart never talks to a previous instance. The settings file starts with `onboarding_done: true` and `away_minutes: 0`; between tests the runner says it again through the app's `settings_patch` (the app keeps its own copy of the settings once any window patches them, and that copy would bring the welcome back).
 - **Video.** CDP screencast frames (JPEG) with their timestamps become one H.264 file at 25 fps (ffmpeg). The page gets a visible cursor, click ripples, key caps, the step label (bottom left) and the test id (bottom right) from an overlay that never touches the app's own DOM.
 - **Reset between tests.** Close all panes, default script, clear localStorage, navigate to a fresh cockpit page. Roughly 1.5 s.
 

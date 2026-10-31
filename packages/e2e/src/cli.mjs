@@ -31,10 +31,13 @@ if (flag('--help') || flag('-h')) {
   --headless       place the window off-screen
   --anchor x,y     window anchor (default: PM_WINDOW_ANCHOR or the left monitor)
   --run-id <id>    name of the results folder (default: a timestamp)
+  --known-bugs     also run tests marked skip in their meta (known bugs, not yet verified); same as E2E_RUN_KNOWN_BUGS=1
   --events         also print machine-readable "@@E2E {json}" lines (the dashboard uses it)
 Results: ${RESULTS_DIR}`);
   process.exit(0);
 }
+
+if (flag('--known-bugs')) process.env.E2E_RUN_KNOWN_BUGS = '1';
 
 const known = new Set(['--only', '--run-id', '--anchor']);
 const positional = [];
