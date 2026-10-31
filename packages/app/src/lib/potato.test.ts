@@ -1,8 +1,11 @@
 // @vitest-environment node
 // The words and the fake: the copy is exact, errors lose their code, and the fake behaves like the app.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { brainLabel, brainStateWord, COPY, dollars, errorSentence, fakePotatoTransport, formatWhen, moodLine, plainError, tauriPotatoTransport } from './potato';
 import { bot } from '../components/cockpit/potato/test-helpers';
+
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 
 describe('copy', () => {
   it('has the exact sentences of the spec', () => {
@@ -51,10 +54,18 @@ describe('plainError', () => {
   });
 });
 
-describe('the real transport before its commands exist', () => {
-  it('says Coming soon. for the helper answers and the Node install', async () => {
-    await expect(tauriPotatoTransport.helperAnswer('fish', 'r1', 'start')).rejects.toThrow('Coming soon.');
-    await expect(tauriPotatoTransport.installNode()).rejects.toThrow('Coming soon.');
+describe('the real transport', () => {
+  it('calls the helper, install and key commands by name, with a folder name only and no key', async () => {
+    invoke.mockResolvedValue(undefined);
+    await tauriPotatoTransport.helperFolders('fish');
+    await tauriPotatoTransport.helperStart('fish', 'r1', 'demo-a');
+    await tauriPotatoTransport.helperStart('fish', 'r2');
+    await tauriPotatoTransport.helperDecline('fish', 'r1');
+    await tauriPotatoTransport.installNode();
+    await tauriPotatoTransport.checkKey();
+    expect(invoke.mock.calls.map((c) => c[0])).toEqual(['potato_helper_folders', 'potato_helper_start', 'potato_helper_start', 'potato_helper_decline', 'potato_install_node', 'potato_check_key']);
+    expect(invoke.mock.calls[1][1]).toEqual({ botId: 'fish', requestId: 'r1', folder: 'demo-a' });
+    expect(invoke.mock.calls[2][1]).toEqual({ botId: 'fish', requestId: 'r2', folder: null });
   });
 });
 

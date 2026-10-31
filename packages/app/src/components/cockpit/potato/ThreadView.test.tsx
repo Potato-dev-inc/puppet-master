@@ -155,13 +155,40 @@ describe('ThreadView', () => {
     expect(field().disabled).toBe(true);
   });
 
-  it('shows a helper card in the thread with its three buttons, and answers go to the app', async () => {
+  it('shows a helper card in the thread with its three buttons; Not now goes to the app', async () => {
     const card = msg({ text: 'fix the build', kind: 'helper_card', requestId: 'r1', project: 'demo-a' });
     const { props, transport } = setup({ messages: [card] });
     await act(async () => root.render(<ThreadView {...props} />));
     expect(host.textContent).toContain('Fish wants a helper: fix the build');
     await act(async () => buttonByText(host, 'Not now')!.click());
-    expect(transport.calls.find((c) => c.method === 'helperAnswer')?.args).toEqual(['fish', 'r1', 'not_now']);
+    expect(transport.calls.find((c) => c.method === 'helperDecline')?.args).toEqual(['fish', 'r1']);
+    expect(transport.calls.some((c) => c.method === 'helperStart')).toBe(false);
+  });
+
+  it('Start sends the card id and the chosen folder name to the app, and the page reads again', async () => {
+    const card = msg({ text: 'fix the build', kind: 'helper_card', requestId: 'r1', project: 'demo-a' });
+    const { props, transport } = setup({ messages: [card] });
+    const onChanged = vi.fn();
+    await act(async () => root.render(<ThreadView {...props} onChanged={onChanged} />));
+    await act(async () => buttonByText(host, 'Change folder')!.click());
+    await act(async () => buttonByText(host, 'demo-b')!.click());
+    await act(async () => buttonByText(host, 'Start')!.click());
+    expect(transport.calls.find((c) => c.method === 'helperFolders')?.args).toEqual(['fish']);
+    expect(transport.calls.find((c) => c.method === 'helperStart')?.args).toEqual(['fish', 'r1', 'demo-b']);
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('a finished helper row has an Open button for its pane, when the pane is still there', async () => {
+    const row = msg({ text: 'Helper finished in demo-a.', kind: 'helper_result', requestId: 'r1', paneId: 'pane-9', from: { kind: 'note' } });
+    const { props } = setup({ messages: [row] });
+    const onOpenPane = vi.fn();
+    await act(async () => root.render(<ThreadView {...props} onOpenPane={onOpenPane} paneExists={() => true} />));
+    expect(host.querySelector('.ck-potato-note')?.textContent).toBe('Helper finished in demo-a. Open');
+    await act(async () => buttonByText(host, 'Open')!.click());
+    expect(onOpenPane).toHaveBeenCalledWith('pane-9');
+    await act(async () => root.render(<ThreadView {...props} onOpenPane={onOpenPane} paneExists={() => false} />));
+    expect(buttonByText(host, 'Open')).toBeUndefined();
+    expect(host.querySelector('.ck-potato-note')?.textContent).toBe('Helper finished in demo-a.');
   });
 
   it('shows the brain card above the box when there is no key', async () => {
