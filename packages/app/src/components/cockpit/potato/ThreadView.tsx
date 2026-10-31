@@ -9,7 +9,6 @@ import {
   COPY,
   formatWhen,
   plainError,
-  type HelperAnswer,
   type PotatoBotView,
   type PotatoMessage,
   type PotatoSettings,
@@ -17,6 +16,7 @@ import {
   type TalkPersona,
 } from '../../../lib/potato';
 import { Avatar } from '../../companion/Avatar';
+import { SessionChatPanel } from '../../chat/SessionChatPanel';
 import { BrainStateCard } from './BrainStateCard';
 import { HelperCard } from './HelperCard';
 import { MoodChip } from './MoodChip';
@@ -42,14 +42,20 @@ export interface ThreadViewProps {
   onNotify: (text: string) => void;
   /** Called after a command, so the state is read again at once. */
   onChanged: () => void;
-  /** The "Through my agents" brain has no thread of its own here: the companion's page is its chat. */
+  /** The "Through my agents" brain has no thread of its own here: the thread is the companion's own chat, in its pane. */
+  companionPaneId?: string | null;
+  /** The companion's own page (the "Through my agents" line under the header). */
   onOpenCompanion?: (id: string) => void;
+  /** Opens a helper's pane (the Open button of a finished helper). Absent: no button. */
+  onOpenPane?: (paneId: string) => void;
+  /** Whether that pane is still there; the button is shown only then. Default: yes. */
+  paneExists?: (paneId: string) => boolean;
   /** Passed in so a test can pin the clock. */
   now?: number;
 }
 
 export function ThreadView(props: ThreadViewProps) {
-  const { bot, messages, settings, avatar, agentLabel, transport, onOpenSettings, onNotify, onChanged, onOpenCompanion, now = Date.now() } = props;
+  const { bot, messages, settings, avatar, agentLabel, transport, onOpenSettings, onNotify, onChanged, companionPaneId, onOpenCompanion, onOpenPane, paneExists, now = Date.now() } = props;
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -134,14 +140,22 @@ export function ThreadView(props: ThreadViewProps) {
     return (
       <section className="ck-potato-thread" aria-label={`${bot.name}, through your agents`}>
         {head}
-        <div className="ck-potato-through">
-          <p className="ck-sub">{COPY.agentsOnly}</p>
-          {onOpenCompanion && (
-            <button type="button" className="ck-btn ck-btn--secondary" onClick={() => onOpenCompanion(bot.id)}>
-              Open {bot.name}
-            </button>
-          )}
-        </div>
+        <p className="ck-sub ck-potato-through-note">{COPY.agentsOnly}</p>
+        {companionPaneId ? (
+          // The companion's own chat: a new pane with the same id (a restart) needs a new chat.
+          <div className="ck-scroll ck-fade-in ck-potato-chat" key={companionPaneId}>
+            <SessionChatPanel paneId={companionPaneId} reply={{ blockedReason: null }} />
+          </div>
+        ) : (
+          <div className="ck-potato-through">
+            <p className="ck-sub">{bot.name} is not awake. Open its page to wake it up.</p>
+            {onOpenCompanion && (
+              <button type="button" className="ck-btn ck-btn--secondary" onClick={() => onOpenCompanion(bot.id)}>
+                Open {bot.name}
+              </button>
+            )}
+          </div>
+        )}
       </section>
     );
   }
@@ -161,9 +175,18 @@ export function ThreadView(props: ThreadViewProps) {
           {threadRows(messages).map((row) => {
             const m = row.message;
             if (row.type === 'note') {
+              const canOpen = m.kind === 'helper_result' && !!m.paneId && !!onOpenPane && (paneExists?.(m.paneId) ?? true);
               return (
                 <li key={m.id} className="ck-potato-note" role="note">
                   {m.text}
+                  {canOpen && (
+                    <>
+                      {' '}
+                      <button type="button" className="ck-potato-note-open" onClick={() => onOpenPane?.(m.paneId!)}>
+                        Open
+                      </button>
+                    </>
+                  )}
                 </li>
               );
             }
@@ -176,10 +199,15 @@ export function ThreadView(props: ThreadViewProps) {
                     project={m.project}
                     agentLabel={agentLabel}
                     open={row.open}
-                    onAnswer={async (answer: HelperAnswer) => {
-                      await transport.helperAnswer(bot.id, m.requestId ?? '', answer);
+                    onStart={async (folder) => {
+                      await transport.helperStart(bot.id, m.requestId ?? '', folder);
                       onChanged();
                     }}
+                    onNotNow={async () => {
+                      await transport.helperDecline(bot.id, m.requestId ?? '');
+                      onChanged();
+                    }}
+                    loadFolders={() => transport.helperFolders(bot.id)}
                   />
                 </li>
               );

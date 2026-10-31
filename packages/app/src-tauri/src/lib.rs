@@ -632,6 +632,11 @@ pub fn run() {
             commands::potato_settings_get,
             commands::potato_settings_set,
             commands::potato_log,
+            commands::potato_helper_folders,
+            commands::potato_helper_start,
+            commands::potato_helper_decline,
+            commands::potato_check_key,
+            commands::potato_install_node,
         ])
         .setup(|app| {
             // Before the first window: an older version's desktop service worker would serve its UI.
@@ -804,7 +809,7 @@ pub fn run() {
             ci_fix::live::start(registry_for_panes.clone(), app.handle().clone());
             companion::live::start(app.handle().clone(), registry_for_panes.clone());
             // Potato Bot: the engine and its supervisor thread. No brain starts here; one starts on its first message.
-            potato::live::start(Some(app.handle().clone()));
+            potato::live::start(Some(app.handle().clone()), Some(registry_for_panes.clone()));
             // A room a crash left on the relay is ended now (its own thread: it may wait for the network).
             live_room::service::cleanup_at_boot(app_paths::app_data_dir());
             app.handle().listen("pty://panes-changed", move |_event| {

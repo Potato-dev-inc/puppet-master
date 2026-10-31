@@ -29,10 +29,13 @@ export interface PotatoPageProps {
   onOpenSettings: () => void;
   /** Opens a companion's own page ("Through my agents"). */
   onOpenCompanion?: (id: string) => void;
+  /** Opens a helper's pane (the Open button of a finished helper), and says whether the pane is still there. */
+  onOpenPane?: (paneId: string) => void;
+  paneExists?: (paneId: string) => boolean;
 }
 
 export function PotatoPage(props: PotatoPageProps) {
-  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion } = props;
+  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists } = props;
   const [sheetOpen, setSheetOpen] = useState(false);
   const open = pickOpenBot(state.bots, openBotId);
   const { messages } = usePotatoThread(transport, open?.id ?? null, version, open?.unread ?? 0);
@@ -75,7 +78,10 @@ export function PotatoPage(props: PotatoPageProps) {
             onOpenSettings={onOpenSettings}
             onNotify={onNotify}
             onChanged={onChanged}
+            companionPaneId={byId.get(open.id)?.paneId ?? null}
             onOpenCompanion={onOpenCompanion}
+            onOpenPane={onOpenPane}
+            paneExists={paneExists}
           />
         ) : (
           <div className="ck-potato-blank" aria-hidden="true" />

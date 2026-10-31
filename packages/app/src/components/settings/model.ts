@@ -9,7 +9,7 @@ import type { Settings } from '@puppet-master/shared';
 import type { UpdateCheckResult } from '../../lib/app-update';
 import type { SettingsPatch } from '../../lib/settings';
 
-export const SECTION_IDS = ['general', 'agents', 'models', 'keys', 'bridge', 'phone'] as const;
+export const SECTION_IDS = ['general', 'agents', 'models', 'keys', 'bridge', 'phone', 'potato'] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
 
 /** `later` is the read-only "Coming later" page; it is not a section of settings. */
@@ -84,6 +84,13 @@ export interface SectionDef {
   /** One quiet line under the page title. */
   blurb: string;
   rows: RowDef[];
+  /** An early feature's section: shown in the menu and in search only while this Labs flag is on. */
+  labsFlag?: 'potato_bot_enabled';
+}
+
+/** The sections a person sees now: those of an early feature appear only while its switch is on. */
+export function visibleSections(sections: SectionDef[], settings: { potato_bot_enabled?: boolean } | null): SectionDef[] {
+  return sections.filter((s) => !s.labsFlag || settings?.[s.labsFlag] === true);
 }
 
 export interface RowGroup {

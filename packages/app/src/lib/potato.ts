@@ -79,6 +79,8 @@ export interface PotatoMessage {
   requestId?: string;
   /** A helper card: the folder name the bot asked for (a name only). */
   project?: string;
+  /** A helper result row: the pane the helper worked in, for its Open button. */
+  paneId?: string;
 }
 
 export interface PotatoBot {
@@ -93,8 +95,10 @@ export interface SendOutcome {
   delivered: boolean;
 }
 
-/** The three buttons of a helper card. Wired in the settings-and-helpers piece (P4). */
-export type HelperAnswer = 'start' | 'change_folder' | 'not_now';
+/** What Start answers: the project the helper works in (a name). */
+export interface HelperStarted {
+  folder: string;
+}
 
 export interface PotatoTransport {
   state(): Promise<PotatoState>;
@@ -105,15 +109,22 @@ export interface PotatoTransport {
   startBot(botId: string): Promise<void>;
   stopBot(botId: string): Promise<void>;
   markRead(botId: string): Promise<void>;
-  /** Answers a helper card. The real transport does not have the command yet and says "Coming soon." */
-  helperAnswer(botId: string, requestId: string, answer: HelperAnswer): Promise<void>;
-  /** "Install Node.js". The real transport does not have the command yet and says "Coming soon." */
+  /** "Change folder": the names of the recent projects a helper may work in (names, never paths). */
+  helperFolders(botId: string): Promise<string[]>;
+  /** Start on a helper card. `folder` is a project name from `helperFolders`; without it the card's own folder is used. */
+  helperStart(botId: string, requestId: string, folder?: string): Promise<HelperStarted>;
+  /** Not now on a helper card. */
+  helperDecline(botId: string, requestId: string): Promise<void>;
+  /** "Install Node.js": the agent installer's `node` tool, in a window the person watches. */
   installNode(): Promise<void>;
+  /** Settings: the saved settings (`<app data>/potato/settings.json`). The key is never in them. */
+  settingsGet(): Promise<PotatoSettings>;
+  settingsSet(settings: PotatoSettings): Promise<PotatoSettings>;
+  /** Settings > Check key: one tiny turn. Answers "Works." or rejects with one plain sentence. */
+  checkKey(): Promise<string>;
   /** `potato://changed`: something about this bot changed (`null`: the Labs switch moved). */
   onChanged?(cb: (botId: string | null) => void): Promise<UnlistenFn>;
 }
-
-export const COMING_SOON = 'Coming soon.';
 
 /** `CODE: A plain sentence.` from a Tauri command, shown as the sentence only. */
 export function plainError(error: unknown, fallback: string): string {
@@ -131,8 +142,15 @@ export const tauriPotatoTransport: PotatoTransport = {
   startBot: (botId) => invoke<void>('potato_bot_start', { botId }),
   stopBot: (botId) => invoke<void>('potato_bot_stop', { botId }),
   markRead: (botId) => invoke<void>('potato_mark_read', { botId }),
-  helperAnswer: () => Promise.reject(new Error(COMING_SOON)),
-  installNode: () => Promise.reject(new Error(COMING_SOON)),
+  helperFolders: (botId) => invoke<string[]>('potato_helper_folders', { botId }),
+  helperStart: (botId, requestId, folder) => invoke<HelperStarted>('potato_helper_start', { botId, requestId, folder: folder ?? null }),
+  helperDecline: (botId, requestId) => invoke<void>('potato_helper_decline', { botId, requestId }),
+  installNode: async () => {
+    await invoke('potato_install_node');
+  },
+  settingsGet: () => invoke<PotatoSettings>('potato_settings_get'),
+  settingsSet: (settings) => invoke<PotatoSettings>('potato_settings_set', { settings }),
+  checkKey: () => invoke<string>('potato_check_key'),
   onChanged: (cb) => {
     if (!isTauri()) return Promise.resolve((() => {}) as UnlistenFn);
     return listen<{ botId?: string } | null>('potato://changed', (e) => cb(e.payload?.botId ?? null));
@@ -233,6 +251,10 @@ export interface FakePotatoSeed {
   messages?: Record<string, PotatoMessage[]>;
   /** What `send` answers. Default: delivered. */
   outcome?: Partial<SendOutcome>;
+  /** The recent project names "Change folder" offers. */
+  folders?: string[];
+  /** What Check key answers: a sentence, or throws one. */
+  keyCheck?: () => string;
 }
 
 export interface FakePotatoTransport extends PotatoTransport {
@@ -344,8 +366,30 @@ export function fakePotatoTransport(seed: FakePotatoSeed = {}): FakePotatoTransp
       log('markRead', [botId], () => {
         find(botId).unread = 0;
       }),
-    helperAnswer: (botId, requestId, answer) => log('helperAnswer', [botId, requestId, answer], () => undefined),
+    helperFolders: (botId) => log('helperFolders', [botId], () => [...(seed.folders ?? ['demo-a', 'demo-b'])]),
+    helperStart: (botId, requestId, folder) =>
+      log('helperStart', [botId, requestId, folder], () => {
+        const card = thread(botId).find((m) => m.kind === 'helper_card' && m.requestId === requestId);
+        const chosen = folder ?? card?.project;
+        if (!chosen) throw new Error('Choose a folder for the helper first.');
+        thread(botId).push({ ...message({ kind: 'note' }, 'helper_result', `Started a helper in ${chosen}.`), requestId });
+        emit(botId);
+        return { folder: chosen };
+      }),
+    helperDecline: (botId, requestId) =>
+      log('helperDecline', [botId, requestId], () => {
+        thread(botId).push({ ...message({ kind: 'note' }, 'helper_result', 'Not now.'), requestId });
+        emit(botId);
+      }),
     installNode: () => log('installNode', [], () => undefined),
+    settingsGet: () => log('settingsGet', [], () => ({ ...state.settings })),
+    settingsSet: (settings) =>
+      log('settingsSet', [settings], () => {
+        state.settings = { ...settings, dailyLimitCents: Math.min(2000, Math.max(5, Math.round(settings.dailyLimitCents))) };
+        emit(null);
+        return { ...state.settings };
+      }),
+    checkKey: () => log('checkKey', [], () => (seed.keyCheck ? seed.keyCheck() : 'Works.')),
     onChanged: (cb) => {
       listeners.add(cb);
       return Promise.resolve((() => listeners.delete(cb)) as UnlistenFn);

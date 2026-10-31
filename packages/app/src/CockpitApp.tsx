@@ -462,8 +462,10 @@ export default function CockpitApp() {
             onChanged={potato.refresh}
             onCompanionsChanged={companions.refresh}
             onNotify={c.notify}
-            onOpenSettings={() => void nav.openSettings('general')}
+            onOpenSettings={() => void nav.openSettings('potato')}
             onOpenCompanion={openCompanion}
+            onOpenPane={(paneId) => nav.select(paneId)}
+            paneExists={(paneId) => c.registry.panes.has(paneId)}
           />
         ) : view === 'pane' && c.selectedId && splitOn && split ? (
           <SplitView c={nav} leftId={c.selectedId} rightId={split} focus={side} ratio={ratio} onFocus={setSide} onRatio={setRatio} onClose={toggleSplit} />

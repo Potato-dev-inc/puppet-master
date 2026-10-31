@@ -78,6 +78,7 @@ export const LAYOUT: Partial<Record<SectionId, LayoutGroup[]>> = {
     { group: 'On the phone', rows: ['phone-notifications', 'mobile-input-delay', 'mobile-keyboard-resizes', 'mobile-input-visible'] },
     { group: 'Public address', rows: ['tunnel'] },
   ],
+  potato: [{ group: 'Potato Bot', rows: ['potato-bot', 'potato-brain', 'potato-key', 'potato-persona', 'potato-limit'] }],
 };
 
 /** Every row id the layout names (not the `@labs` placeholder or the links). Used to catch stale ids. */

@@ -229,6 +229,21 @@ fn tool_step(tool: &str, tools: &Tools) -> Option<Step> {
     step(&def.label, Some(tool), spec, "winget", tools)
 }
 
+/// The plan that installs one prerequisite tool (`node`, `git`) on its own, through winget: one step, shown to
+/// the person in a visible window like any other install. Blocked, with the reason, when this PC has no winget.
+pub fn plan_tool(tool: &str, tools: &Tools) -> Plan {
+    let label = tool_defs().get(tool).map(|def| def.label.clone()).unwrap_or_else(|| tool.to_string());
+    match tool_step(tool, tools) {
+        Some(step) => Plan { agent_id: tool.into(), label, steps: vec![step], blocked: None },
+        None => Plan {
+            agent_id: tool.into(),
+            label: label.clone(),
+            steps: Vec::new(),
+            blocked: Some(format!("This PC cannot install {label} from here (winget is missing). Download it from its website.")),
+        },
+    }
+}
+
 /// The plan for one agent.
 ///
 /// Preference: a method that is ready now (winget, then npm, then uv, in the spec's order); then

@@ -261,6 +261,8 @@ pub struct Service {
     brains: Arc<Brains>,
     inner: Mutex<Inner>,
     cv: Condvar,
+    /// The helpers' world (`helpers.rs`): what starts them, and the ones now running.
+    pub(super) helpers: super::helpers::HelperState,
 }
 
 type Result<T> = std::result::Result<T, StoreError>;
@@ -271,10 +273,9 @@ fn err(code: &'static str, message: impl Into<String>) -> StoreError {
 
 impl Service {
     pub fn new(root: PathBuf, host: Arc<dyn Host>, launcher: Arc<dyn Launcher>, brains: Arc<Brains>) -> Arc<Service> {
-        Arc::new(Service { root, host, launcher, brains, inner: Mutex::new(Inner::default()), cv: Condvar::new() })
+        Arc::new(Service { root, host, launcher, brains, inner: Mutex::new(Inner::default()), cv: Condvar::new(), helpers: super::helpers::HelperState::default() })
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -284,20 +285,19 @@ impl Service {
         &self.brains
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn enabled(&self) -> bool {
         self.brains.enabled()
     }
 
-    fn name_of(&self, bot: &str) -> String {
+    pub(super) fn name_of(&self, bot: &str) -> String {
         self.host.profile(bot).map(|p| p.name).unwrap_or_else(|| bot.to_string())
     }
 
-    fn home_of(&self, bot: &str) -> Option<String> {
+    pub(super) fn home_of(&self, bot: &str) -> Option<String> {
         self.host.profile(bot).and_then(|p| p.folder)
     }
 
-    fn require_bot(&self, bot: &str) -> Result<store::Bot> {
+    pub(super) fn require_bot(&self, bot: &str) -> Result<store::Bot> {
         store::load_bots(&self.root)?
             .into_iter()
             .find(|b| b.id == bot)
@@ -306,12 +306,12 @@ impl Service {
 
     // ---- saved messages ------------------------------------------------------------------------
 
-    fn save(&self, bot: &str, conversation: &str, message: Message) -> Result<Message> {
+    pub(super) fn save(&self, bot: &str, conversation: &str, message: Message) -> Result<Message> {
         store::append_message(&self.root, conversation, message, self.home_of(bot).as_deref())
     }
 
     /// A note row in the bot's app thread (best effort: a damaged file is logged, not raised).
-    fn note(&self, bot: &str, text: &str) {
+    pub(super) fn note(&self, bot: &str, text: &str) {
         let message = Message::new(self.host.now_ms(), FromKind::Note, None, MsgKind::Note, text);
         if let Err(e) = self.save(bot, &store::app_conversation(bot), message) {
             tracing::debug!(%e, "could not save a Potato Bot note");
@@ -655,7 +655,7 @@ impl Service {
 
     // ---- views ---------------------------------------------------------------------------------
 
-    fn open_card_ids(&self, bot: &str) -> Vec<String> {
+    pub(super) fn open_card_ids(&self, bot: &str) -> Vec<String> {
         let Ok(messages) = store::read_messages(&self.root, &store::app_conversation(bot), 500, None) else { return Vec::new() };
         let closed: Vec<&str> = messages.iter().filter(|m| m.kind == MsgKind::HelperResult).filter_map(|m| m.request_id.as_deref()).collect();
         messages
@@ -762,6 +762,50 @@ impl Service {
     /// The cleaned lines of the brain's log (200 at most).
     pub fn log_lines(&self, bot: &str) -> Vec<String> {
         self.inner.lock().bots.get(bot).map(|rt| rt.log.lock().lines()).unwrap_or_default()
+    }
+
+    // ---- hooks for the helpers (helpers.rs) ---------------------------------------------------
+
+    /// Puts one item into the live brain's inbox. False when the bot has no running brain (or one that is
+    /// leaving): the item is not kept, because a brain that starts later knows nothing of the request.
+    pub(super) fn push_to_brain(&self, bot: &str, item: Value) -> bool {
+        let mut g = self.inner.lock();
+        match g.bots.get_mut(bot).and_then(|rt| rt.session.as_mut()) {
+            Some(session) if session.shutdown_at.is_none() => {
+                session.inbox.push(item);
+                self.cv.notify_all();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the brain may be given a turn of its own now: it is not paused for the day's limit and the
+    /// day's cost is under the limit.
+    pub(super) fn brain_may_take_a_turn(&self, bot: &str) -> bool {
+        let Ok(settings) = store::load_settings(&self.root) else { return false };
+        let day = self.host.local_day(self.host.now_ms());
+        let used = cost::day_of(&self.root, &day, bot).map(|d| d.cost_nano()).unwrap_or(0);
+        if cost::budget(used, settings.daily_limit_cents) == Budget::Over {
+            return false;
+        }
+        !self.inner.lock().bots.get(bot).is_some_and(|rt| rt.paused_for_limit.is_some())
+    }
+
+    /// A helper is still working: the idle timer of that bot's brain does not run out.
+    pub(super) fn keep_awake(&self, bot: &str) {
+        let now = self.host.now_ms();
+        if let Some(rt) = self.inner.lock().bots.get_mut(bot) {
+            rt.keeper.touch(now);
+        }
+    }
+
+    pub(super) fn host(&self) -> &Arc<dyn Host> {
+        &self.host
+    }
+
+    pub(super) fn changed(&self, bot: &str) {
+        self.host.changed(bot);
     }
 
     // ---- keeper actions ------------------------------------------------------------------------
@@ -935,6 +979,7 @@ impl Service {
 
     /// The supervisor. Called every half second by the live thread; the tests call it by hand.
     pub fn tick(&self) {
+        self.watch_helpers();
         let now = self.host.now_ms();
         let day = self.host.local_day(now);
         let bots: Vec<String> = self.inner.lock().bots.keys().cloned().collect();
@@ -1174,7 +1219,7 @@ impl Service {
         }
         let mut card = Message::new(now, FromKind::Bot, Some(&self.name_of(bot)), MsgKind::HelperCard, &task);
         card.request_id = Some(request_id);
-        card.project = project.as_deref().and_then(project_name);
+        card.project = self.card_folder(project.as_deref().and_then(project_name));
         self.save(bot, &conversation_id, card).is_ok()
     }
 }

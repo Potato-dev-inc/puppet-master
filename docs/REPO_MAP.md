@@ -886,8 +886,8 @@ Tests: `cargo test --lib collision` and `cargo test --features dev-fake-tui --te
 
 ### 3.19 Potato Bot (`potato/`, the Rust core; the brain is `packages/potato-brain/`)
 
-A chat friend with its own small brain. Phase 1 has one home, the desktop app (the page and the settings UI are later
-pieces). The brain is a separate Node program that Puppet Master starts, hands messages to and takes answers from over
+A chat friend with its own small brain. Phase 1 has one home, the desktop app (the page is `components/cockpit/potato/`, the
+settings are `components/settings/sections/PotatoSection.tsx`, helpers are `potato/helpers.rs`; full page `features/potato-bot.md`). The brain is a separate Node program that Puppet Master starts, hands messages to and takes answers from over
 the local bridge. Labs key `potato_bot_enabled` (default off; it is also the kill switch). Generic code names no agent
 and no chat app (`potato/guard_tests.rs`); a chat app's code would live only in `potato/surfaces/<app>/`.
 
@@ -903,13 +903,14 @@ and no chat app (`potato/guard_tests.rs`); a chat app's code would live only in 
 | `potato/cost.rs` | prices the brain's `usage` with its own table (unknown model = highest price), per day/bot/surface in `usage/YYYY-MM.json`, 80% note, 100% pause |
 | `potato/log.rs` | 200-line ring per bot; exact secrets, then `redact::text`, then 300 chars |
 | `potato/service.rs` | the engine: `send` (rules, save, lazy start, inbox), `inbox_poll`, `ingest` (replies saved redacted, usage judged, helper requests stored as cards only, errors as plain sentences, a brain writes only into its own bot's thread), `tick` (supervisor), `set_enabled` (kill switch). Talks to the app through `Host` and `Launcher` traits |
+| `potato/helpers.rs` | Start / Not now on a helper card, "Change folder" names, the caps (3 open cards, 10 starts per bot per day), the `Hands` trait (the companion's agent, recent projects, `run_agent`, the operation poll, Check key) and the watch that finishes a helper exactly once (row with Open, one `helper_update` = one brain turn unless paused or over the limit); running helpers kept in `potato/helpers.json`. `AgentRunRequest.on_behalf_of_companion` (Rust-only) gives the run the companion's 20-turn budget, home rule and feed line |
 | `potato/live.rs`, `potato/wire_names.rs` | the app's one `Service` + `potato-keeper` thread + `LiveHost` (`potato://changed`); the few wire names that are also other names (the guard's single reasoned exception) |
 | `bridge/routes/potato_brain.rs`, `bridge/http.rs` (`gate_with`, `is_brain_target`), `bridge/router.rs`, `mobile_pairing/auth.rs` | the two brain routes (`GET /potato/brain/inbox`, `POST /potato/brain/events`, no CORS headers); `Caller::Brain { bot_id }` is returned by the gate for them only and the router never serves a brain path; `authorize_caller` answers the token with 403 on every other route |
 | `commands/potato.rs`, `secrets.rs` (`SIDECAR_SECRETS`), `commands/secrets.rs` | the `potato_*` Tauri commands (desktop only); the key is set/masked/deleted like a provider key but `secret_get_for_llm` stays provider-only |
 | `panic.rs`, `lib.rs` (`RunEvent::Exit`), `settings_store.rs` | every brain stops with the panic button, on exit, and when the Labs switch goes off |
 | End to end: `tests/fake_tui_potato.rs`, `fake_tui/potato.rs` (`PotatoRig`), `bridge::serve_for_e2e`, `packages/potato-brain/test/fake-brain.mjs` (`probe: /path`) | Node running the fake brain against the real bridge handler on a free port; a send gives a stored redacted reply and the brain gets 403 on `/panes` |
 
-Tests: `cargo test --lib potato` (protocol, auth, rules, keeper, env, store, cost, service, guards) and `cargo test --features dev-fake-tui --test fake_tui_e2e potato:: -- --test-threads=1`.
+Tests: `cargo test --lib potato` (protocol, auth, rules, keeper, env, store, cost, service, helpers, guards) and `cargo test --features dev-fake-tui --test fake_tui_e2e potato:: -- --test-threads=1`.
 
 ---
 

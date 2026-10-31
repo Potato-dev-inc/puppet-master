@@ -1,10 +1,13 @@
 // Provider API keys live in the OS credential store (Rust `secrets.rs`). The UI only ever sees
-// "is it set" plus the last 4 characters. The one exception is `resolveApiKey`, used by the
+// "is it set" plus the last 4 characters (`deepseek_api_key` is for Potato Bot's brain: set, masked read and delete
+// only; `secret_get_for_llm` refuses it, so the webview can never read it back). The one exception is `resolveApiKey`, used by the
 // sidebar's API orchestrator whose LLM loop runs in this webview (documented in docs/features/trust-fixes.md).
 import { invoke } from '@tauri-apps/api/core';
 import type { LlmProvider, Settings } from '@puppet-master/shared';
 
-export type SecretName = 'anthropic_api_key' | 'openai_api_key' | 'openrouter_api_key';
+/** The three provider keys, which also have a fallback field in the settings file. */
+export type ProviderSecretName = 'anthropic_api_key' | 'openai_api_key' | 'openrouter_api_key';
+export type SecretName = ProviderSecretName | 'deepseek_api_key';
 
 export interface SecretMask {
   set: boolean;
@@ -30,7 +33,7 @@ export const secretsApi: SecretsApi = {
   remove: (name) => invoke<void>('secret_delete', { name }),
 };
 
-const PROVIDER_SECRET: Record<LlmProvider, SecretName> = {
+const PROVIDER_SECRET: Record<LlmProvider, ProviderSecretName> = {
   anthropic: 'anthropic_api_key',
   openai: 'openai_api_key',
   openrouter: 'openrouter_api_key',

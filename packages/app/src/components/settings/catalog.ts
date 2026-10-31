@@ -1,4 +1,4 @@
-// The six sections of Settings and the read-only "Coming later" list.
+// The sections of Settings (six, plus Potato Bot while its Labs switch is on) and the read-only "Coming later" list.
 //
 // `BASE_SECTIONS` is what each section file defines. `SECTIONS` is what the window shows: the same rows,
 // placed and grouped by `arrange.tsx` (group titles, order, General > Labs, links where rows moved).
@@ -10,6 +10,7 @@ import { generalRows } from './sections/GeneralSection';
 import { keysRows } from './sections/KeysSection';
 import { modelsRows } from './sections/ModelsSection';
 import { phoneRows } from './sections/PhoneSection';
+import { potatoRows } from './sections/PotatoSection';
 
 export const BASE_SECTIONS: SectionDef[] = [
   { id: 'general', title: 'General', blurb: 'Project, appearance, safety, early features and updates.', rows: generalRows },
@@ -18,6 +19,7 @@ export const BASE_SECTIONS: SectionDef[] = [
   { id: 'keys', title: 'Keys', blurb: 'API keys. They are kept in your system keychain when there is one.', rows: keysRows },
   { id: 'bridge', title: 'Bridge & MCP', blurb: 'How other tools and agents connect to Puppet Master.', rows: bridgeRows },
   { id: 'phone', title: 'Phone', blurb: 'Pair a phone to watch and steer your agents.', rows: phoneRows },
+  { id: 'potato', title: 'Potato Bot', blurb: 'A chat friend with its own small brain. It asks before it starts any helper.', rows: potatoRows, labsFlag: 'potato_bot_enabled' },
 ];
 
 export const SECTIONS: SectionDef[] = arrangeSections(BASE_SECTIONS);

@@ -164,6 +164,7 @@ pub fn send_agent(
         headless_unset: false,
         // The guard is carried by the run's worker record, not by this request.
         guard_env: None,
+        on_behalf_of_companion: None,
     };
     drop(serial);
     run_agent(request, registry, app, session_id)

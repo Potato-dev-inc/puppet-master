@@ -8,9 +8,14 @@
 
 use std::sync::Arc;
 
+use serde_json::Value;
+use tauri::{AppHandle, State};
+
+use crate::potato::helpers::HelperStartOutcome;
 use crate::potato::live;
 use crate::potato::service::{PotatoState, SendOutcome, Service};
 use crate::potato::store::{Bot, Message, Settings, StoreError};
+use super::AppState;
 
 fn service() -> Result<Arc<Service>, String> {
     live::service().ok_or_else(|| "POTATO_NOT_READY: Potato Bot is not ready yet. Try again in a moment.".to_string())
@@ -94,4 +99,36 @@ pub async fn potato_settings_set(settings: Settings) -> Result<Settings, String>
 #[tauri::command]
 pub async fn potato_log(bot_id: String) -> Result<Vec<String>, String> {
     Ok(service()?.log_lines(&bot_id))
+}
+
+/// "Change folder": the names of the recent projects a helper may work in. Names only, never paths.
+#[tauri::command]
+pub async fn potato_helper_folders(bot_id: String) -> Result<Vec<String>, String> {
+    run(move |s| s.helper_folders(&bot_id)).await
+}
+
+/// Start on a helper card. `folder` is a project NAME (from "Change folder"); without it the card's own folder
+/// is used. Nothing runs without this call, and the call needs an open card.
+#[tauri::command]
+pub async fn potato_helper_start(bot_id: String, request_id: String, folder: Option<String>) -> Result<HelperStartOutcome, String> {
+    run(move |s| s.helper_start(&bot_id, &request_id, folder.as_deref())).await
+}
+
+/// Not now on a helper card.
+#[tauri::command]
+pub async fn potato_helper_decline(bot_id: String, request_id: String) -> Result<(), String> {
+    run(move |s| s.helper_decline(&bot_id, &request_id)).await
+}
+
+/// Settings > Potato Bot > Check key: one tiny turn. Answers "Works." or one plain sentence. The key is read
+/// inside the app and goes to the model maker only.
+#[tauri::command]
+pub async fn potato_check_key() -> Result<String, String> {
+    run(|s| s.check_key()).await
+}
+
+/// "Install Node.js" on the card: the agent installer's `node` tool, in a visible window the person watches.
+#[tauri::command(async)]
+pub fn potato_install_node(state: State<'_, AppState>, app: AppHandle) -> Result<Value, String> {
+    crate::agent_install::install_tool(&app, &state.registry, "node")
 }

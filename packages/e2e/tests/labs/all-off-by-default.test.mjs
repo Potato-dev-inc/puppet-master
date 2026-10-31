@@ -11,6 +11,7 @@ export const meta = {
 const SWITCHES = [
   'Missions (Preview)',
   'Night Shift',
+  'Potato Bot',
   'Simple mode: fewer buttons and plain words',
   'Ask bar',
   'Watch GitHub issues',

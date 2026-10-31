@@ -170,6 +170,17 @@ pub fn start(
     start_plan(app, registry, &plan, step_index, shown_command, acknowledged_risk, "Install")
 }
 
+/// `potato_install_node` and the like: installs one prerequisite tool (`node`) in a visible PowerShell pane. The
+/// person pressed the button that names it; the pane shows the command and the vendor's own agreements.
+pub fn install_tool(app: &tauri::AppHandle, registry: &Arc<Mutex<PaneRegistry>>, tool: &str) -> Result<Value, String> {
+    let plan = plan::plan_tool(tool, &Tools::detect());
+    let Some(step) = plan.steps.first() else {
+        return Err(format!("INSTALL_UNAVAILABLE: {}", plan.blocked.clone().unwrap_or_else(|| "There is nothing to install.".into())));
+    };
+    let command = step.command.clone();
+    start_plan(app, registry, &plan, 0, &command, false, "Install")
+}
+
 /// Runs one step of a plan the person confirmed, in a visible PowerShell pane. The plan must be
 /// built fresh from the current state; the step's command must equal `shown_command`. `verb` starts
 /// the pane title ("Install", "Uninstall"), so the step label reads "Install <label>".
