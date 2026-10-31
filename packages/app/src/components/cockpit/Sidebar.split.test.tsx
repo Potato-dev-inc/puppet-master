@@ -22,6 +22,7 @@ let root: Root;
 beforeEach(() => {
   localStorage.clear();
   host = document.createElement('div');
+  host.className = 'cockpit';
   document.body.appendChild(host);
   root = createRoot(host);
 });
