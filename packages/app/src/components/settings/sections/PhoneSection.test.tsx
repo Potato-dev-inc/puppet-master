@@ -23,6 +23,10 @@ vi.mock('../blocks/TelegramSetup', async () => {
   const { createElement } = await import('react');
   return { TelegramSetup: () => createElement('p', null, 'Telegram stub') };
 });
+vi.mock('../blocks/TelegramTagBot', async () => {
+  const { createElement } = await import('react');
+  return { TelegramTagBot: () => createElement('p', null, 'Tag bot stub') };
+});
 vi.mock('../../MobilePairingPanel', async () => {
   const { createElement: h } = await import('react');
   return {
@@ -80,6 +84,7 @@ describe('Phone: every control renders', () => {
     expect(hasText(m.host, 'Tunnel stub')).toBe(true);
     expect(hasText(m.host, 'Telegram (early)')).toBe(true);
     expect(hasText(m.host, 'Telegram stub')).toBe(true);
+    expect(hasText(m.host, 'Tag bot stub')).toBe(true);
     expect(hasText(m.host, 'Notifications')).toBe(true);
     expect(hasText(m.host, 'On the phone')).toBe(true);
     expect(byLabel(m.host, 'Typing delay (ms)')).toBeTruthy();

@@ -68,3 +68,68 @@ export async function onTelegramChanged(cb: () => void): Promise<UnlistenFn> {
   if (!isTauri()) return noop;
   return listen(TELEGRAM_CHANGED_EVENT, () => cb());
 }
+
+// ---- Tag Your Agent: the bot answering when it is tagged in an approved group ----------------------------
+// The same rules as above: only the desktop window can call these, nothing here returns the token, and a group
+// is approved only by the person on this PC.
+
+/** Who may tag the bot in a group: only the connected person, or anyone (with a per-person hourly cap). */
+export type TagWho = 'only_me' | 'anyone';
+
+/** A group the person approved. `agent` and `folder` are optional: `null` means any agent / a neutral empty folder. */
+export type TagGroup = {
+  chatId: number;
+  title: string;
+  who: TagWho;
+  agent: string | null;
+  folder: string | null;
+  style: string;
+};
+
+/** A group that tagged the bot and waits for a yes. Only its id and title are kept. */
+export type TagPending = { chatId: number; title: string; seenAtMs: number };
+
+/** One question the bot answered (or could not) in a group. */
+export type TagAnswer = {
+  atMs: number;
+  groupTitle: string;
+  asker: string;
+  question: string;
+  answer: string | null;
+  agent: string;
+  ok: boolean;
+};
+
+export type TagAgent = { id: string; label: string };
+
+/** What the Tag Your Agent block shows (`src-tauri/src/channels/setup_tag.rs`). */
+export type TagBotView = {
+  paired: boolean;
+  botUsername: string | null;
+  enabled: boolean;
+  dailyCap: number;
+  perPersonCap: number;
+  groups: TagGroup[];
+  pending: TagPending[];
+  agents: TagAgent[];
+  /** Newest first. */
+  recent: TagAnswer[];
+};
+
+/** The fields of an approved group the person can change. */
+export type TagGroupUpdate = { who: TagWho; agent: string | null; folder: string | null; style: string };
+
+async function callTag(command: string, args?: Record<string, unknown>): Promise<TagBotView> {
+  if (!isTauri()) throw new Error(`Desktop shell required: ${command}`);
+  return invoke<TagBotView>(command, args);
+}
+
+export const telegramTagBot = () => callTag('telegram_tag_bot');
+export const telegramTagSetEnabled = (on: boolean) => callTag('telegram_tag_set_enabled', { on });
+export const telegramTagSetCaps = (dailyCap: number, perPersonCap: number) =>
+  callTag('telegram_tag_set_caps', { dailyCap, perPersonCap });
+export const telegramTagApprove = (chatId: number) => callTag('telegram_tag_approve', { chatId });
+export const telegramTagIgnore = (chatId: number) => callTag('telegram_tag_ignore', { chatId });
+export const telegramTagUpdateGroup = (chatId: number, update: TagGroupUpdate) =>
+  callTag('telegram_tag_update_group', { chatId, update });
+export const telegramTagRemove = (chatId: number) => callTag('telegram_tag_remove', { chatId });

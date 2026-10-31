@@ -17,6 +17,13 @@ import {
   telegramSetOptions,
   telegramSetToken,
   telegramStatus,
+  telegramTagApprove,
+  telegramTagBot,
+  telegramTagIgnore,
+  telegramTagRemove,
+  telegramTagSetCaps,
+  telegramTagSetEnabled,
+  telegramTagUpdateGroup,
   type TelegramStatus,
 } from './telegram-api';
 
@@ -143,5 +150,34 @@ describe('onTelegramChanged', () => {
     expect(listen).not.toHaveBeenCalled();
     expect(() => stop()).not.toThrow();
     expect(cb).not.toHaveBeenCalled();
+  });
+});
+
+describe('Tag Your Agent commands', () => {
+  it('call the group commands with the names the Rust side takes', async () => {
+    desktop(true);
+    invoke.mockResolvedValue({});
+    await telegramTagBot();
+    expect(invoke).toHaveBeenLastCalledWith('telegram_tag_bot', undefined);
+    await telegramTagSetEnabled(true);
+    expect(invoke).toHaveBeenLastCalledWith('telegram_tag_set_enabled', { on: true });
+    await telegramTagSetCaps(30, 5);
+    expect(invoke).toHaveBeenLastCalledWith('telegram_tag_set_caps', { dailyCap: 30, perPersonCap: 5 });
+    await telegramTagApprove(-100555000001);
+    expect(invoke).toHaveBeenLastCalledWith('telegram_tag_approve', { chatId: -100555000001 });
+    await telegramTagIgnore(-100555000001);
+    expect(invoke).toHaveBeenLastCalledWith('telegram_tag_ignore', { chatId: -100555000001 });
+    await telegramTagRemove(-100555000001);
+    expect(invoke).toHaveBeenLastCalledWith('telegram_tag_remove', { chatId: -100555000001 });
+    const update = { who: 'anyone' as const, agent: null, folder: null, style: 'brief' };
+    await telegramTagUpdateGroup(-100555000001, update);
+    expect(invoke).toHaveBeenLastCalledWith('telegram_tag_update_group', { chatId: -100555000001, update });
+  });
+
+  it('never call invoke outside the desktop app', async () => {
+    desktop(false);
+    await expect(telegramTagBot()).rejects.toThrow('Desktop shell required: telegram_tag_bot');
+    await expect(telegramTagApprove(1)).rejects.toThrow('Desktop shell required: telegram_tag_approve');
+    expect(invoke).not.toHaveBeenCalled();
   });
 });
