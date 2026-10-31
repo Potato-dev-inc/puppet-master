@@ -161,12 +161,22 @@ impl Engine {
                 Cmd::SetEnabled(true) => self.enabled = true,
                 Cmd::SetEnabled(false) => {
                     changes.extend(self.alerts.clear_all());
+                    // Everything is dropped except what the engine cannot learn again by looking:
+                    // when each pane began working (the "same folder" window starts there) and which
+                    // panes are copies of each other.
+                    let (panes, kin) = (std::mem::take(&mut self.panes), std::mem::take(&mut self.kin));
                     *self = Engine::new();
                     self.enabled = false;
+                    self.panes = panes;
+                    self.kin = kin;
                 }
             }
         }
         if !self.enabled {
+            // Off: no git is read, but the run state of the panes is still followed. Without it a pane
+            // that began working while off would count as starting at the moment of switching on, and
+            // the files it changed before then would fall outside its window (no alert, ever).
+            self.follow_panes_while_off(panes, now_ms);
             return Out { changes, alerts: Vec::new() };
         }
 
@@ -230,6 +240,15 @@ impl Engine {
             changes.extend(self.alerts.apply(&findings, &gone, now_ms));
         }
         Out { changes, alerts: self.alerts.visible().into_iter().cloned().collect() }
+    }
+
+    /// The pane bookkeeping of a step, without the repo lookup: leavers dropped, run changes noted.
+    fn follow_panes_while_off(&mut self, panes: &[PaneFact], now: u64) {
+        let present: BTreeSet<&str> = panes.iter().map(|pane| pane.pane_id.as_str()).collect();
+        self.panes.retain(|id, _| present.contains(id.as_str()));
+        for fact in panes {
+            self.track_pane(fact, None, now);
+        }
     }
 
     /// The repo of a folder. Cached for `REPO_CACHE_MS`, a folder with no repo included.
@@ -832,6 +851,27 @@ mod tests {
         let out = run(&mut engine, &panes, &probe, on + first);
         assert_eq!(probe.calls().sample, off.sample + 2);
         assert_eq!(out.changes, vec![Change::Raised(pair_id())]);
+    }
+
+    #[test]
+    fn panes_that_began_working_while_off_still_clash_on_a_file_changed_while_off() {
+        let (first, _) = poll_ms();
+        let probe = world(&[ROOT_A]);
+        // The file was changed while the switch was off (after both panes began working).
+        probe.push_sample(ROOT_A, Ok(look(vec![touched(AUTH, 12_000)])));
+        let panes = [pane(A, ROOT_A, PaneRun::Working, 1_000), pane(B, ROOT_A, PaneRun::Working, 1_000)];
+        let mut engine = Engine::new();
+        engine.step(&[], &[Cmd::SetEnabled(false)], &probe, 0);
+        // Both panes begin working while off; nothing is probed.
+        let out = run(&mut engine, &panes, &probe, 10_000);
+        assert!(out.changes.is_empty() && out.alerts.is_empty());
+        assert_eq!(probe.calls().sample, 0);
+        // Switched on a minute later: the group is armed afresh and the first look raises the alert.
+        let on = 70_000;
+        engine.step(&panes, &[Cmd::SetEnabled(true)], &probe, on);
+        let out = run(&mut engine, &panes, &probe, on + first);
+        assert_eq!(out.changes, vec![Change::Raised(pair_id())]);
+        assert_eq!(out.alerts[0].relation, Relation::SameFolder);
     }
 
     #[test]

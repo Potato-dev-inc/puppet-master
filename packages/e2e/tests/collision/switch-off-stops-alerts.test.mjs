@@ -6,8 +6,7 @@ export const meta = {
   id: 'collision.switch-off-stops-alerts',
   title: 'With the Settings switch off, two agents on one file raise no alert; on again, they do',
   area: 'collision',
-  tags: ['collision', 'known-bug'],
-  skip: 'KNOWN BUG (seen on 2 runs): after the switch goes off and on again, two agents that are still working on the same file raise no alert in 90 s; only a new start brings it back',
+  tags: ['collision'],
   edge: true,
   timeout: 200000,
 };
