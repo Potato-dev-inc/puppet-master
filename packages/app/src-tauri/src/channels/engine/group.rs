@@ -24,7 +24,7 @@ use crate::channels::config::TelegramConfig;
 use crate::channels::host::{GroupAsk, Host};
 use crate::channels::rate::Bucket;
 use crate::channels::render::{self, Outgoing};
-use crate::channels::tag_config::{GroupWho, PendingGroup, MAX_PENDING, MAX_TITLE_CHARS};
+use crate::channels::tag_config::{folder_for, GroupWho, PendingGroup, MAX_PENDING, MAX_TITLE_CHARS};
 use crate::channels::tag_log::{GroupAnswerRecord, ANSWER_CHARS, QUESTION_CHARS};
 use crate::channels::tag_prompt;
 use crate::channels::telegram::api::InMessage;
@@ -193,7 +193,7 @@ impl Engine {
             question: render::clean(&question, QUESTION_CHARS).into_inner(),
             ask: GroupAsk {
                 agent: group.agent.clone(),
-                folder: group.folder.clone(),
+                folder: folder_for(group),
                 prompt: tag_prompt::compose(&question, replied, &group.style),
             },
         };
@@ -235,7 +235,10 @@ impl Engine {
     /// thread, never the poll thread.
     pub fn answer_job(&self, host: &dyn Host, job: GroupJob) -> Vec<Effect> {
         let _place = Inflight(self);
-        let outcome = host.ask_group(&job.ask);
+        // Checked again with the settings as they are now: a group open to anyone never gets a folder.
+        let mut ask = job.ask.clone();
+        ask.folder = host.config().tag_bot.group(job.chat_id).and_then(folder_for);
+        let outcome = host.ask_group(&ask);
         let cfg = host.config();
         let still_on = cfg.enabled && cfg.paired.is_some() && cfg.tag_bot.enabled && cfg.tag_bot.group(job.chat_id).is_some();
         if !still_on {

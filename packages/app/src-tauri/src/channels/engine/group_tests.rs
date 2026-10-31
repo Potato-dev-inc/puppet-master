@@ -233,6 +233,27 @@ fn the_groups_agent_folder_and_style_are_used() {
 }
 
 #[test]
+fn a_group_open_to_anyone_never_asks_with_a_folder() {
+    let (engine, host) = setup(GroupWho::Anyone);
+    // Even if a file somehow holds both (the fake host does not clean it), the ask gets no folder.
+    host.edit_config(|c| c.tag_bot.groups[0].folder = Some("D:\\work\\shop".into()));
+    drive(&engine, &host, msg("what is in the repo?").from(STRANGER_ID).update(&host));
+    assert_eq!(host.asks.lock()[0].folder, None);
+}
+
+#[test]
+fn the_folder_is_checked_again_when_the_ask_runs() {
+    let (engine, host) = setup(GroupWho::OnlyMe);
+    host.edit_config(|c| c.tag_bot.groups[0].folder = Some("D:\\work\\shop".into()));
+    let Some(Effect::Ask(job)) = engine.on_batch(&host, &[msg("q").update(&host)]).pop() else { panic!("an ask") };
+    assert_eq!(job.ask.folder.as_deref(), Some("D:\\work\\shop"));
+    // The person opens the group to anyone while the question waits: the run uses the empty folder.
+    host.edit_config(|c| c.tag_bot.groups[0].who = GroupWho::Anyone);
+    engine.answer_job(&host, job);
+    assert_eq!(host.asks.lock()[0].folder, None);
+}
+
+#[test]
 fn the_tag_matches_in_any_case() {
     let (engine, host) = setup(GroupWho::OnlyMe);
     let mut update = msg("hi there").update(&host);

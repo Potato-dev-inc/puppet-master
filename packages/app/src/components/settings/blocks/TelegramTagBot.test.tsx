@@ -7,7 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TagBotView, TagGroup } from '../../../lib/telegram-api';
 import { blur, click, makeEnv, pickOption, settle, type as typeInto } from '../test-utils';
-import { RECENT_SHOWN, TAG_ANYONE_FOLDER_WARNING, TAG_PRIVACY, TAG_REMOVE_BODY, TAG_TITLE, TelegramTagBot, type TagBotApi } from './TelegramTagBot';
+import { RECENT_SHOWN, TAG_ANYONE_NO_FOLDER, TAG_PRIVACY, TAG_REMOVE_BODY, TAG_TITLE, TelegramTagBot, type TagBotApi } from './TelegramTagBot';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -134,18 +134,22 @@ describe('TelegramTagBot', () => {
     expect(select('Agent for Test Crew')?.value).toBe('');
     expect(field('Folder for Test Crew')?.value).toBe('');
     expect(field('Style note for Test Crew')?.maxLength).toBe(200);
-    expect(text()).not.toContain(TAG_ANYONE_FOLDER_WARNING);
+    expect(field('Folder for Test Crew')?.disabled).toBe(false);
+    expect(text()).not.toContain(TAG_ANYONE_NO_FOLDER);
   });
 
-  it('who may tag and the agent save the moment they are picked, keeping the other fields', async () => {
-    const api = fakeApi({ ...ON, groups: [{ ...GROUP, folder: 'D:\\work\\shop', style: 'brief' }] });
+  it('the agent saves the moment it is picked, keeping the other fields', async () => {
+    const api = fakeApi({ ...ON, groups: [{ ...GROUP, folder: 'D:\work\shop', style: 'brief' }] });
     await mount(api);
-    await pickOption(select('Who may tag in Test Crew')!, 'anyone');
-    expect(api.updateGroup).toHaveBeenLastCalledWith(CREW, { who: 'anyone', agent: null, folder: 'D:\\work\\shop', style: 'brief' });
     await pickOption(select('Agent for Test Crew')!, 'other-agent');
-    expect(api.updateGroup).toHaveBeenLastCalledWith(CREW, { who: 'only_me', agent: 'other-agent', folder: 'D:\\work\\shop', style: 'brief' });
+    expect(api.updateGroup).toHaveBeenLastCalledWith(CREW, { who: 'only_me', agent: 'other-agent', folder: 'D:\work\shop', style: 'brief' });
+  });
+
+  it('picking "Any agent" clears the agent', async () => {
+    const api = fakeApi({ ...ON, groups: [{ ...GROUP, agent: 'test-agent' }] });
+    await mount(api);
     await pickOption(select('Agent for Test Crew')!, '');
-    expect(api.updateGroup).toHaveBeenLastCalledWith(CREW, { who: 'only_me', agent: null, folder: 'D:\\work\\shop', style: 'brief' });
+    expect(api.updateGroup).toHaveBeenLastCalledWith(CREW, { who: 'only_me', agent: null, folder: null, style: '' });
   });
 
   it('the agent list comes from the PC, and an agent no longer installed stays selectable', async () => {
@@ -172,13 +176,20 @@ describe('TelegramTagBot', () => {
     expect(api.updateGroup).toHaveBeenLastCalledWith(CREW, { who: 'only_me', agent: null, folder: null, style: '' });
   });
 
-  it('warns when anyone may tag in a group that has a folder, and only then', async () => {
-    await mount(fakeApi({ ...ON, groups: [{ ...GROUP, who: 'anyone', folder: 'D:\\work\\shop' }] }));
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe(TAG_ANYONE_FOLDER_WARNING);
-    act(() => root.unmount());
-    root = createRoot(host);
-    await mount(fakeApi({ ...ON, groups: [{ ...GROUP, who: 'anyone', folder: null }] }));
-    expect(text()).not.toContain(TAG_ANYONE_FOLDER_WARNING);
+  it('opening a group to anyone clears its folder, so the PC is never asked for both', async () => {
+    const api = fakeApi({ ...ON, groups: [{ ...GROUP, folder: 'D:\work\shop', style: 'brief' }] });
+    await mount(api);
+    await pickOption(select('Who may tag in Test Crew')!, 'anyone');
+    expect(api.updateGroup).toHaveBeenLastCalledWith(CREW, { who: 'anyone', agent: null, folder: null, style: 'brief' });
+  });
+
+  it('with anyone chosen the folder is disabled and empty, and one line says why', async () => {
+    await mount(fakeApi({ ...ON, groups: [{ ...GROUP, who: 'anyone', folder: 'D:\work\shop' }] }));
+    const folder = field('Folder for Test Crew')!;
+    expect(folder.disabled).toBe(true);
+    expect(folder.value).toBe('');
+    expect(text()).toContain('Only you can use a project folder. Groups open to anyone use an empty folder.');
+    expect(text()).toContain(TAG_ANYONE_NO_FOLDER);
   });
 
   it('Remove asks first and only then removes the group', async () => {

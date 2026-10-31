@@ -114,6 +114,16 @@ fn some_line(raw: Option<String>, max: usize) -> Option<String> {
     raw.map(|v| line(&v, max)).filter(|v| !v.is_empty())
 }
 
+/// The folder a group's questions may use: none for a group open to anyone (no sandbox exists yet), else
+/// the group's own. Used when the ask is made and again when it runs.
+pub fn folder_for(group: &TagGroup) -> Option<String> {
+    if group.who == GroupWho::Anyone {
+        None
+    } else {
+        group.folder.clone()
+    }
+}
+
 /// Slashes one way, no trailing slash, lower case: enough to compare two folders typed by a person.
 fn norm_path(path: &str) -> String {
     path.trim().replace('\\', "/").trim_end_matches('/').to_lowercase()
@@ -148,6 +158,10 @@ pub fn sanitize(mut cfg: TagBotConfig) -> TagBotConfig {
         g.title = line(&g.title, MAX_TITLE_CHARS);
         g.agent = some_line(g.agent.take(), MAX_AGENT_CHARS);
         g.folder = some_line(g.folder.take(), MAX_FOLDER_CHARS);
+        // Anything other people can trigger must not see a project folder until there is a sandbox.
+        if g.who == GroupWho::Anyone && g.folder.take().is_some() {
+            tracing::warn!(chat_id = g.chat_id, "a group open to anyone cannot have a project folder; the folder was dropped");
+        }
         g.style = line(&g.style, MAX_STYLE_CHARS);
     }
     let mut seen = std::collections::HashSet::new();
@@ -258,6 +272,33 @@ mod tests {
         assert!(!folder_is_allowed("..\\shop", None));
         assert!(!folder_is_allowed("C:\\work\\..\\Users\\someone", Some("C:\\Users\\someone")));
         assert!(!folder_is_allowed("", None));
+    }
+
+    #[test]
+    fn a_loaded_file_with_anyone_and_a_folder_keeps_anyone_and_drops_the_folder() {
+        let raw = r#"{"tagBot": {"groups": [
+            {"chatId": -5, "title": "Open", "who": "anyone", "folder": "D:\\work\\shop"},
+            {"chatId": -6, "title": "Mine", "who": "only_me", "folder": "D:\\work\\shop"}]}}"#;
+        let cfg = crate::channels::config::parse(raw);
+        assert_eq!(cfg.tag_bot.groups[0].who, GroupWho::Anyone);
+        assert_eq!(cfg.tag_bot.groups[0].folder, None);
+        assert_eq!(cfg.tag_bot.groups[1].folder.as_deref(), Some("D:\\work\\shop"));
+    }
+
+    #[test]
+    fn saving_anyone_with_a_folder_drops_the_folder() {
+        let group = TagGroup { chat_id: -5, who: GroupWho::Anyone, folder: Some("D:\\work\\shop".into()), ..TagGroup::default() };
+        let cfg = sanitize(TagBotConfig { groups: vec![group], ..TagBotConfig::default() });
+        assert_eq!(cfg.groups[0].who, GroupWho::Anyone);
+        assert_eq!(cfg.groups[0].folder, None);
+    }
+
+    #[test]
+    fn folder_for_never_gives_an_anyone_group_a_folder() {
+        let mut group = TagGroup { chat_id: -5, folder: Some("D:\\work\\shop".into()), ..TagGroup::default() };
+        assert_eq!(folder_for(&group).as_deref(), Some("D:\\work\\shop"));
+        group.who = GroupWho::Anyone;
+        assert_eq!(folder_for(&group), None);
     }
 
     #[test]

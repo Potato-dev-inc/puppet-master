@@ -19,6 +19,7 @@ const NOT_WAITING: &str = "That group is not waiting for approval.";
 const NOT_APPROVED: &str = "That group is not approved.";
 const TOO_MANY: &str = "You can approve 20 groups. Remove one first.";
 const BAD_AGENT: &str = "That agent can't answer questions on this computer.";
+const ANYONE_NO_FOLDER: &str = "Only you can use a project folder. Groups open to anyone use an empty folder.";
 const BAD_FOLDER: &str = "Pick a project folder that exists. Your home folder and drive roots are not allowed.";
 
 /// What the Settings page shows for Tag Your Agent. No bot token, no user ids.
@@ -148,6 +149,9 @@ impl Runtime {
         let agents: Vec<String> = self.deps.host.tag_agents().into_iter().map(|a| a.id).collect();
         let agent = blank_to_none(update.agent);
         let folder = blank_to_none(update.folder);
+        if update.who == GroupWho::Anyone && folder.is_some() {
+            return Err(ANYONE_NO_FOLDER.into());
+        }
         let home = crate::project_path::home_dir().map(|h| h.to_string_lossy().into_owned());
         self.tag_change(|cfg| {
             let group = cfg.tag_bot.groups.iter_mut().find(|g| g.chat_id == chat_id).ok_or(NOT_APPROVED)?;

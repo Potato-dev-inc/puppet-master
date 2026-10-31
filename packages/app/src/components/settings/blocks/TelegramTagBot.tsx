@@ -25,8 +25,8 @@ export const TAG_TITLE = 'Tag Your Agent in groups';
 export const TAG_DESCRIPTION =
   'People in a group you approve can tag your bot with a question. Your own agent answers in the thread. It only reads: it never changes files.';
 export const TAG_PRIVACY = 'Keep Telegram privacy mode on — the bot then only sees messages that tag it.';
-export const TAG_ANYONE_FOLDER_WARNING =
-  'Anyone in this group can make your agent read this folder and post what it finds. Leave the folder empty unless you trust the group.';
+/** Shown under the folder when anyone may tag: until there is a sandbox, only the person gets a project folder. */
+export const TAG_ANYONE_NO_FOLDER = 'Only you can use a project folder. Groups open to anyone use an empty folder.';
 export const TAG_REMOVE_BODY = 'The bot goes quiet in this group at once. You can approve it again later.';
 /** The most recent answers listed. */
 export const RECENT_SHOWN = 5;
@@ -104,7 +104,11 @@ function GroupCard({
           aria-label={`Who may tag in ${group.title}`}
           value={group.who}
           disabled={busy}
-          onChange={(e) => onUpdate({ ...asUpdate(group), who: e.target.value as TagWho })}
+          onChange={(e) => {
+            const who = e.target.value as TagWho;
+            // Opening a group to anyone also clears its folder: the PC refuses the two together.
+            onUpdate({ ...asUpdate(group), who, folder: who === 'anyone' ? null : group.folder });
+          }}
         >
           {WHO_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -133,13 +137,13 @@ function GroupCard({
           mode="blur"
           aria-label={`Folder for ${group.title}`}
           placeholder="Empty"
-          value={group.folder ?? ''}
-          disabled={busy}
+          value={group.who === 'anyone' ? '' : (group.folder ?? '')}
+          disabled={busy || group.who === 'anyone'}
           normalize={(t) => t.trim()}
           onCommit={(next) => onUpdate({ ...asUpdate(group), folder: next || null })}
         />
       </SettingRow>
-      {group.who === 'anyone' && group.folder && <Note role="alert">{TAG_ANYONE_FOLDER_WARNING}</Note>}
+      {group.who === 'anyone' && <Note>{TAG_ANYONE_NO_FOLDER}</Note>}
       <SettingRow label="Style note (optional)" description="How the bot should sound here. 200 characters at most.">
         <TextControl
           mode="blur"

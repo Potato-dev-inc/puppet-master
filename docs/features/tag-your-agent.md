@@ -21,9 +21,14 @@ It is **off by default**. With the switch off, groups are dropped exactly as bef
 ## Read this first
 
 - Telegram can read every message in the group and every answer the bot posts. See the warning in `telegram.md`.
-- The agent can **read** files. If you give a group a project folder and let **anyone** tag, anyone in the group can make
-  your agent read that folder and post what it finds. Secrets that look like secrets are masked, ordinary code is not.
-  The safe defaults are: only you can tag, and no folder (a neutral empty one).
+- The agent can **read** files, and anything other people trigger must run in a sandbox, which does not exist yet. So for
+  now **a group open to "anyone" never gets a project folder**: it always uses the empty `tag-bot` folder. This is
+  enforced four times: the settings file drops a folder from an "anyone" group on load and on save (and logs why), the
+  setup commands refuse the combination, the Settings page disables the folder field, and the ask path checks again
+  when it runs. Only a group where **only you** may tag can have a project folder.
+- A question asked with a project folder shows up in **that project's Chat history** (the headless agent writes a session
+  file for its folder), and the quick-ask path writes **operation snapshots** under `<project>/.puppet-master/`. So it
+  is not "nothing is written" for such a group. The empty `tag-bot` folder keeps all of this out of your projects.
 - Keep Telegram's **privacy mode on** (the BotFather default). The bot then only sees messages that tag it.
 - Your PC must be awake and Puppet Master open. When it is not, the bot is silent, and messages that queued up for more
   than 10 minutes are dropped when it wakes.
@@ -35,7 +40,7 @@ It is **off by default**. With the switch off, groups are dropped exactly as bef
 3. Add the bot to a group, then tag it once (`@yourbot hello`). The group appears under **Groups waiting for your yes**.
    The bot says nothing there yet.
 4. Press **Approve**. Now tags from you are answered.
-5. Optional, per group: **Who may tag** (Only me / Anyone in the group), **Agent**, **Folder**, **Style note**.
+5. Optional, per group: **Who may tag** (Only me / Anyone in the group), **Agent**, **Folder** (only when only you may tag), **Style note**.
 
 ## The rules
 
@@ -53,7 +58,7 @@ It is **off by default**. With the switch off, groups are dropped exactly as bef
 | Commands | **never**. A group message does not reach command parsing, pairing or the approval policy. "@bot /stop" is just a question. |
 | Context | the tagged text and the replied-to text, each cut to 2000 characters, redacted, and fenced as data with `context_pack::fence` |
 | Agent | chosen per group from `tui::read_only_backends()` (installed ones). Generic code never names an agent. |
-| Folder | the group's folder, if you set one and it is a real folder that is not your home folder (or a parent of it). Otherwise an empty folder `tag-bot` under app data. Never the home folder. |
+| Folder | only for `only_me` groups: the group's folder, if you set one and it is a real folder that is not your home folder (or a parent of it). Never for an `anyone` group. Otherwise an empty folder `tag-bot` under app data. Never the home folder. |
 | Reply | goes through `channels::render` (secrets, e-mail and paths masked, plain text, 1500 characters) with `reply_to_message_id`; "typing…" is shown while it thinks |
 | Failure or timeout | the fixed sentence "Sorry, I couldn't answer that right now." No error text, no path |
 

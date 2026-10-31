@@ -147,6 +147,23 @@ fn a_folder_must_exist_and_never_be_the_home_folder() {
 }
 
 #[test]
+fn anyone_together_with_a_folder_is_refused_with_a_plain_error() {
+    let r = approved();
+    let project = std::env::temp_dir().join(format!("pm-tag-anyone-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&project).unwrap();
+    let folder = project.to_string_lossy().into_owned();
+    let err = r
+        .rt
+        .tag_update_group(GROUP, GroupUpdate { folder: Some(folder), ..update(GroupWho::Anyone) })
+        .unwrap_err();
+    assert_eq!(err, "Only you can use a project folder. Groups open to anyone use an empty folder.");
+    let saved = r.host.config().tag_bot.groups[0].clone();
+    assert_eq!((saved.who, saved.folder), (GroupWho::OnlyMe, None), "nothing was saved");
+    // Anyone with no folder is fine.
+    assert_eq!(r.rt.tag_update_group(GROUP, update(GroupWho::Anyone)).unwrap().groups[0].who, GroupWho::Anyone);
+}
+
+#[test]
 fn only_an_approved_group_can_be_changed() {
     let r = with_pending();
     assert!(r.rt.tag_update_group(GROUP, update(GroupWho::Anyone)).is_err());
