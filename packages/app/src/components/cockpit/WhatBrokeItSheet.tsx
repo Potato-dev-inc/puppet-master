@@ -9,6 +9,7 @@ import {
   wbDeclare,
   wbDiff,
   wbFinding,
+  wbErrorText,
   wbOverview,
   wbRecheck,
   wbStart,
@@ -54,7 +55,7 @@ export function clampLimits(limits: Limits): Limits {
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const errText = wbErrorText;
 
 export function WhatBrokeItSheet({
   paneId,

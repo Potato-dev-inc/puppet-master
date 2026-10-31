@@ -9,9 +9,10 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewU
 
 pub const LABEL: &str = "pointbox";
 pub const URL: &str = "index.html?pointbox=1";
-/// Logical size when created. The box page resizes its height between 220 and 460.
+/// Logical size when created. Tall enough for the full form with three picks (head, picks, To, text, hint, buttons);
+/// the box page itself never resizes the window, so the pick list scrolls and the footer stays pinned if it is short.
 pub const WIDTH: f64 = 420.0;
-pub const HEIGHT: f64 = 300.0;
+pub const HEIGHT: f64 = 440.0;
 /// Space between the picked element and the box, in physical pixels.
 const GAP: i32 = 12;
 
@@ -162,6 +163,13 @@ mod tests {
     fn box_bigger_than_the_monitor_is_pinned_to_its_corner() {
         let (x, y) = box_position((10, 20, 300, 200), (50, 50, 20, 20), BOX);
         assert_eq!((x, y), (10, 20));
+    }
+
+    #[test]
+    fn the_box_is_tall_enough_for_three_picks() {
+        // head + three picks (150 at most) + To + text + hint + buttons + padding come to about 420 logical pixels.
+        // At 300 the Send button fell below the window's bottom edge with two picks.
+        assert!(HEIGHT >= 420.0, "the Point box is {HEIGHT} high");
     }
 
     #[test]

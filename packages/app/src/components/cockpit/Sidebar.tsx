@@ -51,6 +51,7 @@ export function Sidebar({
   companions,
   openCompanionId = null,
   onOpenCompanion,
+  onOpenInbox,
   onNewCompanion,
   onOpenToSide,
   onPaneAction,
@@ -78,6 +79,8 @@ export function Sidebar({
   /** The companion whose page is open, if any: its row is the active one. */
   openCompanionId?: string | null;
   onOpenCompanion?: (id: string) => void;
+  /** The Inbox row was chosen (the Inbox may already be the view on screen). */
+  onOpenInbox?: () => void;
   onNewCompanion?: () => void;
   ship?: ShipApi;
 }) {
@@ -382,7 +385,10 @@ export function Sidebar({
         <button
           type="button"
           className={`ck-row ck-row--flat${c.selectedId === null && !c.spawn && !openCompanionId ? ' is-active' : ''}`}
-          onClick={() => c.select(null)}
+          onClick={() => {
+            c.select(null);
+            onOpenInbox?.();
+          }}
         >
           <span className="ck-row-glyph ck-row-glyph--icon">
             <IconInbox />

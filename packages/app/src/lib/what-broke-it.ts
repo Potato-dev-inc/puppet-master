@@ -168,6 +168,16 @@ export function kindOf(finding: Pick<FindingView, 'kind'>): FindingKind {
 }
 
 /** The sheet's first view for a pane: the declared tests, suggestions, save points and limits. */
+/**
+ * What a failed What broke it call says, as plain words. The shell sends `WB_SOMETHING: sentence`; the code is for
+ * the app, never for the person, so only the sentence shows (and its `code marks` become plain text).
+ */
+export function wbErrorText(e: unknown): string {
+  const raw = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
+  const sentence = raw.replace(/^s*WB_[A-Z0-9_]+s*:s*/, '').replace(/`/g, '').trim();
+  return sentence || 'Something went wrong. Try again.';
+}
+
 export function wbOverview(paneId: string): Promise<Overview> {
   return invoke<Overview>('wb_overview', { paneId });
 }

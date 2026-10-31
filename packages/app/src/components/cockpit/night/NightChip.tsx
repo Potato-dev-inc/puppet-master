@@ -131,10 +131,10 @@ export function NightChip({ onOpenMorning }: { onOpenMorning: () => void }) {
         )}
       </div>
       {open && !finished && (
-        <div className="ck-night-pop" role="dialog" aria-label="Night Shift" data-testid="night-popover">
-          <div className="ck-night-pop-head">
-            <span className="ck-night-pop-title">Night Shift</span>
-            <span className="ck-night-pop-line">{run.line}</span>
+        <div className="ck-night-chip-pop" role="dialog" aria-label="Night Shift" data-testid="night-popover">
+          <div className="ck-night-chip-pop-head">
+            <span className="ck-night-chip-pop-title">Night Shift</span>
+            <span className="ck-night-chip-pop-line">{run.line}</span>
           </div>
           <ul className="ck-night-tasks">
             {run.tasks.map((task) => (

@@ -7,6 +7,7 @@ import {
   wbDiff,
   wbFinding,
   wbRecheck,
+  wbErrorText,
   wbStatus,
   wbUndo,
   wbUndoPlan,
@@ -49,7 +50,7 @@ const liveApi: WhatBrokeItResultApi = { wbDiff, wbUndoPlan, wbUndo, wbRecheck, w
 
 /** The message of a rejected call, as plain text. */
 function messageOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  return wbErrorText(e);
 }
 
 export function WhatBrokeItResult({

@@ -45,8 +45,15 @@ export function Inbox({
   companions,
   onRestartCompanion,
   companionTransport,
+  visit = 0,
 }: {
   c: CockpitApi;
+  /**
+   * Counts the times a person chose Inbox in the sidebar. The Inbox is the resting view, so it is often already
+   * on screen (its first card focused before the click): the click then leaves the keyboard on the sidebar row.
+   * Each new count moves the keyboard back to the first card.
+   */
+  visit?: number;
   /** The companions, so a stopped one gets its card (absent: none). */
   companions?: CompanionView[] | null;
   /** The card's "Try again": the desktop calls `companion_restart`. */
@@ -222,6 +229,13 @@ export function Inbox({
     if (document.querySelector('.ck-sheet, [aria-modal="true"], .ck-away')) return;
     focusWithRing(box.querySelector<HTMLElement>('[data-ib-card]'));
   }, [entries.length]);
+  const lastVisit = useRef(visit);
+  useEffect(() => {
+    if (lastVisit.current === visit) return;
+    lastVisit.current = visit;
+    if (entries.length === 0 || document.querySelector('.ck-sheet, [aria-modal="true"], .ck-away')) return;
+    focusWithRing(root.current?.querySelector<HTMLElement>('[data-ib-card]'));
+  }, [visit, entries.length]);
 
   const quick = entries.some((e) => e.quick);
   const title = firstRun ? 'Welcome to Puppet Master' : count === 0 ? 'Nothing needs you' : count === 1 ? 'One thing needs you' : `${count} things need you`;
