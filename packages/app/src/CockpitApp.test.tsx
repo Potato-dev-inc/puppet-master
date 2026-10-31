@@ -32,6 +32,9 @@ const store = vi.hoisted(() => ({ runCheck: undefined as unknown }));
 // Rust's "show Settings in this window" event (cockpit://settings).
 const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
 
+// Potato Bot: what the (mocked) state hook reports. `null` is "no desktop backend", `enabled: false` is the Labs switch off.
+const potato = vi.hoisted(() => ({ state: null as null | { enabled: boolean; bots: { id: string; unread: number }[] } }));
+
 vi.mock('./hooks/useCockpit', async () => {
   const { useState } = await import('react');
   return {
@@ -123,6 +126,15 @@ vi.mock('./lib/loop-guard', async (importOriginal) => ({
 vi.mock('./lib/desktop-nudge', () => ({ useNudgeOnAction: () => ({ onClickCapture: () => {} }) }));
 vi.mock('./lib/agent-health', () => ({ markSpawned: () => {} }));
 
+vi.mock('./hooks/usePotato', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./hooks/usePotato')>()),
+  usePotatoState: () => ({ state: potato.state, version: 1, refresh: () => {} }),
+}));
+vi.mock('./components/cockpit/potato/PotatoPage', async () => {
+  const { createElement: h } = await import('react');
+  return { PotatoPage: ({ openBotId, onOpenBot }: { openBotId: string | null; onOpenBot: (id: string) => void }) => h('div', null, `POTATO VIEW ${openBotId ?? 'none'}`, h('button', { type: 'button', onClick: () => onOpenBot('bee') }, 'Potato open bee')) };
+});
+
 // Child views are stubbed so the test exercises only CockpitApp's view wiring.
 vi.mock('./components/cockpit/Sidebar', async () => {
   const { createElement: h } = await import('react');
@@ -135,9 +147,11 @@ vi.mock('./components/cockpit/Sidebar', async () => {
     onOpenMorning?: () => void;
     onOpenStore?: () => void;
     onOpenToSide?: (id: string) => void;
+    potato?: { enabled: boolean; unread: number } | null;
+    onOpenPotato?: () => void;
   };
   return {
-    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenReview, onOpenMorning, onOpenStore, onOpenToSide }: Props) =>
+    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenReview, onOpenMorning, onOpenStore, onOpenToSide, potato, onOpenPotato }: Props) =>
       h(
         'div',
         null,
@@ -151,6 +165,7 @@ vi.mock('./components/cockpit/Sidebar', async () => {
         h('button', { type: 'button', onClick: onOpenStore }, 'More agents…'),
         h('button', { type: 'button', onClick: () => void c.openSettings() }, 'Settings'),
         h('button', { type: 'button', onClick: () => c.select(null) }, 'Inbox'),
+        potato?.enabled ? h('button', { type: 'button', onClick: onOpenPotato }, `Potato Bot ${potato.unread}`) : null,
         ...c.registry.paneList.map((p) =>
           h('button', { key: p.info.id, type: 'button', onClick: () => c.select(p.info.id) }, `pane ${p.info.id}`),
         ),
@@ -288,13 +303,14 @@ vi.mock('./components/cockpit/SpawnView', async () => {
 vi.mock('./components/cockpit/Palette', async () => {
   const { createElement: h } = await import('react');
   return {
-    Palette: ({ initialMode, onOpenStore, onOpenReview, onReviewRiskiest }: { initialMode?: string; onOpenStore?: () => void; onOpenReview?: () => void; onReviewRiskiest?: () => void }) =>
+    Palette: ({ initialMode, onOpenStore, onOpenReview, onReviewRiskiest, onOpenPotato }: { initialMode?: string; onOpenStore?: () => void; onOpenReview?: () => void; onReviewRiskiest?: () => void; onOpenPotato?: () => void }) =>
       h(
         'div',
         { 'data-testid': 'palette', 'data-mode': initialMode },
         h('button', { type: 'button', onClick: onOpenStore }, 'Open Agent Store'),
         h('button', { type: 'button', onClick: onOpenReview }, 'Palette: Review Desk'),
         h('button', { type: 'button', onClick: onReviewRiskiest }, 'Palette: Review the riskiest item'),
+        onOpenPotato ? h('button', { type: 'button', onClick: onOpenPotato }, 'Palette: Open Potato Bot') : null,
       ),
   };
 });
@@ -322,6 +338,8 @@ let host: HTMLDivElement;
 let root: Root;
 beforeEach(async () => {
   away.digest = null;
+  potato.state = null;
+  localStorage.removeItem('pm.potato.open');
   ui.spawn = null;
   cockpit.mode = 'orchestration';
   cockpit.openSettings = vi.fn(async () => {});
@@ -872,5 +890,46 @@ describe('CockpitApp old chats host', () => {
     expect(host.textContent).toContain('BRING PANEL');
     clickButton('Close bring');
     expect(host.textContent).not.toContain('BRING PANEL');
+  });
+});
+
+describe('CockpitApp Potato Bot wiring', () => {
+  const remount = async (state: typeof potato.state) => {
+    potato.state = state;
+    act(() => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(createElement(CockpitApp)));
+  };
+  const openPalette = () => act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true })));
+
+  it('with the Labs switch off there is no sidebar row and no palette entry', async () => {
+    await remount({ enabled: false, bots: [{ id: 'fish', unread: 4 }] });
+    expect(host.textContent).not.toContain('Potato Bot');
+    openPalette();
+    expect(document.body.textContent).not.toContain('Open Potato Bot');
+  });
+
+  it('with the switch on the row shows the unread count and opens the page', async () => {
+    await remount({ enabled: true, bots: [{ id: 'fish', unread: 2 }, { id: 'bee', unread: 1 }] });
+    clickButton('Potato Bot 3');
+    expect(mainText()).toBe('POTATO VIEW nonePotato open bee');
+  });
+
+  it('the palette entry opens the page, and the open bot is remembered in pm.potato.open', async () => {
+    await remount({ enabled: true, bots: [{ id: 'fish', unread: 0 }] });
+    openPalette();
+    clickButton('Palette: Open Potato Bot');
+    expect(mainText()).toContain('POTATO VIEW');
+    clickButton('Potato open bee');
+    expect(localStorage.getItem('pm.potato.open')).toBe('bee');
+    expect(mainText()).toContain('POTATO VIEW bee');
+  });
+
+  it('the page is gone the moment the switch turns off', async () => {
+    await remount({ enabled: true, bots: [{ id: 'fish', unread: 0 }] });
+    clickButton('Potato Bot 0');
+    expect(mainText()).toContain('POTATO VIEW');
+    await remount({ enabled: false, bots: [{ id: 'fish', unread: 0 }] });
+    expect(host.textContent).not.toContain('POTATO VIEW');
   });
 });

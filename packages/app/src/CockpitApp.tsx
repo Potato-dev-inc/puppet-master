@@ -41,6 +41,10 @@ import { focusSideComposer, SplitView, useWindowWidth } from './components/cockp
 import { clearSplitMemory, readSplitMemory, restorableSplit, writeSplitMemory } from './components/cockpit/split-memory';
 import { useCompanions } from './hooks/useCompanions';
 import { tauriCompanionTransport } from './lib/companion';
+import { usePotatoState, readOpenBot, writeOpenBot } from './hooks/usePotato';
+import { tauriPotatoTransport } from './lib/potato';
+import { PotatoPage } from './components/cockpit/potato/PotatoPage';
+import { totalUnread } from './components/cockpit/potato/model';
 import { CompanionPage } from './components/cockpit/companion/CompanionPage';
 import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './components/cockpit/companion/model';
 import { CompanionSetupSheet } from './components/cockpit/companion/CompanionSetupSheet';
@@ -120,6 +124,15 @@ export default function CockpitApp() {
   // companion backend the list is null and the palette and sidebar show no companion entries.
   const companions = useCompanions();
   const [setupOpen, setSetupOpen] = useState(false);
+  // Potato Bot (Labs): `state.enabled` is the switch. Off, the row and the palette entry are gone and the page is unreachable.
+  const potato = usePotatoState();
+  const potatoOn = potato.state?.enabled === true;
+  const [potatoBotId, setPotatoBotId] = useState<string | null>(readOpenBot);
+  const openPotatoBot = (id: string) => {
+    setPotatoBotId(id);
+    writeOpenBot(id);
+  };
+  const openPotato = () => setView('potato');
   // "Start crew…" (crews): pick a saved team and a folder.
   const [crewOpen, setCrewOpen] = useState(false);
   // The keyboard shortcuts sheet: `?`, Ctrl+/, or "Keyboard shortcuts" in the palette.
@@ -357,6 +370,9 @@ export default function CockpitApp() {
         openCompanionId={view === 'companion' ? companionId : null}
         onOpenCompanion={openCompanion}
         onNewCompanion={() => setSetupOpen(true)}
+        potato={potato.state ? { enabled: potatoOn, unread: totalUnread(potato.state.bots) } : null}
+        potatoOpen={view === 'potato' && potatoOn}
+        onOpenPotato={openPotato}
         onOpenToSide={openToSide}
         onPaneAction={(id, action) => {
           // The actions run in a pane's own view: a split view gives way to it.
@@ -434,6 +450,21 @@ export default function CockpitApp() {
               nav.select(null);
             }}
           />
+        ) : view === 'potato' && potato.state && potatoOn ? (
+          <PotatoPage
+            state={potato.state}
+            version={potato.version}
+            transport={tauriPotatoTransport}
+            companionTransport={tauriCompanionTransport}
+            companions={companions.companions}
+            openBotId={potatoBotId}
+            onOpenBot={openPotatoBot}
+            onChanged={potato.refresh}
+            onCompanionsChanged={companions.refresh}
+            onNotify={c.notify}
+            onOpenSettings={() => void nav.openSettings('general')}
+            onOpenCompanion={openCompanion}
+          />
         ) : view === 'pane' && c.selectedId && splitOn && split ? (
           <SplitView c={nav} leftId={c.selectedId} rightId={split} focus={side} ratio={ratio} onFocus={setSide} onRatio={setRatio} onClose={toggleSplit} />
         ) : view === 'pane' && c.selectedId ? (
@@ -492,6 +523,7 @@ export default function CockpitApp() {
           companions={companions.companions}
           onOpenCompanion={openCompanion}
           onNewCompanion={companions.companions ? () => setSetupOpen(true) : undefined}
+          onOpenPotato={potatoOn ? openPotato : undefined}
         />
       )}
       {crewOpen && (
