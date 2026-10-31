@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // The ONE pane menu: a right-click (or the context-menu key) on a pane row in the sidebar. It holds the pane's
-// actions (Rename, Reflow, Copy selection, Interrupt, Details, Close) and runs each on the right-clicked pane.
+// actions (Rename, Reflow, Interrupt, Details, Close; Copy selection is in the command palette) and runs each on the right-clicked pane.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +23,7 @@ let root: Root;
 beforeEach(() => {
   localStorage.clear();
   host = document.createElement('div');
+  host.className = 'cockpit';
   document.body.appendChild(host);
   root = createRoot(host);
 });
@@ -99,11 +100,11 @@ describe('the pane row menu', () => {
   it('is one compact menu: view item, the pane actions, then Close last, no duplicates, grouped by separators', async () => {
     await render(fakeApi(), { onOpenToSide: vi.fn() });
     await act(async () => rightClick(rowOf('Codex two')));
-    expect(labels()).toEqual(['Open to the side', 'Rename', 'Reflow', 'Copy selection', 'Interrupt', 'Details', 'Close']);
+    expect(labels()).toEqual(['Open to the side', 'Rename', 'Reflow', 'Interrupt', 'Details', 'Close']);
     expect(host.querySelectorAll('[role="menu"]')).toHaveLength(1);
     expect(host.querySelector('[role="menu"]')!.classList.contains('ck-menu')).toBe(true);
     const kids = [...host.querySelector('[role="menu"]')!.children].map((n) => n.getAttribute('role'));
-    expect(kids).toEqual(['menuitem', 'separator', 'menuitem', 'menuitem', 'menuitem', 'menuitem', 'menuitem', 'separator', 'menuitem']);
+    expect(kids).toEqual(['menuitem', 'separator', 'menuitem', 'menuitem', 'menuitem', 'menuitem', 'separator', 'menuitem']);
   });
 
   it('runs each action on the right-clicked pane, not the selected one', async () => {
@@ -112,7 +113,6 @@ describe('the pane row menu', () => {
     for (const [label, action] of [
       ['Rename', 'rename'],
       ['Reflow', 'reflow'],
-      ['Copy selection', 'copy'],
       ['Details', 'details'],
       ['Close', 'close'],
     ] as const) {
@@ -164,6 +164,61 @@ describe('the pane row menu', () => {
     await act(async () => item('Close').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(host.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(row);
+  });
+
+  it('is drawn in a portal on the cockpit root, outside the sidebar, and has no Copy selection', async () => {
+    await render(fakeApi());
+    await act(async () => rightClick(rowOf('Codex')));
+    const menu = host.querySelector('[role="menu"]')!;
+    expect(menu.parentElement).toBe(host);
+    expect(host.querySelector('.ck-side')!.contains(menu)).toBe(false);
+    expect(labels()).not.toContain('Copy selection');
+  });
+
+  describe('placement (jsdom has no layout, so the menu size is faked)', () => {
+    const W = 160;
+    const H = 130;
+    const size = () =>
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        const menu = this.getAttribute?.('role') === 'menu';
+        return { x: 0, y: 0, left: 0, top: 0, right: menu ? W : 0, bottom: menu ? H : 0, width: menu ? W : 0, height: menu ? H : 0, toJSON() {} } as DOMRect;
+      });
+    const place = () => {
+      const st = (host.querySelector('[role="menu"]') as HTMLElement).style;
+      return { left: parseFloat(st.left), top: parseFloat(st.top) };
+    };
+    beforeEach(() => {
+      Object.assign(window, { innerWidth: 1000, innerHeight: 600 });
+    });
+
+    it('opens at the pointer when it fits', async () => {
+      size();
+      await render(fakeApi());
+      await act(async () => rightClick(rowOf('Codex'), 40, 50));
+      expect(place()).toEqual({ left: 40, top: 50 });
+    });
+
+    it('is clamped inside the window on the right edge', async () => {
+      size();
+      await render(fakeApi());
+      await act(async () => rightClick(rowOf('Codex'), 990, 50));
+      expect(place()).toEqual({ left: 1000 - W - 4, top: 50 });
+    });
+
+    it('flips upward when there is no room below the pointer', async () => {
+      size();
+      await render(fakeApi());
+      await act(async () => rightClick(rowOf('Codex'), 40, 580));
+      expect(place()).toEqual({ left: 40, top: 580 - H });
+    });
+
+    it('stays inside the window when it fits neither above nor below (tiny window)', async () => {
+      size();
+      Object.assign(window, { innerHeight: 100 });
+      await render(fakeApi());
+      await act(async () => rightClick(rowOf('Codex'), 40, 60));
+      expect(place().top).toBe(4);
+    });
   });
 
   it('a click outside closes it', async () => {

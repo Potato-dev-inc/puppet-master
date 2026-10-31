@@ -1,11 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { PaneAction } from '../../lib/pane-actions';
-import { IconClose, IconCopy, IconInfo, IconReflow, IconRename, IconStop } from './Icons';
+import { IconClose, IconInfo, IconReflow, IconRename, IconStop } from './Icons';
 
 /**
  * The one menu of a pane: opened by a right-click (or the context-menu key, Shift+F10) on its row in the
  * sidebar. Same look as every other menu of the cockpit (`ck-menu`). Groups: view, then the pane's own
- * actions, then Close.
+ * actions, then Close. (Copy selection lives in the command palette and the terminal, not here.)
+ *
+ * It is drawn in a portal on the cockpit root, outside the sidebar, so no ancestor of the row (overflow, filter,
+ * transform) can clip it or change what `position: fixed` is relative to. It is clamped to the window and opens
+ * upward when there is no room below the pointer.
  */
 export function PaneContextMenu({
   x,
@@ -32,8 +37,12 @@ export function PaneContextMenu({
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4));
-    const top = Math.max(4, Math.min(y, window.innerHeight - r.height - 4));
+    const m = 4;
+    const left = Math.max(m, Math.min(x, window.innerWidth - r.width - m));
+    // Not enough room below the pointer: open upward from it (then keep it inside the window either way).
+    const below = window.innerHeight - y - m >= r.height;
+    const wanted = below ? y : y - r.height;
+    const top = Math.max(m, Math.min(wanted, window.innerHeight - r.height - m));
     setPos({ left, top });
     el.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
   }, [x, y]);
@@ -92,7 +101,7 @@ export function PaneContextMenu({
     </button>
   );
 
-  return (
+  const menu = (
     <div
       ref={ref}
       className="ck-menu ck-menu--fixed ck-menu--compact"
@@ -110,11 +119,13 @@ export function PaneContextMenu({
       )}
       {item('Rename', <IconRename />, () => onAction('rename'))}
       {item('Reflow', <IconReflow />, () => onAction('reflow'))}
-      {item('Copy selection', <IconCopy />, () => onAction('copy'))}
       {item('Interrupt', <IconStop />, onInterrupt, '⌃C')}
       {item('Details', <IconInfo />, () => onAction('details'))}
       <div className="ck-menu-sep" role="separator" />
       {item('Close', <IconClose />, () => onAction('close'))}
     </div>
   );
+  // Inside the cockpit root (the theme scope the `ck-menu` styles hang on), but outside the sidebar.
+  const scope = document.querySelector('.cockpit') ?? document.body;
+  return createPortal(menu, scope);
 }

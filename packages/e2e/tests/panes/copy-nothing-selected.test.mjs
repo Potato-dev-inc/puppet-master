@@ -1,5 +1,5 @@
 // Edge case: Copy selection with nothing selected says so (and does not put an empty text on the clipboard).
-import { calm, openPane, toasts } from './_area.mjs';
+import { calm, openPane, openPalette, toasts } from './_area.mjs';
 
 export const meta = {
   id: 'panes.copy-nothing-selected',
@@ -15,9 +15,10 @@ export async function run(t) {
   await openPane(t, 'Nimbus');
   await t.expect.text('NIMBUS 0.4.2');
 
-  await t.step('Pane menu > Copy selection');
-  await t.page.rightClick('css=.ck-side .ck-row.is-active');
-  await t.click('exact=Copy selection');
+  await t.step('Palette > Copy selection');
+  await openPalette(t);
+  await t.type('copy selection');
+  await t.press('Enter');
 
   await t.step('A notice says nothing was selected');
   await t.expect.eventually(async () => (await toasts(t)).some((x) => x.includes('Nothing selected')), { message: 'the notice "Nothing selected" shows' });
