@@ -481,6 +481,37 @@ fn a_broad_option_is_chosen_only_with_the_opt_in() {
     assert_eq!(answers[0]["option"], 2, "the second row was chosen: {answers:#?}");
 }
 
+/// The desktop card lists "Always allow in this project" for a menu read by its shape, so the person's click on it must
+/// answer the agent (it was refused as `INVALID_PROMPT_CHOICE ... needs allow_broad`). Without a click nothing broad
+/// goes out, and an agent over MCP still needs `allow_broad` itself.
+#[test]
+fn a_persons_click_on_always_allow_answers_a_shape_menu_but_a_call_without_a_click_does_not() {
+    let session = World::get().session("screen-unknown-menus-click-broad");
+    session.screen_agent("fake_zeta", &zeta());
+    session.script(MENUS);
+    let started = run(&session, "Check the version");
+    let handle = handle_of(&started);
+    let parked = wait(&session, &handle, STOPPED, 60);
+    assert_eq!(status(&parked), "needs_input", "{parked}");
+    let pane = parked["pane_id"].as_str().expect("pane").to_string();
+    let id = parked["prompt"]["id"].as_str().unwrap().to_string();
+    // the card lists the broad option
+    let card = session.card(&pane).expect("the pane's card");
+    assert!(card["options"].as_array().unwrap().iter().any(|c| c["label"] == "Always allow in this project" && c["broad"] == true), "{card}");
+    // no click: nothing is sent
+    let none = session.answer_card_with(&pane, &id, "option_2", None).expect_err("a yes needs a click");
+    assert_eq!(none["code"], "ANSWER_NEEDS_A_PERSON", "{none}");
+    // an agent over MCP without allow_broad: still refused
+    let agent = answer(&session, &handle, &id, "option_2", json!({})).expect_err("an agent needs allow_broad");
+    assert!(agent["message"].as_str().unwrap_or_default().contains("allow_broad"), "{agent}");
+    assert!(approval_answers(&session).is_empty(), "nothing was typed for a refused answer");
+    // the person's click
+    session.answer_card(&pane, &id, "option_2").unwrap_or_else(|e| panic!("the click was refused: {e}"));
+    let answers = approval_answers(&session);
+    assert_eq!(answers.len(), 1, "{answers:#?}");
+    assert_eq!(answers[0]["option"], 2, "the second row was chosen: {answers:#?}");
+}
+
 // ---- 1b. the model: remembered for the pane's whole life, and a clipped footer never replaces the full name --------------
 
 /// A definition whose `[tui.footer_model]` reads the startup BANNER only (what a drafter writes when the model is on
