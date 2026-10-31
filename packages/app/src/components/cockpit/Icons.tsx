@@ -131,3 +131,8 @@ export const IconInfo = () => (
     <path d="M8 7.4v3.1M8 5.3v.1" />
   </Icon>
 );
+export const IconChat = () => (
+  <Icon>
+    <path d="M3 3.5h10a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-.5.5H7.5L4.5 13v-2.5H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5Z" />
+  </Icon>
+);

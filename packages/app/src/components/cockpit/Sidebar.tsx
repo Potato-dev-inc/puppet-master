@@ -15,7 +15,7 @@ import { mainPreview, type PreviewUrl } from '../../lib/pane-preview';
 import '../../styles/live-preview.css';
 import '../../styles/cockpit-helpers.css';
 import { DotSpinner } from './DotSpinner';
-import { IconChart, IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
+import { IconChart, IconChat, IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, spinnerStatus } from './model';
 import { groupHelperTree, helperChipText, readFoldedParents, writeFoldedParents, type HelperNode } from '../../lib/pane-helpers';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
@@ -53,6 +53,9 @@ export function Sidebar({
   onOpenCompanion,
   onOpenInbox,
   onNewCompanion,
+  potato,
+  potatoOpen = false,
+  onOpenPotato,
   onOpenToSide,
   onPaneAction,
   ship = shipApi,
@@ -82,6 +85,11 @@ export function Sidebar({
   /** The Inbox row was chosen (the Inbox may already be the view on screen). */
   onOpenInbox?: () => void;
   onNewCompanion?: () => void;
+  /** Potato Bot (Labs). Absent, or `enabled` false: no row. `unread` is the count over every bot. */
+  potato?: { enabled: boolean; unread: number } | null;
+  /** The Potato Bot page is the view on screen: its row is the active one. */
+  potatoOpen?: boolean;
+  onOpenPotato?: () => void;
   ship?: ShipApi;
 }) {
   const list = c.registry.paneList;
@@ -208,7 +216,7 @@ export function Sidebar({
   const row = (p: Pane, awayFrom?: Pane) => {
     const id = p.info.id;
     const since = c.statusSince.get(id);
-    const active = c.selectedId === id && !c.spawn && !openCompanionId;
+    const active = c.selectedId === id && !c.spawn && !openCompanionId && !potatoOpen;
     const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
     const detail =
       activityText(p.status, c.activities?.[id]) ??
@@ -371,6 +379,22 @@ export function Sidebar({
       <FocusPill notify={c.notify} />
 
       <nav className="ck-side-scroll">
+        {potato?.enabled && onOpenPotato && (
+          <button
+            type="button"
+            className={`ck-row ck-row--flat${potatoOpen ? ' is-active' : ''}`}
+            aria-current={potatoOpen ? 'true' : undefined}
+            onClick={onOpenPotato}
+          >
+            <span className="ck-row-glyph ck-row-glyph--icon">
+              <IconChat />
+            </span>
+            <span className="ck-row-main">
+              <span className="ck-row-title">Potato Bot</span>
+            </span>
+            {potato.unread > 0 && <span className="ck-count">{potato.unread}</span>}
+          </button>
+        )}
         {companions &&
           (companions.length === 0
             ? onNewCompanion && <MakeCompanionRow onMake={onNewCompanion} />
@@ -384,7 +408,7 @@ export function Sidebar({
               )))}
         <button
           type="button"
-          className={`ck-row ck-row--flat${c.selectedId === null && !c.spawn && !openCompanionId ? ' is-active' : ''}`}
+          className={`ck-row ck-row--flat${c.selectedId === null && !c.spawn && !openCompanionId && !potatoOpen ? ' is-active' : ''}`}
           onClick={() => {
             c.select(null);
             onOpenInbox?.();

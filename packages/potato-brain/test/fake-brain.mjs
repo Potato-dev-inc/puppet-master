@@ -4,7 +4,8 @@
 // against a real child process without a key, a network or a vault.
 //
 //   hello                      first, once
-//   send "<text>"              typing on, reply "Fish heard: <text>", mood genki,
+//   send "<text>"              typing on (posted alone, so a page can show it), a short think,
+//                              then reply "Fish heard: <text>", mood genki,
 //                              usage 10/5 (prompt/completion), typing off
 //   send "work: <task>"        the same, plus a helper_request for <task>
 //   send "crash"               exits with code 1 at once
@@ -27,6 +28,9 @@ if (url === "" || token === "") {
 
 const base = url.endsWith("/") ? url : `${url}/`;
 const waitMs = Number(process.env.PM_FAKE_WAIT_MS ?? 25000);
+// How long "typing" shows before the reply. The app lets the brain's own environment through only by an
+// allowlist, so this is a default, not a knob a launcher can turn.
+const thinkMs = Number(process.env.PM_FAKE_THINK_MS ?? 1500);
 const headers = { "X-PM-Potato-Token": token };
 let cursor = 0;
 let counter = 0;
@@ -53,7 +57,10 @@ async function handle(item) {
     const text = String(item.text ?? "");
     if (text.trim() === "crash") process.exit(1);
     const conversationId = String(item.conversationId);
-    const events = [{ type: "typing", conversationId, on: true }];
+    // Typing goes alone and first: events in one post are applied together, so a page would never see it.
+    await post([{ type: "typing", conversationId, on: true }]);
+    await new Promise((r) => setTimeout(r, thinkMs));
+    const events = [];
     let said = `Fish heard: ${text}`;
     const probe = /^probe:\s*(\/\S*)$/i.exec(text.trim());
     if (probe) {

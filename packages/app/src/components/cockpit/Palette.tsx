@@ -16,7 +16,7 @@ import { ChatHitDetail, ChatHitRows, SEARCH_CHATS_HINT, SEARCH_CHATS_TITLE } fro
 import { ChatFilterChips, type ChipKey } from './ChatFilterChips';
 import { T as WELCOME } from '../firstrun/copy';
 import { DotSpinner } from './DotSpinner';
-import { IconChart, IconClose, IconCopy, IconGlobe, IconInfo, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconRename, IconSearch, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
+import { IconChart, IconChat, IconClose, IconCopy, IconGlobe, IconInfo, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconRename, IconSearch, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { requestPaneAction } from '../../lib/pane-actions';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 import { settingsShortcuts } from './palette-shortcuts';
@@ -66,6 +66,7 @@ export function Palette({
   companions,
   onOpenCompanion,
   onNewCompanion,
+  onOpenPotato,
 }: {
   c: CockpitApi;
   /** `chats`: open straight in "Search all chats" (Ctrl+Shift+F). */
@@ -99,6 +100,8 @@ export function Palette({
   companions?: CompanionView[] | null;
   onOpenCompanion?: (id: string) => void;
   onNewCompanion?: () => void;
+  /** Opens the Potato Bot page. Given only while the Labs switch is on: absent, no row. */
+  onOpenPotato?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -138,6 +141,17 @@ export function Palette({
         keywords: 'companion',
         icon: <Avatar id={companion.avatar} size={16} state={companion.state} name={companion.name} />,
         run: () => onOpenCompanion?.(companion.id),
+      });
+    }
+    if (onOpenPotato) {
+      out.push({
+        id: 'open:potato',
+        group: 'Panes',
+        title: 'Open Potato Bot',
+        desc: 'Chat with your bots',
+        keywords: 'potato bot fish chat talk',
+        icon: <IconChat />,
+        run: onOpenPotato,
       });
     }
     for (const p of c.registry.paneList) {
@@ -451,7 +465,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onOpenReview, onReviewRiskiest, onOpenStore, onUndoLastTurn, onWhatBroke, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, liveStatus, liveOn, focus]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onOpenPlans, onOpenScores, onOpenReview, onReviewRiskiest, onOpenStore, onUndoLastTurn, onWhatBroke, onOpenWelcome, onStartCrew, onOpenShortcuts, missionsOn, nightOn, onOpenMorning, companions, onOpenCompanion, onNewCompanion, onOpenPotato, liveStatus, liveOn, focus]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),
