@@ -1,0 +1,1 @@
+{"name":"potato-tools","private":true,"version":"1.0.0","type":"module","scripts":{"build":"node build.mjs"},"devDependencies":{"@resvg/resvg-js":"^2.6.2","gifenc":"^1.0.3","jpeg-js":"^0.4.4","pngjs":"^7.0.0"}}

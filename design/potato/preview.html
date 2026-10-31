@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Potato - animations</title>
+<style>
+  :root { --bg:#f4f1ea; --fg:#222; --card:#ffffff; --line:#d8d2c4; --accent:#F0A845; }
+  body.dark { --bg:#141414; --fg:#eee; --card:#1e1e1e; --line:#333; }
+  body.checker { --bg:#fff; background-image:linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%),linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%); background-size:20px 20px; background-position:0 0,10px 10px; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.4 system-ui,Segoe UI,Arial,sans-serif; background:var(--bg); color:var(--fg); }
+  header { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center; padding:12px 16px; background:var(--card); border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:18px; }
+  .grp { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+  .grp span { font-size:12px; opacity:.7; margin-right:4px; }
+  button { font:inherit; padding:5px 11px; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; cursor:pointer; }
+  button.on { background:var(--accent); border-color:var(--accent); color:#111; font-weight:600; }
+  main { display:grid; grid-template-columns:repeat(auto-fill,minmax(var(--cell,200px),1fr)); gap:14px; padding:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  body.checker .card { background:rgba(255,255,255,.6); }
+  .stage { width:var(--img,128px); height:var(--img,128px); margin:0 auto; border-radius:50%; }
+  body.circle .stage.shape { background:#050505; }
+  .stage img { display:block; width:100%; height:100%; }
+  .card b { display:block; margin-top:6px; }
+  .card small { opacity:.65; }
+  .note { font-size:12px; opacity:.7; padding:0 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Potato</h1>
+  <div class="grp"><span>background</span><button data-bg="light" class="on">light</button><button data-bg="dark">dark</button><button data-bg="checker">checker</button></div>
+  <div class="grp"><span>size</span><button data-size="64">64</button><button data-size="128" class="on">128</button><button data-size="256">256</button><button data-size="512">512</button></div>
+  <div class="grp"><span>shape</span><button data-var="transparent" class="on">transparent</button><button data-var="circle">black circle</button></div>
+  <div class="grp" id="fmts"><span>format</span><button data-fmt="svg" class="on">animated SVG</button><button data-fmt="webp">WebP</button><button data-fmt="gif">GIF</button></div>
+  <div class="grp"><button id="replay">replay all</button></div>
+</header>
+<div class="note" id="note"></div>
+<main id="grid"></main>
+<script>
+// No CDN, no network. Every state is a self-animating file (12 fps); the page only lays them out.
+const STATES = {"idle":{"n":24,"loop":true,"desc":"gentle bob and breathing"},"blink":{"n":6,"loop":false,"desc":"one quick blink"},"talk":{"n":12,"loop":true,"desc":"mouth shapes: closed / small / open / wide"},"listen":{"n":18,"loop":true,"desc":"leans in, eyes look to the side"},"think":{"n":24,"loop":true,"desc":"staff ring glows and orbits, ... dots"},"working":{"n":24,"loop":true,"desc":"taps the staff like typing, sparks"},"happy":{"n":12,"loop":true,"desc":"bouncing with joy"},"celebrate":{"n":24,"loop":false,"desc":"jump with sparkles bursting from the staff"},"wave-hello":{"n":24,"loop":true,"desc":"waves the staff hello"},"needs-you":{"n":24,"loop":true,"desc":"waves the staff, orange \"!\" above"},"surprised":{"n":12,"loop":false,"desc":"hair spikes jump up, O mouth"},"sad":{"n":24,"loop":true,"desc":"droops, the hair flops, a down mouth"},"error":{"n":24,"loop":true,"desc":"droop plus a nervous shake, flat mouth"},"sleepy":{"n":24,"loop":true,"desc":"half eyes, a big yawn"},"sleep":{"n":24,"loop":true,"desc":"closed-eye lines, floating z"},"walk-left":{"n":12,"loop":true,"desc":"walk cycle to the left (desktop pet)"},"walk-right":{"n":12,"loop":true,"desc":"walk cycle to the right (desktop pet)"},"dragged":{"n":12,"loop":true,"desc":"picked up, legs dangle (desktop pet)"},"land":{"n":9,"loop":false,"desc":"squash and stretch landing (desktop pet)"},"loading":{"n":12,"loop":true,"desc":"tiny icon: just the staff ring spinning"}};
+const INLINE = {};                       // standalone build: animated SVG text per state
+const STANDALONE = Object.keys(INLINE).length > 0;
+const HOLD_MS = 1400;                              // "once" states: pause on the last pose, then replay
+let fmt = 'svg', variant = 'transparent', run = 0;
+const cards = {}, urls = {};
+const grid = document.getElementById('grid');
+function srcFor(id) {
+  if (STANDALONE) {
+    if (urls[id]) URL.revokeObjectURL(urls[id]);
+    return (urls[id] = URL.createObjectURL(new Blob([INLINE[id]], { type: 'image/svg+xml' })));
+  }
+  const q = '?r=' + run;
+  if (fmt === 'gif') return `gif/${id}.gif${q}`;
+  if (fmt === 'webp') return `animated/${id}.webp${q}`;
+  return `animated/${id}.svg${q}`;
+}
+function load(id) { cards[id].img.src = srcFor(id); }
+for (const [id, s] of Object.entries(STATES)) {
+  const el = document.createElement('div'); el.className = 'card';
+  el.innerHTML = `<div class="stage shape"><img alt="${id}"></div><b>${id}</b><small>${s.n} frames, ${s.loop ? 'loops' : 'plays once'}</small><br><small>${s.desc}</small>`;
+  grid.appendChild(el);
+  cards[id] = { img: el.querySelector('img'), s };
+}
+function loadAll() { run++; for (const id in cards) load(id); }
+function css() {
+  const size = +document.documentElement.dataset.size || 128;
+  document.documentElement.style.setProperty('--img', size + 'px');
+  document.documentElement.style.setProperty('--cell', Math.max(size + 40, 170) + 'px');
+  // GIFs are baked on the black circle; the other formats get the circle from CSS
+  const circle = variant === 'circle' || (!STANDALONE && fmt === 'gif');
+  document.body.classList.toggle('circle', circle);
+  document.getElementById('note').textContent = (!STANDALONE && fmt === 'gif') ? 'GIFs are rendered on the black circle (GIF has no soft alpha).' : '';
+}
+function pick(attr, cb) {
+  document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.onclick = () => {
+    cb(b.dataset[attr]);
+    document.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle('on', x === b));
+  });
+}
+pick('bg', (v) => { document.body.classList.remove('dark', 'checker'); if (v !== 'light') document.body.classList.add(v); });
+pick('size', (v) => { document.documentElement.dataset.size = v; css(); });
+pick('var', (v) => { variant = v; css(); });
+if (STANDALONE) document.getElementById('fmts').style.display = 'none';
+else pick('fmt', (v) => { fmt = v; css(); loadAll(); });
+document.getElementById('replay').onclick = loadAll;
+// once-states hold their last pose, so restart them on a timer
+for (const id in cards) {
+  const s = cards[id].s;
+  if (!s.loop) setInterval(() => { run++; load(id); }, s.n / 12 * 1000 + HOLD_MS);
+}
+css(); loadAll();
+</script>
+</body>
+</html>
