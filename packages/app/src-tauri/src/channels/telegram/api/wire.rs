@@ -26,6 +26,7 @@ fn map_update(raw: &Value) -> Option<Update> {
 fn map_message(m: &Value) -> Option<InMessage> {
     let chat = m.get("chat")?;
     let from = m.get("from");
+    let replied = m.get("reply_to_message");
     Some(InMessage {
         message_id: m.get("message_id")?.as_i64()?,
         chat_id: chat.get("id")?.as_i64()?,
@@ -37,7 +38,35 @@ fn map_message(m: &Value) -> Option<InMessage> {
         date_s: m.get("date").and_then(Value::as_i64).unwrap_or(0),
         text: str_of(m, "text").map(str::to_string),
         reply_to: m.get("reply_to_message").and_then(|r| r.get("message_id")).and_then(Value::as_i64),
+        chat_group: matches!(str_of(chat, "type"), Some("group" | "supergroup")),
+        chat_title: str_of(chat, "title").map(str::to_string),
+        mentions: mentions_of(m),
+        reply_to_from_id: replied.and_then(|r| r.get("from")).and_then(|f| f.get("id")).and_then(Value::as_i64),
+        reply_to_from_is_bot: replied
+            .and_then(|r| r.get("from"))
+            .and_then(|f| f.get("is_bot"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        reply_to_text: replied.and_then(|r| str_of(r, "text").or_else(|| str_of(r, "caption"))).map(str::to_string),
     })
+}
+
+/// The text of each `mention` entity of a text message. Telegram counts offsets and lengths in UTF-16
+/// code units, so the text is cut the same way (an emoji before the mention moves it by two).
+fn mentions_of(m: &Value) -> Vec<String> {
+    let Some(text) = str_of(m, "text") else { return Vec::new() };
+    let Some(entities) = m.get("entities").and_then(Value::as_array) else { return Vec::new() };
+    let units: Vec<u16> = text.encode_utf16().collect();
+    entities
+        .iter()
+        .filter(|e| str_of(e, "type") == Some("mention"))
+        .filter_map(|e| {
+            let offset = usize::try_from(e.get("offset")?.as_i64()?).ok()?;
+            let length = usize::try_from(e.get("length")?.as_i64()?).ok()?;
+            let end = offset.checked_add(length)?;
+            String::from_utf16(units.get(offset..end)?).ok()
+        })
+        .collect()
 }
 
 fn map_callback(c: &Value) -> Option<InCallback> {
@@ -83,6 +112,7 @@ mod tests {
                     date_s: 1761600000,
                     text: Some("/status".into()),
                     reply_to: None,
+                    ..InMessage::default()
                 }),
             }
         );
@@ -97,6 +127,48 @@ mod tests {
         assert_eq!(m.from_id, Some(1002));
         assert_eq!(m.reply_to, Some(30));
         assert_eq!(m.text.as_deref(), Some("/panes"));
+    }
+
+    #[test]
+    fn a_group_mention_maps_the_title_the_entity_text_and_the_replied_message() {
+        let u = one(include_str!("../fixtures/group_mention.json"));
+        let UpdateKind::Message(m) = u.kind else { panic!("a group message is a Message") };
+        assert!(m.chat_group && !m.chat_private);
+        assert_eq!(m.chat_title.as_deref(), Some("Test Crew"));
+        // The emoji is two UTF-16 units, so the offsets only fit when they are counted that way.
+        assert_eq!(m.mentions, vec!["@anna_pm_bot".to_string(), "@someone_else".to_string()]);
+        assert_eq!(m.reply_to, Some(88));
+        assert_eq!(m.reply_to_from_id, Some(4004));
+        assert!(!m.reply_to_from_is_bot);
+        assert_eq!(m.reply_to_text.as_deref(), Some("The moon landing was staged."));
+    }
+
+    #[test]
+    fn a_reply_to_the_bot_carries_the_bot_id_and_flag() {
+        let u = one(include_str!("../fixtures/group_reply_to_bot.json"));
+        let UpdateKind::Message(m) = u.kind else { panic!("a message") };
+        assert!(m.chat_group);
+        assert!(m.mentions.is_empty());
+        assert_eq!(m.reply_to_from_id, Some(777));
+        assert!(m.reply_to_from_is_bot);
+        assert_eq!(m.reply_to_text.as_deref(), Some("It was real."));
+    }
+
+    #[test]
+    fn private_and_channel_chats_are_not_groups() {
+        let UpdateKind::Message(m) = one(include_str!("../fixtures/private_message.json")).kind else { panic!() };
+        assert!(!m.chat_group);
+        assert!(m.mentions.is_empty() && m.chat_title.is_none() && m.reply_to_text.is_none());
+    }
+
+    #[test]
+    fn bad_entities_are_ignored_not_an_error() {
+        let raw = json!({"update_id": 21, "message": {"message_id": 1, "date": 1, "chat": {"id": -5, "type": "group"},
+            "from": {"id": 5, "is_bot": false}, "text": "@bot hi",
+            "entities": [{"offset": 90, "length": 4, "type": "mention"}, {"offset": -1, "length": 2, "type": "mention"},
+                         {"type": "mention"}, {"offset": 0, "length": 4, "type": "mention"}]}});
+        let UpdateKind::Message(m) = map_update(&raw).unwrap().kind else { panic!("a message") };
+        assert_eq!(m.mentions, vec!["@bot".to_string()]);
     }
 
     #[test]

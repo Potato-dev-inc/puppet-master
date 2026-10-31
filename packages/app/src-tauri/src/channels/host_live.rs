@@ -7,7 +7,10 @@
 //! which refuses everything a chat may not answer.
 
 use super::config::{self, TelegramConfig};
-use super::host::{CompanionLine, Host, PaneLine};
+use super::host::{AgentOption, CompanionLine, GroupAsk, GroupAskOutcome, Host, PaneLine};
+use super::tag_config::folder_is_allowed;
+use super::tag_log::{self, GroupAnswerRecord};
+use crate::askbar::{self, AskRequest};
 use crate::attention::answer::{Caller, RealEnv, Reply, Request, Via};
 use crate::attention::caps::DeviceCaps;
 use crate::attention::copy::{headings, PaneName};
@@ -83,6 +86,22 @@ fn label_of(agent_type: &str) -> String {
     crate::tui::descriptor_for(agent_type).map(|d| d.label).unwrap_or_else(|| agent_type.to_string())
 }
 
+fn installed(id: &str) -> bool {
+    crate::tui::profile_for(id).is_installed()
+}
+
+/// The folder a group question runs in: the group's own folder when it is a real folder that is not the home
+/// folder (or one that contains it), else an empty folder under app data. Never the home folder.
+fn group_folder(chosen: Option<&str>) -> String {
+    let home = crate::project_path::home_dir().map(|h| h.to_string_lossy().into_owned());
+    if let Some(path) = chosen.filter(|p| folder_is_allowed(p, home.as_deref()) && std::path::Path::new(p).is_dir()) {
+        return path.to_string();
+    }
+    let neutral = crate::app_paths::app_data_dir().join("tag-bot");
+    let _ = std::fs::create_dir_all(&neutral);
+    neutral.to_string_lossy().into_owned()
+}
+
 /// Only agent terminals take text from the chat.
 fn is_agent(agent_type: &str) -> bool {
     PaneKind::of(crate::tui::profile_for(agent_type).features().kind) == PaneKind::Agent
@@ -140,6 +159,39 @@ impl Host for LiveHost {
 
     fn audit(&self, kind: AuditKind, summary: &str, detail: serde_json::Value) {
         crate::audit::record(kind, Who::Channel(CHANNEL.into()), summary, detail);
+    }
+
+    fn ask_group(&self, ask: &GroupAsk) -> GroupAskOutcome {
+        let none = GroupAskOutcome { agent_label: String::new(), answer: None };
+        let Some(agent) = crate::side_question::resolve_agent(ask.agent.as_deref().unwrap_or(""), &installed) else {
+            return none;
+        };
+        let label = label_of(&agent);
+        let request = AskRequest { ask_id: uuid::Uuid::new_v4().to_string(), question: ask.prompt.clone(), agent, clipboard: None };
+        let registry = self.registry.clone();
+        let app = self.app.clone();
+        let result = askbar::run_ask(&request, &label, Some(group_folder(ask.folder.as_deref())), &|quick| {
+            crate::agent_runs::quick::quick_ask(quick, registry.clone(), app.clone(), None)
+        });
+        GroupAskOutcome { agent_label: label, answer: result.answer.filter(|_| result.ok) }
+    }
+
+    fn record_group_answer(&self, record: &GroupAnswerRecord) {
+        if let Err(err) = tag_log::append_to(&tag_log::path(), record) {
+            tracing::warn!(error = %err, "could not save a group answer record");
+        }
+    }
+
+    fn recent_group_answers(&self) -> Vec<GroupAnswerRecord> {
+        tag_log::load_from(&tag_log::path())
+    }
+
+    fn tag_agents(&self) -> Vec<AgentOption> {
+        crate::tui::read_only_backends()
+            .into_iter()
+            .filter(|id| crate::tui::is_agent_backend(id) && installed(id))
+            .map(|id| AgentOption { id: id.to_string(), label: label_of(id) })
+            .collect()
     }
 
     fn changed(&self) {

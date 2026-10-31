@@ -28,7 +28,7 @@ const DEFAULT_RETRY_AFTER_S: u64 = 30;
 const MAX_RETRY_AFTER_S: u64 = 3600;
 
 /// A message from a person in a chat, as the engine needs it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct InMessage {
     pub message_id: i64,
     pub chat_id: i64,
@@ -43,6 +43,17 @@ pub struct InMessage {
     pub text: Option<String>,
     /// The message this one replies to, when there is one.
     pub reply_to: Option<i64>,
+    /// `chat.type` is `group` or `supergroup` (Tag Your Agent). Private chats and channels are `false`.
+    pub chat_group: bool,
+    /// The group's title, as Telegram sends it.
+    pub chat_title: Option<String>,
+    /// The text of every `mention` entity (`@name`), cut out with Telegram's UTF-16 offsets.
+    pub mentions: Vec<String>,
+    /// Who wrote the message this one replies to.
+    pub reply_to_from_id: Option<i64>,
+    pub reply_to_from_is_bot: bool,
+    /// The text (or caption) of the message this one replies to.
+    pub reply_to_text: Option<String>,
 }
 
 /// A tap on one of the bot's buttons.
@@ -132,6 +143,10 @@ pub trait Api: Send + Sync {
     /// The webhook URL if one is set (Telegram then refuses getUpdates), `None` when none is set.
     fn webhook_url(&self) -> Result<Option<String>, ApiError>;
     fn get_updates(&self, offset: Option<i64>, timeout_s: u32) -> Result<Vec<Update>, ApiError>;
+    /// Shows "typing…" in a chat for a few seconds. Best effort: the default does nothing.
+    fn typing(&self, _chat_id: i64) -> Result<(), ApiError> {
+        Ok(())
+    }
     /// Sends a message and returns its message id.
     fn send(&self, chat_id: i64, out: &WireMessage, reply_to: Option<i64>) -> Result<i64, ApiError>;
     /// Replaces the text and buttons of a sent message. No buttons in `out` removes them.
@@ -318,6 +333,10 @@ impl Api for HttpApi {
         }
         let result = self.call("sendMessage", body)?;
         result.get("message_id").and_then(Value::as_i64).ok_or(ApiError::Parse)
+    }
+
+    fn typing(&self, chat_id: i64) -> Result<(), ApiError> {
+        self.call("sendChatAction", json!({ "chat_id": chat_id, "action": "typing" })).map(|_| ())
     }
 
     fn edit(&self, chat_id: i64, message_id: i64, out: &WireMessage) -> Result<(), ApiError> {

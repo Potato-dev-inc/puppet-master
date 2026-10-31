@@ -1,0 +1,22 @@
+{
+  "update_id": 2001,
+  "message": {
+    "message_id": 90,
+    "from": {"id": 3003, "is_bot": false, "first_name": "Sam", "username": "sam_test"},
+    "chat": {"id": -1009999900001, "title": "Test Crew", "type": "supergroup"},
+    "date": 1761600200,
+    "reply_to_message": {
+      "message_id": 88,
+      "from": {"id": 4004, "is_bot": false, "first_name": "Kim"},
+      "chat": {"id": -1009999900001, "title": "Test Crew", "type": "supergroup"},
+      "date": 1761600100,
+      "text": "The moon landing was staged."
+    },
+    "text": "😀 @anna_pm_bot is this true? @someone_else too",
+    "entities": [
+      {"offset": 3, "length": 12, "type": "mention"},
+      {"offset": 30, "length": 13, "type": "mention"},
+      {"offset": 0, "length": 2, "type": "bold"}
+    ]
+  }
+}

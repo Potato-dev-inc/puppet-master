@@ -33,6 +33,10 @@ pub struct FakeBot {
     /// One entry per message sent, in the same order as `sent`: `true` when it was silent
     /// (`disable_notification`).
     pub silent: Mutex<Vec<bool>>,
+    /// One entry per message sent, in the same order as `sent`: the message it was a reply to.
+    pub reply_tos: Mutex<Vec<Option<i64>>>,
+    /// How many times "typing…" was shown, and in which chats.
+    pub typing: Mutex<Vec<i64>>,
     pub menus: AtomicUsize,
     /// Every token `api_for` was asked to build a client for.
     pub tokens: Mutex<Vec<String>>,
@@ -49,6 +53,8 @@ impl FakeBot {
             me_calls: AtomicUsize::new(0),
             sent: Mutex::new(Vec::new()),
             silent: Mutex::new(Vec::new()),
+            reply_tos: Mutex::new(Vec::new()),
+            typing: Mutex::new(Vec::new()),
             menus: AtomicUsize::new(0),
             tokens: Mutex::new(Vec::new()),
         })
@@ -83,10 +89,16 @@ impl Api for FakeBot {
         Ok(self.inbox.lock().pop_front().unwrap_or_default())
     }
 
-    fn send(&self, chat_id: i64, out: &WireMessage, _reply_to: Option<i64>) -> Result<i64, ApiError> {
+    fn typing(&self, chat_id: i64) -> Result<(), ApiError> {
+        self.typing.lock().push(chat_id);
+        Ok(())
+    }
+
+    fn send(&self, chat_id: i64, out: &WireMessage, reply_to: Option<i64>) -> Result<i64, ApiError> {
         let mut sent = self.sent.lock();
         sent.push((chat_id, out.text.as_str().to_string()));
         self.silent.lock().push(out.disable_notification);
+        self.reply_tos.lock().push(reply_to);
         Ok(sent.len() as i64)
     }
 
@@ -187,6 +199,7 @@ pub fn text_from(user: i64, id: i64, text: &str) -> Update {
             date_s: (T0 / 1000) as i64 - 5,
             text: Some(text.into()),
             reply_to: None,
+            ..InMessage::default()
         }),
     }
 }

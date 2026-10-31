@@ -11,6 +11,7 @@ import { Btn, InfoRow, SettingRow, SettingToggle } from '../settings-ui';
 import { TunnelSection } from '../TunnelSection';
 import { PairedDevices } from '../blocks/PairedDevices';
 import { TelegramSetup } from '../blocks/TelegramSetup';
+import { TelegramTagBot } from '../blocks/TelegramTagBot';
 
 type PairedDevice = Awaited<ReturnType<typeof tauri.listPairedMobileDevices>>[number];
 
@@ -167,8 +168,13 @@ export const phoneRows: RowDef[] = [
     id: 'telegram',
     label: 'Telegram (early)',
     hint: 'Ask your agents and answer them by Telegram text. Telegram is a third party, so read the warning first.',
-    keywords: 'telegram bot text message chat token pairing remote early',
+    keywords: 'telegram bot text message chat token pairing remote early group groups tag mention answer',
     group: 'Telegram (early)',
-    render: (env) => <TelegramSetup env={env} />,
+    render: (env) => (
+      <>
+        <TelegramSetup env={env} />
+        <TelegramTagBot env={env} />
+      </>
+    ),
   },
 ];
