@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Ensure Tauri bundle resource globs exist before `tauri dev` / `tauri build`.
- * `pwa-dist` and `bin` are gitignored and produced by the production build scripts.
+ * `pwa-dist`, `bin` and `potato-brain` are gitignored and produced by the production build scripts.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -13,6 +13,7 @@ const pwaDist = join(root, 'packages/app/src-tauri/resources/pwa-dist');
 const pwaAssets = join(pwaDist, 'assets');
 const viteDist = join(root, 'packages/app/dist');
 const binDir = join(root, 'packages/app/src-tauri/resources/bin');
+const brainDir = join(root, 'packages/app/src-tauri/resources/potato-brain');
 const binName = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared';
 const cloudflaredSource = join(root, 'node_modules/cloudflared/bin', binName);
 
@@ -63,9 +64,36 @@ function ensureCloudflaredBin() {
   console.error('[ensure-tauri-resources] cloudflared missing — wrote empty bin stub for tauri dev');
 }
 
+// The Potato Bot brain is a small esbuild bundle (tens of ms), so build the real one.
+// If that cannot run, write a stub that exits with the "not configured" code, so tauri dev still starts.
+function ensurePotatoBrain() {
+  const brain = join(brainDir, 'brain.mjs');
+  const persona = join(brainDir, 'persona');
+  if (existsSync(brain) && existsSync(persona)) {
+    return;
+  }
+  const result = spawnSync(process.execPath, [join(root, 'scripts', 'bundle-potato-brain.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+  if (result.status === 0) {
+    return;
+  }
+  mkdirSync(persona, { recursive: true });
+  const stub = [
+    "console.error('potato-brain stub: bundle it with node scripts/bundle-potato-brain.mjs');",
+    'process.exit(2);',
+    '',
+  ].join('\n');
+  writeFileSync(brain, stub, 'utf-8');
+  writeFileSync(join(persona, 'stub.txt'), 'stub\n', 'utf-8');
+  console.error('[ensure-tauri-resources] potato-brain bundle failed — wrote a stub for tauri dev');
+}
+
 export function ensureTauriResources() {
   ensurePwaDist();
   ensureCloudflaredBin();
+  ensurePotatoBrain();
 }
 
 const invokedDirectly =

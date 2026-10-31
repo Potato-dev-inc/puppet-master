@@ -75,6 +75,16 @@ try {
   console.error('[bundle-mcp] CLI bundle failed — watch_command falls back to npx', err);
 }
 
+// The Potato Bot brain: resources/potato-brain/{brain.mjs,persona/}. Not fatal: the app runs without it.
+const potatoBrain = spawnSync('node', ['scripts/bundle-potato-brain.mjs'], {
+  cwd: root,
+  stdio: 'inherit',
+  shell: true,
+});
+if (potatoBrain.status !== 0) {
+  console.error('[bundle-mcp] Potato Bot brain bundle failed — the bot will not start from this build');
+}
+
 try {
   await esbuild.build({
     entryPoints: [entry],
