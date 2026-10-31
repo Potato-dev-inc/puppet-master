@@ -1,0 +1,21 @@
+{
+  "name": "@puppet-master/potato-brain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The Potato Bot brain: a companion harness with log-structured context, a file memory vault and a mood simulation. Talks to Puppet Master over channel protocol v1.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "start": "node src/pm.ts",
+    "chat": "node src/bin.ts",
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.6.3"
+  }
+}
