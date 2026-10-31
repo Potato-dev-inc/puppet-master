@@ -884,6 +884,33 @@ actions. The phone's Needs you list draws only the Blocking lane, so the item is
 
 Tests: `cargo test --lib collision` and `cargo test --features dev-fake-tui --test fake_tui_e2e collision:: -- --test-threads=1` (not run in the docs pass); `npx vitest run src/lib/collision.test.ts src/components/cockpit/CollisionSection.test.tsx src/components/chat/CollisionBanner.test.tsx src/components/settings/blocks/CollisionSettings.test.tsx src/styles/cockpit-collision.css.test.ts src/components/mobile/NeedsYouList.collision.test.tsx src/dev/collision-fixtures.test.ts`.
 
+### 3.19 Potato Bot (`potato/`, the Rust core; the brain is `packages/potato-brain/`)
+
+A chat friend with its own small brain. Phase 1 has one home, the desktop app (the page and the settings UI are later
+pieces). The brain is a separate Node program that Puppet Master starts, hands messages to and takes answers from over
+the local bridge. Labs key `potato_bot_enabled` (default off; it is also the kill switch). Generic code names no agent
+and no chat app (`potato/guard_tests.rs`); a chat app's code would live only in `potato/surfaces/<app>/`.
+
+| File | What |
+|---|---|
+| `potato/protocol.rs` | channel protocol v1, this side: parse a post (`parse_post`: at most 32 events and 64 KB, a malformed event is dropped alone, an unknown `type` is `Event::Unknown`), build inbox items (`send_item`, `helper_update_item`, `pause_item`, ...), the size caps. The wire format is fixed by `packages/potato-brain/src/channels/potato.ts` |
+| `potato/auth.rs` | who may call `/potato/brain/*`: loopback, no forwarder header, no foreign Host, NO `Origin`, `X-PM-Potato-Token` (sha256 of it kept, `subtle::ct_eq`), and on Windows the TCP owner is that bot's node pid (or in its process tree); else 404. The token on any other route is 403 `POTATO_SCOPE`; a token-less local request from the brain's own process (its tree for non-GET and card routes) is 403 while a brain runs. `Brains` = the registry (one per bot, new token each spawn); `decide`/`check` are pure over a fake `TcpOwner` and process table |
+| `potato/rules.rs` | `decide(facts, config, caps) -> Drop / Pending / Send { trust, tools, folder_rule }`, a pure table (the app is `owner_pc` + full tools; the rows for an outside surface are data too) |
+| `potato/keeper.rs` | pure state machine of one brain process: lazy start, `hello` within 10 s, idle stop after 30 min (no crash), crash backoff 1, 2, 4, 8 s (max 60), the 5th crash in 10 min = `Stopped` until "Start again" |
+| `potato/env.rs` | the brain's environment as an allowlist built after `env_clear()`; the key only as `DEEPSEEK_API_KEY` and only for the DeepSeek brain; no `PUPPET_MASTER_*`, no port file, no local secret; `Debug` prints names only |
+| `potato/sidecar.rs` | the IO: `probe_node` (`ToolEnv` + `node --version`, 20+), start through `proc_util::hidden_command` (no window), stdout/stderr into the log sink, `kill_process_tree`; `PM_POTATO_BRAIN` script override in `dev-fake-tui` builds only |
+| `potato/store.rs` | `<app data>/potato/`: `bots.json`, `settings.json`, `conversations/<surface>/<id>.jsonl` (redacted on write and display, 4000 chars, rotate at 2 MB / 5000 lines, channel threads keep 500), `reads.json`, persona seeding (hash manifest, edited files kept), "forget talk memory" moves the folder to `.removed/` |
+| `potato/cost.rs` | prices the brain's `usage` with its own table (unknown model = highest price), per day/bot/surface in `usage/YYYY-MM.json`, 80% note, 100% pause |
+| `potato/log.rs` | 200-line ring per bot; exact secrets, then `redact::text`, then 300 chars |
+| `potato/service.rs` | the engine: `send` (rules, save, lazy start, inbox), `inbox_poll`, `ingest` (replies saved redacted, usage judged, helper requests stored as cards only, errors as plain sentences, a brain writes only into its own bot's thread), `tick` (supervisor), `set_enabled` (kill switch). Talks to the app through `Host` and `Launcher` traits |
+| `potato/live.rs`, `potato/wire_names.rs` | the app's one `Service` + `potato-keeper` thread + `LiveHost` (`potato://changed`); the few wire names that are also other names (the guard's single reasoned exception) |
+| `bridge/routes/potato_brain.rs`, `bridge/http.rs` (`gate_with`, `is_brain_target`), `bridge/router.rs`, `mobile_pairing/auth.rs` | the two brain routes (`GET /potato/brain/inbox`, `POST /potato/brain/events`, no CORS headers); `Caller::Brain { bot_id }` is returned by the gate for them only and the router never serves a brain path; `authorize_caller` answers the token with 403 on every other route |
+| `commands/potato.rs`, `secrets.rs` (`SIDECAR_SECRETS`), `commands/secrets.rs` | the `potato_*` Tauri commands (desktop only); the key is set/masked/deleted like a provider key but `secret_get_for_llm` stays provider-only |
+| `panic.rs`, `lib.rs` (`RunEvent::Exit`), `settings_store.rs` | every brain stops with the panic button, on exit, and when the Labs switch goes off |
+| End to end: `tests/fake_tui_potato.rs`, `fake_tui/potato.rs` (`PotatoRig`), `bridge::serve_for_e2e`, `packages/potato-brain/test/fake-brain.mjs` (`probe: /path`) | Node running the fake brain against the real bridge handler on a free port; a send gives a stored redacted reply and the brain gets 403 on `/panes` |
+
+Tests: `cargo test --lib potato` (protocol, auth, rules, keeper, env, store, cost, service, guards) and `cargo test --features dev-fake-tui --test fake_tui_e2e potato:: -- --test-threads=1`.
+
 ---
 
 ## 4. "Where do I change X?"

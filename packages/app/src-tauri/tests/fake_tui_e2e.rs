@@ -1266,3 +1266,7 @@ mod branch;
 
 #[path = "fake_tui_collision.rs"]
 mod collision;
+// ---- Potato Bot: the real service and sidecar with a fake brain (Node running the brain package's fake-brain.mjs, zero tokens) ----
+
+#[path = "fake_tui_potato.rs"]
+mod potato;
