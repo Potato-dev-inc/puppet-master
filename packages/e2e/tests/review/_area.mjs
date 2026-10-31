@@ -1,7 +1,7 @@
 // Helpers for the Review desk and Package check tests.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fakeTuiExe } from '../../src/paths.mjs';
+import { fakeTuiExe, copyFakeTui } from '../../src/paths.mjs';
 import { gitProject, turnsScript, savedTurn, waitIdle, openSidebarPage, tauri, projectDir } from '../whatbroke/_area.mjs';
 
 export * from '../whatbroke/_area.mjs';
@@ -14,7 +14,7 @@ export * from '../whatbroke/_area.mjs';
 export function useFakeClaude(t) {
   const exe = process.platform === 'win32' ? 'claude.exe' : 'claude';
   const dest = path.join(t.app.dirs.bin, exe);
-  if (!fs.existsSync(dest)) fs.copyFileSync(fakeTuiExe(), dest); // a copy that is running cannot be overwritten
+  copyFakeTui(dest);
 }
 
 /** A script where the Claude-shaped fake asks to run a command and says what happened after the answer. */

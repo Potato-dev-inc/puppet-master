@@ -66,12 +66,64 @@ async function closeAllPanes(app, conn) {
 }
 const closeRefusals = new Map();
 
-/** Put the app back to a known state between tests: no panes, default fake script, a freshly loaded cockpit. */
-export async function resetApp(app, conn, test) {
+/**
+ * Forget what an earlier test left in the app's own stores. They live in the app's data folder and in its memory, not in
+ * the page, so reloading the cockpit does not clear them: a Night Shift run and its history (the sidebar chip, the
+ * Inbox card), a Focus summary, the cards agents or Puppet Master raised (a usage limit, a spent budget). Each step is
+ * best effort and safe to repeat.
+ */
+async function clearLeftovers(app, conn) {
+  const call = (cmd) => conn.evalJs(`window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}).then(() => true, () => false)`).catch(() => false);
+  await call('night_stop');
+  await call('focus_end');
+  await call('focus_summary_dismiss');
+  // Every pending question and card (ask_user, budget, usage limit, consent), the way the Dismiss button does it.
+  await conn.evalJs(`(async () => {
+    const inv = window.__TAURI_INTERNALS__.invoke;
+    let list = [];
+    try { list = await inv('questions_list'); } catch (e) { return 0; }
+    for (const q of list) { try { await inv('question_dismiss', { id: q.id }); } catch (e) { /* gone */ } }
+    return list.length;
+  })()`).catch(() => 0);
+  const walk = (dir, depth) => {
+    let names = [];
+    try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of names) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) { if (depth < 2) walk(f, depth + 1); } else { try { fs.unlinkSync(f); } catch { /* gone or busy */ } }
+    }
+  };
+  walk(path.join(app.dataDir, 'night-shift'), 0);
+}
+
+/** The keys of the Inbox items that are open now (what needs the person, and what is ready for them). */
+async function openInboxKeys(conn) {
+  const keys = await conn.evalJs(`window.__TAURI_INTERNALS__.invoke('attention_snapshot').then((s) => (s.items || []).filter((i) => i.state === 'open').map((i) => i.key), () => null)`).catch(() => null);
+  return Array.isArray(keys) ? keys : null;
+}
+
+/** Thrown by `resetApp` when the app still holds state of an earlier test that it cannot clear: the run restarts the app. */
+export class NeedsRestart extends Error {}
+
+/**
+ * Put the app back to a known state between tests: no panes, nothing left in the Inbox, default fake
+ * script, a freshly loaded cockpit. `baseline` holds the Inbox keys a fresh app has by itself.
+ */
+export async function resetApp(app, conn, test, baseline = []) {
   const stuck = await closeAllPanes(app, conn);
   if (stuck.length) throw new Error(`could not close ${stuck.length} pane(s) between tests: ${stuck.map((p) => p.id.slice(0, 8) + ' ' + (closeRefusals.get(p.id) || 'still listed')).join('; ')}`);
   fs.writeFileSync(app.scriptPath, DEFAULT_SCRIPT);
   await keepOverlaysOff(conn, test);
+  await clearLeftovers(app, conn);
+  // What is still open in the Inbox after that cannot be cleared from outside: start the next test on a new app.
+  let left = [];
+  for (let i = 0; i < 6; i++) {
+    const keys = await openInboxKeys(conn);
+    left = (keys || []).filter((k) => !baseline.includes(k));
+    if (!left.length) break;
+    await sleep(300);
+  }
+  if (left.length) throw new NeedsRestart('the Inbox still holds ' + left.join(', '));
   const target = await findCockpit(app);
   const base = target ? target.url.split('?')[0] : 'http://tauri.localhost/index.html';
   await conn.evalJs('try{localStorage.clear();sessionStorage.clear()}catch(e){}').catch(() => {});
@@ -136,6 +188,8 @@ export async function runTests(tests, opts = {}, emit = () => {}) {
   };
 
   let appFresh = false;
+  let lastArea = null;
+  let baseline = []; // Inbox keys a freshly started app has by itself
   let seeded = false; // the running app was started with a test's own settings
   let failedToStart = null;
   try {
@@ -155,14 +209,26 @@ export async function runTests(tests, opts = {}, emit = () => {}) {
         // with its reason. E2E_RUN_KNOWN_BUGS=1 (or E2E_KNOWN_BUGS=1, E2E_UNVERIFIED=1, --known-bugs) runs it anyway.
         if (test.skip && !runSkipped()) throw new SkipTest(test.skip);
         if (failedToStart) throw new Error('app did not start: ' + failedToStart);
-        if (!app || !app.alive() || !conn || conn.closed || opts.fresh || test.fresh || test.seed || seeded) {
+        const restart = async () => {
           await closeApp();
           try { await openApp(test.seed); seeded = !!test.seed; } catch (e) { failedToStart = e.message; throw new Error('app did not start: ' + e.message); }
+          baseline = (await openInboxKeys(conn)) || [];
           appFresh = true;
+        };
+        // Each area gets an app of its own (a new data folder): what the tests of one area leave in the app's stores
+        // (finished turns on the Review desk, cards, settings, companions) never reaches the next area.
+        const newArea = !!app && lastArea !== null && test.area !== lastArea;
+        if (!app || !app.alive() || !conn || conn.closed || opts.fresh || test.fresh || test.seed || seeded || newArea) await restart();
+        if (!appFresh) {
+          try { await resetApp(app, conn, test, baseline); } catch (e) {
+            if (!(e instanceof NeedsRestart)) throw e;
+            emit({ type: 'log', line: 'restarting the app: ' + e.message });
+            await restart();
+          }
         }
-        if (!appFresh) await resetApp(app, conn, test);
-        else await keepOverlaysOff(conn, test);
+        if (appFresh) await keepOverlaysOff(conn, test);
         appFresh = false;
+        lastArea = test.area;
         consoleErrors = [];
         ctx = makeContext({ meta: test, app, conn, runDir: outDir, pace: video ? 1 : 0.2, isAborted: () => aborted || signal.stopped, emit, project: null });
         await ctx.page.inject();

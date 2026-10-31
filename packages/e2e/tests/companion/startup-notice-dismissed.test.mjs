@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { noCompanions, invoke, draft, companionList, guarded } from './_area.mjs';
-import { fakeTuiExe } from '../../src/paths.mjs';
+import { fakeTuiExe, copyFakeTui } from '../../src/paths.mjs';
 
 export const meta = {
   id: 'companion.startup-notice-dismissed',
@@ -16,7 +16,7 @@ export const meta = {
 export const run = guarded(async (t) => {
   await noCompanions(t);
   const codex = path.join(t.app.dirs.bin, 'codex.exe');
-  fs.copyFileSync(fakeTuiExe(), codex);
+  copyFakeTui(codex);
   try {
     t.fake.script(`
 agent = "codex"
