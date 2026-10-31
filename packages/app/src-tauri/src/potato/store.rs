@@ -102,7 +102,7 @@ pub fn bots_path(root: &Path) -> PathBuf {
     root.join("bots.json")
 }
 
-fn read_json<T: for<'de> Deserialize<'de>>(path: &Path, what: &str) -> StoreResult<Option<T>> {
+pub(super) fn read_json<T: for<'de> Deserialize<'de>>(path: &Path, what: &str) -> StoreResult<Option<T>> {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -111,7 +111,7 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path, what: &str) -> StoreResu
     serde_json::from_str(&text).map(Some).map_err(|e| StoreError::new(INVALID, format!("{what} is damaged: {e}.")))
 }
 
-fn write_json<T: Serialize>(path: &Path, value: &T, what: &str) -> StoreResult<()> {
+pub(super) fn write_json<T: Serialize>(path: &Path, value: &T, what: &str) -> StoreResult<()> {
     let _files = files_lock();
     let text = serde_json::to_string_pretty(value).map_err(|e| io_error(&format!("save {what}"), e))?;
     secure_file::write_private(path, &text).map_err(|e| StoreError::new(INVALID, e))
@@ -310,6 +310,9 @@ pub struct Message {
     /// A helper card: the folder name the bot asked for (a name only, never a path).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// A helper result row: the pane the helper worked in, for its "Open" button.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
 }
 
 impl Message {
@@ -323,6 +326,7 @@ impl Message {
             mood: None,
             request_id: None,
             project: None,
+            pane_id: None,
         }
     }
 }

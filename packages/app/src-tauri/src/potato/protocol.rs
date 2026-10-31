@@ -247,9 +247,7 @@ impl PauseReason {
 }
 
 /// What a helper did, told to the brain.
-/// `Refused` and `Declined` are told by the engine now; the others by the helper piece that starts one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub enum HelperStatus {
     Started,
     Declined,

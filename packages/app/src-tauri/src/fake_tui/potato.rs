@@ -62,14 +62,14 @@ impl PotatoRig {
         RIG.get_or_init(|| {
             let (app, registry) = World::get().handles();
             std::env::set_var("PM_POTATO_BRAIN", fake_brain());
-            let port = crate::bridge::serve_for_e2e(registry, app.clone()).expect("a bridge listener on a free port");
+            let port = crate::bridge::serve_for_e2e(registry.clone(), app.clone()).expect("a bridge listener on a free port");
             live::set_bridge_port(port);
             // The companion the bot is made from.
             let data = crate::app_paths::app_data_dir();
             let home = data.join("companions-home").join("nimbus");
             std::fs::create_dir_all(&home).expect("the companion home");
             crate::companion::store::save(&data, &[companion("nimbus", "Nimbus", &home)]).expect("companions.json");
-            let service = live::start(Some(app)).expect("the Potato Bot service starts once per process");
+            let service = live::start(Some(app), Some(registry)).expect("the Potato Bot service starts once per process");
             // No key is stored: the Go-plan brain needs none, and the real credential store is not touched.
             service.set_settings(Settings { brain: BrainKind::Go, ..Settings::default() }).expect("settings");
             live::apply_settings(&json!({ "potato_bot_enabled": true }));

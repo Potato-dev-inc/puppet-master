@@ -14,6 +14,7 @@
 //! - `store`: the files in `<app data>/potato/` (bots, settings, conversations, persona seeding)
 //! - `cost`: pricing the tokens the brain reports and judging them against the daily limit
 //! - `log`: the 200-line log ring, every line cleaned
+//! - `helpers`: Start / Change folder / Not now, the caps, and watching a helper until it ends
 //! - `service`: the engine that ties them together; `live`: the app's one instance and its thread
 //! - `wire_names`: names the brain package fixes that are also other names (the one reasoned exception to the
 //!   "no agent names in generic code" guard)
@@ -24,6 +25,7 @@
 pub mod auth;
 pub mod cost;
 pub mod env;
+pub mod helpers;
 pub mod keeper;
 pub mod live;
 pub mod log;
@@ -42,6 +44,8 @@ mod cost_tests;
 mod env_tests;
 #[cfg(test)]
 mod guard_tests;
+#[cfg(test)]
+mod helpers_tests;
 #[cfg(test)]
 mod keeper_tests;
 #[cfg(test)]

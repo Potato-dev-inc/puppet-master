@@ -143,8 +143,23 @@ pub fn git_state(path: &Path) -> &'static str {
 /// The recents shown in the menu: the person's own list first, then `others` (projects that had
 /// runs, the default project), each once.
 pub fn recent(store: &Path, others: &[String], limit: usize) -> Vec<RecentProject> {
+    recent_with(store, others, limit, git_state)
+}
+
+/// Like [`recent`], but asks Git nothing: `state` is only `folder` or `missing`. For callers that need the names and
+/// paths quickly (a helper request is answered while a brain waits) and do not show the Git state.
+pub fn recent_light(store: &Path, others: &[String], limit: usize) -> Vec<RecentProject> {
+    recent_with(store, others, limit, |path| if path.is_dir() { "folder" } else { "missing" })
+}
+
+fn recent_with(store: &Path, others: &[String], limit: usize, state_of: impl Fn(&Path) -> &'static str) -> Vec<RecentProject> {
     let mut out: Vec<RecentProject> = Vec::new();
+    let wanted = limit.max(1);
     let mut add = |path: &str, last_used_ms: u64| {
+        // Enough found: the Git state of the rest is never asked for.
+        if out.len() >= wanted {
+            return;
+        }
         // A copy's folder is listed as the project it came from.
         let path = real_folder(path);
         let path = path.as_str();
@@ -158,7 +173,7 @@ pub fn recent(store: &Path, others: &[String], limit: usize) -> Vec<RecentProjec
         out.push(RecentProject {
             path: path.to_string(),
             name: name_of(path),
-            state: git_state(Path::new(path)).into(),
+            state: state_of(Path::new(path)).into(),
             last_used_ms,
         });
     };

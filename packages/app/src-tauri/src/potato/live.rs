@@ -14,13 +14,18 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use parking_lot::Mutex;
 use serde_json::Value;
 use tauri::AppHandle;
 
 use super::auth;
 use super::env::HostEnv;
+use super::helpers::{CompanionAgent, Folder, Hands, RunState, Started};
+use super::protocol::HelperStatus;
 use super::service::{BotProfile, Host, Service};
 use super::sidecar::RealLauncher;
+use crate::agent_runs::AgentRunRequest;
+use crate::companion::broad::Places;
 
 pub const LABS_KEY: &str = "potato_bot_enabled";
 pub const CHANGED_EVENT: &str = "potato://changed";
@@ -131,11 +136,99 @@ impl Host for LiveHost {
     }
 }
 
+/// The real hands of the helpers: the companion's agent, the person's recent projects, `run_agent`, the
+/// operation store and the model maker's address.
+struct LiveHands {
+    app: AppHandle,
+    registry: Arc<Mutex<crate::pty::PaneRegistry>>,
+}
+
+/// Recent projects the engine looks at, most recent first.
+const RECENT_LIMIT: usize = 40;
+
+impl Hands for LiveHands {
+    fn agent_of(&self, bot: &str) -> Option<CompanionAgent> {
+        let companions = crate::companion::store::load(&crate::app_paths::app_data_dir()).ok()?;
+        let c = companions.into_iter().find(|c| c.id == bot)?;
+        Some(CompanionAgent {
+            label: crate::crews::live::label_of(&c.agent_type),
+            agent_type: c.agent_type,
+            pane_id: crate::companion::service::pane_id_of(&c.id),
+            home: Some(c.folder),
+        })
+    }
+
+    fn recent_folders(&self) -> Vec<Folder> {
+        let mut others = crate::operations::indexed_project_paths();
+        others.push(crate::standby::default_project(&self.registry));
+        others.truncate(RECENT_LIMIT);
+        crate::worktrees::folder::recent_light(&crate::app_paths::app_data_dir(), &others, RECENT_LIMIT)
+            .into_iter()
+            .filter(|p| p.state != "missing")
+            .map(|p| Folder { name: p.name, path: p.path })
+            .collect()
+    }
+
+    fn places(&self) -> Places {
+        Places::from_env()
+    }
+
+    fn start(&self, request: AgentRunRequest) -> Result<Started, String> {
+        let registry = self.registry.clone();
+        let app = self.app.clone();
+        let view = crate::agent_runs::run_agent(request, registry, app, None).map_err(|e| e.message)?;
+        Ok(Started { operation_id: view.operation_id, pane_id: view.pane_id })
+    }
+
+    fn poll(&self, project: &str, operation_id: &str) -> RunState {
+        use crate::operations::OperationStatus;
+        let Ok(op) = crate::operations::get_operation(project, operation_id) else { return RunState::Gone };
+        match op.status {
+            OperationStatus::Completed => RunState::Done { status: HelperStatus::Finished, summary: op.result.unwrap_or_default() },
+            OperationStatus::Failed => RunState::Done { status: HelperStatus::Failed, summary: op.error.map(|e| e.message).unwrap_or_default() },
+            OperationStatus::Cancelled => RunState::Done { status: HelperStatus::Stopped, summary: String::new() },
+            _ => RunState::Running,
+        }
+    }
+
+    fn check_key(&self, key: &str) -> Result<(), String> {
+        // A stand-in brain (e2e builds only) has no model behind it, so there is nothing to ask.
+        if super::sidecar::fake_brain_active() {
+            return Ok(());
+        }
+        ask_model(key)
+    }
+}
+
+/// One tiny turn: "hi", one word back at most. The key is sent to the model maker's address and nowhere else;
+/// no redirect is followed, and the answer's body is never shown or logged.
+fn ask_model(key: &str) -> Result<(), String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(8))
+        .timeout_read(Duration::from_secs(20))
+        .redirects(0)
+        .build();
+    let body = serde_json::json!({ "model": "deepseek-chat", "messages": [{ "role": "user", "content": "hi" }], "max_tokens": 1 });
+    match agent.post("https://api.deepseek.com/chat/completions").set("Authorization", &format!("Bearer {key}")).send_json(body) {
+        Ok(resp) if resp.status() == 200 => Ok(()),
+        Ok(_) => Err("DeepSeek gave an answer that was not expected. Try again.".to_string()),
+        Err(ureq::Error::Status(401, _)) => Err("DeepSeek did not accept that key.".to_string()),
+        Err(ureq::Error::Status(402, _)) => Err("The key works, but the DeepSeek account has no balance.".to_string()),
+        Err(ureq::Error::Status(429, _)) => Err("DeepSeek is busy right now. Try again in a minute.".to_string()),
+        Err(ureq::Error::Status(_, _)) => Err("DeepSeek could not answer right now. Try again in a minute.".to_string()),
+        Err(ureq::Error::Transport(_)) => Err("Could not reach DeepSeek. Check your internet.".to_string()),
+    }
+}
+
 /// Installs the service (once) and starts its supervisor thread.
-pub fn start(app: Option<AppHandle>) -> Option<Arc<Service>> {
+pub fn start(app: Option<AppHandle>, registry: Option<Arc<Mutex<crate::pty::PaneRegistry>>>) -> Option<Arc<Service>> {
+    let hands = app.clone().zip(registry).map(|(app, registry)| Arc::new(LiveHands { app, registry }));
     let service = Service::new(root(), Arc::new(LiveHost { app }), Arc::new(RealLauncher::new()), auth::brains().clone());
     if SERVICE.set(service.clone()).is_err() {
         return None;
+    }
+    if let Some(hands) = hands {
+        service.set_hands(hands);
     }
     let ticker = service.clone();
     let _ = std::thread::Builder::new().name("potato-keeper".into()).spawn(move || loop {
