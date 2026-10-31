@@ -140,6 +140,8 @@ pub fn stop_all(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) -> StopRep
     let _ = std::thread::Builder::new().name("missions-stop-all".into()).spawn(crate::missions::stop_all);
     // A running Night Shift stops too, so it does not start the next task behind the panic.
     crate::night_shift::runner::stop_running_nights();
+    // Potato Bot's brains stop too (they cost money per message). A quick ask to leave, then the tree is killed.
+    crate::potato::live::stop_all(std::time::Duration::from_millis(300));
     let list = candidates(registry);
     let checkpoints = checkpoint_running(&list, CHECKPOINT_BUDGET, Arc::new(crate::checkpoints::before_stop));
     stop_running_with(

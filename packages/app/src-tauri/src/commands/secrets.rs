@@ -11,7 +11,18 @@ pub struct SecretStorageInfo {
     pub label: String,
 }
 
+/// Set, read masked and delete: the provider keys and the Potato Bot sidecar secrets.
 fn guard(name: &str) -> Result<(), String> {
+    if secrets::is_ui_secret(name) {
+        Ok(())
+    } else {
+        Err(format!("'{name}' is not a known secret"))
+    }
+}
+
+/// Reading the raw value is for the provider keys only. A sidecar secret goes from the credential store
+/// into the brain's environment and nowhere else; the webview never gets it back.
+fn guard_for_llm(name: &str) -> Result<(), String> {
     if secrets::is_provider_secret(name) {
         Ok(())
     } else {
@@ -58,6 +69,42 @@ pub fn secret_delete(name: String) -> Result<(), String> {
 /// Restricted to the provider keys.
 #[tauri::command]
 pub fn secret_get_for_llm(name: String) -> Result<Option<String>, String> {
-    guard(&name)?;
+    guard_for_llm(&name)?;
     Ok(secrets::read_secret(&name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_get_for_llm_refuses_both_sidecar_names_and_the_masked_commands_take_them() {
+        for name in secrets::SIDECAR_SECRETS {
+            // Even with a value stored, the command refuses the name and returns no value.
+            secrets::backend().set(name, "sk-test-sidecar-value-000000").unwrap();
+            let result = secret_get_for_llm((*name).to_string());
+            assert!(result.is_err(), "{name} must not be readable through secret_get_for_llm");
+            assert!(!format!("{result:?}").contains("sk-test-sidecar-value"), "the refusal must not carry the value");
+            secrets::backend().delete(name).unwrap();
+        }
+        // The masked commands do accept them, and still refuse strangers. (One test: both touch the one
+        // process-wide in-memory store, so they must not run side by side.)
+        let name = "deepseek_api_key".to_string();
+        secret_set(name.clone(), "sk-test-deepseek-0000000000".to_string()).unwrap();
+        let mask = secret_get_masked(name.clone()).unwrap();
+        assert!(mask.set);
+        assert_eq!(mask.last4.as_deref(), Some("0000"));
+        secret_delete(name.clone()).unwrap();
+        assert!(!secret_get_masked(name).unwrap().set);
+        assert!(secret_set("anything_else".into(), "x".into()).is_err());
+        assert!(secret_get_masked("anything_else".into()).is_err());
+        assert!(secret_delete("anything_else".into()).is_err());
+    }
+
+    #[test]
+    fn the_provider_keys_are_still_readable_for_the_orchestrator() {
+        secrets::backend().set("openai_api_key", "sk-test-provider-key-000000").unwrap();
+        assert_eq!(secret_get_for_llm("openai_api_key".into()).unwrap().as_deref(), Some("sk-test-provider-key-000000"));
+        secrets::backend().delete("openai_api_key").unwrap();
+    }
 }
