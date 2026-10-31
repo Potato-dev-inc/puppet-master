@@ -121,6 +121,9 @@ export async function startApp(opts) {
     XDG_DATA_HOME: dirs.local,
     WEBVIEW2_USER_DATA_FOLDER: path.join(root, 'webview'), // the browser profile (localStorage, cache) is per run too
     PM_WINDOW_ANCHOR: anchor,
+    // A newer app opens its own window at start; in this isolated profile that window gets no webview (no debugging port),
+    // so the launcher opens the cockpit itself (ensureCockpit) and the app is told to start without a window.
+    PUPPET_MASTER_NO_WINDOW: process.env.PUPPET_MASTER_NO_WINDOW ?? '1',
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
     PM_FAKE_TUI_SCRIPT: scriptPath,
     PM_E2E_PATH_PREPEND: dirs.bin,
