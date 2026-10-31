@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fakeTuiExe } from '../../src/paths.mjs';
+import { fakeTuiExe, copyFakeTui } from '../../src/paths.mjs';
 
 /** Settings the app starts with when Night Shift is switched on in Labs. */
 export const NIGHT_ON = { night_shift_enabled: true };

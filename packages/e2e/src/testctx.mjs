@@ -124,7 +124,8 @@ ${s.slice(-600)}`);
       /** Events the fake agents logged since this test started: start, ready, key, prompt, approval_shown, turn_done, exit ... */
       events() {
         let text = '';
-        try { text = fs.readFileSync(app.fakeLog, 'utf8').slice(fakeLogStart); } catch { /* none yet */ }
+        // fakeLogStart is a size in bytes: cut the bytes, not the characters (a log with non-ASCII text would lose this test's first events)
+        try { text = fs.readFileSync(app.fakeLog).subarray(fakeLogStart).toString('utf8'); } catch { /* none yet */ }
         return text.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return { raw: l }; } });
       },
       async waitEvent(match, { timeout = 15000 } = {}) {
