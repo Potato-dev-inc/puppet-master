@@ -176,4 +176,19 @@ pub struct AgentRunRequest {
     /// it. A guarded run never takes a standby or an existing pane and never adopts a pane id.
     #[serde(skip)]
     pub(crate) guard_env: Option<String>,
+    /// Crate-internal (never in the MCP schema, never read from a JSON body): the pane id of the companion
+    /// this run is started for (`companion-<id>`), when the person said yes to a helper the companion asked
+    /// for (Potato Bot). The run gets the house rules of a companion's helper: the default turn budget, never
+    /// the companion's home folder, a `delegated` feed line.
+    #[serde(skip)]
+    pub on_behalf_of_companion: Option<String>,
+}
+
+impl AgentRunRequest {
+    /// The companion this run is a helper of: the one the app named (`on_behalf_of_companion`), else the one
+    /// `from_session` finds (the companion whose agent asked over the bridge). It decides the helper's house
+    /// rules: the default turn budget, never the companion's home folder, a `delegated` feed line.
+    pub fn companion_pane_with(&self, from_session: impl FnOnce() -> Option<String>) -> Option<String> {
+        self.on_behalf_of_companion.clone().or_else(from_session)
+    }
 }

@@ -100,9 +100,9 @@ pub fn run_agent(
     check_guard_name(&request)?;
     // Started by a companion's agent (where the caller runs, or where it says it runs)? Then the helper gets
     // the companion's house rules: a default turn budget, never the companion's own home folder, a feed line.
-    let companion_pane = session_id
-        .as_deref()
-        .and_then(|session| crate::companion::caller::of_session(&registry, session).suspected);
+    let companion_pane = request.companion_pane_with(|| {
+        session_id.as_deref().and_then(|session| crate::companion::caller::of_session(&registry, session).suspected)
+    });
     let adopting_pane = request.pane_id.is_some() || request.worker_id.is_some();
     let isolate = parse_isolation(&request)?;
     // A mission round joins the mission's copy instead of creating one; it is always visible.
