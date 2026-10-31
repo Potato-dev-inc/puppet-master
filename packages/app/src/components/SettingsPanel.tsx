@@ -21,6 +21,7 @@ import {
   type RowDef,
   type SettingsEnv,
   type SettingsPageId,
+  visibleSections,
 } from './settings/model';
 import '../styles/settings.css';
 
@@ -299,8 +300,10 @@ export function SettingsPanel({
   if (!open) return null;
 
   const trimmed = query.trim();
-  const hits = trimmed ? searchSections(SECTIONS, trimmed) : [];
-  const section = SECTIONS.find((s) => s.id === page);
+  const shown = visibleSections(SECTIONS, settings);
+  const hits = trimmed ? searchSections(shown, trimmed) : [];
+  // A page of a feature that is switched off (the link was kept, or the switch just moved) shows the first page instead.
+  const section = shown.find((s) => s.id === page) ?? (settings && page !== 'later' ? shown[0] : undefined);
   const chrome: RowChrome = { saved: savedIds, errors, target: marked ?? undefined };
 
   const title = trimmed ? 'Search results' : page === 'later' ? 'Coming later' : (section?.title ?? 'Settings');
@@ -334,12 +337,12 @@ export function SettingsPanel({
           </label>
         </div>
         <nav className="st-nav" aria-label="Settings sections">
-          {SECTIONS.map((item) => (
+          {shown.map((item) => (
             <button
               key={item.id}
               type="button"
               className="st-nav-row"
-              aria-current={!trimmed && page === item.id ? 'page' : undefined}
+              aria-current={!trimmed && page !== 'later' && section?.id === item.id ? 'page' : undefined}
               onClick={() => {
                 setPage(item.id);
                 setQuery('');

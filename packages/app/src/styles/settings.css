@@ -1104,3 +1104,14 @@
   display: flex;
   gap: 8px;
 }
+
+/* Potato Bot: the key row's Check key button and its answer sit side by side. */
+.settings .st-key-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.settings .st-key-check .st-note {
+  margin: 0;
+}

@@ -1,4 +1,4 @@
-// The six sections hold every live control of the old 22 tabs, once, under unique ids.
+// The sections hold every live control of the old 22 tabs, once, under unique ids.
 import { describe, expect, it } from 'vitest';
 import { LATER_ITEMS, SECTIONS } from './catalog';
 import { SECTION_IDS, groupRows, rowMatches, rowScore, searchSections } from './model';
@@ -6,9 +6,9 @@ import { SECTION_IDS, groupRows, rowMatches, rowScore, searchSections } from './
 const allRows = SECTIONS.flatMap((s) => s.rows.map((r) => ({ section: s.id, row: r })));
 
 describe('settings catalog', () => {
-  it('has exactly the six sections, in order', () => {
+  it('has exactly the seven sections, in order (Potato Bot is shown only while its Labs switch is on)', () => {
     expect(SECTIONS.map((s) => s.id)).toEqual([...SECTION_IDS]);
-    expect(SECTIONS.map((s) => s.title)).toEqual(['General', 'Agents', 'Orchestrator & Models', 'Keys', 'Bridge & MCP', 'Phone']);
+    expect(SECTIONS.map((s) => s.title)).toEqual(['General', 'Agents', 'Orchestrator & Models', 'Keys', 'Bridge & MCP', 'Phone', 'Potato Bot']);
   });
 
   it('every row has a unique id, a label and a hint', () => {

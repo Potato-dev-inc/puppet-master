@@ -462,6 +462,22 @@ export const generalRows: RowDef[] = [
     labs: { name: 'Red to Green', about: 'The same agent fixes failed CI on its pull request, after you say yes.' },
     render: (env) => <CiFixSettings onSaved={env.markSaved} />,
   },
+  {
+    id: 'potato-labs',
+    label: 'Potato Bot',
+    hint: 'A chat friend with its own small brain. Turn it on to see its page and its settings.',
+    keywords: 'potato fish bot chat companion brain deepseek labs',
+    group: 'Labs',
+    labs: { name: 'Potato Bot', about: 'A chat friend with its own brain that asks before it starts any helper.' },
+    render: (env) => (
+      <SettingToggle
+        label="Potato Bot"
+        description="Chat with a bot that has a mood and a memory. It can ask you to start a helper, and nothing starts until you press Start. Its settings appear under Potato Bot when this is on."
+        checked={env.settings.potato_bot_enabled ?? false}
+        onChange={(value) => void env.patch({ potato_bot_enabled: value })}
+      />
+    ),
+  },
   { id: 'team', label: 'Team', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', labs: { name: 'Team', about: 'Tell teammates when your agent pushes, and see when theirs does.' }, render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'live-room', label: 'Live Room', hint: 'Let people with a link watch a chat. Pick the relay address, how long and how many.', keywords: 'live room share stream watch link relay viewers broadcast default length', group: 'Live Room', render: (env) => <LiveRoomRow onSaved={env.markSaved} /> },
   { id: 'version', label: 'Version', hint: 'Check for updates and download the installer.', keywords: 'app version update release download install', group: 'About', render: (env) => <VersionRow env={env} /> },

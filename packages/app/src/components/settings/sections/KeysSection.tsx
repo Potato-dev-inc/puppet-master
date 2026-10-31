@@ -3,7 +3,7 @@
 // automation settings save through their own Tauri commands and tick the row when they succeed.
 import { useCallback, useEffect, useState } from 'react';
 import type { SettingsPatch } from '../../../lib/settings';
-import { secretsApi, type SecretName } from '../../../lib/secrets';
+import { secretsApi, type ProviderSecretName } from '../../../lib/secrets';
 import { tauri, type OpenCodeKeyStatus } from '../../../lib/tauri';
 import { ApiKeyField } from '../ApiKeyField';
 import { SecretControl } from '../controls';
@@ -51,7 +51,7 @@ function useOpenCodeKeyStatus() {
 interface ProviderKeyDef {
   id: string;
   label: string;
-  name: SecretName;
+  name: ProviderSecretName;
   placeholder: string;
   hint: string;
 }
