@@ -9,6 +9,7 @@ import type { PaneInfo } from '../lib/tauri';
 type Resolver = (list: PaneInfo[]) => void;
 const pending: Resolver[] = [];
 const panesChanged: { cb: (() => void) | null } = { cb: null };
+const statusEvents: { cb: ((e: { pane_id: string; status: string }) => void) | null } = { cb: null };
 
 vi.mock('../lib/tauri', () => ({
   tauri: {
@@ -20,7 +21,10 @@ vi.mock('../lib/tauri', () => ({
     onTerminalData: async () => () => {},
     onPtyResized: async () => () => {},
     onTerminalSnapshot: async () => () => {},
-    onPtyStatus: async () => () => {},
+    onPtyStatus: async (cb: (e: { pane_id: string; status: string }) => void) => {
+      statusEvents.cb = cb;
+      return () => {};
+    },
     onPtyExit: async () => () => {},
     readScreenReplay: vi.fn(),
     readRawBuffer: vi.fn(),
@@ -100,6 +104,49 @@ describe('usePaneRegistry keeps unchanged panes identical across refreshes', () 
     await act(async () => panesChanged.cb?.());
     await act(async () => pending[pending.length - 1]([pane('a', 1), pane('b', 2)]));
     expect(latest!.subscribePaneData).toBe(subscribe);
+    await act(async () => root.unmount());
+  });
+});
+
+describe('usePaneRegistry status events that come while a list is on its way', () => {
+  // A helper is started and given its first message at once: the app lists the panes (the pane is idle in that
+  // answer) and the pane's "running" event arrives before the answer does. The sidebar and the parent's Chat read
+  // this map, so the pane must not go back to idle until its next event.
+  it('a pane that began running while the list was on its way stays running', async () => {
+    let latest: PaneRegistryApi | null = null;
+    function Probe() {
+      latest = usePaneRegistry();
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    pending.length = 0;
+    await act(async () => root.render(<Probe />));
+    await act(async () => pending[pending.length - 1]([pane('parent', 1)]));
+    // A new pane: the refresh starts, then its status event arrives, then the answer (taken before it) lands.
+    await act(async () => panesChanged.cb?.());
+    await act(async () => statusEvents.cb?.({ pane_id: 'helper', status: 'running' }));
+    await act(async () => pending[pending.length - 1]([pane('parent', 1), pane('helper', 2)]));
+    expect(latest!.panes.get('helper')?.status).toBe('running');
+    // Its next event still works as before.
+    await act(async () => statusEvents.cb?.({ pane_id: 'helper', status: 'idle' }));
+    expect(latest!.panes.get('helper')?.status).toBe('idle');
+    await act(async () => root.unmount());
+  });
+
+  it('an answer asked for after the event is believed (the event is already in it)', async () => {
+    let latest: PaneRegistryApi | null = null;
+    function Probe() {
+      latest = usePaneRegistry();
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    pending.length = 0;
+    await act(async () => root.render(<Probe />));
+    await act(async () => pending[pending.length - 1]([pane('a', 1)]));
+    await act(async () => statusEvents.cb?.({ pane_id: 'a', status: 'running' }));
+    await act(async () => panesChanged.cb?.());
+    await act(async () => pending[pending.length - 1]([{ ...pane('a', 1), status: 'idle' }]));
+    expect(latest!.panes.get('a')?.status).toBe('idle');
     await act(async () => root.unmount());
   });
 });

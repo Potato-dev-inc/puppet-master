@@ -673,6 +673,16 @@ pub fn detect_for_ui(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Opti
 pub struct PromptTrack {
     waiting: bool,
     last_id: Option<String>,
+    /// The options of the last prompt sent: a menu drawn in steps keeps its id (the question) while its options grow.
+    last_choices: Vec<PromptChoice>,
+    refresh: bool,
+}
+
+impl PromptTrack {
+    /// The last event sent was the same question with other options (a menu that finished drawing), not a new prompt.
+    pub fn last_was_refresh(&self) -> bool {
+        self.refresh
+    }
 }
 
 /// What to emit on `pty://prompt` after a screen update: `Some(prompt)` is an event to send
@@ -687,13 +697,25 @@ pub fn next_prompt_event(
     if !waiting {
         let was = std::mem::take(&mut track.waiting);
         track.last_id = None;
+        track.last_choices.clear();
+        track.refresh = false;
         return was.then_some(None);
     }
     let prompt = detect();
     let id = prompt.as_ref().map(|p| p.prompt_id.clone());
+    let choices = prompt.as_ref().map(|p| p.choices.clone()).unwrap_or_default();
     let entered = !std::mem::replace(&mut track.waiting, true);
     if entered || id != track.last_id {
+        track.refresh = false;
         track.last_id = id;
+        track.last_choices = choices;
+        return Some(prompt);
+    }
+    // The same question with other options: the card sent first was drawn from a half-drawn menu. The viewer's card
+    // follows the screen until the question is answered.
+    if choices != track.last_choices {
+        track.refresh = true;
+        track.last_choices = choices;
         return Some(prompt);
     }
     None

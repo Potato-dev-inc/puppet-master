@@ -153,6 +153,16 @@ impl Store {
         self.prompts.insert(pane_id.to_string(), rec);
     }
 
+    /// The same question, drawn again with other options (a menu that was caught half drawn): the stored record
+    /// follows the screen and stays the same occurrence.
+    pub fn refresh_prompt(&mut self, pane_id: &str, prompt: Option<PromptRec>) {
+        let Some(old) = self.prompts.get(pane_id) else { return self.on_prompt(pane_id, true, prompt) };
+        let occurrence = old.occurrence;
+        let mut rec = prompt.unwrap_or_default();
+        rec.occurrence = occurrence;
+        self.prompts.insert(pane_id.to_string(), rec);
+    }
+
     // --- producers ------------------------------------------------------------------------------
 
     /// A producer (budget, limit, consent, tamper, setup, review, done) raises an item. Raising the
