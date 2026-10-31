@@ -1,0 +1,17 @@
+{
+  "update_id": 2002,
+  "message": {
+    "message_id": 91,
+    "from": {"id": 3003, "is_bot": false, "first_name": "Sam"},
+    "chat": {"id": -1009999900001, "title": "Test Crew", "type": "group"},
+    "date": 1761600300,
+    "reply_to_message": {
+      "message_id": 89,
+      "from": {"id": 777, "is_bot": true, "first_name": "Anna PM", "username": "anna_pm_bot"},
+      "chat": {"id": -1009999900001, "title": "Test Crew", "type": "group"},
+      "date": 1761600250,
+      "text": "It was real."
+    },
+    "text": "and the flag?"
+  }
+}

@@ -21,6 +21,9 @@
 //! - `feed`: what the app tells the chat (candidates, companion replies, the 5 s tick).
 //! - `status`: the `TelegramStatus` the Settings page shows.
 //! - `live`: builds the real runtime at start-up (`start`) and the global hooks `push` calls.
+//! - Tag Your Agent (the bot answering when tagged in an approved group; see `docs/features/tag-your-agent.md`):
+//!   `tag_config` (its saved settings), `tag_prompt` (group text as fenced data), `tag_log` (the kept answers),
+//!   `setup_tag` (the person's actions) and the group path in `engine/group.rs`.
 //! - `test_host`: a fake `Host` for tests only.
 pub mod config;
 pub mod token;
@@ -40,6 +43,10 @@ pub mod runtime;
 pub mod setup;
 pub mod feed;
 pub mod status;
+pub mod tag_config;
+pub mod tag_log;
+pub mod tag_prompt;
+pub mod setup_tag;
 mod live;
 pub use live::{companion_reply, current, focus_note, listening, offer, offer_answer, pane_status, start};
 #[cfg(test)]

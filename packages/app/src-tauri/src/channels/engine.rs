@@ -1,7 +1,9 @@
 //! Text Your Agents: the engine. It reads one batch of updates from the bot and decides what is
 //! acted on and what goes back. This is the security core of the feature, so the order is fixed:
 //!
-//! 1. Not a private chat, from a bot, or no sender: dropped.
+//! 1. Not a private chat, from a bot, or no sender: dropped. (A group is handed to `engine/group.rs`
+//!    first, but only when the person turned Tag Your Agent on; with it off the group is dropped here
+//!    as before. A group message never reaches the steps below.)
 //! 2. Nobody paired yet: only `/start CODE` is read (`engine/pair.rs`), everything else is dropped
 //!    without a reply. Paired but switched off: dropped.
 //! 3. A chat id or user id other than the paired ones is a stranger: dropped without a reply,
@@ -35,8 +37,11 @@ use serde_json::json;
 use std::collections::VecDeque;
 
 mod buttons;
+mod group;
 mod pair;
 mod run;
+
+pub use group::GroupJob;
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]
@@ -81,6 +86,11 @@ pub enum Effect {
     SendTo { chat_id: i64, out: Outgoing },
     Edit { message_id: i64, out: Outgoing },
     AnswerCallback { id: String, text: Option<Redacted<String>> },
+    /// A threaded reply in an approved group (Tag Your Agent). Goes to the chat it names, not the paired one.
+    Reply { chat_id: i64, reply_to: i64, out: Outgoing },
+    /// A group question to ask. The poller runs it on its own thread and queues the `Reply` it gives
+    /// back (`Engine::answer_job`); the engine never sends this itself.
+    Ask(GroupJob),
     /// The poller must exit: `/stop`.
     Stop,
 }
@@ -117,6 +127,8 @@ pub struct Engine {
     limits: Mutex<Limits>,
     refs: Mutex<Refs>,
     misc: Mutex<Misc>,
+    /// Caps and counters of the group path (`engine/group.rs`).
+    group: Mutex<group::GroupState>,
 }
 
 impl Default for Engine {
@@ -145,6 +157,7 @@ impl Engine {
                 strangers: VecDeque::new(),
                 confirm_tokens: VecDeque::new(),
             }),
+            group: Mutex::new(group::GroupState::new()),
         }
     }
 
@@ -194,8 +207,12 @@ impl Engine {
 
     fn on_message(&self, host: &dyn Host, cfg: &TelegramConfig, now: u64, m: &InMessage, out: &mut Out) {
         // Private chats only, and only a person: groups, channels and bots never reach the rules below.
+        // A group goes to its own path, which does nothing unless Tag Your Agent is on.
+        if !m.chat_private {
+            return self.on_group_message(host, cfg, now, m, out);
+        }
         let Some(from) = m.from_id else { return };
-        if !m.chat_private || m.from_is_bot {
+        if m.from_is_bot {
             return;
         }
         let Some(paired) = &cfg.paired else {

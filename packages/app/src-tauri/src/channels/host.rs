@@ -3,6 +3,7 @@
 //! attention list or the audit log directly. The real one is `host_live`.
 
 use super::config::TelegramConfig;
+use super::tag_log::GroupAnswerRecord;
 use crate::attention::answer::{Reply, Request};
 use crate::attention::caps::DeviceCaps;
 use crate::attention::model::Snapshot;
@@ -27,6 +28,31 @@ pub struct CompanionLine {
     pub awake: bool,
 }
 
+/// One question from an approved group, ready to ask. `agent` is the group's choice (a registry id) and
+/// `folder` the group's project folder; both `None` means "any agent that can answer, in a neutral folder".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupAsk {
+    pub agent: Option<String>,
+    pub folder: Option<String>,
+    pub prompt: String,
+}
+
+/// What the read-only ask gave back. `answer` is `None` when it failed for any reason (no agent, timeout,
+/// the agent stopped to ask for permission, an empty answer): the group is never told why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupAskOutcome {
+    /// The agent's display name, empty when no agent could be chosen.
+    pub agent_label: String,
+    pub answer: Option<String>,
+}
+
+/// An agent the person can pick for a group: installed and able to answer a headless read-only question.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct AgentOption {
+    pub id: String,
+    pub label: String,
+}
+
 pub trait Host: Send + Sync {
     fn now_ms(&self) -> u64;
     /// The saved settings, read fresh each call.
@@ -46,4 +72,14 @@ pub trait Host: Send + Sync {
     fn audit(&self, kind: crate::audit::Kind, summary: &str, detail: serde_json::Value);
     /// Tell the desktop that the Telegram status changed (`telegram://changed`).
     fn changed(&self);
+    /// Tag Your Agent: asks one question through the read-only headless ask (`askbar::run_ask`). Blocks until
+    /// the agent answers or gives up (up to about 90 s), so it never runs on the poll thread. Writes nothing
+    /// and touches no pane.
+    fn ask_group(&self, ask: &GroupAsk) -> GroupAskOutcome;
+    /// Tag Your Agent: keeps one answered (or failed) question for the Settings page.
+    fn record_group_answer(&self, record: &GroupAnswerRecord);
+    /// Tag Your Agent: the kept records, oldest first.
+    fn recent_group_answers(&self) -> Vec<GroupAnswerRecord>;
+    /// Tag Your Agent: the agents a group can choose from (from the registry, installed ones only).
+    fn tag_agents(&self) -> Vec<AgentOption>;
 }

@@ -1046,6 +1046,60 @@
 .settings .st-tg-ask span {
   color: var(--label-2);
 }
+.settings .st-tag-list,
+.settings .st-tag-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings .st-tag-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--label);
+}
+.settings .st-tag-actions {
+  display: flex;
+  gap: 8px;
+}
+.settings .st-tag-group {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.settings .st-tag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label);
+}
+.settings .st-tag-recent li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.settings .st-tag-recent small,
+.settings .st-tag-a {
+  color: var(--label-2);
+}
+.settings .st-tag-q,
+.settings .st-tag-a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
 .settings .st-tg-decide {
   display: flex;
   gap: 8px;
