@@ -175,7 +175,7 @@ function buildContact(all) {
 
 
 // ---------------------------------------------------------------- animated webp (ffmpeg)
-const FFMPEG = process.env.FFMPEG || 'C:/ffmpeg/bin/ffmpeg.exe';
+const FFMPEG = process.env.FFMPEG || 'ffmpeg';
 function webpFor(st, size = 256) {
   const dir = path.join(os.tmpdir(), 'potato-webp', st.id);
   fs.mkdirSync(dir, { recursive: true });

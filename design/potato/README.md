@@ -77,7 +77,7 @@ cd design/potato/tools && npm install && npm run build
 
 `npm run build` rewrites everything above (about 10 seconds). It needs Node 22 and the dev
 tools in `tools/package.json` (resvg, gifenc, pngjs, jpeg-js). The animated WebPs use ffmpeg
-(`C:/ffmpeg/bin/ffmpeg.exe`, or set `FFMPEG`).
+(it must be on PATH, or set the `FFMPEG` environment variable to its location).
 
 - `npm run build:all` also writes the 64 and 256 px PNG frames. They are not committed, to keep the
   repo small (the committed pack is about 38 MB), so the manifest only lists 128 and 512.
