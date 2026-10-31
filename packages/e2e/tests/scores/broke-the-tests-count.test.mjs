@@ -7,12 +7,10 @@ export const meta = {
   title: 'After What broke the tests blames a turn, the Scores row of that agent says Broke the tests 1 time',
   area: 'scores',
   tags: ['scores', 'whatbroke'],
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 150000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await t.step('Two agents finish turns in one folder; the second breaks the test command');
   const cwd = await sharedFolder(t, 'culprit', FIXTURES.culprit);
   await paneInFolder(t, cwd);

@@ -7,11 +7,9 @@ export const meta = {
   area: 'whatbroke',
   tags: ['whatbroke'],
   edge: true,
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   const cwd = gitProject(t, 'cancel', { 'check.mjs': CHECK_MJS });
   await paneWithFirstSavePoint(t, cwd);
 

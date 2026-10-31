@@ -7,12 +7,10 @@ export const meta = {
   title: 'Two different agents in one project get one row each, the busier one first',
   area: 'scores',
   tags: ['scores'],
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 90000,
 };
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   await installAgent(t, { id: 'ember', label: 'Ember', transcript: false });
   t.fake.script(SLOW_REPLY);
   const cwd = projectDir(t, 'shared');

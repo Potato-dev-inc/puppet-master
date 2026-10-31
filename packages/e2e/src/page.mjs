@@ -59,6 +59,7 @@ const FINDER_SOURCE = `(()=>{
       const score = (e) => (e.closest(INTERACTIVE) ? 0 : 1000) + Math.min(labelOf(e).length, 900);
       list.sort((a, b) => score(a) - score(b));
     }
+    if (spec.scroll && list[spec.nth || 0]) { try { list[spec.nth || 0].scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* detached */ } }
     const items = list.map((e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, tag: e.tagName.toLowerCase(), text: labelOf(e).slice(0, 80) }; });
     return { count: items.length, items, nth: spec.nth || 0 };
   };
@@ -156,25 +157,20 @@ export class Page {
 
   async waitGone(target, opts = {}) { return this.waitFor(target, { ...opts, state: 'gone' }); }
 
+  /** Wait for the target, scroll it into view (the element itself, so lists and panels scroll too) and return its rectangle. */
   async locate(target, opts = {}) {
-    const rect = await this.waitFor(target, opts);
-    // scroll into view when needed, then measure again
-    const inView = rect.y >= 0 && rect.y + rect.h <= (await this.c.evalJs('innerHeight')) && rect.x >= 0;
-    if (!inView) {
-      await this.scrollIntoView(target, opts);
-      await sleep(150);
-      return (await this.find(target, opts)).rect || rect;
+    await this.waitFor(target, opts);
+    const r = await this.find(target, { ...opts, scroll: true });
+    if (r.rect) {
+      const vh = await this.c.evalJs('innerHeight');
+      if (r.rect.y < 0 || r.rect.y + r.rect.h > vh) await sleep(120); // a smooth scroll may still be moving
+      const again = await this.find(target, { ...opts, scroll: true });
+      return again.rect || r.rect;
     }
-    return rect;
+    return this.waitFor(target, opts);
   }
 
-  async scrollIntoView(target, opts = {}) {
-    const spec = parseTarget(target, opts);
-    const r = await this.c.evalJs(`window.__pmE2eFind(${JSON.stringify(spec)})`);
-    const it = r.items[spec.nth || 0];
-    if (!it) return;
-    await this.c.evalJs(`(()=>{const el=document.elementFromPoint(${Math.max(1, Math.min(it.x + it.w / 2, 10000))},${Math.max(1, Math.min(it.y + it.h / 2, 10000))});if(el)el.scrollIntoView({block:'center',inline:'nearest'});})()`);
-  }
+  async scrollIntoView(target, opts = {}) { await this.find(target, { ...opts, scroll: true }); }
 
   async moveTo(x, y) {
     this.pos = [x, y];

@@ -7,7 +7,6 @@ export const meta = {
   title: 'This project counts one folder, All projects counts every folder',
   area: 'scores',
   tags: ['scores'],
-  skip: "NOT VERIFIED IN THE FULL RUN: it failed in the one full video run after a first-run Welcome screen covered the cockpit mid-run (cause not found); it passed in earlier partial runs. Remove this skip and re-run.",
   timeout: 90000,
 };
 
@@ -20,7 +19,6 @@ const nimbusTurns = (t) => t.page.eval(`(()=>{
 })()`);
 
 export async function run(t) {
-  if (meta.skip) t.skip(meta.skip);
   t.fake.script(SLOW_REPLY);
   const alpha = projectDir(t, 'alpha');
   const beta = projectDir(t, 'beta');

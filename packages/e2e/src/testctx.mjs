@@ -71,6 +71,9 @@ export function makeContext({ meta, app, conn, runDir, pace, isAborted, emit, pr
     // short forms of the page driver
     click: (...a) => page.click(...a),
     hover: (...a) => page.hover(...a),
+    rightClick: (...a) => page.rightClick(...a),
+    doubleClick: (...a) => page.doubleClick(...a),
+    scrollIntoView: (...a) => page.scrollIntoView(...a),
     type: (...a) => page.type(...a),
     fill: (...a) => page.fill(...a),
     press: (...a) => page.press(...a),

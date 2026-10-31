@@ -30,7 +30,7 @@ export async function loadTests({ dir = TESTS_DIR, bust = false } = {}) {
       const area = m.area || m.id.split('.')[0];
       if (m.id.split('.')[0] !== area) throw new Error(`meta.id "${m.id}" must start with its area "${area}."`);
       out.push({
-        id: m.id, title: m.title, area, tags: m.tags || [], edge: !!m.edge, fresh: !!m.fresh, seed: m.seed || null, timeout: m.timeout || 60000,
+        id: m.id, title: m.title, area, tags: m.tags || [], edge: !!m.edge, fresh: !!m.fresh, seed: m.seed || null, skip: typeof m.skip === 'string' && m.skip ? m.skip : (m.skip ? 'skipped' : null), timeout: m.timeout || 60000,
         features: m.features || [], file: path.relative(dir, file).split(path.sep).join('/'), run: mod.run, setup: mod.setup,
       });
     } catch (e) {

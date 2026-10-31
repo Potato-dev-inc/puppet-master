@@ -102,7 +102,7 @@ export async function startApp(opts) {
 
   // Settings the app starts with. The first-run welcome is switched off by default; a test that wants it
   // (or any other setting) passes `meta.seed` (a null value removes a key), which also restarts the app for it.
-  const settings = { onboarding_done: true, ...(opts.settings || {}) };
+  const settings = { onboarding_done: true, away_minutes: 0, ...(opts.settings || {}) };
   for (const k of Object.keys(settings)) if (settings[k] === null) delete settings[k];
   fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({ settings }, null, 2));
 
@@ -121,9 +121,9 @@ export async function startApp(opts) {
     XDG_DATA_HOME: dirs.local,
     WEBVIEW2_USER_DATA_FOLDER: path.join(root, 'webview'), // the browser profile (localStorage, cache) is per run too
     PM_WINDOW_ANCHOR: anchor,
-    // A newer app opens its own window at start; in this isolated profile that window gets no webview (no debugging port),
-    // so the launcher opens the cockpit itself (ensureCockpit) and the app is told to start without a window.
-    PUPPET_MASTER_NO_WINDOW: process.env.PUPPET_MASTER_NO_WINDOW ?? '1',
+    // A normal start now opens the cockpit by itself, but that window is created before the debugging port is
+    // usable, so the harness never sees it. Start headless and let ensureCockpit open the window the supported way.
+    PUPPET_MASTER_NO_WINDOW: process.env.E2E_STARTUP_WINDOW === '1' ? '0' : '1',
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
     PM_FAKE_TUI_SCRIPT: scriptPath,
     PM_E2E_PATH_PREPEND: dirs.bin,
@@ -131,6 +131,8 @@ export async function startApp(opts) {
     [pathKey]: dirs.bin + path.delimiter + (process.env[pathKey] || ''),
     RUST_LOG: process.env.RUST_LOG || 'info',
   };
+  // Never read a bridge port/secret an earlier instance left in this folder: wait for the NEW ones.
+  for (const f of ['puppet-master.bridge.port', 'puppet-master.bridge.secret']) { try { fs.rmSync(path.join(dataDir, f), { force: true }); } catch { /* none */ } }
   const logFile = path.join(root, 'app.log');
   const logFd = fs.openSync(logFile, 'a');
   const child = spawn(exe, [], { env, stdio: ['ignore', logFd, logFd], windowsHide: false, cwd: dirs.root });
@@ -151,6 +153,7 @@ export async function startApp(opts) {
     },
     async stop() {
       this.killSync();
+      for (let i = 0; i < 40 && !exited; i++) await sleep(100); // wait until the process is really gone
       await sleep(300);
       try { fs.closeSync(logFd); } catch { /* closed */ }
     },
