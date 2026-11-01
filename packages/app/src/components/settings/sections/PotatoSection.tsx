@@ -14,6 +14,7 @@ import { LabsSwitch } from '../LabsSwitch';
 import { makeSandboxRows } from '../sandbox/SandboxRows';
 import { makePotatoVoiceRows } from './PotatoVoiceRows';
 import { makePotatoSubPageRows } from '../potato/PotatoSubPages';
+import { RecentlyDeletedRow } from '../potato/RecentlyDeleted';
 import { usePotatoSettings } from '../potato/usePotatoSettings';
 
 /** The limits of the daily limit, in cents ($0.05 to $20). Rust clamps again. */
@@ -135,6 +136,14 @@ export function makePotatoRows(transport: PotatoTransport = tauriPotatoTransport
       ),
     },
     models,
+    {
+      id: 'potato-recently-deleted',
+      label: 'Recently deleted',
+      hint: 'Notes, routines and bots you deleted in the last 7 days. Bring them back here.',
+      keywords: 'potato recently deleted trash undo restore bring back bin 7 days delete',
+      group: 'Potato Bot',
+      render: () => <RecentlyDeletedRow />,
+    },
     {
       id: 'potato-key',
       label: 'DeepSeek key',

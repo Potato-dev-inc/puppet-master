@@ -48,6 +48,7 @@ pub mod cost;
 pub mod env;
 pub mod fallback;
 pub mod helpers;
+pub mod trash;
 pub mod usage;
 pub mod keeper;
 pub mod live;
@@ -120,5 +121,7 @@ mod service_tests;
 mod real_brain_tests;
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod trash_tests;
 #[cfg(test)]
 mod window_guard_tests;

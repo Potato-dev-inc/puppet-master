@@ -728,6 +728,8 @@ pub fn run() {
             commands::potato_routine_update,
             commands::potato_routine_pause,
             commands::potato_routine_delete,
+            commands::potato_trash_list,
+            commands::potato_trash_restore,
             commands::potato_routine_run_now,
         ])
         .setup(|app| {

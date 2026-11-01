@@ -13,13 +13,14 @@ export interface MemoryNote {
 export interface MemoryTransport {
   list(botId: string): Promise<MemoryNote[]>;
   read(botId: string, path: string): Promise<string>;
-  remove(botId: string, path: string): Promise<void>;
+  /** Moves the note to Recently deleted; resolves with the trash id (for Undo). */
+  remove(botId: string, path: string): Promise<string>;
 }
 
 export const tauriMemoryTransport: MemoryTransport = {
   list: (botId) => invoke<MemoryNote[]>('potato_memory_list', { botId }),
   read: (botId, path) => invoke<string>('potato_memory_read', { botId, path }),
-  remove: (botId, path) => invoke<void>('potato_memory_delete', { botId, path }),
+  remove: (botId, path) => invoke<string>('potato_memory_delete', { botId, path }),
 };
 
 /** The title of a note: its file name without `.md`. */
@@ -71,6 +72,7 @@ export function fakeMemoryTransport(seed: FakeMemorySeed = {}): FakeMemoryTransp
           notes.findIndex((n) => n.path === path),
           1,
         );
+        return `trash-${path}`;
       }),
   };
 }

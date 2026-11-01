@@ -314,8 +314,11 @@ fn deleting_needs_the_typed_name_then_stops_the_brain_and_takes_the_bot_off_the_
     assert!(!rig.root.join("brain").join("nimbus").exists(), "its brain folder is moved aside");
     assert!(!path(&rig.root, "nimbus").unwrap().exists());
     assert_eq!(rig.svc.messages("nimbus", 5).unwrap_err().code, "POTATO_BOT_NOT_FOUND");
-    let removed: Vec<_> = std::fs::read_dir(rig.root.join(".removed")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-    assert!(removed.iter().any(|n| n.starts_with("nimbus-") && n.ends_with("-bot")), "{removed:?}");
+    // Recently deleted: the bot waits there for 7 days and comes back with `trash::restore`.
+    let listed = crate::potato::trash::list(&rig.root).unwrap();
+    assert!(listed.iter().any(|i| i.kind == "bot" && i.bot == "nimbus" && i.title == "Nimbus"), "{listed:?}");
+    crate::potato::trash::restore(&rig.root, &listed[0].id).unwrap();
+    assert_eq!(rig.svc.state().unwrap().bots.len(), 1, "restored");
 }
 
 #[test]

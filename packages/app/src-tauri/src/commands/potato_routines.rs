@@ -7,6 +7,7 @@
 use crate::potato::live;
 use crate::potato::routines::{self, RoutineInput, RoutineView};
 use crate::potato::service::SendOutcome;
+use crate::potato::trash;
 use crate::potato::store::StoreError;
 
 fn text(error: StoreError) -> String {
@@ -54,10 +55,11 @@ pub async fn potato_routine_pause(routine_id: String, paused: bool) -> Result<Ro
         .map_err(|e| format!("INTERNAL: {e}"))?
 }
 
+/// Deletes one routine at once: it goes to Recently deleted (7 days). Returns the trash id, for "Undo".
 #[tauri::command]
-pub async fn potato_routine_delete(routine_id: String) -> Result<(), String> {
+pub async fn potato_routine_delete(routine_id: String) -> Result<String, String> {
     let root = root()?;
-    tauri::async_runtime::spawn_blocking(move || routines::delete(&root, &routine_id).map_err(text))
+    tauri::async_runtime::spawn_blocking(move || trash::trash_routine(&root, &routine_id, now_ms()).map(|item| item.id).map_err(text))
         .await
         .map_err(|e| format!("INTERNAL: {e}"))?
 }

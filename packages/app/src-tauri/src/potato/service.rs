@@ -561,11 +561,11 @@ impl Service {
         if typed_name.trim() != self.name_of(bot) {
             return Err(err("POTATO_NAME_MISMATCH", "Type the bot's name exactly to delete it."));
         }
-        let stamp = self.host.now_ms().to_string();
+        let now = self.host.now_ms();
+        let name = self.name_of(bot);
         self.stop_all_of(bot, Duration::from_millis(500));
-        bot_settings::move_bot_files(&self.root, bot, &stamp)?;
-        store::remove_bot(&self.root, bot)?;
-        store::forget_talk_memory(&self.root, bot, &stamp)?;
+        // Moved into Recently deleted (potato/trash.rs): kept for 7 days, brought back by `potato_trash_restore`.
+        super::trash::trash_bot(&self.root, bot, &name, now)?;
         self.inner.lock().bots.remove(bot);
         self.host.changed(bot);
         Ok(())
