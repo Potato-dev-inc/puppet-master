@@ -29,6 +29,7 @@ import {
   type ScreenQuestion,
 } from '../../lib/screen-question';
 import { CardButton, InboxCard } from '../cockpit/InboxCard';
+import { AnswerableQuestionCard } from './AnswerableQuestionCard';
 
 const POLL_MS = 1000;
 /** A pane that is not asking anything is looked at less often. */
@@ -58,7 +59,20 @@ const KEYS: ReadonlyArray<{ label: string; send: string }> = [
   { label: 'Tab', send: KEY_TAB },
 ];
 
-export function ScreenQuestionCard({
+export type ScreenQuestionCardProps = Parameters<typeof ReadOnlyScreenQuestionCard>[0];
+
+/**
+ * The card for a pane that waits on the person. A Chat (terminal) pane whose agent can answer prompts gets the
+ * answerable card (`answerable` is the agent's name); every other pane keeps the read-only card below.
+ */
+export function ScreenQuestionCard({ answerable, ...props }: ScreenQuestionCardProps & { answerable?: string | null }) {
+  if (answerable) {
+    return <AnswerableQuestionCard paneId={props.paneId} agent={answerable} covered={props.covered} onOpenTerminal={props.onOpenTerminal} />;
+  }
+  return <ReadOnlyScreenQuestionCard {...props} />;
+}
+
+function ReadOnlyScreenQuestionCard({
   paneId,
   waiting,
   idle = false,

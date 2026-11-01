@@ -39,7 +39,8 @@ import { placeLabel, placeTooltip } from '../../lib/wsl-place';
 import { isProseStream, transcriptSpeaker } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
 import { AcpChatDock } from '../chat/AcpChatDock';
-import { ACP_BADGE, ACP_LANE, isTerminalChatLane, tauriAcpChatApi, TERMINAL_CHAT_BADGE, type AcpChatApi } from '../../lib/acpChat';
+import { ACP_BADGE, ACP_LANE, isTerminalChatLane, tauriAcpChatApi, terminalChatCapable, TERMINAL_CHAT_BADGE, type AcpChatApi } from '../../lib/acpChat';
+import { useAcpLanes } from '../../hooks/useAcpLanes';
 import { AcpConfigChips } from '../chat/AcpConfigChips';
 import { HandedToTerminal, HANDED_BLOCK } from '../chat/HandedToTerminal';
 import { HandOverSheet } from '../chat/HandOverSheet';
@@ -170,6 +171,9 @@ export function PaneView({
   // A chat session: its state (settings, commands, "open in a terminal"). An ordinary pane may hold a chat conversation
   // that was handed to it: then it can hand it back.
   const acpState = useAcpChatState(paneId, isAcp, acp);
+  // A Chat (terminal) pane whose agent has a prompt parser answers its questions from the chat (AnswerableQuestionCard).
+  const laneView = useAcpLanes(isTerminalChat, acp);
+  const answersPrompts = isTerminalChat && terminalChatCapable(laneView).some((a) => a.id === agentType && a.can_answer_prompts);
   const heldConversation = useTerminalConversation(paneId, !!pane && !isAcp, acp);
   const handOver = useHandOver({ api: acp, select: c.select, notify: c.notify, resetOn: paneId });
   const inTerminal = isAcp ? (acpState?.inTerminal ?? null) : null;
@@ -301,6 +305,7 @@ export function PaneView({
     covered: asking || isAcp,
     fallbackText: prompt?.summary || prompt?.risk?.headline,
     onOpenTerminal: () => setTab('terminal'),
+    answerable: answersPrompts ? agentLabel(listing, agentType) : null,
   };
   // The Chat tab shows the same docked cards as the Terminal tab, under the conversation.
   // The questions of this pane's helpers (its direct helpers and, for the top pane, every helper under it) wait here too.

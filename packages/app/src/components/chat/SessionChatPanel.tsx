@@ -42,6 +42,8 @@ export interface ScreenAsk {
   covered: boolean;
   fallbackText?: string | null;
   onOpenTerminal?: () => void;
+  /** The agent's name when this Chat (terminal) pane's agent can answer prompts: the answerable card is drawn. */
+  answerable?: string | null;
 }
 
 export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOpenPane, screenAsk, helpers, slashCommands, composerTop }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; clipApi?: ClipApi; onOpenPane?: (paneId: string) => void; screenAsk?: ScreenAsk; /** The helpers this pane started through Puppet Master (rows in the turn they began in). */ helpers?: readonly ChatHelper[]; /** A chat session over ACP: the agent's slash commands for the message box (typing "/" opens a menu). */ slashCommands?: readonly AcpCommand[]; /** Drawn right above the message box (a chat session's settings chips). */ composerTop?: ReactNode }) {
@@ -103,6 +105,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
               queued={outbox.messages}
               fallbackText={screenAsk.fallbackText}
               onOpenTerminal={screenAsk.onOpenTerminal}
+              answerable={screenAsk.answerable}
             />
           )
         }
