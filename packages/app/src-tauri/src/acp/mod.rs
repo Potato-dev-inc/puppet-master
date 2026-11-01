@@ -71,6 +71,7 @@ pub mod install;
 pub mod install_archive;
 pub mod install_registry;
 pub mod job;
+pub mod journal;
 pub mod lane;
 pub mod overlay;
 pub mod pin;

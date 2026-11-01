@@ -97,6 +97,12 @@ impl RecordStore {
         Self { path: path.as_ref().to_path_buf() }
     }
 
+    /// Where the chat journals live: next to the record file, one `<conversation id>.jsonl` each (`journal.rs`).
+    pub fn journal_path(&self, id: &str) -> PathBuf {
+        let safe: String = id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+        self.path.parent().map(Path::to_path_buf).unwrap_or_default().join("journals").join(format!("{safe}.jsonl"))
+    }
+
     pub fn in_app_data() -> Self {
         Self::at(crate::app_paths::app_data_dir().join("acp").join(FILE))
     }

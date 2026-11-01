@@ -131,6 +131,11 @@ impl Conversations {
         }
     }
 
+    /// The journal file of a conversation (`journal.rs`).
+    pub fn journal_path(&self, id: &str) -> std::path::PathBuf {
+        self.0.store.journal_path(id)
+    }
+
     pub fn session(&self, id: &str) -> Option<Arc<AcpSession>> {
         self.0.supervisor.get(id)
     }
@@ -246,6 +251,7 @@ impl Conversations {
             records.len() != before
         };
         if changed {
+            super::journal::Journal::at(self.journal_path(id)).remove();
             self.save();
         }
     }

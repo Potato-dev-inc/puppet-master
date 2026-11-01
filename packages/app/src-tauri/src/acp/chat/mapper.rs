@@ -296,6 +296,9 @@ pub struct Mapper {
     agent_label: Option<String>,
     /// The end of the last turn already reported, so an exit after it adds nothing.
     last_ended: Option<u64>,
+    /// Turns that came from a journal (an earlier run of the app): live turn numbers start after them, so a new
+    /// `u1` or `end:1` never replaces an item of the old chat.
+    turn_offset: u64,
 }
 
 impl Default for Mapper {
@@ -324,7 +327,40 @@ impl Mapper {
             agent_version: None,
             agent_label: None,
             last_ended: None,
+            turn_offset: 0,
         }
+    }
+
+    /// The chat already has `items` from a journal (an earlier run of the app): the replay of the agent's own
+    /// history is the same conversation again and is dropped, and new turns, notices and steers are numbered after
+    /// the ones in `items`, so nothing of the old chat is replaced.
+    pub fn resume_after(&mut self, items: &[ChatItem]) {
+        if items.is_empty() {
+            return;
+        }
+        self.emitted = true;
+        let number = |s: &str| -> Option<u64> {
+            let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
+            digits.parse().ok()
+        };
+        for item in items {
+            let id = item.id();
+            let found = if let Some(rest) = id.strip_prefix("end:").or_else(|| id.strip_prefix("plan:")) {
+                number(rest).map(|n| (n, false))
+            } else if let Some(rest) = id.strip_prefix("n:") {
+                rest.rsplit(':').next().and_then(number).map(|n| (n, true))
+            } else if let Some(rest) = id.strip_prefix('u').or_else(|| id.strip_prefix('a')) {
+                number(rest).map(|n| (n, false))
+            } else {
+                None
+            };
+            match found {
+                Some((n, true)) => self.notice_n = self.notice_n.max(n),
+                Some((n, false)) => self.turn_offset = self.turn_offset.max(n),
+                None => {}
+            }
+        }
+        self.turn_no = self.turn_offset;
     }
 
     /// The title a tool call showed, for a card that names it.
@@ -372,6 +408,7 @@ impl Mapper {
             // The last turn never reported its end: close it so the items stay consistent.
             out.extend(self.finish_turn(None, Some("The turn did not report an end."), now, at));
         }
+        let turn = turn + self.turn_offset;
         self.turn = Some(OpenTurn { n: turn, started: now });
         self.turn_no = turn;
         self.seg_n = 0;

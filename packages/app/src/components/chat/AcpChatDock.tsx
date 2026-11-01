@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { useAcpChatState } from '../../hooks/useAcpChatState';
-import { errorSentence, permissionCards, runStrip, stoppedStrip, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
+import { errorSentence, interruptedStrip, permissionCards, runStrip, stoppedStrip, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
 import { QuestionCard } from '../cockpit/QuestionCard';
 import { AgentAnsweringSwitch } from './AgentAnsweringSwitch';
 import { SignInCard } from '../acp/SignInCard';
@@ -41,10 +41,30 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
       .finally(() => setRestarting(false));
   };
 
+  // The app closed in the middle of a turn: the words are all there; Continue is the person's click.
+  const [continuing, setContinuing] = useState(false);
+  const [continueError, setContinueError] = useState<string | null>(null);
+  const interrupted = interruptedStrip(state);
+  useEffect(() => {
+    if (!interrupted) {
+      setContinuing(false);
+      setContinueError(null);
+    }
+  }, [interrupted]);
+  const continueTurn = () => {
+    if (!api.continueTurn || continuing) return;
+    setContinuing(true);
+    setContinueError(null);
+    api
+      .continueTurn(paneId)
+      .catch((e) => setContinueError(errorSentence(e)))
+      .finally(() => setContinuing(false));
+  };
+
   const cards = permissionCards(c.asked.questions, paneId);
   const strip = runStrip(state, asked);
   const signIn = state && !state.closed && state.signIn?.needed ? state : null;
-  if (cards.length === 0 && !strip && !signIn && !stopped) return null;
+  if (cards.length === 0 && !strip && !signIn && !stopped && !interrupted) return null;
   const stop = () => {
     setAsked(true);
     api.cancel(paneId).catch(() => setAsked(false));
@@ -72,6 +92,18 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
           onRetry={() => api.retrySignIn?.(paneId)}
         />
       )}
+      {interrupted && !strip && (
+        <div className="ck-acp-strip" data-testid="acp-interrupted">
+          <span className="ck-acp-strip-text" role="status">
+            {continueError ? `${interrupted.text} ${continueError}` : interrupted.text}
+          </span>
+          {api.continueTurn && (
+            <button type="button" className="ck-btn ck-btn--secondary ck-acp-stop" onClick={continueTurn} disabled={continuing}>
+              {continuing ? 'Sending…' : 'Continue'}
+            </button>
+          )}
+        </div>
+      )}
       {stopped && !strip && (
         <div className="ck-acp-strip" data-testid="acp-stopped">
           <span className="ck-acp-strip-text" role="status">
@@ -79,7 +111,7 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
           </span>
           {api.restart && (
             <button type="button" className="ck-btn ck-btn--secondary ck-acp-stop" onClick={restart} disabled={restarting}>
-              {restarting ? 'Restarting…' : 'Restart chat'}
+              {restarting ? 'Restarting…' : restartError ? 'Retry' : 'Restart chat'}
             </button>
           )}
         </div>
