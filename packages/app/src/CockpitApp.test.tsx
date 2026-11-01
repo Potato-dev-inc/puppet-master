@@ -31,7 +31,10 @@ const imp = vi.hoisted(() => ({ spawnPane: (async () => 'p2') as (a: unknown) =>
 // The runner the Store page was given (the mocked StoreHost records it).
 const store = vi.hoisted(() => ({ runCheck: undefined as unknown }));
 // Rust's "show Settings in this window" event (cockpit://settings).
-const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
+const rust = vi.hoisted(() => ({
+  openSettings: null as null | ((e: { tab?: string | null }) => void),
+  openView: null as null | ((e: { view: string; bot?: string | null }) => void),
+}));
 
 // Potato Bot: what the (mocked) state hook reports. `null` is "no desktop backend", `enabled: false` is the Labs switch off.
 const potato = vi.hoisted(() => ({ state: null as null | { enabled: boolean; bots: { id: string; unread: number }[] } }));
@@ -80,6 +83,10 @@ vi.mock('./lib/cockpit-api', async (importOriginal) => {
       ...orig.cockpitApi,
       onSettingsOpen: (cb: (e: { tab?: string | null }) => void) => {
         rust.openSettings = cb;
+        return Promise.resolve(() => {});
+      },
+      onView: (cb: (e: { view: string; bot?: string | null }) => void) => {
+        rust.openView = cb;
         return Promise.resolve(() => {});
       },
     },
@@ -359,6 +366,7 @@ beforeEach(async () => {
   live.stops = 0;
   localStorage.clear();
   rust.openSettings = null;
+  rust.openView = null;
   settingsMounts = 0;
   window.history.replaceState(null, '', '/');
   host = document.createElement('div');
@@ -955,6 +963,17 @@ describe('CockpitApp Potato Bot wiring', () => {
     clickButton('Potato open bee');
     expect(localStorage.getItem('pm.potato.open')).toBe('bee');
     expect(mainText()).toContain('POTATO VIEW bee');
+  });
+
+  it('a tray cockpit://view event shows the Inbox, or the Potato page on the given bot', async () => {
+    await remount({ enabled: true, bots: [{ id: 'fish', unread: 0 }, { id: 'bee', unread: 0 }] });
+    clickButton('Potato Bot 0');
+    expect(mainText()).toContain('POTATO VIEW');
+    act(() => rust.openView!({ view: 'inbox' }));
+    expect(mainText()).toContain('INBOX VIEW');
+    act(() => rust.openView!({ view: 'potato', bot: 'bee' }));
+    expect(mainText()).toBe('POTATO VIEW beePotato open bee');
+    expect(localStorage.getItem('pm.potato.open')).toBe('bee');
   });
 
   it('Ctrl+K on the Potato page leaves the palette shut (the bot list searches), and elsewhere it opens', async () => {
