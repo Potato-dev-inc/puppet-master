@@ -36,6 +36,8 @@ export const PaneInfoSchema = z.object({
   parent_pane_id: z.string().nullable().optional(),
   /** Linux Inside: the pane runs inside WSL. Absent for a Windows pane. */
   place: PanePlaceSchema.optional(),
+  /** `acp`: a chat session over the Agent Client Protocol (no terminal behind the pane). Absent for a terminal pane. */
+  lane: z.literal('acp').optional(),
 });
 export type PaneInfo = z.infer<typeof PaneInfoSchema>;
 

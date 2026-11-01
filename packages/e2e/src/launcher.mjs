@@ -62,7 +62,9 @@ inline = true
 `;
 
 /**
- * @param {{ runId: string, profile?: string, anchor?: string, headless?: boolean, window?: [number, number], settings?: object }} opts
+ * `reuse`: start again on the data folder of an earlier start with the same `runId` (a restart inside a test): the saved
+ * settings, the fake agent's script and log stay as they are.
+ * @param {{ runId: string, profile?: string, anchor?: string, headless?: boolean, window?: [number, number], settings?: object, reuse?: boolean }} opts
  */
 export async function startApp(opts) {
   installHooks();
@@ -97,14 +99,19 @@ export async function startApp(opts) {
   }
   const scriptPath = path.join(dirs.fake, 'script.toml');
   const fakeLog = path.join(dirs.fake, 'events.jsonl');
-  fs.writeFileSync(scriptPath, DEFAULT_SCRIPT);
-  fs.writeFileSync(fakeLog, '');
+  if (!opts.reuse || !exists(scriptPath)) fs.writeFileSync(scriptPath, DEFAULT_SCRIPT);
+  if (!opts.reuse || !exists(fakeLog)) fs.writeFileSync(fakeLog, '');
 
   // Settings the app starts with. The first-run welcome is switched off by default; a test that wants it
   // (or any other setting) passes `meta.seed` (a null value removes a key), which also restarts the app for it.
   const settings = { onboarding_done: true, away_minutes: 0, ...(opts.settings || {}) };
   for (const k of Object.keys(settings)) if (settings[k] === null) delete settings[k];
-  fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({ settings }, null, 2));
+  // A restart in a test keeps what the person changed: the settings window saves through the store plugin, whose file is
+  // under the home folder (Windows resolves the plugin's folder from USERPROFILE, the app's own settings reader from
+  // APPDATA), so that file is the one to carry over.
+  const storeFile = path.join(dirs.home, 'AppData', 'Roaming', appId, 'settings.json');
+  if (opts.reuse && exists(storeFile)) fs.copyFileSync(storeFile, path.join(dataDir, 'settings.json'));
+  else if (!opts.reuse || !exists(path.join(dataDir, 'settings.json'))) fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({ settings }, null, 2));
 
   const cdpPort = await freePort();
   assertSafePort(cdpPort, 'debugging port');

@@ -51,6 +51,8 @@ import { InputRefusedNote } from './components/mobile/InputRefusedNote';
 import { TypingNote } from './components/mobile/TypingNote';
 import { PaneViewSwitch } from './components/mobile/PaneViewSwitch';
 import { PhoneChatView } from './components/mobile/PhoneChatView';
+import { AcpPhoneDock } from './components/mobile/AcpPhoneDock';
+import { ACP_LANE } from './lib/acpChat';
 import { composerBlock } from './lib/paneOutbox';
 import { publishBridgeOutbox } from './lib/paneOutbox-bridge';
 import { chatAllowedFor, keepViewsOf, readPaneViews, writePaneViews, type PaneView } from './lib/mobile-pane-view';
@@ -434,14 +436,16 @@ export default function PwaApp() {
   // The chat is for agents, not shells. In the chat the terminal stays mounted (hidden) and nothing there claims the
   // pane's size: no tap, return to the app or opening the tab does, only the terminal view does.
   const chatAllowed = !!activePane && chatAllowedFor(agentListing, activePane.info.agent_type);
-  const activeView: PaneView = chatAllowed && paneViews[active] === 'chat' ? 'chat' : 'terminal';
+  // A chat session over ACP has no terminal behind it: its tab is the chat, with no switch, no terminal and no size to claim.
+  const isAcpPane = activePane?.info.lane === ACP_LANE;
+  const activeView: PaneView = isAcpPane || (chatAllowed && paneViews[active] === 'chat') ? 'chat' : 'terminal';
   // Only the open agent's terminal is streamed; the All overview reads previews by polling.
-  const watchedPane = activePane ? active : null;
+  const watchedPane = activePane && !isAcpPane ? active : null;
   useEffect(() => {
     streamRef.current?.setWatchedPanes(watchedPane ? [watchedPane] : []);
   }, [watchedPane, bridgeUrl]);
   useEffect(() => setFitGrid(null), [active]);
-  const claimPaneSize = usePaneViewportLease(bridge, activePane ? active : null, fitGrid);
+  const claimPaneSize = usePaneViewportLease(bridge, activePane && !isAcpPane ? active : null, fitGrid);
   useEffect(() => {
     if (!fitGrid) return;
     lastFitGridRef.current = fitGrid;
@@ -693,7 +697,7 @@ export default function PwaApp() {
           needsYou={attention ? blockingCount(attention) : undefined}
           companions={companions}
         />
-        {activePane && chatAllowed && <PaneViewSwitch view={activeView} onChange={selectView} />}
+        {activePane && chatAllowed && !isAcpPane && <PaneViewSwitch view={activeView} onChange={selectView} />}
         {active !== ALL_TAB && stuck.get(active) && <StuckNote signal={stuck.get(active)!} />}
         {active !== ALL_TAB && previews[active]?.[0] && <PreviewNote preview={previews[active][0]} />}
         <main
@@ -737,7 +741,7 @@ export default function PwaApp() {
               onChanged={companionList.applyView}
             />
           )}
-          {activePane && (
+          {activePane && !isAcpPane && (
             // Hidden, never unmounted, in the chat: unmounting would break the terminal's grid. `invisible` keeps its size.
             <div className={`flex min-h-0 flex-1 flex-col${activeView === 'chat' ? ' invisible' : ''}`} aria-hidden={activeView === 'chat'}>
             <BridgePaneTerminal
@@ -763,8 +767,17 @@ export default function PwaApp() {
               paneId={active}
               canWatch={abilities.canWatch}
               canType={abilities.canType}
-              sendBlock={composerBlock(activePane, activePane?.info.agent_type === 'shell')}
-              dock={dockCard(helperAskers)}
+              sendBlock={composerBlock(activePane, activePane?.info.agent_type === 'shell', isAcpPane)}
+              dock={
+                isAcpPane ? (
+                  <>
+                    {bridge && <AcpPhoneDock bridge={bridge} paneId={active} canAnswer={canAnswer} canType={abilities.canType} labels={labels} questionsRevision={questionsRev} />}
+                    {dockCard(helperAskers)}
+                  </>
+                ) : (
+                  dockCard(helperAskers)
+                )
+              }
             />
           )}
           {active !== ALL_TAB && !isCompanionTab(active) && !activePane && (

@@ -5,6 +5,7 @@
 //! on this key do that, write a file, hit the usage limit, exit, crash. It spends no tokens and is
 //! deterministic. It is a development tool: nothing in the shipped app refers to it.
 
+pub mod acp_agent;
 pub mod engine;
 pub mod keys;
 pub mod render;

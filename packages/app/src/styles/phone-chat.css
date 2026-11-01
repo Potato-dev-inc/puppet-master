@@ -532,3 +532,21 @@
 .ph .ph-chat .ck-chat-chip {
   font-size: 12.5px;
 }
+
+/* A chat session over ACP on the phone: the "Working…" line with Stop, under the conversation. */
+.ph .ph-acp-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ph .ph-acp-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  opacity: 0.85;
+}

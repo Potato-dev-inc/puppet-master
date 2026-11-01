@@ -87,6 +87,7 @@ export async function run(t) {
 | `t.expect.text(strOrRegex)`, `noText`, `visible(target)`, `notVisible`, `count(target, n)`, `value(target, v)`, `eventually(fn)`, `equal`, `ok`, `includes`, `match` | assertions; the page ones poll until they hold |
 | `t.spawnPane(agent='nimbus', {cwd, script})` | start a fake agent pane and wait until it is idle. Returns a `Pane`: `screen()`, `waitScreen(text)`, `write(text)`, `key(name)`, `info()`, `kill()` |
 | `t.panes()` | the app's pane list |
+| `t.restartApp()` | stop the app and start it again on the same data folder (saved settings, conversations and the fake agent's own files survive); the page, bridge and video go on |
 | `t.bridge.get/post/del(path, body)` | the app's HTTP bridge with the run's secret (set up or check state) |
 | `t.fake.script(toml)` | the script the next fake agent plays; `t.fake.events()` / `waitEvent('prompt')` read what the fake agent logged (`start`, `ready`, `key`, `prompt`, `approval_shown`, `approval_answer`, `turn_done`, `exit`) |
 | `t.project(name)` | a new empty folder to use as a project |

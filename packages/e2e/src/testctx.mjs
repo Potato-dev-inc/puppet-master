@@ -35,7 +35,9 @@ export class Pane {
   async kill() { return this.bridge.del(`/panes/${this.id}`); }
 }
 
-export function makeContext({ meta, app, conn, runDir, pace, isAborted, emit, project }) {
+export function makeContext({ meta, app: firstApp, conn, runDir, pace, isAborted, emit, project }) {
+  // The app can be restarted inside a test (`t.rebind`): everything below reads the current one.
+  let app = firstApp;
   const page = new Page(conn, { pace, testId: meta.id, isAborted });
   const expect = makeExpect(page, { isAborted });
   const startedAt = Date.now();
@@ -48,6 +50,13 @@ export function makeContext({ meta, app, conn, runDir, pace, isAborted, emit, pr
     meta, page, expect, app,
     /** Bridge client (GET/POST/DELETE with the profile's secret). */
     bridge: app.bridge,
+    /** The runner restarted the app (same data folder): point the context at the new process and page. */
+    rebind(newApp, newConn) {
+      app = newApp;
+      t.app = newApp;
+      t.bridge = newApp.bridge;
+      page.c = newConn;
+    },
     /** Where this test may write files (screenshots, notes). */
     outDir: runDir,
     startedAt,

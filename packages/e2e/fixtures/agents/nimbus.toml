@@ -65,3 +65,12 @@ choices = [
   { id = "allow_once", key = "y" },
   { id = "deny", key = "n" },
 ]
+
+# Nimbus as a chat over the Agent Client Protocol: the same fake program with --acp (tools/pm-fake-tui/src/acp_agent.rs).
+# It keeps its sessions next to the script file, so "Open in terminal" and a restart of the app find them again.
+[acp]
+command = "nimbus"
+args = ["--acp"]
+env_allow = ["PM_FAKE_TUI_SCRIPT", "PM_FAKE_TUI_LOG"]
+resume_command = ["resume", "{session}"]
+unknown_session_patterns = ["not found"]

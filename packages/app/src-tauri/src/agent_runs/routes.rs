@@ -62,6 +62,13 @@ pub fn handle_request_as(
     if let Some(result) = crate::missions::routes::intercept(method, segments, body, registry, app, session_id) {
         return Some(result);
     }
+    // Chat sessions over ACP (`lane: "acp"` and their handles): `crate::acp::chat::surface`.
+    {
+        let deps = crate::commands::acp_chat::live_deps(app, registry);
+        if let Some(result) = crate::acp::chat::surface::intercept(method, segments, query, body, &deps, session_id) {
+            return Some(result);
+        }
+    }
     let result = match (method, segments) {
         ("POST", ["agents", "run"]) => parse::<AgentRunRequest>(body).and_then(|mut request| {
             // The caller left `headless` out (or null): the agent's run-mode setting may decide.

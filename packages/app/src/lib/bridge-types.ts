@@ -17,6 +17,7 @@ import type { ChatSearchAnswer } from './chatSearch';
 import type { OutboxMessage } from './paneOutbox';
 import type { CompanionView, FeedItem, MemoryView, PendingDecision } from './companion';
 import type { PlansReport } from './plans-report';
+import type { AcpChatState } from './acpChat';
 
 export interface WriteInputOptions {
   viaOpencodeApi?: boolean;
@@ -422,6 +423,13 @@ export interface BridgeClient {
    * answer) only what changed. Absent on clients that are not a phone.
    */
   paneChat?(paneId: string, since?: number): Promise<PhoneChatReply>;
+  /**
+   * `GET /acp/sessions/{pane}`: the state of a chat session over ACP (what it is doing, what waits on the person).
+   * Needs `watch`. Absent on clients that are not a phone.
+   */
+  acpSession?(paneId: string): Promise<AcpChatState>;
+  /** `POST /acp/sessions/{pane}/cancel`: stops the running turn of a chat session (needs `type`). Absent on clients that are not a phone. */
+  acpCancel?(paneId: string): Promise<unknown>;
   /**
    * `GET /chats/search?q=&limit=`: the search across every chat (needs `watch`). `enabled` is false when the person
    * turned the index off on the PC. Absent on old PCs and clients that are not a phone.

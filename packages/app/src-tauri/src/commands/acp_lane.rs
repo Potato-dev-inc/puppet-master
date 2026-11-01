@@ -1,6 +1,7 @@
 //! Tauri commands for the per-agent "How to run": Terminal (today's way, the default) or Chat (ACP).
 //! Only the app's own webview can call these; the bridge has no route for them, so a phone or an agent
-//! cannot change how an agent runs. Nothing reads the choice to start a session yet (A3/A4).
+//! cannot change how an agent runs. The choice is read when a session starts without a lane of its own: the + menu's
+//! default (`useAcpLanes`) and `run_agent` without `lane` (`acp::chat::surface::wants`).
 
 use crate::acp::lane::{effective_lane, LaneStore, RunLane};
 use crate::acp::{self, config};

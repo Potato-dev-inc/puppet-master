@@ -9,6 +9,8 @@ import { MAX_MESSAGE_CHARS } from '../../lib/paneOutbox';
 import { clearDraft, DRAFT_SAVE_MS, readDraft, writeDraft, type ComposerDraft } from '../../lib/composerDraft';
 import { insertAtCursor } from '../../lib/voice';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
+import { commandHint, commandText, filterCommands, type AcpCommand } from '../../lib/acpChat';
+import '../../styles/cockpit-acp.css';
 
 /** The box grows with the text up to this many lines, then scrolls. */
 const MAX_LINES = 6;
@@ -28,6 +30,8 @@ export interface ChatComposerProps {
   draftKey?: string;
   /** A Point and Fix message to put in the box. An empty box gets it; a typed text gets it after a blank line. */
   draft?: ComposerDraft | null;
+  /** The slash commands the agent offers (a chat session over ACP). With some, typing "/" opens a menu above the box. */
+  slashCommands?: readonly AcpCommand[];
 }
 
 function MicIcon() {
@@ -45,7 +49,7 @@ export function ChatComposer(props: ChatComposerProps) {
   return <ChatComposerBox key={props.draftKey ?? ''} {...props} />;
 }
 
-function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft: pointDraft }: ChatComposerProps) {
+function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft: pointDraft, slashCommands }: ChatComposerProps) {
   const [text, setText] = useState(() => (draftKey ? readDraft(draftKey) : ''));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,6 +61,13 @@ function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft
   /** Where the cursor goes after the next render (set after inserting recognized words). */
   const caretAfter = useRef<number | null>(null);
   const blocked = blockedReason !== null;
+  // The slash menu: commands that start with what is typed after "/". Esc closes it until the text changes.
+  const [menuAt, setMenuAt] = useState(0);
+  const [menuShut, setMenuShut] = useState(false);
+  const menuItems = slashCommands && !blocked && !menuShut ? filterCommands(slashCommands, text) : [];
+  const menuOpen = menuItems.length > 0;
+  const menuIx = Math.min(menuAt, Math.max(menuItems.length - 1, 0));
+  const hint = slashCommands ? commandHint(slashCommands, text) : null;
   const count = [...text].length;
   const tooLong = count > MAX_MESSAGE_CHARS;
   const empty = text.trim() === '';
@@ -163,7 +174,34 @@ function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft
     field.current?.focus();
   };
 
+  const pickCommand = (command: AcpCommand) => {
+    const next = commandText(command);
+    caretAfter.current = next.length;
+    setText(next);
+    setError(null);
+    field.current?.focus();
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (menuOpen && !event.nativeEvent.isComposing) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        setMenuAt((menuIx + step + menuItems.length) % menuItems.length);
+        return;
+      }
+      if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+        event.preventDefault();
+        pickCommand(menuItems[menuIx]);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenuShut(true);
+        return;
+      }
+    }
     // Enter while an input method is choosing a word is the method's, not ours.
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
@@ -193,9 +231,20 @@ function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft
       value={text}
       disabled={blocked}
       aria-label="Message to the agent"
-      placeholder={blocked ? '' : 'Write a message for the agent'}
+      placeholder={blocked ? '' : (hint ?? 'Write a message for the agent')}
+      {...(slashCommands && slashCommands.length > 0
+        ? {
+            role: 'combobox' as const,
+            'aria-autocomplete': 'list' as const,
+            'aria-expanded': menuOpen,
+            'aria-controls': 'ck-slash-menu',
+            'aria-activedescendant': menuOpen ? `ck-slash-opt-${menuIx}` : undefined,
+          }
+        : {})}
       onChange={(event) => {
         setText(event.target.value);
+        setMenuAt(0);
+        setMenuShut(false);
         if (error) setError(null);
       }}
       onKeyDown={onKeyDown}
@@ -215,6 +264,27 @@ function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft
         void submit();
       }}
     >
+      {menuOpen && (
+        <div className="ck-slash-anchor">
+          <ul className="ck-slash-menu" id="ck-slash-menu" role="listbox" aria-label="Commands" data-testid="slash-menu">
+            {menuItems.map((command, i) => (
+              <li
+                key={command.name}
+                id={`ck-slash-opt-${i}`}
+                role="option"
+                aria-selected={i === menuIx}
+                className="ck-slash-opt"
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setMenuAt(i)}
+                onClick={() => pickCommand(command)}
+              >
+                <span className="ck-slash-name">/{command.name.replace(/^\/+/, '')}</span>
+                <span className="ck-slash-desc">{command.description}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="ck-chat-composer-row">
         {voice ? (
           <div className="ck-chat-composer-field-wrap">
