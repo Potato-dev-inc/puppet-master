@@ -8,7 +8,8 @@ import { secretsApi, type SecretsApi } from '../../../lib/secrets';
 import { ApiKeyField } from '../ApiKeyField';
 import { NumberControl } from '../controls';
 import type { RowDef } from '../model';
-import { Btn, FieldSelect, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
+import { Btn, FieldSelect, Note, SettingBlock, SettingRow } from '../settings-ui';
+import { LabsSwitch } from '../LabsSwitch';
 import { makeSandboxRows } from '../sandbox/SandboxRows';
 
 /** The limits of the daily limit, in cents ($0.05 to $20). Rust clamps again. */
@@ -215,7 +216,7 @@ export function makePotatoRows(transport: PotatoTransport = tauriPotatoTransport
       keywords: `${KEYWORDS} kill switch off on stop`,
       group: 'Potato Bot',
       render: (env) => (
-        <SettingToggle
+        <LabsSwitch
           label="Potato Bot"
           description="On: your bots can chat and ask you to start helpers. Off: every brain stops now and open helper requests are taken back. Turn it back on in General › Labs."
           checked={env.settings.potato_bot_enabled ?? false}

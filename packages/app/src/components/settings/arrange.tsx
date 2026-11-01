@@ -8,7 +8,8 @@
 // named groups of its section, so adding a row never needs a change here to show up.
 import type { ReactNode } from 'react';
 import type { RowDef, SectionDef, SectionId, SettingsEnv } from './model';
-import { Btn, SettingBlock, SettingRow } from './settings-ui';
+import { useDevLabsOverride, DEV_LABS_NOTE } from '../../lib/dev-labs';
+import { Btn, Note, SettingBlock, SettingRow } from './settings-ui';
 
 /** One entry of a group: a row id, a link to a row that now lives elsewhere, or `@labs` (every early feature). */
 export type LayoutEntry = string | { pointerTo: string; label?: string; note?: string };
@@ -96,8 +97,17 @@ export function layoutRowIds(layout = LAYOUT): string[] {
 // ---------- the rows this file adds ----------
 
 function LabsIndex({ env, labs }: { env: SettingsEnv; labs: RowDef[] }) {
+  const devLabs = useDevLabsOverride();
   return (
-    <SettingBlock label="Early features" description="Each one is off until you turn it on, and may change. Tap one to jump to its switch.">
+    <SettingBlock
+      label="Early features"
+      description={
+        devLabs
+          ? 'Tap one to jump to its switch.'
+          : 'Each one is off until you turn it on, and may change. Tap one to jump to its switch.'
+      }
+    >
+      {devLabs && <Note>{DEV_LABS_NOTE}</Note>}
       <ul className="st-labs-list">
         {labs.map((row) => (
           <li key={row.id}>

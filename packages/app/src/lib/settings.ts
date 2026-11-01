@@ -9,6 +9,7 @@ import {
   type Settings,
 } from '@puppet-master/shared';
 import { clampAwayMinutes, clampCheckpointsKeep, clampMobileInputDelayMs, toPublicSettings } from './bridge-settings';
+import { probeDevLabs, withDevLabs } from './dev-labs';
 import {
   parseDevServerPort,
   publicOriginFromBridgeUrl,
@@ -101,7 +102,8 @@ function mergeLoadedSettings(raw: Settings | null | undefined): Settings {
   const merged = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
   const legacyPublic = readStoredPublicBridgeUrl();
   const legacySidebar = readLegacySidebarWidth();
-  return {
+  // Read time only: a development build shows every Labs switch on (`lib/dev-labs.ts`); the saved file is not changed.
+  return withDevLabs({
     ...merged,
     mobile_input_delay_ms: clampMobileInputDelayMs(merged.mobile_input_delay_ms),
     mobile_input_visible: merged.mobile_input_visible ?? true,
@@ -116,7 +118,7 @@ function mergeLoadedSettings(raw: Settings | null | undefined): Settings {
     public_pwa_url:
       merged.public_pwa_url?.trim() ||
       (legacyPublic ? publicOriginFromBridgeUrl(legacyPublic) : undefined),
-  };
+  });
 }
 
 async function migrateLegacySettingsFile(): Promise<void> {
@@ -150,6 +152,8 @@ export async function resolveSettingsFilePath(): Promise<string> {
 
 export async function loadSettings(): Promise<Settings> {
   await migrateLegacySettingsFile();
+  // Learn the development Labs override first, so the settings returned below already show it.
+  await probeDevLabs();
   try {
     const raw = await store().get<Settings>(SETTINGS_KEY);
     const merged = mergeLoadedSettings(raw);
