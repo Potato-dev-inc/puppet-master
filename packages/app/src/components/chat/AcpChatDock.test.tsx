@@ -114,7 +114,19 @@ describe('AcpChatDock', () => {
     const line = host.querySelector('[data-testid="acp-stopped"]')?.textContent ?? '';
     expect(line).toContain('The chat stopped: the agent could not start: no such file');
     expect(line).toContain('the adapter closed the connection');
-    expect(button('Restart chat')?.disabled).toBe(false);
+    expect(button('Retry')?.disabled).toBe(false);
+  });
+
+  it('a turn the app did not see end says so, and Continue (the person clicks) sends one message', async () => {
+    const { c } = cockpit([]);
+    const continueTurn = vi.fn(async () => undefined);
+    const { api } = fakeApi(state({ phase: 'dormant', status: 'idle', turnInFlight: false, interruptedTurn: true }), { continueTurn });
+    await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+    await flush();
+    expect(host.querySelector('[data-testid="acp-interrupted"]')?.textContent).toContain('The app closed during this turn.');
+    expect(continueTurn).not.toHaveBeenCalled();
+    await act(async () => button('Continue')!.click());
+    expect(continueTurn).toHaveBeenCalledWith('p1');
   });
 
   it('a chat that was closed on purpose shows no stopped line', async () => {

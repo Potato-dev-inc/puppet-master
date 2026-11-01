@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { Question } from './questions';
 import { blockOf } from './acpAddon';
+import { sendPaneMessage } from './paneOutbox';
 
 /** `PaneInfo.lane` of a chat session. */
 export const ACP_LANE = 'acp';
@@ -53,6 +54,8 @@ export interface AcpChatState {
   inTerminal?: { paneId: string | null } | null;
   /** An agent (one that started this chat through Puppet Master, or any agent tool) may answer the permission cards. Off by default. */
   agentAnswering?: boolean;
+  /** The app closed during a turn (found in the chat journal). The chat says so and offers "Continue" until a new turn starts. */
+  interruptedTurn?: boolean;
   /** The agent's own settings (model, mode, effort), as ACP reports them. */
   configOptions?: AcpConfigOption[];
   /** The slash commands the agent offers. */
@@ -335,6 +338,8 @@ export interface AcpChatApi {
   chatRemove?: (agent: string, opts: { removeAddon: boolean }) => Promise<AcpLaneView & { removal?: AcpRemoval }>;
   /** "Restart chat": brings the adapter of a stopped chat back. */
   restart?: (paneId: string) => Promise<AcpChatState>;
+  /** "Continue" after the app closed in the middle of a turn: the person's click sends one ordinary message. */
+  continueTurn?: (paneId: string) => Promise<unknown>;
 }
 
 const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -395,6 +400,7 @@ export const tauriAcpChatApi: AcpChatApi = {
     return { ...normalizeLaneView(view), removal: view.removal };
   },
   restart: (paneId) => call<AcpChatState>('acp_chat_restart', { paneId }),
+  continueTurn: (paneId) => sendPaneMessage(paneId, CONTINUE_TEXT),
 };
 
 /** The permission cards that belong to `paneId`, oldest first. */
@@ -571,4 +577,15 @@ export function terminalChatCapable(view: AcpLaneView | null): TerminalChatAgent
 /** Start an agent as Chat (terminal) (`terminal_chat_start`): a normal terminal pane. Resolves to the new pane id. */
 export function startTerminalChat(agentId: string, cwd?: string): Promise<string> {
   return call<string>('terminal_chat_start', { agent: agentId, cwd: cwd ?? null });
+}
+
+// ---- The app closed during a turn (P-29) --------------------------------------------------------------------------
+
+/** What "Continue" sends: an ordinary message, sent by the person's click. */
+export const CONTINUE_TEXT = 'Continue where you left off.';
+
+/** The line under the chat after a restart that found a turn the app never saw end: `null` when there is none. */
+export function interruptedStrip(state: AcpChatState | null): { text: string } | null {
+  if (!state || state.closed || !state.interruptedTurn || state.turnInFlight) return null;
+  return { text: 'The app closed during this turn.' };
 }

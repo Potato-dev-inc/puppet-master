@@ -1,6 +1,6 @@
 //! The chat items a session file turns into, and the trait each CLI's file format implements.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::detail::{cut_to, PlanItem, ToolDetail};
 
@@ -8,7 +8,7 @@ use super::detail::{cut_to, PlanItem, ToolDetail};
 pub const MAX_OUTPUT_CHARS: usize = 4000;
 
 /// One row of the chat view. Serialises with `kind` as the tag, e.g. `{"kind":"toolCall", ...}`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ChatItem {
     /// What the person typed (never injected context).
@@ -81,7 +81,7 @@ impl ChatItem {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TurnOutcome {
     Completed,
