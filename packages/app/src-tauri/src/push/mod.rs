@@ -295,6 +295,16 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
 pub fn notify_companion_reply(companion_id: &str, name: &str, text: &str, enabled: bool) {
     // The chat (Telegram) decides for itself, by its own conversation window; it ignores `enabled`.
     crate::channels::companion_reply(companion_id, name, text);
+    push_companion_reply(companion_id, name, text, enabled);
+}
+
+/// A Potato Bot replied: the phones only (the chat app does not get a bot's replies from here). `on` is the bot's
+/// "When it replies" choice (`potato::notify`); the rest is the companion path.
+pub fn notify_bot_reply(bot_id: &str, name: &str, text: &str, on: bool) {
+    push_companion_reply(bot_id, name, text, on);
+}
+
+fn push_companion_reply(companion_id: &str, name: &str, text: &str, enabled: bool) {
     let Some(ctx) = CTX.get() else { return };
     if !enabled || !ctx.hub.has_subscribers() {
         return;

@@ -126,6 +126,15 @@ pub fn load_bots(root: &Path) -> StoreResult<Vec<Bot>> {
     }
 }
 
+/// The bot must be in `bots.json` (a folder of its own is not enough).
+pub fn require_bot(root: &Path, bot: &str) -> StoreResult<()> {
+    if load_bots(root)?.iter().any(|b| b.id == bot) {
+        Ok(())
+    } else {
+        Err(StoreError::new("POTATO_BOT_NOT_FOUND", "No bot has that name."))
+    }
+}
+
 pub fn save_bots(root: &Path, bots: &[Bot]) -> StoreResult<()> {
     write_json(&bots_path(root), &BotsFile { v: STORE_VERSION, bots: bots.to_vec() }, "bots.json")
 }

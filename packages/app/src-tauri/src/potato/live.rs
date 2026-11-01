@@ -162,6 +162,10 @@ impl Host for LiveHost {
         staged.is_dir().then_some(staged)
     }
 
+    fn reply_pushed(&self, bot: &str, name: &str, text: &str, on: bool) {
+        crate::push::notify_bot_reply(bot, name, text, on);
+    }
+
     fn changed(&self, bot: &str) {
         // Not in unit tests: emitting through the app handle links the windowing runtime into the lib test exe.
         #[cfg(not(test))]
