@@ -281,9 +281,38 @@ struct BotRt {
     last_reply_id: Option<String>,
     /// Where the run is in its brain chain (`fallback.rs`): 0 is the talk brain. Reset when a new run starts.
     chain_step: usize,
+    /// Accepted sends whose turn has not reported usage or failed yet, oldest first. Each holds an estimate of its cost
+    /// against the day's limit, so a queue of sends cannot pass the limit before any of them is charged (H6b-3).
+    reserved: VecDeque<Reservation>,
+    /// The real cost of the newest turns; the next estimate is their average (the floor when there is none).
+    recent_turn_nano: VecDeque<u64>,
+    /// The local day the holds in `reserved` belong to; a new day clears them.
+    reserved_day: String,
 }
 
+/// One accepted send's hold on the day's limit.
+struct Reservation {
+    id: String,
+    nano: u64,
+}
+
+/// How many finished turns the estimate is averaged over.
+const RECENT_TURNS: usize = 10;
+
 impl BotRt {
+    fn reserved_nano(&self) -> u64 {
+        self.reserved.iter().fold(0u64, |sum, r| sum.saturating_add(r.nano))
+    }
+
+    /// What one new send is held for: the average of the recent turns, or the floor before any turn has finished.
+    fn reserve_estimate(&self) -> u64 {
+        if self.recent_turn_nano.is_empty() {
+            return cost::RESERVE_FLOOR_NANO;
+        }
+        let total = self.recent_turn_nano.iter().fold(0u64, |sum, c| sum.saturating_add(*c));
+        total / self.recent_turn_nano.len() as u64
+    }
+
     fn new() -> BotRt {
         BotRt {
             keeper: Keeper::new(),
@@ -301,6 +330,9 @@ impl BotRt {
             last_surface: "app".into(),
             last_reply_id: None,
             chain_step: 0,
+            reserved: VecDeque::new(),
+            recent_turn_nano: VecDeque::new(),
+            reserved_day: String::new(),
         }
     }
 }
@@ -673,10 +705,14 @@ impl Service {
 
         let mut g = self.inner.lock();
         let rt = g.bots.entry(bot.to_string()).or_insert_with(BotRt::new);
+        // The day's cost plus what the queued sends are held for, plus this send's estimate: past the limit, refuse.
+        let estimate = rt.reserve_estimate();
+        let committed = used.saturating_add(rt.reserved_nano());
+        let reserve_over = committed.saturating_add(estimate) > cost::limit_nano(settings.daily_limit_cents);
         let caps = Caps {
             disabled: !self.brains.enabled(),
             paused: held,
-            over_limit: over,
+            over_limit: over || reserve_over,
             sends_last_minute: Self::rate_ok(rt, now),
         };
         let facts = Facts {
@@ -738,6 +774,21 @@ impl Service {
             // A new run starts on the talk brain; a fallback only lasts for the run it was needed in.
             rt.chain_step = 0;
         }
+        if matches!(origin, Origin::Routine { .. }) {
+            // Brain-started turns have their own daily cap; the person's own messages do not count against it (spec 6.2).
+            let taken = cost::take_brain_turn(&self.root, &day, bot, cost::DEFAULT_BRAIN_TURNS);
+            match taken {
+                Ok(true) => {}
+                Ok(false) => {
+                    drop(g);
+                    self.note(bot, &format!("{name} has started {} things on its own today. It will wait until tomorrow.", cost::DEFAULT_BRAIN_TURNS));
+                    self.host.changed(bot);
+                    return Err(err("POTATO_TURNS", "The brain-started turns for today are used up."));
+                }
+                Err(e) => return Err(err("POTATO_STORE_INVALID", e)),
+            }
+        }
+        rt.reserved.push_back(Reservation { id: saved.id.clone(), nano: estimate });
         rt.sends_ms.push_back(now);
         rt.turn_trust.insert(conversation.clone(), trust);
         let item = protocol::send_item(&protocol::SendFacts {
@@ -1184,10 +1235,15 @@ impl Service {
                     in_flight: HashMap::new(),
                     send_index: HashMap::new(),
                 };
+                // A send that comes back from a dead session holds its place on the limit again, once.
+                let estimate = rt.reserve_estimate();
                 for item in rt.queued.drain(..) {
                     if let (Some(id), Some(conversation)) = (item.get("id").and_then(Value::as_str), item.get("conversationId").and_then(Value::as_str)) {
                         session.send_index.insert(id.to_string(), inbox.end());
                         session.in_flight.insert(id.to_string(), conversation.to_string());
+                        if !rt.reserved.iter().any(|r| r.id == id) {
+                            rt.reserved.push_back(Reservation { id: id.to_string(), nano: estimate });
+                        }
                     }
                     inbox.push(item);
                 }
@@ -1212,6 +1268,9 @@ impl Service {
         let now = self.host.now_ms();
         let Some(rt) = g.bots.get_mut(bot) else { return };
         let Some(session) = rt.session.take() else { return };
+        // Whatever the dead session had in flight is not charged by it: its holds go back. A requeued send holds
+        // its place again when it is handed to the next session.
+        rt.reserved.retain(|r| !session.in_flight.contains_key(&r.id));
         self.brains.unregister(bot);
         let _ = &session.secrets;
         rt.typing.clear();
@@ -1223,6 +1282,9 @@ impl Service {
                 // Never handed to the brain: it goes to the next one.
                 if let Some(item) = session.inbox.items.get((index.saturating_sub(session.inbox.base)) as usize) {
                     rt.queued.push(item.clone());
+                    if !rt.reserved.iter().any(|r| &r.id == id) {
+                        rt.reserved.push_back(Reservation { id: id.clone(), nano: rt.reserve_estimate() });
+                    }
                 }
             } else {
                 lost.push((id.clone(), conversation.clone()));
@@ -1251,6 +1313,15 @@ impl Service {
         let bots: Vec<String> = self.inner.lock().bots.keys().cloned().collect();
         for bot in bots {
             let mut g = self.inner.lock();
+            // A new day: yesterday's holds are not for today's limit.
+            if let Some(rt) = g.bots.get_mut(&bot) {
+                if rt.reserved_day.is_empty() {
+                    rt.reserved_day = day.clone();
+                } else if rt.reserved_day != day {
+                    rt.reserved.clear();
+                    rt.reserved_day = day.clone();
+                }
+            }
             let exited = g.bots.get_mut(&bot).and_then(|rt| rt.session.as_mut()).and_then(|s| s.child.try_wait().map(|code| (code, s.shutdown_at.is_some())));
             if let Some((code, asked)) = exited {
                 if !asked {
@@ -1456,6 +1527,10 @@ impl Service {
                     if let (Some(session), Some(id)) = (rt.session.as_mut(), in_reply_to.as_deref()) {
                         session.in_flight.remove(id);
                     }
+                    // A failed send is never charged: its hold on the limit goes back.
+                    if let Some(id) = in_reply_to.as_deref() {
+                        rt.reserved.retain(|r| r.id != id);
+                    }
                 }
                 let conversation = conversation_id.filter(|c| self.own_conversation(bot, c)).unwrap_or_else(|| store::app_conversation(bot));
                 let _ = self.save(bot, &conversation, Message::new(now, FromKind::Note, None, MsgKind::Note, &line));
@@ -1476,8 +1551,16 @@ impl Service {
                 return;
             }
         };
+        // The turn's real cost replaces its send's hold (the oldest one); the average for the next estimate follows it.
+        let reply = self.inner.lock().bots.get_mut(bot).and_then(|rt| {
+            rt.reserved.pop_front();
+            rt.recent_turn_nano.push_back(charged.cost_nano);
+            while rt.recent_turn_nano.len() > RECENT_TURNS {
+                rt.recent_turn_nano.pop_front();
+            }
+            rt.last_reply_id.take()
+        });
         // The turn's reply (saved just before this usage) carries the turn's cost: an estimate, shown as "about".
-        let reply = self.inner.lock().bots.get_mut(bot).and_then(|rt| rt.last_reply_id.take());
         if let Some(id) = reply {
             if let Err(e) = reply_cost::record(&self.root, &id, charged.cost_nano) {
                 tracing::debug!(%e, "could not save a reply's cost");
@@ -1528,7 +1611,11 @@ impl Service {
         session.in_flight.remove(id);
         session.send_index.remove(id);
         session.child.kill_tree();
+        // The hold goes and comes back once: the message waits for the next brain, so it keeps its place on the limit.
+        rt.reserved.retain(|r| r.id != id);
         rt.queued.push(item);
+        let estimate = rt.reserve_estimate();
+        rt.reserved.push_back(Reservation { id: id.to_string(), nano: estimate });
         rt.chain_step = next;
         rt.last_error = None;
         rt.keeper.touch(now);

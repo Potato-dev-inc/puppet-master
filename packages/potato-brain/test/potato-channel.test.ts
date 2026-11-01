@@ -673,3 +673,63 @@ test("a full queue of replies and usage keeps the oldest of them", async () => {
   assert.equal(q.queue.at(-1)?.["inReplyTo"], "last", "the newest reply is queued");
   assert.equal(q.queue.filter((e) => e["type"] === "usage").length, 499);
 });
+
+test("a batch the app refuses as too big is split, and the usage in it is still sent", async () => {
+  const posted: Array<Array<Record<string, unknown>>> = [];
+  const fetchFake = (async (_url: string, init: { body: string }) => {
+    const events = (JSON.parse(init.body) as { events: Array<Record<string, unknown>> }).events;
+    posted.push(events);
+    // the app takes one event at a time; a bigger post is too big for it
+    if (events.length > 1) return new Response("too big", { status: 413 });
+    return new Response("{}", { status: 200 });
+  }) as unknown as typeof fetch;
+  const ch = new PotatoChannel({
+    url: "http://127.0.0.1:9",
+    token: "t",
+    agentFor: () => {
+      throw new Error("not used");
+    },
+    info: { version: "t", provider: "t", packs: [], surfaces: ["app"] },
+    fetch: fetchFake,
+    retryMs: 5,
+    retryMaxMs: 10,
+  });
+  const q = ch as unknown as { emit(e: Record<string, unknown>): void; flushNow(): Promise<void>; queue: unknown[] };
+  // the first event starts a post alone; the next two wait and go in one post, which is refused
+  q.emit({ type: "typing", conversationId: "c", on: true });
+  q.emit({ type: "reply", conversationId: "c", inReplyTo: "r1", segments: ["hi"] });
+  q.emit({ type: "usage", model: "m", promptTokens: 1, completionTokens: 1, cacheHitTokens: 0, cacheMissTokens: 1 });
+  await q.flushNow();
+  assert.equal(q.queue.length, 0, "nothing is left queued");
+  assert.ok(
+    posted.some((b) => b.length === 1 && b[0]?.["type"] === "usage"),
+    `usage is sent on its own after the split: ${JSON.stringify(posted.map((b) => b.map((e) => e["type"])))}`,
+  );
+  assert.ok(posted.some((b) => b.length === 1 && b[0]?.["type"] === "reply"), "the reply is sent too");
+});
+
+test("shutdown sends the usage first, before the rest of the queue", async () => {
+  const posted: Array<Array<Record<string, unknown>>> = [];
+  const fetchFake = (async (_url: string, init: { body: string }) => {
+    posted.push((JSON.parse(init.body) as { events: Array<Record<string, unknown>> }).events);
+    return new Response("{}", { status: 200 });
+  }) as unknown as typeof fetch;
+  const ch = new PotatoChannel({
+    url: "http://127.0.0.1:9",
+    token: "t",
+    agentFor: () => {
+      throw new Error("not used");
+    },
+    info: { version: "t", provider: "t", packs: [], surfaces: ["app"] },
+    fetch: fetchFake,
+    onExit: () => {},
+  });
+  const q = ch as unknown as { queue: Array<Record<string, unknown>>; handle(raw: unknown): void; flushNow(): Promise<void> };
+  // queued while nothing was posting: a long reply first, the usage after it
+  for (let i = 0; i < 40; i++) q.queue.push({ v: 1, type: "reply", conversationId: "c", inReplyTo: `r${i}`, segments: ["x".repeat(1900)] });
+  q.queue.push({ v: 1, type: "usage", model: "m", promptTokens: 1, completionTokens: 1, cacheHitTokens: 0, cacheMissTokens: 1 });
+  q.handle({ v: 1, type: "shutdown" });
+  await new Promise((r) => setTimeout(r, 50));
+  const first = posted[0] ?? [];
+  assert.equal(first[0]?.["type"], "usage", `usage leads the first post: ${JSON.stringify(first.map((e) => e["type"]))}`);
+});

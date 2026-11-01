@@ -339,12 +339,14 @@ export class PotatoChannel {
   /** Posts what is queued, in order, in batches the app accepts. */
   private async flushLoop(): Promise<void> {
     let backoff = this.retryMs;
+    // Lowered when the app refuses a batch as too big; back to the normal size after a batch it takes.
+    let maxBatch: number = LIMITS.eventsPerPost;
     while (this.queue.length > 0 && !this.exited) {
       const batch: Json[] = [];
       let bytes = 64;
       for (const event of this.queue) {
         const size = Buffer.byteLength(JSON.stringify(event)) + 1;
-        if (batch.length >= LIMITS.eventsPerPost) break;
+        if (batch.length >= maxBatch) break;
         if (batch.length > 0 && bytes + size > LIMITS.postBytes) break;
         batch.push(event);
         bytes += size;
@@ -369,12 +371,19 @@ export class PotatoChannel {
           this.queue.splice(0, batch.length);
           this.note("ok");
           backoff = this.retryMs;
+          maxBatch = LIMITS.eventsPerPost;
           continue;
         }
         if (res.status === 400 || res.status === 413) {
-          // the app will never take this batch: drop it rather than loop
-          this.queue.splice(0, batch.length);
-          this.log("the app rejected a batch of events");
+          // The app will not take this batch as it is. Nothing is dropped (a usage event is money): the batch is
+          // halved and sent again, so the usage goes on its own if it has to. Only one event alone is given up.
+          if (batch.length > 1) {
+            maxBatch = Math.max(1, Math.floor(batch.length / 2));
+            this.log("the app refused a batch of events as too big; sending smaller ones");
+            continue;
+          }
+          this.queue.splice(0, 1);
+          this.log("the app rejected an event");
           continue;
         }
         const refused = res.status === 401 || res.status === 403 || res.status === 404;
@@ -448,6 +457,9 @@ export class PotatoChannel {
     this.abort.abort();
     this.failCalls("SHUTDOWN", "The brain is stopping.");
     await Promise.race([this.turns.catch(() => {}), new Promise((r) => setTimeout(r, 800))]);
+    // Usage goes first: it is what must not be lost when the wait runs out; the rest follows in its order.
+    const isUsage = (e: Json): boolean => e["type"] === "usage";
+    this.queue = [...this.queue.filter(isUsage), ...this.queue.filter((e) => !isUsage(e))];
     await Promise.race([this.flushNow(), new Promise((r) => setTimeout(r, 800))]);
     this.finish(0);
   }
