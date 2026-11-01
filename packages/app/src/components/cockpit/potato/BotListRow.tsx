@@ -4,6 +4,7 @@
 import type { AvatarId } from '../../../lib/companion';
 import { moodWord, type PotatoBotView } from '../../../lib/potato';
 import { listStatus, listTime, LIST_COPY, needsYou, type ListStatus } from '../../../lib/potato-list';
+import { previewLine } from '../../../lib/potato-thread';
 import { Avatar } from '../../companion/Avatar';
 import { DotSpinner } from '../DotSpinner';
 import { StatusPill } from './ui/StatusPill';
@@ -54,7 +55,7 @@ export function BotListRow({ bot, avatar, active, mini, now, menu, menuOpen, onO
               {bot.lastAt !== null && <span className="ck-potato-time">{listTime(bot.lastAt, now)}</span>}
             </span>
             <span className="ck-potato-conv-bottom">
-              <span className="ck-potato-last">{bot.lastLine ?? 'No messages yet'}</span>
+              <span className="ck-potato-last">{bot.lastLine ? previewLine(bot.lastLine) : 'No messages yet'}</span>
               {bot.unread > 0 && <span className="ck-potato-dot" role="img" aria-label={`${bot.unread} unread`} />}
             </span>
             {(status || bot.mood) && (

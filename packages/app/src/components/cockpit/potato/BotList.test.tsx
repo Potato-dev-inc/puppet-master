@@ -79,6 +79,13 @@ describe('BotList', () => {
     expect(row.querySelector('svg[role="img"]')).not.toBeNull();
   });
 
+  it('shows a tool line as a short summary, never the raw JSON', () => {
+    const line = 'Fish used ask_person_for_screen: ok, saw {"reason":"login","url":"https://x.test"}';
+    act(() => root.render(<BotList {...props({ bots: [bot({ lastLine: line })] })} />));
+    expect(host.querySelector('.ck-potato-last')?.textContent).toBe('Used the computer');
+    expect(host.textContent).not.toContain('{');
+  });
+
   it('shows no dot when everything is read, and says when nothing was said yet', () => {
     act(() => root.render(<BotList {...props({ bots: [bot()] })} />));
     expect(host.querySelector('.ck-potato-dot')).toBeNull();

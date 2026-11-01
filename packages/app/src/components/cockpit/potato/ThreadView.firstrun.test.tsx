@@ -153,3 +153,43 @@ describe('ThreadView first run', () => {
     expect(choice('Use the computer')).toBeUndefined();
   });
 });
+
+describe('ThreadView first run, one empty-thread message and the composer commands', () => {
+  it('shows the first message and not "Say hello" for a new bot', async () => {
+    const { props } = setup();
+    await act(async () => root.render(<ThreadView {...props} />));
+    expect(greeting()).not.toBeNull();
+    expect(host.textContent).not.toContain('Say hello to');
+  });
+
+  it('falls back to "Say hello" once the first run is used up and the thread is still empty', async () => {
+    window.localStorage.clear();
+    const { props } = setup();
+    await act(async () => root.render(<ThreadView {...props} />));
+    await act(async () => root.render(<ThreadView {...props} messages={[you('hi')]} />));
+    await act(async () => root.render(<ThreadView {...props} messages={[]} />));
+    expect(greeting()).toBeNull();
+    expect(host.textContent).toContain('Say hello to');
+  });
+
+  it('/computer opens the bot panel on Computer, and /new starts the new-bot flow', async () => {
+    const onNewBot = vi.fn();
+    const onOpenComputer = vi.fn();
+    const { props } = setup({ onNewBot, panel: { open: false, computerShown: false, onToggle: () => {}, onOpenComputer } });
+    await act(async () => root.render(<ThreadView {...props} />));
+    const field = host.querySelector<HTMLTextAreaElement>('textarea')!;
+    const enter = () => act(async () => void field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
+    const typeText = async (text: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text);
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    await typeText('/computer');
+    await enter();
+    expect(onOpenComputer).toHaveBeenCalledTimes(1);
+    await typeText('/new');
+    await enter();
+    expect(onNewBot).toHaveBeenCalledTimes(1);
+  });
+});

@@ -188,6 +188,21 @@ export function toolStep(message: Pick<PotatoMessage, 'id' | 'text'>): ToolStep 
   return null;
 }
 
+/**
+ * A message's last line as the bot list shows it. A tool line ("Fish used ask_person_for_screen: ok, saw {...}") becomes
+ * a short summary ("Used the computer"), and JSON, even cut off halfway, is never shown. Ordinary words pass through.
+ */
+export function previewLine(line: string): string {
+  const text = line.trim();
+  const step = toolStep({ id: '', text });
+  if (step) {
+    const head = step.group === 'computer' ? 'Used the computer' : step.group === 'helper' ? 'Started a helper' : step.label;
+    return step.ok ? head : `${head} · failed`;
+  }
+  if (/^[{[]/.test(text)) return THREAD_COPY.gotResult;
+  return line;
+}
+
 export function stepsWord(n: number): string {
   return n === 1 ? '1 step' : `${n} steps`;
 }

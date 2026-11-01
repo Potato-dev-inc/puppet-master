@@ -114,6 +114,7 @@ export function PotatoPage(props: PotatoPageProps) {
       onOpenPane={onOpenPane}
       paneExists={paneExists}
       screen={screenTransport}
+      onNewBot={() => setSheetOpen(true)}
       panel={{
         open: panelOpen,
         computerShown: panelOpen && tab === 'computer',

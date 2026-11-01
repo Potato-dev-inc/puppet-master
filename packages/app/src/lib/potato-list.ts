@@ -2,6 +2,7 @@
 // sits in, what the search finds, how a time reads, what the Activity list says and which menu items a bot gets are all
 // decided here, as plain functions, so the tests need no page. The components only draw what these return.
 import { errorSentence, type BrainState, type PotatoBotView } from './potato';
+import { previewLine } from './potato-thread';
 
 export const LIST_COPY = {
   resize: 'Resize the bot list',
@@ -88,7 +89,7 @@ export function statusSentence(bot: StatusInput): string | null {
 export function matchesSearch(bot: Pick<PotatoBotView, 'name' | 'lastLine'>, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return bot.name.toLowerCase().includes(q) || (bot.lastLine ?? '').toLowerCase().includes(q);
+  return bot.name.toLowerCase().includes(q) || previewLine(bot.lastLine ?? '').toLowerCase().includes(q);
 }
 
 /** Newest first. A bot with no message yet goes last. Ties keep the name order. */
@@ -167,7 +168,7 @@ export function activityEvents<T extends PotatoBotView>(bots: readonly T[], quer
     const sentence = statusSentence(bot);
     if (sentence) events.push({ botId: bot.id, botName: bot.name, text: sentence, at: bot.lastAt });
     if (bot.lastLine && bot.lastAt !== null) {
-      events.push({ botId: bot.id, botName: bot.name, text: LIST_COPY.sentence.lastLine(bot.lastLine), at: bot.lastAt });
+      events.push({ botId: bot.id, botName: bot.name, text: LIST_COPY.sentence.lastLine(previewLine(bot.lastLine)), at: bot.lastAt });
     }
   }
   return events.sort((a, b) => (b.at ?? -1) - (a.at ?? -1));

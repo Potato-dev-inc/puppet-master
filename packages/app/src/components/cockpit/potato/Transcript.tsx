@@ -25,12 +25,14 @@ export interface TranscriptProps {
   onOpenPane?: (paneId: string) => void;
   paneExists?: (paneId: string) => boolean;
   followToken?: number;
+  /** A brand-new bot's first message is shown above: no "Say hello" line. */
+  hideEmpty?: boolean;
   now: number;
   /** Opens a link from the bot's text. Default: the system browser. */
   openLink?: (url: string) => void;
 }
 
-export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, now, openLink }: TranscriptProps) {
+export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, hideEmpty = false, now, openLink }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const [away, setAway] = useState(false);
@@ -115,7 +117,7 @@ export function Transcript({ bot, messages, agentLabel, transport, onChanged, on
           })}
         </ol>
         {bot.typing && <TypingRow name={bot.name} />}
-        {messages.length === 0 && !bot.typing && <p className="ck-sub ck-potato-empty">{THREAD_COPY.empty(bot.name)}</p>}
+        {messages.length === 0 && !bot.typing && !hideEmpty && <p className="ck-sub ck-potato-empty">{THREAD_COPY.empty(bot.name)}</p>}
       </div>
       {away && (
         <button type="button" className="ck-potato-jump" onClick={toBottom}>

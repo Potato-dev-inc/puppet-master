@@ -217,7 +217,7 @@ describe('Transcript, hover actions', () => {
     } finally {
       window.removeEventListener(POTATO_QUOTE_EVENT, on);
     }
-    expect(seen).toEqual([{ botId: 'fish', quote: '> line one\n> line two\n\n' }]);
+    expect(seen).toEqual([{ botId: 'fish', text: 'line one\nline two' }]);
   });
 
   it('the composer puts the quote under what is typed, and ignores another bot', () => {
@@ -235,11 +235,7 @@ describe('Transcript, hover actions', () => {
     act(() => {
       window.dispatchEvent(new CustomEvent(POTATO_QUOTE_EVENT, { detail: { botId: 'fish', text: 'hi' } }));
     });
-    expect(field.value).toBe('my answer
-
-> hi
-
-');
+    expect(field.value).toBe('my answer\n\n> hi\n\n');
     expect(buttonByText(host, 'Send')).toBeDefined();
   });
 });

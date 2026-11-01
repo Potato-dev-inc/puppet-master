@@ -54,12 +54,14 @@ export interface ThreadViewProps {
   screen?: ScreenTransport;
   /** The bot panel next to the thread. Absent: no panel button and no banner button. */
   panel?: ThreadPanel;
+  /** `/new` in the message box: start the new-bot flow. Absent: the command is not offered. */
+  onNewBot?: () => void;
   /** Passed in so a test can pin the clock. */
   now?: number;
 }
 
 export function ThreadView(props: ThreadViewProps) {
-  const { bot, messages, settings, avatar, agentLabel, transport, onOpenSettings, onNotify, onChanged, companionPaneId, onOpenCompanion, onOpenPane, paneExists, screen, panel, now = Date.now() } = props;
+  const { bot, messages, settings, avatar, agentLabel, transport, onOpenSettings, onNotify, onChanged, companionPaneId, onOpenCompanion, onOpenPane, paneExists, screen, panel, onNewBot, now = Date.now() } = props;
   const [follow, setFollow] = useState(0);
   const through = settings.brain === 'agents' || bot.brainState === 'agents';
   const screenState = useScreenState(through ? undefined : screen);
@@ -141,6 +143,7 @@ export function ThreadView(props: ThreadViewProps) {
         onOpenPane={onOpenPane}
         paneExists={paneExists}
         followToken={follow}
+        hideEmpty={showFirst}
         now={now}
       />
 
@@ -160,7 +163,14 @@ export function ThreadView(props: ThreadViewProps) {
         onOpenSettings={onOpenSettings}
       />
 
-      <Composer bot={bot} transport={transport} onChanged={onChanged} onNotify={onNotify} onSent={() => setFollow((n) => n + 1)} />
+      <Composer
+        bot={bot}
+        transport={transport}
+        onChanged={onChanged}
+        onNotify={onNotify}
+        onSent={() => setFollow((n) => n + 1)}
+        actions={{ onNewBot, onOpenComputer: panel?.onOpenComputer }}
+      />
     </section>
   );
 }

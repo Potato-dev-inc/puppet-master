@@ -3,7 +3,7 @@
 // words), the activity title, and the quote text.
 import { describe, expect, it, vi } from 'vitest';
 import type { PotatoMessage } from './potato';
-import { POTATO_QUOTE_EVENT, activityTitle, clockLabel, dayLabel, emitQuote, firstUnreadId, isRawJson, quoteExcerpt, sameDay, toolStep } from './potato-thread';
+import { POTATO_QUOTE_EVENT, activityTitle, clockLabel, dayLabel, emitQuote, firstUnreadId, isRawJson, previewLine, quoteExcerpt, sameDay, toolStep } from './potato-thread';
 
 const at = (y: number, mo: number, d: number, h = 12, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime();
 const m = (id: string, kind: 'you' | 'bot' | 'note' = 'bot', text = id): PotatoMessage => ({ id, at: 0, from: { kind }, kind: 'text', text });
@@ -119,5 +119,22 @@ describe('quote', () => {
     emitQuote('fish', 'a line', { dispatchEvent: (e) => (seen(e.type, (e as CustomEvent).detail), true) });
     expect(seen).toHaveBeenCalledWith('pm:potato-quote', { botId: 'fish', text: 'a line' });
     expect(POTATO_QUOTE_EVENT).toBe('pm:potato-quote');
+  });
+});
+
+describe('previewLine (the bot list)', () => {
+  it('turns a tool line into a short summary, never the JSON', () => {
+    expect(previewLine('Fish used ask_person_for_screen: ok, saw {"a":1,"b":[1,2]}')).toBe('Used the computer');
+    expect(previewLine('Fish used computer_act: ok, saw {"a":1,"b":[1,2,3,4,5,6,')).toBe('Used the computer');
+    expect(previewLine('Fish used ask_helper: ok')).toBe('Started a helper');
+    expect(previewLine('Fish used computer_act: failed LEASE_LOST')).toBe('Used the computer · failed');
+    expect(previewLine('Fish used memory_search: ok, saw 3 notes')).toBe('Looked through its memory');
+  });
+  it('never shows bare JSON, even cut off', () => {
+    expect(previewLine('{"ok":true,"items":[1,2]}')).toBe('Got a result');
+    expect(previewLine('{"ok":true,"ite')).toBe('Got a result');
+  });
+  it('leaves ordinary words alone', () => {
+    expect(previewLine('See you tomorrow!')).toBe('See you tomorrow!');
   });
 });
