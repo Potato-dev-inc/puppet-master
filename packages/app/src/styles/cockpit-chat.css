@@ -169,34 +169,38 @@
 }
 .cockpit .ck-chat-composer {
   flex: none;
-  padding: 10px 20px 14px;
+  padding: 8px 20px 16px;
   background: var(--bg);
-  border-top: 1px solid var(--sep);
 }
+/* One rounded card: text on top, the agent's settings and the send button on a footer line. */
 .cockpit .ck-chat-composer-row {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 6px 6px 6px 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 12px 10px 8px 14px;
   background: var(--bg-raised);
   border: 1px solid var(--sep);
-  border-radius: 12px;
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .cockpit .ck-chat-composer-row:focus-within {
   border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--fill-active, rgba(255, 255, 255, 0.05));
 }
 .cockpit .ck-chat-composer-field {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
   margin: 0;
-  padding: 4px 0;
+  padding: 0 0 6px;
   border: none;
   outline: none;
   min-height: 21px;
   resize: none;
   background: transparent;
   color: var(--label);
-  font: 13px/1.5 var(--font-ui);
+  font: 14px/1.5 var(--font-ui);
 }
 .cockpit .ck-chat-composer-field::placeholder {
   color: var(--label-3);
@@ -205,10 +209,37 @@
   color: var(--label-3);
   cursor: not-allowed;
 }
-/* Accent: the send button. */
+.cockpit .ck-chat-composer-toolbar {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* Accent: the send button, a round arrow. The word stays for screen readers. */
+.ck-chat-send-icon {
+  display: none;
+}
 .cockpit .ck-btn.ck-chat-send {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  margin-left: auto;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--accent);
   color: var(--accent-fg);
+}
+.cockpit .ck-chat-send .ck-chat-send-icon {
+  display: block;
+}
+.cockpit .ck-chat-send .ck-chat-send-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .cockpit .ck-btn.ck-chat-send:hover:not(:disabled) {
   background: var(--accent-hover);
@@ -217,7 +248,7 @@
   background: var(--accent-press);
 }
 .cockpit .ck-chat-send:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 .cockpit .ck-chat-composer-note {
