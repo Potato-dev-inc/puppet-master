@@ -1,0 +1,13 @@
+{
+  "PasswordManagerEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "PasswordLeakDetectionEnabled": false,
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "DefaultBrowserSettingEnabled": false,
+  "MetricsReportingEnabled": false,
+  "BackgroundModeEnabled": false,
+  "PromptForDownloadLocation": false,
+  "DownloadDirectory": "/home/pm/Downloads"
+}

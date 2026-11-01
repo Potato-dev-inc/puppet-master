@@ -1,0 +1,12 @@
+# Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/computer/rakazo-browser.desktop.
+# Copyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;
+# see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: name, comment and exec path for the PM browser launcher.
+[Desktop Entry]
+Type=Application
+Name=Browser
+Comment=Google Chrome with the PM sandbox profile and policy
+Exec=/usr/local/bin/pm-sbx-browser %U
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=x-scheme-handler/http;x-scheme-handler/https;text/html;
+StartupNotify=false

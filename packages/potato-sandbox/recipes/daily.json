@@ -1,0 +1,96 @@
+{
+  "_source": "Puppet Master (not a Rakazo file). Everyday office and media apps the bot may need to open files or show results.",
+  "id": "daily",
+  "title": "Everyday apps",
+  "description": "LibreOffice for documents, spreadsheets and slides, plus a media player and an image viewer. Pick the player and viewer you want.",
+  "pre": [],
+  "apt": [
+    "libreoffice-writer",
+    "libreoffice-calc",
+    "libreoffice-impress"
+  ],
+  "debs": [],
+  "post": [],
+  "options": [
+    {
+      "id": "media",
+      "title": "Media player",
+      "description": "Plays audio and video.",
+      "kind": "single",
+      "default": "vlc",
+      "choices": [
+        {
+          "id": "vlc",
+          "title": "VLC",
+          "description": "Plays almost every format. Larger install.",
+          "pre": [],
+          "apt": [
+            "vlc"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "mpv",
+          "title": "mpv",
+          "description": "Small and fast. No menus.",
+          "pre": [],
+          "apt": [
+            "mpv"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "none",
+          "title": "No media player",
+          "description": "Do not install one.",
+          "pre": [],
+          "apt": [],
+          "debs": [],
+          "post": []
+        }
+      ]
+    },
+    {
+      "id": "images",
+      "title": "Image viewer",
+      "description": "Opens pictures and screenshots.",
+      "kind": "single",
+      "default": "eog",
+      "choices": [
+        {
+          "id": "eog",
+          "title": "Image Viewer (eog)",
+          "description": "The simple GNOME viewer.",
+          "pre": [],
+          "apt": [
+            "eog"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "gthumb",
+          "title": "gThumb",
+          "description": "Viewer with a folder browser.",
+          "pre": [],
+          "apt": [
+            "gthumb"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "none",
+          "title": "No image viewer",
+          "description": "Do not install one.",
+          "pre": [],
+          "apt": [],
+          "debs": [],
+          "post": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "_header": "Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/computer/Dockerfile.\nCopyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;\nsee packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: package list cut to a desktop-agnostic base for Ubuntu 24.04 (no Docker, no Chromium snap, no Brave, no Node or Python tool chain, no xcapture build); Google Chrome .deb instead of Chromium; xterm, pcmanfm, mousepad and evince instead of xterm-only (they work under any window manager); post lines install the PM guest files and the pm user with no sudo.",
+  "id": "base",
+  "title": "Desktop base",
+  "description": "What every sandbox needs: a hidden screen, a remote view that cannot type, the Chrome browser, fonts for every language, a terminal, a file manager, a text editor, a PDF reader, zip tools and Python. Always installed.",
+  "pre": [],
+  "apt": [
+    "xvfb",
+    "x11vnc",
+    "novnc",
+    "websockify",
+    "xdotool",
+    "x11-utils",
+    "x11-xserver-utils",
+    "xauth",
+    "dbus-x11",
+    "imagemagick",
+    "xclip",
+    "fonts-noto",
+    "fonts-noto-cjk",
+    "fonts-noto-color-emoji",
+    "xterm",
+    "pcmanfm",
+    "mousepad",
+    "evince",
+    "zip",
+    "unzip",
+    "python3",
+    "procps",
+    "iproute2",
+    "iptables",
+    "curl",
+    "ca-certificates",
+    "gnupg"
+  ],
+  "debs": [
+    {
+      "url": "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
+      "sha256": null
+    }
+  ],
+  "post": [
+    "id -u pm >/dev/null 2>&1 || useradd --uid 1000 --create-home --shell /bin/bash pm",
+    "install -d -o pm -g pm -m 0755 /home/pm/Downloads",
+    "install -d -m 0755 /usr/local/sbin /usr/local/bin /etc/pm-sbx /var/log/pm-sbx /etc/opt/chrome/policies/managed",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-no-wslg.sh\" > /usr/local/sbin/pm-no-wslg.sh && chmod 0755 /usr/local/sbin/pm-no-wslg.sh",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/wsl.conf\" > /etc/wsl.conf && chmod 0644 /etc/wsl.conf",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/profile-pm.sh\" > /etc/profile.d/pm-sandbox.sh && chmod 0644 /etc/profile.d/pm-sandbox.sh",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-start-desktop.sh\" > /usr/local/bin/pm-sbx-start-desktop && chmod 0755 /usr/local/bin/pm-sbx-start-desktop",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-browser\" > /usr/local/bin/pm-sbx-browser && chmod 0755 /usr/local/bin/pm-sbx-browser",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-browser.desktop\" > /usr/share/applications/pm-sbx-browser.desktop && chmod 0644 /usr/share/applications/pm-sbx-browser.desktop",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-chrome-policy.json\" > /etc/opt/chrome/policies/managed/pm-sbx.json && chmod 0644 /etc/opt/chrome/policies/managed/pm-sbx.json"
+  ],
+  "options": []
+}

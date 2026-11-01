@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<!--
+Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/computer/embed.html.
+Copyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;
+see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: noVNC is loaded by dynamic import from one
+constant path (./novnc/); view-only is the default (control needs ?control=1); status goes to the parent via postMessage
+type pm-sbx-screen-status with a parent-origin allowlist (no wildcard) and a 15 s stall timeout; VideoDecoder is hidden
+before noVNC loads; the path parameter is restricted to safe characters; window hooks and attributes renamed to pm-sbx-*.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sandbox computer</title>
+    <!--
+      Origins allowed to receive status messages from this page, comma separated, e.g.
+      "https://app.example.test". Filled in by the serving layer. Empty means no status is posted.
+      The wildcard is refused on purpose.
+    -->
+    <meta name="pm-sbx-parent-origins" content="" />
+    <style>
+      html,
+      body,
+      #screen {
+        margin: 0;
+        height: 100%;
+        width: 100%;
+        background: #0e0e10;
+        overflow: hidden;
+      }
+      #mobile-controls {
+        position: fixed;
+        right: max(12px, env(safe-area-inset-right));
+        top: calc(
+          var(--mobile-visual-top, 0px) + var(--mobile-visual-height, 100dvh) - 60px -
+            env(safe-area-inset-bottom)
+        );
+        z-index: 2;
+        display: flex;
+        gap: 8px;
+      }
+      #mobile-paste,
+      #mobile-keyboard,
+      #mobile-trackpad {
+        box-sizing: border-box;
+        width: 48px;
+        height: 48px;
+        padding: 11px;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        border-radius: 12px;
+        background: Canvas;
+        color: CanvasText;
+        box-shadow: 0 2px 10px color-mix(in srgb, CanvasText 25%, transparent);
+      }
+      #mobile-keyboard.active,
+      #mobile-trackpad.active {
+        outline: 3px solid Highlight;
+        outline-offset: 1px;
+      }
+      #mobile-paste svg,
+      #mobile-keyboard svg,
+      #mobile-trackpad svg {
+        width: 100%;
+        height: 100%;
+      }
+      #screen.trackpad-active {
+        touch-action: none;
+      }
+      #mobile-key-bar {
+        position: fixed;
+        left: max(8px, env(safe-area-inset-left));
+        right: max(8px, env(safe-area-inset-right));
+        top: calc(
+          var(--mobile-visual-top, 0px) + var(--mobile-visual-height, 100dvh) - 108px -
+            env(safe-area-inset-bottom)
+        );
+        z-index: 2;
+        display: flex;
+        gap: 6px;
+      }
+      #mobile-key-bar[hidden] {
+        display: none;
+      }
+      #mobile-key-bar button {
+        flex: 1;
+        min-width: 0;
+        height: 40px;
+        padding: 0 4px;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        border-radius: 10px;
+        background: Canvas;
+        color: CanvasText;
+        font: 600 13px/1 system-ui, sans-serif;
+        box-shadow: 0 2px 10px color-mix(in srgb, CanvasText 25%, transparent);
+      }
+      #mobile-key-bar button.active {
+        outline: 3px solid Highlight;
+        outline-offset: 1px;
+      }
+      #mobile-keyboard-input {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        outline: none;
+        resize: none;
+        opacity: 0.02;
+        font-size: 16px;
+        color: transparent;
+        background: transparent;
+        caret-color: transparent;
+        z-index: 1;
+      }
+      .mobile-keyboard-open #screen {
+        position: fixed;
+        top: var(--mobile-visual-top, 0px);
+        left: 0;
+        height: var(--mobile-visual-height, 100dvh);
+      }
+    </style>
+    <script type="module">
+      import {
+        attachHostClipboardPaste,
+        attachMobilePaste,
+        attachRemoteClipboardCopy,
+        pasteHostText,
+      } from "./clipboard-bridge.js";
+      import { attachMobileKeyboard, attachMobileTrackpad, isTouchBrowser } from "./mobile-keyboard.js";
+
+      // The only place that names the noVNC location. noVNC is vendored here later under its own
+      // MPL-2.0 licence; its source must never be copied into the rest of this folder.
+      const NOVNC_BASE = "./novnc/";
+      // Fixed message type for every status message this page posts to its parent.
+      const STATUS_MESSAGE_TYPE = "pm-sbx-screen-status";
+      // Without "connected" after this long, the page reports "failed" so the parent can offer Retry.
+      const STALL_TIMEOUT_MS = 15000;
+      const DEFAULT_WS_PATH = "websockify";
+      const PARENT_ORIGIN_META = "pm-sbx-parent-origins";
+
+      function query(name, fallback) {
+        const match = `${document.location.href}${window.location.hash}`.match(
+          new RegExp(`.*[?&]${name}=([^&#]*)`),
+        );
+        return match ? decodeURIComponent(match[1]) : fallback;
+      }
+
+      function flag(name) {
+        const value = String(query(name, "false")).toLowerCase();
+        return value === "1" || value === "true" || value === "yes";
+      }
+
+      // Parse the configured allowlist. Only exact http(s) origins survive; "*" and anything
+      // malformed are dropped, so a bad entry fails closed.
+      function parseParentOrigins() {
+        const content = document.querySelector(`meta[name="${PARENT_ORIGIN_META}"]`)?.getAttribute("content") ?? "";
+        const origins = [];
+        for (const entry of content.split(",")) {
+          const text = entry.trim().replace(/\/$/, "");
+          if (!text || text === "*") continue;
+          try {
+            const url = new URL(text);
+            if ((url.protocol === "https:" || url.protocol === "http:") && url.origin === text) {
+              origins.push(url.origin);
+            }
+          } catch {
+            // Not an origin: ignored.
+          }
+        }
+        return origins;
+      }
+
+      const PARENT_ORIGINS = parseParentOrigins();
+      const root = document.documentElement;
+      let phase = "";
+      let stallTimer = null;
+
+      // Post only to allowlisted origins. postMessage delivers to the parent only when its origin
+      // matches the target, so the other entries cannot leak the status to a different page.
+      function postStatus(status, reason) {
+        if (window.parent === window) return;
+        const message = reason ? { type: STATUS_MESSAGE_TYPE, status, reason } : { type: STATUS_MESSAGE_TYPE, status };
+        for (const origin of PARENT_ORIGINS) window.parent.postMessage(message, origin);
+      }
+
+      // Status values: loading, connecting, connected, disconnected, failed.
+      // Reasons are fixed codes (load, timeout, security, closed, error); no server text is forwarded.
+      function report(status, reason = "") {
+        phase = status;
+        root.classList.toggle("noVNC_loading", status === "loading");
+        root.classList.toggle("noVNC_connecting", status === "connecting");
+        root.classList.toggle("noVNC_connected", status === "connected");
+        if (status === "failed") root.setAttribute("data-pm-sbx-screen-error", reason);
+        else root.removeAttribute("data-pm-sbx-screen-error");
+        if (status === "connected" || status === "disconnected" || status === "failed") {
+          clearTimeout(stallTimer);
+          stallTimer = null;
+        }
+        postStatus(status, reason);
+      }
+
+      function websocketPath() {
+        const raw = String(query("path", DEFAULT_WS_PATH)).replace(/^\/+/, "");
+        return /^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$/.test(raw) && !raw.includes("..") ? raw : DEFAULT_WS_PATH;
+      }
+
+      function websocketUrl() {
+        const prefix = window.location.pathname.replace(/[^/]+$/, "");
+        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        return `${protocol}://${window.location.host}${prefix}${websocketPath()}`;
+      }
+
+      // noVNC below 1.7 probes WebCodecs H.264 with a top-level await, which can hang on some
+      // Android devices. Screens never use H.264, so the API is hidden before noVNC loads.
+      function disableVideoDecoder() {
+        try {
+          delete window.VideoDecoder;
+        } catch {
+          // Not configurable: fall through.
+        }
+        try {
+          if ("VideoDecoder" in window) window.VideoDecoder = undefined;
+        } catch {
+          // Ignore: the page still works without the shim.
+        }
+      }
+
+      async function start() {
+        report("loading");
+        stallTimer = setTimeout(() => {
+          stallTimer = null;
+          if (phase === "loading" || phase === "connecting") report("failed", "timeout");
+        }, STALL_TIMEOUT_MS);
+
+        disableVideoDecoder();
+        let modules;
+        try {
+          modules = await Promise.all([
+            import(`${NOVNC_BASE}core/rfb.js`),
+            import(`${NOVNC_BASE}core/input/keyboard.js`),
+            import(`${NOVNC_BASE}core/input/keysym.js`),
+            import(`${NOVNC_BASE}core/input/keysymdef.js`),
+          ]);
+        } catch {
+          report("failed", "load");
+          return;
+        }
+        const RFB = modules[0].default;
+        const Keyboard = modules[1].default;
+        const KeyTable = modules[2].default;
+        const keysyms = modules[3].default;
+
+        // View-only unless the URL explicitly asks for control. view_only=1 always wins.
+        const controlRequested = flag("control") && !flag("view_only");
+        let rfb;
+        try {
+          rfb = new RFB(document.getElementById("screen"), websocketUrl());
+        } catch {
+          report("failed", "load");
+          return;
+        }
+        report("connecting");
+        rfb.viewOnly = !controlRequested;
+        rfb.scaleViewport = true;
+        rfb.clipViewport = false;
+
+        let securityFailed = false;
+        rfb.addEventListener("connect", () => report("connected"));
+        rfb.addEventListener("securityfailure", () => {
+          securityFailed = true;
+        });
+        rfb.addEventListener("disconnect", (event) => {
+          if (phase === "failed" || phase === "disconnected") return;
+          const clean = Boolean(event.detail?.clean);
+          if (phase === "connected") {
+            report("disconnected", clean ? "closed" : "error");
+            return;
+          }
+          report("failed", securityFailed ? "security" : clean ? "closed" : "error");
+        });
+
+        attachRemoteClipboardCopy(rfb);
+        if (!rfb.viewOnly) attachHostClipboardPaste(rfb);
+        if (!rfb.viewOnly && (isTouchBrowser() || window.__pmSbxNativeKeys)) {
+          const keyboardInput = document.getElementById("mobile-keyboard-input");
+          attachMobilePaste(rfb, {
+            button: document.getElementById("mobile-paste"),
+            fallbackFocus: keyboardInput,
+          });
+          attachMobileKeyboard(rfb, {
+            button: document.getElementById("mobile-keyboard"),
+            input: keyboardInput,
+            keyBar: document.getElementById("mobile-key-bar"),
+            Keyboard,
+            backspaceKeysym: KeyTable.XK_BackSpace,
+            lookupKeysym: keysyms.lookup,
+            pasteText: (text) => pasteHostText(rfb, text),
+          });
+          attachMobileTrackpad(rfb, {
+            button: document.getElementById("mobile-trackpad"),
+            surface: document.getElementById("screen"),
+          });
+        }
+      }
+
+      start();
+    </script>
+  </head>
+  <body>
+    <div id="screen"></div>
+    <div id="mobile-key-bar" hidden>
+      <button type="button" data-key="Escape" aria-label="Escape">Esc</button>
+      <button type="button" data-key="Tab" aria-label="Tab">Tab</button>
+      <button type="button" data-key="Control" aria-label="Ctrl" aria-pressed="false">Ctrl</button>
+      <button type="button" data-key="ArrowLeft" aria-label="Left">←</button>
+      <button type="button" data-key="ArrowDown" aria-label="Down">↓</button>
+      <button type="button" data-key="ArrowUp" aria-label="Up">↑</button>
+      <button type="button" data-key="ArrowRight" aria-label="Right">→</button>
+    </div>
+    <div id="mobile-controls">
+      <button id="mobile-paste" type="button" aria-label="Paste" title="Paste" hidden>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="8" y="2" width="8" height="4" rx="1" />
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+        </svg>
+      </button>
+      <button
+        id="mobile-keyboard"
+        type="button"
+        aria-label="Show keyboard"
+        aria-pressed="false"
+        title="Show keyboard"
+        hidden
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="4" width="20" height="16" rx="2" />
+          <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M6 16h12" />
+        </svg>
+      </button>
+      <button
+        id="mobile-trackpad"
+        type="button"
+        aria-label="Use trackpad"
+        aria-pressed="false"
+        title="Use trackpad"
+        hidden
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 11V5a2 2 0 0 1 4 0v5" />
+          <path d="M13 10V4a2 2 0 0 1 4 0v7" />
+          <path d="M17 10V6a2 2 0 0 1 4 0v7c0 5-3 8-8 8h-1c-3 0-5-1-7-4l-2-3a2 2 0 0 1 3-2l3 2" />
+        </svg>
+      </button>
+    </div>
+    <textarea
+      id="mobile-keyboard-input"
+      aria-label="Remote computer keyboard input"
+      aria-hidden="true"
+      autocapitalize="off"
+      autocomplete="off"
+      spellcheck="false"
+      tabindex="-1"
+    ></textarea>
+  </body>
+</html>

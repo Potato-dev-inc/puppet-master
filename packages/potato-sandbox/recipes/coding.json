@@ -1,0 +1,143 @@
+{
+  "_header": "Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/computer/Dockerfile (dev tools: git, jq, openssh-client, unzip, the gh pin).\nCopyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;\nsee packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: gh comes from Ubuntu's archive instead of a pinned release tarball; Node.js from the NodeSource apt repository (see the pre lines); package manager and language choices added; no uv, no Docker, no Brave.",
+  "id": "coding",
+  "title": "Coding tools",
+  "description": "Tools to clone, build and test code: git, the GitHub command line, Node.js (current LTS) and a C compiler for packages that build native code. Pick a package manager and any languages you need.",
+  "_note": "Node.js comes from the NodeSource apt repository, not from Ubuntu (Ubuntu's nodejs package is an old major). Why NodeSource and not the official tarball: it is signed and updated by apt like every other package, so the recipe needs no per-release checksum and no hand-managed PATH, and it fits the apt-only install flow. The major is 24 (Active LTS). Change node_24.x in the pre lines to move to the next LTS. The repo key is not pinned to a fingerprint yet (open item in PORTED.md).",
+  "pre": [
+    "install -d -m 0755 /etc/apt/keyrings",
+    "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg",
+    "echo 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main' > /etc/apt/sources.list.d/nodesource.list"
+  ],
+  "apt": [
+    "git",
+    "gh",
+    "openssh-client",
+    "build-essential",
+    "jq",
+    "ripgrep",
+    "nodejs"
+  ],
+  "debs": [],
+  "post": [],
+  "options": [
+    {
+      "id": "pkg",
+      "title": "Package manager",
+      "description": "The tool that installs JavaScript packages. npm comes with Node.js and needs nothing extra.",
+      "kind": "single",
+      "default": "npm",
+      "choices": [
+        {
+          "id": "npm",
+          "title": "npm",
+          "description": "Comes with Node.js.",
+          "pre": [],
+          "apt": [],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "pnpm",
+          "title": "pnpm",
+          "description": "Fast installs that share files between projects.",
+          "pre": [],
+          "apt": [],
+          "debs": [],
+          "post": [
+            "npm install -g pnpm"
+          ]
+        },
+        {
+          "id": "yarn",
+          "title": "Yarn",
+          "description": "Yarn classic, installed globally.",
+          "pre": [],
+          "apt": [],
+          "debs": [],
+          "post": [
+            "npm install -g yarn"
+          ]
+        },
+        {
+          "id": "bun",
+          "title": "Bun",
+          "description": "A fast JavaScript runtime and package manager, installed through npm.",
+          "pre": [],
+          "apt": [],
+          "debs": [],
+          "post": [
+            "npm install -g bun"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "languages",
+      "title": "Languages",
+      "description": "Extra programming languages. Pick any number. Nothing is picked by default.",
+      "kind": "multi",
+      "default": [],
+      "choices": [
+        {
+          "id": "python",
+          "title": "Python",
+          "description": "Python 3 with pip and venv.",
+          "pre": [],
+          "apt": [
+            "python3-pip",
+            "python3-venv",
+            "python3-dev"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "go",
+          "title": "Go",
+          "description": "The Go toolchain from Ubuntu.",
+          "pre": [],
+          "apt": [
+            "golang-go"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "rust",
+          "title": "Rust",
+          "description": "Cargo and rustc from Ubuntu. These are older than the latest Rust; a later step can add rustup.",
+          "pre": [],
+          "apt": [
+            "cargo",
+            "rustc"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "java",
+          "title": "Java",
+          "description": "OpenJDK 21 (headless, no windows).",
+          "pre": [],
+          "apt": [
+            "openjdk-21-jdk-headless"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "dotnet",
+          "title": ".NET",
+          "description": ".NET SDK 8 from Ubuntu.",
+          "pre": [],
+          "apt": [
+            "dotnet-sdk-8.0"
+          ],
+          "debs": [],
+          "post": []
+        }
+      ]
+    }
+  ]
+}
