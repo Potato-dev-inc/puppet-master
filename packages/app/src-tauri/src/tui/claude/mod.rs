@@ -257,6 +257,10 @@ impl TuiProfile for Claude {
         .then_some(PaneStatus::WaitingInput)
     }
 
+    fn has_prompt_parser(&self) -> bool {
+        true
+    }
+
     /// Claude's dialogs by structure (see `prompt`), then the generic wording.
     fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<Value> {
         prompt::detect_prompt(self.id(), screen, allow_broad)

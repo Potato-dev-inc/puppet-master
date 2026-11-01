@@ -87,14 +87,17 @@ export interface AcpCommand {
 /** The lane an agent runs in. */
 export type AcpLane = 'terminal' | 'acp';
 
+/** Every saved "How to run" value (`agent_lane_get`/`agent_lane_set`): the two above plus Chat (terminal). */
+export type RunLaneWord = AcpLane | 'terminal_chat';
+
 /** One agent that has an enabled ACP definition (`agent_lane_get`). */
 export interface AcpLaneAgent {
   id: string;
   label: string;
   /** The saved choice. */
-  lane: AcpLane;
+  lane: RunLaneWord;
   /** What a new session really uses (the choice, unless something stops it). */
-  effective_lane: AcpLane;
+  effective_lane: RunLaneWord;
   disabled: boolean;
   disabled_note: string | null;
   /** The chat comes from the person's own add-on (`acp_overlay_set`), so it can be removed. */
@@ -108,9 +111,27 @@ export interface AcpAddable {
   reason?: string;
 }
 
+/** An agent that can run as "Chat (terminal)": a normal terminal pane whose Chat tab reads its session file (`agent_lane_get`). */
+export interface TerminalChatAgent {
+  id: string;
+  label: string;
+  reads_file: boolean;
+  can_resume: boolean;
+  /** The profile has a prompt parser, so a question can be answered from the chat. */
+  can_answer_prompts: boolean;
+  note: string;
+  /** The saved "How to run" is Chat (terminal). */
+  chosen: boolean;
+}
+
+/** `PaneInfo.lane` of a Chat (terminal) pane. */
+export const TERMINAL_CHAT_LANE = 'terminal_chat';
+
 export interface AcpLaneView {
   labs_enabled: boolean;
   agents: AcpLaneAgent[];
+  /** Agents that can run as Chat (terminal). An older backend sends none. */
+  terminal_chat?: TerminalChatAgent[];
   /** Agents with no chat yet. An older backend sends none. */
   can_add_chat?: AcpAddable[];
 }
@@ -148,7 +169,7 @@ export interface BridgeInfo {
 /** One way to give an agent a chat (`acp_overlay_resolve`), best first. */
 export interface OverlayOption {
   /** `native`: the program you have already starts chat; `registry`: a download from the official ACP registry; `bridge`: the built-in bridge. */
-  kind: 'native' | 'registry' | 'bridge';
+  kind: 'native' | 'registry' | 'terminal_chat' | 'bridge';
   label: string;
   summary: string;
   command_line?: string;
@@ -157,6 +178,8 @@ export interface OverlayOption {
   registry?: RegistryInfo;
   /** `bridge`: what the made-by-Puppet-Master chat will be like. */
   bridge?: BridgeInfo;
+  /** `terminal_chat`: what Chat (terminal) gives this agent. */
+  terminal_chat?: { reads_file: boolean; can_resume: boolean; can_answer_prompts: boolean; note: string };
   available: boolean;
   /** Why it is not available. */
   reason?: string;
@@ -168,7 +191,7 @@ export interface OverlayResolve {
 }
 
 /** What the person confirmed for a download. `id` and `version` are what the screen showed; the app refuses if the registry moved. */
-export type OverlayInstallOption = { kind: 'registry'; id?: string; version?: string } | { kind: 'bridge' };
+export type OverlayInstallOption = { kind: 'registry'; id?: string; version?: string } | { kind: 'bridge' } | { kind: 'terminal_chat' };
 
 /** The confirm text for the built-in bridge. */
 export function bridgeSentence(label: string, hasMemory: boolean): string {
@@ -187,7 +210,7 @@ export function firstAvailable(options: readonly OverlayOption[] | null | undefi
   return (options ?? []).findIndex((o) => o && o.available === true);
 }
 
-/** Clean list from the wire: unknown kinds dropped, text fields defaulted. */
+/** Clean list from the wire: unknown kinds dropped, text fields defaulted. `terminal_chat` is kept out until the dialog renders it. */
 export function normalizeOptions(raw: OverlayResolve | null | undefined): OverlayOption[] {
   const list = Array.isArray(raw?.options) ? raw!.options : [];
   return list
@@ -222,7 +245,8 @@ export interface OverlayAcp {
 export function normalizeLaneView(raw: AcpLaneView | null | undefined): AcpLaneView {
   const agents = Array.isArray(raw?.agents) ? raw!.agents : [];
   const addable = Array.isArray(raw?.can_add_chat) ? raw!.can_add_chat.filter((a) => a && typeof a.id === 'string') : [];
-  return { labs_enabled: raw?.labs_enabled === true, agents, can_add_chat: addable };
+  const terminalChat = Array.isArray(raw?.terminal_chat) ? raw!.terminal_chat.filter((a) => a && typeof a.id === 'string') : [];
+  return { labs_enabled: raw?.labs_enabled === true, agents, can_add_chat: addable, terminal_chat: terminalChat };
 }
 
 /** The agents that could get a chat (Labs on), in the backend's order. */

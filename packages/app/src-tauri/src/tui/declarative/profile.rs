@@ -575,6 +575,10 @@ impl TuiProfile for DeclarativeProfile {
         self.engine.as_ref()?.classify_screen(visible_tail)
     }
 
+    fn has_prompt_parser(&self) -> bool {
+        self.engine.as_ref().is_some_and(|engine| engine.has_prompts())
+    }
+
     fn declares_prompt(&self, visible_tail: &str) -> bool {
         self.engine.as_ref().is_some_and(|engine| engine.declares_prompt(visible_tail))
     }

@@ -229,6 +229,10 @@ impl TuiProfile for Codex {
             .map(|_| crate::pty::status::PaneStatus::WaitingInput)
     }
 
+    fn has_prompt_parser(&self) -> bool {
+        true
+    }
+
     /// The folder-trust dialog as a card with Trust / Don't trust (see `prompt`), then the generic
     /// wording. Without it the trust card had no buttons and the person had to open the terminal.
     fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<serde_json::Value> {

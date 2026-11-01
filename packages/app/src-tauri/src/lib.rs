@@ -44,6 +44,7 @@ mod mobile_pairing;
 mod mobile_tunnel;
 pub mod night_shift;
 mod tunnel_config;
+mod terminal_chat;
 mod one_brain;
 mod companion;
 mod potato;
@@ -617,6 +618,7 @@ pub fn run() {
             commands::acp_addon_install,
             commands::acp_addon_remove,
             commands::agent_lane_get,
+            terminal_chat::start::terminal_chat_start,
             commands::agent_lane_set,
             commands::acp_overlay_detect,
             commands::acp_overlay_resolve,

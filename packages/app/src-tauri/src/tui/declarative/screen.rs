@@ -487,6 +487,11 @@ impl TuiEngine {
         Some(found)
     }
 
+    /// Whether the definition has any `[[tui.prompt]]` table.
+    pub fn has_prompts(&self) -> bool {
+        !self.prompts.is_empty()
+    }
+
     /// Whether a `[[tui.prompt]]` table recognises a question on `screen` (a live one: `not_when_regex` has not
     /// suppressed it). The pane status reads this on the visible tail, so a definition without
     /// `[tui.classify] waiting_regex` still shows `waiting_input` behind its own prompts.
