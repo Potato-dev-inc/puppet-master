@@ -41,6 +41,21 @@ export const run = guarded(async (t) => {
   await say(t, 'computer: computer_observe');
   await t.expect.text('Fish has no computer.');
 
+  await t.step('The Computer tab offers to set the computer up, and its button opens the wizard');
+  await t.click('css=.ck-potato-panel-toggle');
+  await t.expect.visible('css=.ck-potato-setup');
+  await t.expect.text('Set up the computer', { within: 'css=.ck-potato-setup' });
+  t.expect.equal(await t.page.count('css=.ck-potato-maint'), 0, 'no upkeep section before there is a computer');
+  await t.click('exact=Set up the computer', { within: 'css=.ck-potato-setup' });
+  await t.expect.visible('css=.ck-potato-wizard-host .sbx-sheet');
+  await t.expect.text('Set up the sandbox', { within: 'css=.ck-potato-wizard-host' });
+  const ctaShot = process.env.E2E_SCREENSHOT_CTA || path.join(t.outDir, 'potato-computer-setup.png');
+  await t.page.screenshot(ctaShot);
+  t.log('screenshot: ' + ctaShot);
+  await t.press('Escape');
+  await t.expect.eventually(async () => (await t.page.count('css=.ck-potato-wizard-host')) === 0, { message: 'the wizard closes' });
+  await t.click('css=.ck-potato-panel-toggle');
+
   await t.step('Settings > Potato Bot > Sandbox > Set up');
   await openSettings(t);
   await goToPage(t, 'Potato Bot');
@@ -104,10 +119,10 @@ export const run = guarded(async (t) => {
   await t.step('Open computer opens the panel on the Computer tab, which says "Needs you"');
   await t.click('exact=Open computer', { within: 'css=.ck-potato-banner' });
   await t.expect.eventually(async () => (await t.page.count('css=.ck-potato-banner')) === 0, { message: 'the banner is gone once the Computer tab shows' });
-  // the card outlives the turn that raised it: the brain has answered and the person can still Take over or Skip
+  // the card outlives the turn that raised it: the brain has answered and the person can still Take control or Skip
   await t.expect.text('Needs you', { within: 'css=.ck-potato-computer' });
   await t.expect.text('The site wants a code', { within: 'css=.ck-potato-computer' });
-  await t.expect.visible('exact=Take over', { within: 'css=.ck-potato-computer' });
+  await t.expect.visible('exact=Take control', { within: 'css=.ck-potato-computer' });
   const shot = process.env.E2E_SCREENSHOT || path.join(t.outDir, 'potato-sandbox-computer.png');
   await t.page.screenshot(shot);
   t.log('screenshot: ' + shot);
@@ -115,6 +130,31 @@ export const run = guarded(async (t) => {
   await t.step('Skip turns the card down');
   await t.click('exact=Skip', { within: 'css=.ck-potato-computer' });
   await t.expect.eventually(async () => !(await t.page.has('exact=Skip', { within: 'css=.ck-potato-computer' })), { message: 'the card is gone after Skip' });
+
+  await t.step('The tab has the upkeep section: Running, Stop, Restart and the way to the sandbox settings');
+  await t.expect.text('Running', { within: 'css=.ck-potato-maint' });
+  await t.expect.visible('exact=Stop', { within: 'css=.ck-potato-maint' });
+  await t.expect.visible('exact=Restart', { within: 'css=.ck-potato-maint' });
+  await t.expect.visible('exact=Open sandbox settings', { within: 'css=.ck-potato-maint' });
+  const maintShot = process.env.E2E_SCREENSHOT_MAINT || path.join(t.outDir, 'potato-computer-tab.png');
+  await t.page.screenshot(maintShot);
+  t.log('screenshot: ' + maintShot);
+
+  await t.step('Take control opens the computer in the full window; I am done hands it back');
+  await t.click('exact=Take control', { within: 'css=.ck-potato-computer' });
+  await t.expect.visible('css=.ck-potato-overlay');
+  await t.expect.text('You have control', { within: 'css=.ck-potato-overlay' });
+  await t.expect.text('Fish’s computer', { within: 'css=.ck-potato-overlay' });
+  // (the stand-in sandbox has no screen: the full window says so in plain words and offers Retry)
+  await t.expect.visible('css=.ck-potato-overlay-body');
+  await t.expect.text('The sandbox is not running yet.', { within: 'css=.ck-potato-overlay' });
+  await t.expect.visible('exact=Retry', { within: 'css=.ck-potato-overlay' });
+  const overlayShot = process.env.E2E_SCREENSHOT_OVERLAY || path.join(t.outDir, 'potato-computer-overlay.png');
+  await t.page.screenshot(overlayShot);
+  t.log('screenshot: ' + overlayShot);
+  await t.click("exact=I'm done", { within: 'css=.ck-potato-overlay' });
+  await t.expect.eventually(async () => (await t.page.count('css=.ck-potato-overlay')) === 0, { message: 'the full window closes after I am done' });
+  await t.expect.text('Not in use', { within: 'css=.ck-potato-computer' });
 
   await t.step('The other tabs say "Coming soon", and the bot list can be made small');
   await t.click('exact=Routines', { within: 'css=.ck-potato-panel' });

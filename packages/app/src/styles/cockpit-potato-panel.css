@@ -65,69 +65,28 @@
 }
 
 /* ---------- Computer tab (the bot's sandbox screen) ---------- */
+.cockpit .ck-potato-computer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 .cockpit .ck-potato-computer {
   flex: none;
   margin: 0;
-  border: 1px solid var(--sep);
-  border-radius: 12px;
-  background: var(--bg-raised);
-  box-shadow: var(--raise-hi);
-  overflow: hidden;
-}
-.cockpit .ck-potato-computer-head {
-  position: relative;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  padding: 8px 12px;
-}
-.cockpit .ck-potato-computer-title {
-  /* The tab already says "Computer": the heading stays for screen readers only. */
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-.cockpit .ck-potato-computer-state {
-  flex: 1 1 100%;
-  min-width: 0;
-  margin: 0;
-  color: var(--label-2);
-  line-height: 1.4;
-}
-.cockpit .ck-potato-computer-state.is-needs_you,
-.cockpit .ck-potato-computer-state.is-you {
-  color: var(--label);
-  font-weight: 600;
-}
-.cockpit .ck-potato-computer-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.cockpit .ck-potato-computer-reason {
-  margin: 0;
-  padding: 0 12px 8px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-/* The view fills the panel's width on a dark ground. Its height follows the 16:10 screen (62.5% of the width), capped at 46vh;
-   when the cap bites, the viewer inside the frame letterboxes the screen on the dark ground. */
-.cockpit .ck-potato-computer {
   container-type: inline-size;
 }
+/* The preview card: a 16:10 screen, 14 px radius, view only. Its height follows the width (62.5%), capped at 46vh; the
+   viewer inside the frame letterboxes the screen on the dark ground when the cap bites. */
 .cockpit .ck-potato-computer-view {
   position: relative;
   width: 100%;
   height: min(46vh, 62.5cqw);
   min-height: 160px;
-  border-top: 1px solid var(--sep);
+  border: 1px solid var(--sep);
+  border-radius: 14px;
   background: var(--bg);
+  box-shadow: var(--raise-hi);
+  overflow: hidden;
 }
 .cockpit .ck-potato-computer-frame {
   position: absolute;
@@ -136,10 +95,75 @@
   height: 100%;
   border: 0;
   background: var(--bg);
+  pointer-events: none;
+}
+/* The whole card opens the full window. A dim layer and an "Open" pill show on hover and keyboard focus. */
+.cockpit .ck-potato-computer-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--label);
+  transition: background-color 160ms var(--ease);
+}
+.cockpit .ck-potato-computer-open-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 13px;
+  border: 1px solid var(--sep);
+  background: var(--bg-float);
+  box-shadow: var(--float-shadow);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  font-weight: 600;
+  opacity: 0;
+  transform: scale(0.96);
+  transition:
+    opacity 160ms var(--ease),
+    transform 160ms var(--ease);
+}
+.cockpit .ck-potato-computer-open:hover,
+.cockpit .ck-potato-computer-open:focus-visible {
+  background: var(--fill);
+}
+.cockpit .ck-potato-computer-open:hover .ck-potato-computer-open-pill,
+.cockpit .ck-potato-computer-open:focus-visible .ck-potato-computer-open-pill {
+  opacity: 1;
+  transform: none;
+}
+.cockpit .ck-potato-computer-open:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus);
+}
+.cockpit .ck-potato-computer-window {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  max-width: calc(100% - 16px);
+  margin: 0;
+  padding: 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 8px;
+  background: var(--bg-float);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  color: var(--label-2);
+  font-size: 12px;
+  pointer-events: none;
 }
 .cockpit .ck-potato-computer-note {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -153,4 +177,88 @@
 }
 .cockpit .ck-potato-computer-note .ck-btn {
   pointer-events: auto;
+}
+.cockpit .ck-potato-computer-asleep {
+  color: var(--label);
+  font-weight: 600;
+}
+/* "<Bot>'s screen" and its buttons, then who has the computer. */
+.cockpit .ck-potato-computer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.cockpit .ck-potato-computer-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--label-2);
+}
+.cockpit .ck-potato-computer-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cockpit .ck-potato-computer-status {
+  margin-top: 6px;
+}
+.cockpit .ck-potato-computer-state {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  color: var(--label-2);
+  line-height: 1.4;
+}
+.cockpit .ck-potato-computer-state.is-needs_you,
+.cockpit .ck-potato-computer-state.is-you {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-potato-computer-reason {
+  margin: 4px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- the upkeep section and the set up card ---------- */
+.cockpit .ck-potato-maint,
+.cockpit .ck-potato-setup {
+  padding: 12px;
+  border: 1px solid var(--sep);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+}
+.cockpit .ck-potato-maint-title,
+.cockpit .ck-potato-setup-title {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-potato-maint .ck-potato-maint-line,
+.cockpit .ck-potato-setup .ck-potato-setup-body {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.cockpit .ck-potato-maint-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cockpit .ck-potato-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }

@@ -3,6 +3,7 @@
 // panel is open, so the screen does not reload and a draft in Advanced survives a tab switch.
 import type { AvatarId } from '../../../lib/companion';
 import { PANEL_COPY, PANEL_TABS, type PanelTab } from '../../../lib/potato-panel';
+import type { SandboxTransport } from '../../../lib/potato-sandbox';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { Avatar } from '../../companion/Avatar';
 import { SegTabs } from '../SegTabs';
@@ -19,12 +20,16 @@ export interface BotPanelProps {
   onTab: (tab: PanelTab) => void;
   onClose: () => void;
   screen?: ScreenTransport;
+  /** The sandbox's commands (start, stop, set up). Absent: the Computer tab has no upkeep section. */
+  sandbox?: SandboxTransport;
+  /** Opens Settings > Potato Bot (Sandbox). */
+  onOpenSettings?: () => void;
   /** "Through my agents": the bot has no computer of its own. */
   through: boolean;
   onNotify: (text: string) => void;
 }
 
-export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, onNotify }: BotPanelProps) {
+export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, sandbox, onOpenSettings, through, onNotify }: BotPanelProps) {
   return (
     <div className="ck-potato-botpanel">
       <header className="ck-potato-panel-head">
@@ -39,7 +44,7 @@ export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, on
       </div>
       <div className="ck-scroll ck-potato-panel-body">
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Computer" hidden={tab !== 'computer'}>
-          <ComputerTab bot={bot} screen={screen} through={through} onNotify={onNotify} />
+          <ComputerTab bot={bot} avatar={avatar} screen={screen} sandbox={sandbox} through={through} onNotify={onNotify} onOpenSettings={onOpenSettings} />
         </div>
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Routines" hidden={tab !== 'routines'}>
           <RoutinesTab bot={bot} />
