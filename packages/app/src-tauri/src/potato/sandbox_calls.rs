@@ -474,6 +474,7 @@ impl Calls {
                 message: "The person is using the screen right now. Tell them you are waiting, and try again after they hand it back.".to_string(),
                 needs_you: true,
             }),
+            Err(busy @ LeaseError::BusyWithBot(_)) => Err(CallError::new(busy.code(), busy.message())),
             Err(other) => Err(CallError::new(other.code(), "The screen could not be taken.")),
         }
     }

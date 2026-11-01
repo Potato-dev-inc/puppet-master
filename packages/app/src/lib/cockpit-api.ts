@@ -304,6 +304,8 @@ export const cockpitApi = {
 
   onModeChanged: (cb: (e: { mode: UiMode }) => void) => on('ui://mode-changed', cb),
   onSelect: (cb: (e: { pane_id: string }) => void) => on('cockpit://select', cb),
+  /** Rust (tray "Open Inbox" / "Talk to Fish") asks the cockpit to show a main view. */
+  onView: (cb: (e: { view: string; bot?: string | null }) => void) => on('cockpit://view', cb),
   /** Rust asks the cockpit to show Settings inline (tray "Settings" in Orchestration mode). */
   onSettingsOpen: (cb: (e: { tab?: string | null }) => void) => on('cockpit://settings', cb),
   /** Rust asks a visible Settings window to move into the cockpit (the mode switched to Orchestration). */

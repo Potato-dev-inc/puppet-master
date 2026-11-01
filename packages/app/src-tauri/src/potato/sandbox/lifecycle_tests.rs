@@ -442,3 +442,80 @@ fn a_person_who_holds_the_screen_keeps_the_sandbox_up_past_the_idle_minutes() {
     assert!(lifecycle.idle_check(36 * m).unwrap());
     assert!(!guest.holder_alive());
 }
+
+fn wait_for_call(guest: &FakeGuest, needle: &str) {
+    let began = std::time::Instant::now();
+    while !guest.joined().iter().any(|c| c.contains(needle)) {
+        assert!(began.elapsed() < std::time::Duration::from_secs(5), "the call {needle} never came");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn a_stop_ends_a_start_in_progress_within_two_seconds_and_then_stops() {
+    let (guest, lifecycle) = rig();
+    guest.st.lock().hang_desktop = true;
+    std::thread::scope(|scope| {
+        let start = scope.spawn(|| lifecycle.ensure_ready(1_000));
+        wait_for_call(&guest, "pm-sbx-start-desktop start");
+        let began = std::time::Instant::now();
+        assert!(!lifecycle.stopping());
+        lifecycle.stop().unwrap();
+        assert!(began.elapsed() < std::time::Duration::from_secs(2), "{:?}", began.elapsed());
+        assert_eq!(start.join().unwrap().unwrap_err(), LifecycleError::Cancelled);
+    });
+    assert_eq!(lifecycle.phase(), Phase::Stopped);
+    assert!(!guest.holder_alive(), "the holder is gone");
+    assert!(guest.st.lock().running.is_empty(), "the distro is stopped");
+    assert!(!lifecycle.stopping());
+    // and the flag does not stay set: the next start works
+    guest.st.lock().hang_desktop = false;
+    lifecycle.ensure_ready(2_000).unwrap();
+    assert_eq!(lifecycle.phase(), Phase::Ready);
+}
+
+#[test]
+fn a_stop_ends_a_start_that_is_waiting_for_the_boot_hook() {
+    let (guest, lifecycle) = rig();
+    guest.st.lock().boot_hangs = true;
+    let long = Timing { poll: std::time::Duration::from_millis(10), boot_polls: 100_000, ready_polls: 3 };
+    let lifecycle = lifecycle.with_timing(long);
+    std::thread::scope(|scope| {
+        let start = scope.spawn(|| lifecycle.ensure_ready(1_000));
+        wait_for_call(&guest, "sleep infinity");
+        let began = std::time::Instant::now();
+        lifecycle.stop().unwrap();
+        assert!(began.elapsed() < std::time::Duration::from_secs(2), "{:?}", began.elapsed());
+        assert_eq!(start.join().unwrap().unwrap_err(), LifecycleError::Cancelled);
+    });
+    assert_eq!(lifecycle.phase(), Phase::Stopped);
+}
+
+#[test]
+fn one_failed_readiness_read_does_not_end_the_boot_wait() {
+    let (guest, lifecycle) = rig();
+    guest.st.lock().readiness_errors = 1;
+    lifecycle.ensure_ready(1_000).unwrap();
+    assert_eq!(lifecycle.phase(), Phase::Ready);
+}
+
+#[test]
+fn readiness_reads_that_keep_failing_end_the_wait_after_the_limit() {
+    let (guest, lifecycle) = rig();
+    guest.st.lock().readiness_errors = 100;
+    let lifecycle = lifecycle.with_timing(Timing { poll: std::time::Duration::ZERO, boot_polls: 50, ready_polls: 3 });
+    let error = lifecycle.ensure_ready(1_000).unwrap_err();
+    assert!(matches!(error, LifecycleError::Wsl(_)), "{error:?}");
+    let reads = guest.joined().iter().filter(|c| c.ends_with("/bin/sh -s")).count();
+    assert_eq!(reads, MAX_READ_ERRORS as usize, "it gave up after the limit, not before");
+    assert!(!guest.holder_alive());
+}
+
+#[test]
+fn failed_reads_spread_out_do_not_add_up() {
+    // errors only count when they come one after the other
+    let (guest, lifecycle) = rig();
+    guest.st.lock().readiness_errors = MAX_READ_ERRORS - 1;
+    let lifecycle = lifecycle.with_timing(Timing { poll: std::time::Duration::ZERO, boot_polls: 20, ready_polls: 3 });
+    lifecycle.ensure_ready(1_000).unwrap();
+}

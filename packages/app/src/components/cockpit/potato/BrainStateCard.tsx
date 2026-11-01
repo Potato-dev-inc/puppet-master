@@ -2,7 +2,7 @@
 // limit, stopped, or the last error. A bot that can answer has no card.
 import { useState } from 'react';
 import { COPY, errorSentence, plainError, type BrainState } from '../../../lib/potato';
-import { openSettingsAt } from '../../../lib/openSettingsAt';
+import { openSettingsAt, SETUP_CHECK_ROW_ID } from '../../../lib/openSettingsAt';
 import '../../../styles/cockpit-potato-cards.css';
 
 export interface BrainStateCardProps {
@@ -54,8 +54,7 @@ export function BrainStateCard({ name, state, lastError, limitCents, onStart, on
       break;
     case 'missing_program':
       text = COPY.missingProgram;
-      // No repair row exists yet; the sandbox and brain rows live in the Potato section.
-      action = { label: 'Repair install', run: () => openSettingsAt('potato') };
+      action = { label: 'Repair install', run: () => openSettingsAt('agents', SETUP_CHECK_ROW_ID) };
       break;
     case 'ready':
     case 'idle':

@@ -1127,3 +1127,30 @@
 .settings .st-key-check .st-note {
   margin: 0;
 }
+
+/* Check my setup (Settings > Agents): header buttons, grey glyphs, one fix button per row. Tokens only. */
+.settings .st-setupcheck-head {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.settings .st-setupcheck-list .st-setupcheck-row + .st-setupcheck-row {
+  border-top: 1px solid var(--sep);
+}
+.settings .st-setupcheck-glyph {
+  flex: 0 0 16px;
+  text-align: center;
+  color: var(--label-2);
+}
+.settings .st-setupcheck-row[data-status='fail'] .st-setupcheck-glyph {
+  color: var(--label);
+  font-weight: 600;
+}
+.settings .st-setupcheck-row[data-status='warn'] .st-label {
+  color: var(--label-2);
+}
+.settings .st-setupcheck-row > .st-label {
+  flex: 1;
+  min-width: 0;
+}

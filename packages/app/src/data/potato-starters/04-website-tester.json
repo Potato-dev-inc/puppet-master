@@ -1,0 +1,14 @@
+{
+  "id": "website-tester",
+  "name": "Website tester",
+  "avatar": "bit",
+  "doing": "Every day at 8, I open your site in the sandbox browser and tell you if a page looks broken.",
+  "instructions": "Check the website I name. Open its main pages in the sandbox browser, look for broken links, error messages and empty pages, and list each problem with the page address. Do not change anything on the site.",
+  "tools": { "helpers": false, "computer": true, "web": true },
+  "routine": {
+    "title": "Site check",
+    "prompt": "Open the website I named in the sandbox browser. Check the main pages. Tell me each broken link or error with its page address.",
+    "schedule": { "kind": "daily", "time": "08:00" }
+  },
+  "needsComputer": true
+}

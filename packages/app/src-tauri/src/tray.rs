@@ -112,6 +112,10 @@ pub const ID_SETTINGS: &str = "settings";
 pub const ID_QUIT: &str = "quit";
 pub const ID_COCKPIT: &str = "cockpit";
 pub const ID_STOP_ALL: &str = "stop-all";
+pub const ID_INBOX: &str = "inbox";
+pub const ID_TALK_FISH: &str = "talk-fish";
+pub const ID_PAUSE_BOTS: &str = "potato-pause";
+pub const ID_RESUME_BOTS: &str = "potato-resume";
 pub const PREFIX_MODE: &str = "mode:";
 pub const PREFIX_NEW: &str = "new:";
 pub const PREFIX_PANE: &str = "pane:";
@@ -129,6 +133,10 @@ pub enum Command {
     Quit,
     Cockpit,
     StopAll,
+    Inbox,
+    TalkToFish,
+    PauseBots,
+    ResumeBots,
     SetMode(UiMode),
     NewPane(String),
     FocusPane(String),
@@ -143,6 +151,10 @@ pub fn parse_command(id: &str) -> Option<Command> {
         ID_QUIT => Some(Command::Quit),
         ID_COCKPIT => Some(Command::Cockpit),
         ID_STOP_ALL => Some(Command::StopAll),
+        ID_INBOX => Some(Command::Inbox),
+        ID_TALK_FISH => Some(Command::TalkToFish),
+        ID_PAUSE_BOTS => Some(Command::PauseBots),
+        ID_RESUME_BOTS => Some(Command::ResumeBots),
         _ if id.starts_with(PREFIX_FOCUS) => parse_focus(&id[PREFIX_FOCUS.len()..]),
         _ if id.starts_with(PREFIX_MODE) => UiMode::parse(&id[PREFIX_MODE.len()..]).map(Command::SetMode),
         _ => id
@@ -150,6 +162,83 @@ pub fn parse_command(id: &str) -> Option<Command> {
             .map(|a| Command::NewPane(a.to_string()))
             .or_else(|| id.strip_prefix(PREFIX_PANE).map(|p| Command::FocusPane(p.to_string()))),
     }
+}
+
+/// What the Inbox and Potato Bot entries of the tray need to know.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Needs {
+    /// The attention count (the same number the tooltip and the Inbox show).
+    pub need_you: u32,
+    /// Potato Labs is on. Off hides every Potato entry.
+    pub potato_on: bool,
+    /// The panic hold is on (bots paused, routines held).
+    pub held: bool,
+    /// Id of the first bot, the one "Talk to Fish" opens.
+    pub first_bot: Option<String>,
+}
+
+/// "Open Inbox", or "Open Inbox (2)" while something needs the person.
+pub fn inbox_label(need_you: u32) -> String {
+    if need_you > 0 {
+        format!("Open Inbox ({need_you})")
+    } else {
+        "Open Inbox".into()
+    }
+}
+
+/// Adds the Inbox entry after "Open cockpit" and, only while Potato Labs is on, the Potato entries after
+/// "Stop all agents". The model from `build_model` is otherwise unchanged.
+pub fn with_needs(mut model: Vec<Item>, needs: &Needs) -> Vec<Item> {
+    let cockpit = model.iter().position(|i| matches!(i, Item::Action { id, .. } if id == ID_COCKPIT));
+    if let Some(at) = cockpit {
+        model.insert(at + 1, Item::Action { id: ID_INBOX.into(), label: inbox_label(needs.need_you), enabled: true });
+    }
+    if needs.potato_on {
+        let stop = model.iter().position(|i| matches!(i, Item::Action { id, .. } if id == ID_STOP_ALL));
+        let toggle = if needs.held {
+            Item::Action { id: ID_RESUME_BOTS.into(), label: "Start bots again".into(), enabled: true }
+        } else {
+            Item::Action { id: ID_PAUSE_BOTS.into(), label: "Pause all bots".into(), enabled: true }
+        };
+        let potato = vec![
+            Item::Action { id: ID_TALK_FISH.into(), label: "Talk to Fish".into(), enabled: needs.first_bot.is_some() },
+            toggle,
+        ];
+        let at = stop.map(|i| i + 1).unwrap_or(model.len());
+        model.splice(at..at, potato);
+    }
+    model
+}
+
+/// The tray icon shows the grey dot while something needs the person.
+pub fn needs_dot(need_you: u32) -> bool {
+    need_you > 0
+}
+
+const DOT_GREY: [u8; 4] = [0x8a, 0x8a, 0x8a, 0xff];
+const DOT_RING: [u8; 4] = [0xff, 0xff, 0xff, 0xff];
+
+/// A copy of an RGBA icon with a grey dot (white ring) in the bottom-right corner. A buffer of the wrong
+/// size is returned unchanged.
+pub fn dot_icon(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let mut out = rgba.to_vec();
+    if width == 0 || height == 0 || rgba.len() != (width as usize) * (height as usize) * 4 {
+        return out;
+    }
+    let r = (width.min(height) as f32 / 4.0).max(3.0);
+    let cx = width as f32 - r - 1.0;
+    let cy = height as f32 - r - 1.0;
+    for y in 0..height {
+        for x in 0..width {
+            let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
+            if d <= r + 1.0 {
+                let color = if d <= r { DOT_GREY } else { DOT_RING };
+                let i = ((y * width + x) * 4) as usize;
+                out[i..i + 4].copy_from_slice(&color);
+            }
+        }
+    }
+    out
 }
 
 /// The part of a `focus:` id after the prefix. Only the listed lengths, `end` and `more` are ids.
@@ -365,6 +454,22 @@ mod runtime {
         Ok(out)
     }
 
+    /// What the Inbox and Potato entries need, read from the same stores the Potato page reads.
+    fn current_needs(app: &AppHandle) -> Needs {
+        let potato_on = crate::potato::live::labs_on(&crate::settings_store::read_public_settings(app));
+        let root = crate::potato::live::root();
+        Needs {
+            need_you: crate::attention::counts().blocking,
+            potato_on,
+            held: potato_on && crate::potato::hold::is_held(&root),
+            first_bot: if potato_on {
+                crate::potato::store::load_bots(&root).ok().and_then(|bots| bots.first().map(|b| b.id.clone()))
+            } else {
+                None
+            },
+        }
+    }
+
     fn current_model(app: &AppHandle) -> Vec<Item> {
         let listing = crate::tui::agent_types_listing();
         let agents = listing.get("agents").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -388,7 +493,8 @@ mod runtime {
                     .collect()
             })
             .unwrap_or_default();
-        build_model(&agents, &panes, &crate::standby::ready_agents(), crate::ui_mode::current(), crate::attention::focus::live::minutes_left())
+        let model = build_model(&agents, &panes, &crate::standby::ready_agents(), crate::ui_mode::current(), crate::attention::focus::live::minutes_left());
+        with_needs(model, &current_needs(app))
     }
 
     fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -463,6 +569,33 @@ mod runtime {
         let summary = summary_line_with_focus(current_summary(app), crate::attention::focus::live::minutes_left());
         let tip = tooltip_for(crate::live_room::service::is_live(), summary);
         let _ = tray.set_tooltip(Some(with_mouse_sharing(tip, crate::desk::link::sharing_on())));
+        apply_dot(app, &tray, needs_dot(crate::attention::counts().blocking));
+    }
+
+    /// Swaps the tray icon to the dot variant only when the state changes, so the icon is not reset on
+    /// every refresh. -1 = not set yet.
+    fn apply_dot(app: &AppHandle, tray: &tauri::tray::TrayIcon<Wry>, on: bool) {
+        use std::sync::atomic::{AtomicI8, Ordering};
+        static DOT: AtomicI8 = AtomicI8::new(-1);
+        if DOT.swap(on as i8, Ordering::Relaxed) == on as i8 {
+            return;
+        }
+        let Some(base) = app.default_window_icon() else { return };
+        let (w, h) = (base.width(), base.height());
+        let rgba = if on { dot_icon(base.rgba(), w, h) } else { base.rgba().to_vec() };
+        let _ = tray.set_icon(Some(tauri::image::Image::new_owned(rgba, w, h)));
+    }
+
+    /// Opens the cockpit and then asks its page to show `view` (`inbox` or `potato`). A new window is
+    /// still loading, so the event goes out after a short wait.
+    fn open_cockpit_view(app: &AppHandle, view: &'static str, bot: Option<String>) {
+        use tauri::Emitter;
+        crate::app_windows::open_cockpit_window(app, None, true);
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1500));
+            let _ = app.emit("cockpit://view", serde_json::json!({ "view": view, "bot": bot }));
+        });
     }
 
     /// The tooltip for the panes and jobs open now. Standby (hidden) panes are not the person's work.
@@ -651,6 +784,29 @@ mod runtime {
             Some(Command::Settings) => crate::cockpit::open_settings(app, None),
             Some(Command::Quit) => crate::pane_windows::request_quit(app),
             Some(Command::Cockpit) => crate::cockpit::open_cockpit(app, None),
+            Some(Command::Inbox) => open_cockpit_view(app, "inbox", None),
+            Some(Command::TalkToFish) => {
+                let root = crate::potato::live::root();
+                let bot = crate::potato::store::load_bots(&root).ok().and_then(|bots| bots.first().map(|b| b.id.clone()));
+                open_cockpit_view(app, "potato", bot);
+            }
+            Some(Command::PauseBots) => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let hold = crate::potato::live::pause_all(Duration::from_millis(300));
+                    tracing::info!(routines_held = hold.routines_held, "tray: paused all bots");
+                    refresh(&app);
+                });
+            }
+            Some(Command::ResumeBots) => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    if let Err(e) = crate::potato::hold::resume(&crate::potato::live::root()) {
+                        tracing::warn!(error = %e, "tray: could not start bots again");
+                    }
+                    refresh(&app);
+                });
+            }
             Some(Command::StopAll) => {
                 let app = app.clone();
                 std::thread::spawn(move || {
@@ -726,7 +882,7 @@ mod runtime {
         }
         builder.build(app)?;
         tracing::info!("tray icon created (tooltip \"Puppet Master\")");
-        for event in ["pty://panes-changed", "pty://status", "agent_definitions_changed", crate::standby::READY_EVENT, "ui://mode-changed", "focus://changed"] {
+        for event in ["pty://panes-changed", "pty://status", "agent_definitions_changed", crate::standby::READY_EVENT, "ui://mode-changed", "focus://changed", "potato://changed"] {
             let handle = app.clone();
             app.listen(event, move |_| refresh(&handle));
         }
@@ -1062,5 +1218,97 @@ mod tests {
             summary_line_with_focus(summary_line(&[], &[], 0), Some(25)),
             "Puppet Master \u{b7} Focus 25 min left \u{b7} nothing running"
         );
+    }
+
+    fn needs(need_you: u32, potato_on: bool, held: bool, first_bot: Option<&str>) -> Needs {
+        Needs { need_you, potato_on, held, first_bot: first_bot.map(str::to_string) }
+    }
+
+    fn ids(model: &[Item]) -> Vec<String> {
+        model
+            .iter()
+            .map(|i| match i {
+                Item::Action { id, .. } | Item::Check { id, .. } => id.clone(),
+                Item::Submenu { label, .. } => format!("sub:{label}"),
+                Item::Separator => "-".into(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn inbox_label_shows_the_count_only_when_something_needs_you() {
+        assert_eq!(inbox_label(0), "Open Inbox");
+        assert_eq!(inbox_label(2), "Open Inbox (2)");
+    }
+
+    #[test]
+    fn inbox_sits_right_after_open_cockpit_and_potato_is_hidden_when_off() {
+        let base = build_model(&[], &[], &[], UiMode::Orchestration, None);
+        let model = with_needs(base.clone(), &needs(2, false, false, Some("fish")));
+        assert_eq!(
+            ids(&model),
+            vec!["sub:New pane", "sub:Panes", "-", "cockpit", "inbox", "sub:Mode", "sub:Focus", "stop-all", "settings", "quit"]
+        );
+        assert!(matches!(&model[4], Item::Action { label, enabled: true, .. } if label == "Open Inbox (2)"));
+    }
+
+    #[test]
+    fn potato_entries_follow_the_stop_all_entry_while_labs_is_on() {
+        let base = build_model(&[], &[], &[], UiMode::Orchestration, None);
+        let model = with_needs(base, &needs(0, true, false, Some("fish")));
+        assert_eq!(
+            ids(&model)[7..11].to_vec(),
+            vec!["stop-all", "talk-fish", "potato-pause", "settings"]
+        );
+        assert!(matches!(&model[8], Item::Action { label, enabled: true, .. } if label == "Talk to Fish"));
+        assert!(matches!(&model[9], Item::Action { label, .. } if label == "Pause all bots"));
+    }
+
+    #[test]
+    fn a_held_potato_offers_start_bots_again_instead() {
+        let base = build_model(&[], &[], &[], UiMode::Orchestration, None);
+        let model = with_needs(base, &needs(0, true, true, Some("fish")));
+        assert!(matches!(&model[9], Item::Action { id, label, .. } if id == "potato-resume" && label == "Start bots again"));
+    }
+
+    #[test]
+    fn talk_to_fish_is_disabled_when_there_is_no_bot() {
+        let base = build_model(&[], &[], &[], UiMode::Orchestration, None);
+        let model = with_needs(base, &needs(0, true, false, None));
+        assert!(matches!(&model[8], Item::Action { id, enabled: false, .. } if id == "talk-fish"));
+    }
+
+    #[test]
+    fn new_ids_parse_to_commands() {
+        assert_eq!(parse_command("inbox"), Some(Command::Inbox));
+        assert_eq!(parse_command("talk-fish"), Some(Command::TalkToFish));
+        assert_eq!(parse_command("potato-pause"), Some(Command::PauseBots));
+        assert_eq!(parse_command("potato-resume"), Some(Command::ResumeBots));
+    }
+
+    #[test]
+    fn the_dot_shows_only_when_something_needs_you() {
+        assert!(!needs_dot(0));
+        assert!(needs_dot(1));
+    }
+
+    #[test]
+    fn dot_icon_paints_the_corner_and_keeps_the_size_and_the_rest() {
+        let (w, h) = (32u32, 32u32);
+        let base = vec![0x10u8; (w * h * 4) as usize];
+        let out = dot_icon(&base, w, h);
+        assert_eq!(out.len(), base.len());
+        let px = |x: u32, y: u32| {
+            let i = ((y * w + x) * 4) as usize;
+            [out[i], out[i + 1], out[i + 2], out[i + 3]]
+        };
+        assert_eq!(px(0, 0), [0x10, 0x10, 0x10, 0x10]);
+        assert_eq!(px(w - 5, h - 5), DOT_GREY);
+    }
+
+    #[test]
+    fn dot_icon_leaves_a_buffer_of_the_wrong_size_alone() {
+        let odd = vec![1u8, 2, 3];
+        assert_eq!(dot_icon(&odd, 32, 32), odd);
     }
 }

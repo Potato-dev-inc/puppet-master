@@ -202,7 +202,7 @@ describe('Agents: every row renders', () => {
   it('groups the rows: Logins, Speed, Helpers, Updates, Chat, Live updates, Keep going, Linux, Same file, then Definitions (whose own block carries the title)', async () => {
     await mount();
     const heads = [...m.host.querySelectorAll('section.st-group')].map((g) => g.querySelector(':scope > h2')?.textContent?.trim() ?? '');
-    expect(heads).toEqual(['Logins', 'Speed', 'Helpers', 'Updates', 'Chat', 'Live updates', 'Keep going', 'Linux', 'Same file', '']);
+    expect(heads).toEqual(['Check my setup', 'Logins', 'Speed', 'Helpers', 'Updates', 'Chat', 'Live updates', 'Keep going', 'Linux', 'Same file', '']);
   });
 
   it('mounts the same-file switch under Same file and it is found by search', async () => {

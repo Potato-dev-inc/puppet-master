@@ -105,14 +105,21 @@ fn others_never_get_memory_or_a_folder() {
 }
 
 #[test]
-fn the_tool_rows_anyone_may_use_the_sandbox_only_the_owner_may_start_a_helper() {
+fn the_tool_rows_only_the_owner_may_use_the_helpers_and_the_sandbox() {
     assert_eq!(tool_access(Trust::OwnerPc), ToolAccess { helpers: true, sandbox: true });
     assert_eq!(tool_access(Trust::OwnerRemote), ToolAccess { helpers: true, sandbox: true });
-    assert_eq!(tool_access(Trust::Others), ToolAccess { helpers: false, sandbox: true });
+    assert_eq!(tool_access(Trust::Others), ToolAccess { helpers: false, sandbox: false });
     // the rows follow the decision: whoever `decide` made `others` can use no helper
     for decision in [OWNER_PC, OWNER_REMOTE, OTHERS] {
         if let Decision::Send { trust, folder_rule, .. } = decision {
             assert_eq!(tool_access(trust).helpers, folder_rule == FolderRule::Owner, "{trust:?}");
         }
     }
+}
+
+#[test]
+fn h6b8_the_sandbox_is_attached_per_trust_level_and_never_to_others() {
+    assert!(tool_access(Trust::OwnerPc).sandbox, "the person at this PC may use the sandbox");
+    assert!(tool_access(Trust::OwnerRemote).sandbox, "the paired owner may use the sandbox");
+    assert!(!tool_access(Trust::Others).sandbox, "others never get the computer tools");
 }

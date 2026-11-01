@@ -129,10 +129,10 @@ pub struct ToolAccess {
     pub sandbox: bool,
 }
 
-/// The person (at the PC or paired) may use both. Anyone else may use ONLY the sandbox, which is away from
-/// the person's files: it can never start a helper.
+/// The person (at the PC or paired) may use both the helpers and the sandbox. Anyone else may use neither: a
+/// helper is real work on the person's computer, and the sandbox is never attached to their turn.
 pub fn tool_access(trust: Trust) -> ToolAccess {
-    ToolAccess { helpers: trust.is_owner(), sandbox: true }
+    ToolAccess { helpers: trust.is_owner(), sandbox: trust.is_owner() }
 }
 
 pub fn decide(facts: &Facts, config: &Config, caps: &Caps) -> Decision {
