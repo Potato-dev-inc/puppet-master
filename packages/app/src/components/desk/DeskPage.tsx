@@ -1,11 +1,15 @@
 // My computers (Labs `desk_enabled`): the page. Status line, the screen hops switch, screens, keys, hop mode.
 // Nothing made up: the page shows a skeleton until the engine answers, then the real state or an honest error.
 import '../../styles/cockpit-desk.css';
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { useDesk, isDeskFeatureOff, type DeskHopMode } from '../../lib/desk';
 import { StatusLine } from './StatusLine';
 import { ScreensView } from './ScreensView';
 import { KeysView } from './KeysView';
+import { usePair } from '../../lib/desk-pair';
+import { AddComputerSheet } from './AddComputerSheet';
+import { DeviceRow } from './DeviceRow';
+import { InboundPairSheet } from './InboundPairSheet';
 
 const HOP_MODES: { mode: DeskHopMode; label: string }[] = [
   { mode: 'relative', label: 'Same spot on the next screen' },
@@ -17,6 +21,10 @@ export function DeskPage() {
   const desk = useDesk();
   const hopsTitleId = useId();
   const { snapshot, loadError, actionError, reload, run } = desk;
+  const pair = usePair(snapshot !== null);
+  const [adding, setAdding] = useState(false);
+  const computersTitleId = useId();
+  const pairView = pair.view;
 
   // Labs off (or the engine says so): the page draws nothing. The left bar row is hidden too.
   if (isDeskFeatureOff(loadError) || snapshot?.status.state === 'labs_off') return null;
@@ -127,9 +135,66 @@ export function DeskPage() {
             </div>
           </section>
 
-          <p className="ck-desk-footnote">Coming next: share mouse and keyboard with your other computers.</p>
+          <section className="ck-desk-section" aria-labelledby={computersTitleId}>
+            <div className="ck-desk-section-head">
+              <h3 id={computersTitleId} className="ck-desk-h3">
+                Your computers
+              </h3>
+              <button type="button" className="ck-desk-btn" onClick={() => setAdding(true)}>
+                Add a computer
+              </button>
+            </div>
+            {pairView?.tampered && (
+              <p className="ck-desk-hint is-error" role="alert">
+                The saved list of computers did not pass its check, so it was not used. Pair your computers again.
+              </p>
+            )}
+            {pairView?.message && (
+              <p className="ck-desk-hint" role="status">
+                {pairView.message}
+              </p>
+            )}
+            {pair.error && !adding && (
+              <p className="ck-desk-hint is-error" role="alert">
+                Could not do that: {pair.error}
+              </p>
+            )}
+            {(pairView?.devices.length ?? 0) === 0 ? (
+              <p className="ck-desk-hint">Only this computer is here. Add another to share one mouse.</p>
+            ) : (
+              <ul className="ck-desk-devices" aria-label="Paired computers">
+                {pairView?.devices.map((d) => (
+                  <DeviceRow
+                    key={d.node}
+                    device={d}
+                    onToggle={(cap, on) => void pair.setPermission(d.node, cap, on)}
+                    onRemove={() => void pair.remove(d.node)}
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
         </>
       )}
+
+      {adding && !pairView?.pending && (
+        <AddComputerSheet
+          hosting={pairView?.hosting ?? null}
+          nearby={pair.nearby}
+          joining={pairView?.joining ?? null}
+          lockedUntil={pairView?.locked_until ?? null}
+          onHostStart={pair.hostStart}
+          onHostCancel={() => void pair.hostCancel()}
+          onJoin={async (target, code) => {
+            const failed = await pair.join(target, code);
+            if (!failed) setAdding(false);
+            return failed;
+          }}
+          onRefreshNearby={pair.refreshNearby}
+          onClose={() => setAdding(false)}
+        />
+      )}
+      <InboundPairSheet pending={pairView?.pending ?? null} onAnswer={(id, allow) => void pair.answer(id, allow)} />
     </section>
   );
 }

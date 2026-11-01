@@ -14,7 +14,9 @@
 //! - **Not reachable by agents**: nothing in the bridge, the MCP server, the tool registry or the phone routes may
 //!   mention this module (`guard_tests.rs`).
 //!
-//! Not here (on purpose): pairing and the trust list (DL-6), the desk link and input forwarding (DL-7), and anything
+//! Pairing (`pairing.rs`), the signed trust list (`trust.rs`) and "found nearby" (`discovery.rs`) are DL-6.
+//!
+//! Not here (on purpose): the desk link and input forwarding (DL-7), and anything
 //! that knows what a capability does.
 
 // Nothing calls this yet: DL-6 (pairing) and DL-7 (desk link) are its first users.
@@ -27,9 +29,14 @@ pub mod identity;
 pub mod iroh_net;
 #[cfg(test)]
 pub mod memory;
+pub mod discovery;
+pub mod pairing;
+pub mod trust;
 
 #[cfg(test)]
 mod guard_tests;
+#[cfg(test)]
+mod pair_tests;
 #[cfg(test)]
 mod tests;
 
@@ -125,6 +132,11 @@ impl P2p {
 
     pub fn node_id(&self) -> Option<NodeId> {
         self.running.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|r| r.transport.id())
+    }
+
+    /// LAN addresses of the running endpoint (the pairing ticket carries them).
+    pub fn local_addrs(&self) -> Vec<std::net::SocketAddr> {
+        self.running.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|r| r.transport.local_addrs()).unwrap_or_default()
     }
 
     /// The spec the running endpoint was bound with.

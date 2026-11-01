@@ -54,7 +54,7 @@ fn shipped() -> Vec<PathBuf> {
         .into_iter()
         .filter(|p| {
             let n = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            n != "tests.rs" && n != "guard_tests.rs" && n != "memory.rs"
+            n != "tests.rs" && n != "guard_tests.rs" && n != "memory.rs" && n != "pair_tests.rs"
         })
         .collect()
 }
@@ -100,7 +100,7 @@ fn p2p_is_not_reachable_from_the_bridge_mcp_or_the_phone() {
 /// each of which must add itself to the allowed list here, on purpose).
 #[test]
 fn only_known_files_use_the_p2p_module() {
-    let allowed = ["lib.rs"];
+    let allowed = ["lib.rs", "pairing_commands.rs"];
     let pattern = Regex::new(r"\bp2p::|crate::p2p\b|\bmod p2p\b").unwrap();
     for file in files(&tauri_src(), &["rs"]) {
         let rel = file.strip_prefix(tauri_src()).unwrap().to_string_lossy().replace('\\', "/");
@@ -183,4 +183,64 @@ fn the_core_knows_no_agent_or_capability_behaviour() {
             assert!(!text.contains(word), "{name} mentions {word}: capability behaviour belongs to the capability");
         }
     }
+}
+
+/// Nobody but the desktop window answers the "wants to pair" sheet, shows a code or enters one: the pairing
+/// manager, the trust list and their commands have no route from agents, MCP, the phone or the CLI.
+#[test]
+fn pairing_and_its_sheet_have_no_route_from_agents_mcp_or_the_phone() {
+    let pattern = Regex::new(r"PairManager|pairing_commands|pair_answer|pair_join|pair_host_start|trust_set_permission|trust_remove|TrustList|p2p::pairing|p2p::trust").unwrap();
+    let src = tauri_src();
+    let pkgs = packages();
+    let roots = [
+        src.join("bridge"),
+        src.join("tool_registry"),
+        src.join("mcp_shim"),
+        src.join("companion"),
+        src.join("mobile_pairing"),
+        src.join("pwa_server.rs"),
+        src.join("channels"),
+        src.join("bin"),
+        pkgs.join("mcp-server").join("src"),
+        pkgs.join("cli").join("src"),
+        pkgs.join("app").join("src").join("pwa"),
+        pkgs.join("app").join("src").join("PwaApp.tsx"),
+    ];
+    let mut seen = 0;
+    for root in roots.iter().filter(|r| r.exists()) {
+        for file in files(root, &["rs", "ts", "tsx", "js", "mjs", "cjs"]) {
+            seen += 1;
+            let text = code_only(&read(&file));
+            if let Some(m) = pattern.find(&text) {
+                panic!("{} reaches pairing ({:?}): only the desktop window may answer the sheet", file.display(), m.as_str());
+            }
+        }
+    }
+    assert!(seen > 50, "only {seen} files scanned");
+}
+
+/// The answer to the sheet has exactly one caller: the window's command. And the pairing code never takes a
+/// permission from a peer: nothing in pairing.rs calls `Permissions::set` or `set_permission` for a link's peer.
+#[test]
+fn the_sheet_is_answered_in_one_place_and_a_peer_never_sets_permissions() {
+    let mut callers = Vec::new();
+    for file in files(&tauri_src(), &["rs"]) {
+        let name = file.file_name().unwrap().to_string_lossy().to_string();
+        if name.ends_with("tests.rs") {
+            continue;
+        }
+        let text = code_only(&read(&file));
+        if text.contains(".answer(") && !name.starts_with("pairing") && name != "pairing_commands.rs" {
+            continue;
+        }
+        if text.contains("mgr.answer(") {
+            callers.push(name);
+        }
+    }
+    assert_eq!(callers, vec!["pairing_commands.rs".to_string()]);
+    let pairing = code_only(&read(&tauri_src().join("p2p").join("pairing.rs")));
+    assert!(!pairing.contains(".set(&") && !pairing.contains("Permissions"), "pairing must not hand out rights");
+    // Nothing turns a switch on by itself: the only writer of a permission is `set_permission`, called from the manager's
+    // person-facing method and the command.
+    assert_eq!(pairing.matches("set_permission(").count(), 2); // the manager method + its call into the trust list
 }
