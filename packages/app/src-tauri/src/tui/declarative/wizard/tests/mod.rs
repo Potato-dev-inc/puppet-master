@@ -4,6 +4,7 @@
 pub(crate) mod fake_host;
 pub(crate) mod support;
 
+mod acp_tests;
 mod agent_error_tests;
 mod email_redaction_tests;
 mod auto_tests;

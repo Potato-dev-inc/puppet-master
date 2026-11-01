@@ -47,6 +47,18 @@ import {
   type AutonomousOutcome,
   type AutoTimings,
 } from '../../../lib/agentWizardAuto';
+import {
+  acpTableText,
+  appendAcpBlock,
+  candidateLine,
+  confidenceNote,
+  emptyFields,
+  fieldsFromCandidate,
+  validateAcp,
+  type AcpDetectResult,
+  type AcpFields,
+  type AcpValue,
+} from '../../../lib/agentWizardAcp';
 import { buildPrompt, REMOTE_PROMPT_BUDGET, type CaptureFacts } from '../../../lib/agentWizardPrompt';
 import { AgentWizardCapture, AnsweredList, agentName, BTN, INPUT } from './AgentWizardCapture';
 
@@ -69,7 +81,20 @@ function saveAutoAnswer(on: boolean) {
   }
 }
 
-type Phase = 'command' | 'finding' | 'capture' | 'drafter' | 'running' | 'auto' | 'review' | 'stopped';
+/** What the person wants to make: a terminal agent (today's flow), a chat agent over ACP, or both. */
+type Kind = 'terminal' | 'chat' | 'both';
+
+/** What the chat step keeps while the person goes back and forth. */
+interface AcpDraft {
+  fields: AcpFields;
+  /** `mine` = "Enter it myself", else the index of the picked candidate. */
+  pick: 'mine' | number;
+  detected: AcpDetectResult | null;
+  detectError: string | null;
+  loaded: boolean;
+}
+
+type Phase = 'command' | 'finding' | 'acp' | 'acpReview' | 'capture' | 'drafter' | 'running' | 'auto' | 'review' | 'stopped';
 
 type Tested = Extract<LoopResult, { status: 'tested' }>;
 
@@ -83,6 +108,12 @@ interface Choice {
   /** Local agent id, or the OpenRouter model id. */
   id: string;
 }
+
+const KIND_CHOICES: Array<[Kind, string, string]> = [
+  ['terminal', 'Terminal', 'The agent runs in a pane, like today.'],
+  ['chat', 'Chat (ACP)', 'The agent runs as a chat. It is not watched or tested.'],
+  ['both', 'Both', 'A terminal agent and a chat for the same agent.'],
+];
 
 const STEP_LABEL: Record<StepId, string> = {
   help: 'Read the help',
@@ -159,6 +190,10 @@ export function AgentWizard({
   const [visibleOnly, setVisibleOnly] = useState<Tested | null>(null);
   const [showToml, setShowToml] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Chat (ACP): what to make (default: terminal only, today's flow), what the chat step keeps, and the checked table.
+  const [kind, setKind] = useState<Kind>('terminal');
+  const [acpDraft, setAcpDraft] = useState<AcpDraft | null>(null);
+  const [acp, setAcp] = useState<AcpValue | null>(null);
 
   const sessionRef = useRef<string | null>(null);
   const finishedRef = useRef(false);
@@ -283,12 +318,32 @@ export function AgentWizard({
     setPhase('finding');
     try {
       await discardSession();
-      // With the switch off the call is exactly today's (two arguments).
-      const start = finishWithoutMe ? await api.start(name, autoAnswer, true) : await api.start(name, autoAnswer);
+      // With the switch off the call is exactly today's (two arguments). "Finish without me" makes terminal agents only.
+      const auto = finishWithoutMe && kind === 'terminal';
+      const start = auto ? await api.start(name, autoAnswer, true) : await api.start(name, kind === 'chat' ? false : autoAnswer);
       sessionRef.current = start.session;
       const probe = await api.probe(start.session);
+      if (kind !== 'terminal') {
+        // Chat: the ACP step comes first. With "both" the capture, the writer and the tests follow it.
+        const chatList = kind === 'both' ? orderDrafters(await api.drafters().catch(() => [])) : [];
+        const orModels = kind === 'both' ? await openRouter.models().catch(() => []) : [];
+        const key = kind === 'both' ? await openRouter.hasKey().catch(() => false) : false;
+        setLocals(chatList);
+        setModels(orModels);
+        setHasKey(key);
+        const firstChat = chooseDefaultDrafter(chatList);
+        setChoice(firstChat ? { kind: 'local_agent', id: firstChat.id } : orModels[0] ? { kind: 'openrouter', id: orModels[0].id } : null);
+        setOptIn(false);
+        setCaptures(null);
+        setAcp(null);
+        setAcpDraft({ fields: emptyFields(name), pick: 'mine', detected: null, detectError: null, loaded: false });
+        setFound({ start, probe });
+        setEvents([{ step: 'help', status: 'done', round: 0 }]);
+        setPhase('acp');
+        return;
+      }
       const list = orderDrafters(await api.drafters().catch(() => []));
-      if (finishWithoutMe) {
+      if (auto) {
         // The writer is picked for the person: Claude Code, else Codex, else the run stops with a plain message.
         const pick = pickAutoDrafter(list);
         if (!pick) {
@@ -321,7 +376,7 @@ export function AgentWizard({
       setError(splitError(e).message);
       setPhase('command');
     }
-  }, [api, autoAnswer, command, discardSession, finishWithoutMe, openRouter, startAutonomous]);
+  }, [api, autoAnswer, command, discardSession, finishWithoutMe, kind, openRouter, startAutonomous]);
 
   /** Draft, check, fix and test. With \`oneTask\`, the visible file in \`result\` is kept and only the one-task mode is added. */
   const startDrafting = useCallback(
@@ -351,6 +406,7 @@ export function AgentWizard({
           facts: factsFrom(found.start, found.probe, captures),
           ask,
           maxChars: promptBudget(drafter),
+          appendToml: kind === 'both' && acp ? (drafted) => appendAcpBlock(drafted, acp) : undefined,
           signal: abort.signal,
           promptOptions: oneTask ? { addOneTaskMode: { toml: oneTask.toml, expects: oneTask.expects } } : undefined,
           confirmedVisible: oneTask ? confirmedPaneRef.current : null,
@@ -401,7 +457,7 @@ export function AgentWizard({
         setPhase('stopped');
       }
     },
-    [api, captures, drafter, found, openRouter],
+    [acp, api, captures, drafter, found, kind, openRouter],
   );
 
   // Retry after the program's own error: only the tests run again, for the draft that is kept.
@@ -465,6 +521,27 @@ export function AgentWizard({
     }
   }, [api, drafter, found, onApprove, result]);
 
+  // Chat only: writes the unapproved definition with just the [acp] table.
+  const approveAcp = useCallback(async () => {
+    if (!acp || !found) return;
+    if (!api.acpFinish) {
+      setError('This wizard cannot write a chat agent.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const done = await api.acpFinish({ session: found.start.session, label: agentName(found.start.command), acp });
+      finishedRef.current = true;
+      sessionRef.current = null;
+      onApprove(done);
+    } catch (e) {
+      setError(splitError(e).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [acp, api, found, onApprove]);
+
   const orSelected = choice?.kind === 'openrouter';
   const canStart = Boolean(drafter) && (!orSelected || (hasKey && optIn));
 
@@ -511,6 +588,26 @@ export function AgentWizard({
                 {phase === 'finding' ? 'Looking...' : 'Find it'}
               </button>
             </div>
+            <fieldset className="mt-3" disabled={phase === 'finding'}>
+              <legend className="text-xs font-medium">What should it make?</legend>
+              <div className="mt-1 space-y-1.5">
+                {KIND_CHOICES.map(([id, label, note]) => (
+                  <label key={id} className="flex cursor-pointer items-start gap-2 text-xs">
+                    <input type="radio" name="wizard-kind" checked={kind === id} onChange={() => setKind(id)} />
+                    <span>
+                      <span className="font-medium">{label}</span>
+                      <span className="block text-pm-muted">{note}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            {kind !== 'terminal' && (
+              <p data-testid="chat-no-auto-note" className="mt-2 text-xs text-pm-muted">
+                {kind === 'both' ? 'Finish without me is only for terminal agents. ' : ''}You approve the result yourself.
+              </p>
+            )}
+            {kind === 'terminal' && (
             <label className="mt-3 flex items-start gap-2 text-xs" htmlFor="wizard-finish-without-me">
               <input
                 id="wizard-finish-without-me"
@@ -534,7 +631,8 @@ export function AgentWizard({
                 </span>
               </span>
             </label>
-            {!finishWithoutMe && (
+            )}
+            {kind !== 'chat' && !(finishWithoutMe && kind === 'terminal') && (
               <label className="mt-3 flex items-start gap-2 text-xs" htmlFor="wizard-auto-answer">
                 <input
                   id="wizard-auto-answer"
@@ -566,6 +664,46 @@ export function AgentWizard({
         )}
 
         {found && phase !== 'command' && phase !== 'finding' && <FoundSummary found={found} />}
+
+        {phase === 'acp' && found && acpDraft && (
+          <AcpStep
+            api={api}
+            session={found.start.session}
+            draft={acpDraft}
+            onDraft={setAcpDraft}
+            nextLabel={kind === 'both' ? 'Next' : 'Review'}
+            onNext={(value) => {
+              setAcp(value);
+              setError(null);
+              setPhase(kind === 'both' ? 'capture' : 'acpReview');
+            }}
+            onCancel={() => void cancelAll()}
+          />
+        )}
+
+        {phase === 'acpReview' && found && acp && (
+          <div className="mt-4" data-testid="acp-review">
+            <p className="text-sm font-semibold">Ready for your approval</p>
+            <div className="mt-2 text-xs font-medium text-pm-muted">The chat table that will be written</div>
+            <pre data-testid="acp-table" className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-pm-bg p-2 text-xs">
+              {acpTableText(acp)}
+            </pre>
+            <p className="mt-3 text-xs text-pm-muted">
+              The chat was not started or tested. Nothing runs until you approve it. The next screen shows the exact command again.
+            </p>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button type="button" className={BTN} disabled={busy} onClick={() => setPhase('acp')}>
+                Back
+              </button>
+              <button type="button" className={BTN} disabled={busy} onClick={() => void cancelAll()}>
+                Discard
+              </button>
+              <button type="button" className={BTN} disabled={busy} onClick={() => void approveAcp()}>
+                Approve
+              </button>
+            </div>
+          </div>
+        )}
 
         {phase === 'capture' && found && (
           <AgentWizardCapture
@@ -800,6 +938,7 @@ export function AgentWizard({
             busy={busy}
             showToml={showToml}
             oneTaskOffer={Boolean(captures) && oneTaskOffered && !result.live}
+            acp={kind === 'both' ? acp : null}
             writesWithoutAsking={Boolean(captures?.facts.writes_without_asking)}
             answeredForYou={[...(captures?.facts.answered ?? []), ...(result.visible?.answered ?? [])]}
             onToggleToml={() => setShowToml((v) => !v)}
@@ -1026,6 +1165,7 @@ function Review({
   busy,
   showToml,
   oneTaskOffer,
+  acp,
   writesWithoutAsking,
   answeredForYou,
   onToggleToml,
@@ -1039,6 +1179,8 @@ function Review({
   busy: boolean;
   showToml: boolean;
   oneTaskOffer: boolean;
+  /** "Both": the chat table that was added to the definition. */
+  acp: AcpValue | null;
   writesWithoutAsking: boolean;
   answeredForYou: Array<{ flavour: string; label: string; keys?: string; screen?: string; denied?: string }>;
   onToggleToml: () => void;
@@ -1136,6 +1278,13 @@ function Review({
           </p>
         )}
       </div>
+      {acp && (
+        <div data-testid="review-acp" className="mt-3">
+          <div className="text-xs font-medium text-pm-muted">Chat (ACP) table added to the definition</div>
+          <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-pm-bg p-2 text-xs">{acpTableText(acp)}</pre>
+          <p className="mt-1 text-xs text-pm-muted">The chat was not started or tested.</p>
+        </div>
+      )}
       {verify.warnings.length > 0 && (
         <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-pm-muted">
           {verify.warnings.map((w) => (
@@ -1181,6 +1330,175 @@ function Review({
         </button>
         <button type="button" className={BTN} disabled={busy} onClick={onApprove}>
           Approve
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The chat (ACP) step: what the wizard guessed from the help text (nothing is run), or "Enter it myself", and the fields
+ * that become the `[acp]` table. Everything the program printed (the help line) is shown as React text.
+ */
+function AcpStep({
+  api,
+  session,
+  draft,
+  onDraft,
+  nextLabel,
+  onNext,
+  onCancel,
+}: {
+  api: WizardApi;
+  session: string;
+  draft: AcpDraft;
+  onDraft: (d: AcpDraft) => void;
+  nextLabel: string;
+  onNext: (value: AcpValue) => void;
+  onCancel: () => void;
+}) {
+  const [tried, setTried] = useState(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const check = validateAcp(draft.fields);
+  const errors = tried ? check.errors : {};
+
+  useEffect(() => {
+    if (draftRef.current.loaded) return;
+    let alive = true;
+    const finish = (patch: Partial<AcpDraft>) => {
+      if (alive) onDraft({ ...draftRef.current, loaded: true, ...patch });
+    };
+    if (!api.acpDetect) {
+      finish({ detectError: 'This wizard cannot look for the chat command.' });
+      return () => {
+        alive = false;
+      };
+    }
+    void Promise.resolve(api.acpDetect(session))
+      .then((d) => {
+        const first = d.candidates[0];
+        finish(first ? { detected: d, pick: 0, fields: fieldsFromCandidate(first) } : { detected: d });
+      })
+      .catch((e) => finish({ detectError: splitError(e).message }));
+    return () => {
+      alive = false;
+    };
+    // The look-up runs once per session; `onDraft` only stores state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, session]);
+
+  const set = (patch: Partial<AcpFields>) => onDraft({ ...draft, fields: { ...draft.fields, ...patch } });
+  const candidates = draft.detected?.candidates ?? [];
+  const AREA = 'mt-1 block w-full rounded-lg border border-pm-border bg-transparent px-2 py-1 font-mono text-xs';
+  const err = (text?: string) =>
+    text ? (
+      <span role="alert" className="mt-1 block text-xs text-pm-text">
+        {text}
+      </span>
+    ) : null;
+
+  return (
+    <div className="mt-4" data-testid="acp-step">
+      <p className="text-sm font-semibold">How does the chat start?</p>
+      <p className="mt-1 text-xs text-pm-muted">
+        Chat agents talk to Puppet Master through a small helper program (the Agent Client Protocol). Pick what looks right, or type
+        it yourself. Nothing is run to find this: the wizard only read the help text.
+      </p>
+      {!draft.loaded ? (
+        <p role="status" className="mt-2 text-xs text-pm-muted">
+          Reading the help text...
+        </p>
+      ) : (
+        <fieldset className="mt-3">
+          <legend className="text-xs font-medium">What the wizard found</legend>
+          {draft.detectError && (
+            <p data-testid="acp-detect-error" className="mt-1 text-xs text-pm-muted">
+              Could not look for it: {draft.detectError} You can still enter it yourself.
+            </p>
+          )}
+          {!draft.detectError && candidates.length === 0 && (
+            <p data-testid="acp-no-candidates" className="mt-1 text-xs text-pm-muted">
+              Nothing in the help text looked like a chat command. Enter it yourself.
+            </p>
+          )}
+          <div className="mt-2 space-y-2">
+            {candidates.map((c, i) => (
+              <label key={`${i}-${candidateLine(c)}`} className="flex cursor-pointer items-start gap-2 text-xs">
+                <input
+                  type="radio"
+                  name="wizard-acp-pick"
+                  checked={draft.pick === i}
+                  onChange={() =>
+                    onDraft({ ...draft, pick: i, fields: { ...fieldsFromCandidate(c), envAllow: draft.fields.envAllow, resume: draft.fields.resume } })
+                  }
+                />
+                <span className="min-w-0">
+                  <span className="break-all font-mono font-medium">{candidateLine(c)}</span>
+                  <span className="block break-words text-pm-muted">From the help: {c.evidence}</span>
+                  <span className="block text-pm-muted">{confidenceNote(c)}</span>
+                </span>
+              </label>
+            ))}
+            <label className="flex cursor-pointer items-start gap-2 text-xs">
+              <input type="radio" name="wizard-acp-pick" checked={draft.pick === 'mine'} onChange={() => onDraft({ ...draft, pick: 'mine' })} />
+              <span className="font-medium">Enter it myself</span>
+            </label>
+          </div>
+        </fieldset>
+      )}
+
+      <div className="mt-3 space-y-3">
+        <label className="block text-xs font-medium" htmlFor="acp-command">
+          Command
+          <input
+            id="acp-command"
+            type="text"
+            className={`${INPUT} mt-1 block w-full font-mono`}
+            value={draft.fields.command}
+            onChange={(e) => set({ command: e.target.value })}
+          />
+          {err(errors.command)}
+        </label>
+        <label className="block text-xs font-medium" htmlFor="acp-args">
+          Arguments
+          <span className="block font-normal text-pm-muted">One per line. Type each one as it is, with no shell quotes.</span>
+          <textarea id="acp-args" rows={3} className={AREA} value={draft.fields.args} onChange={(e) => set({ args: e.target.value })} />
+          {err(errors.args)}
+        </label>
+        <label className="block text-xs font-medium" htmlFor="acp-env">
+          Allowed environment names
+          <span className="block font-normal text-pm-muted">
+            One per line, for example the name of a key the agent needs. Everything else from the app&apos;s environment is dropped
+            before the program starts.
+          </span>
+          <textarea id="acp-env" rows={3} className={AREA} value={draft.fields.envAllow} onChange={(e) => set({ envAllow: e.target.value })} />
+          {err(errors.envAllow)}
+        </label>
+        <label className="block text-xs font-medium" htmlFor="acp-resume">
+          Resume command (optional)
+          <span className="block font-normal text-pm-muted">
+            One argument per line, and one of them must contain {'{session}'}. It is used only for &quot;Open in terminal&quot;, to
+            continue the chat in the agent&apos;s own terminal.
+          </span>
+          <textarea id="acp-resume" rows={2} className={AREA} value={draft.fields.resume} onChange={(e) => set({ resume: e.target.value })} />
+          {err(errors.resume)}
+        </label>
+      </div>
+
+      <div className="mt-4 flex justify-end gap-2">
+        <button type="button" className={BTN} onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className={BTN}
+          onClick={() => {
+            setTried(true);
+            if (check.ok) onNext(check.value);
+          }}
+        >
+          {nextLabel}
         </button>
       </div>
     </div>

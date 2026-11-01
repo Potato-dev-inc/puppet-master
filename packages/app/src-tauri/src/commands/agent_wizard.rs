@@ -71,6 +71,19 @@ pub async fn agent_wizard_finish(session: String, provenance: Value, autonomous:
     run("finish", serde_json::json!({"session": session, "provenance": provenance, "autonomous": autonomous})).await
 }
 
+/// How the program offers the Agent Client Protocol (chat agents): reads the probe output the session already holds,
+/// starts nothing. `candidates` may be empty; the person then types the command.
+#[tauri::command]
+pub async fn agent_wizard_acp_detect(session: String) -> Result<Value, String> {
+    run("acp_detect", serde_json::json!({"session": session})).await
+}
+
+/// Write an unapproved chat-only (ACP) definition; reloads the registry. `acp` = `{command, args, env_allow, resume_command?}`.
+#[tauri::command]
+pub async fn agent_wizard_acp_finish(session: String, id: Option<String>, label: String, acp: Value) -> Result<Value, String> {
+    run("acp_finish", serde_json::json!({"session": session, "id": id, "label": label, "acp": acp})).await
+}
+
 /// Stop whatever runs and remove the work folder. Safe to call twice.
 #[tauri::command]
 pub async fn agent_wizard_cancel(session: String) -> Result<Value, String> {
