@@ -125,6 +125,70 @@ describe('DeskPage', () => {
     expect(h.invoke).toHaveBeenCalledWith('trust_set_permission', { node: 'ab'.repeat(32), capability: 'files', on: true });
   });
 
+  it('follows the link: online dot on the row, "Mouse is on Laptop" in the status line, and back', async () => {
+    const node = 'cd'.repeat(32);
+    /** Test-only fixtures. */
+    const pairView = {
+      hosting: null,
+      pending: null,
+      joining: null,
+      message: null,
+      locked_until: null,
+      tampered: false,
+      devices: [{ node, name: 'Laptop', added_at: 1, online: null, allowed: ['desk/input'] }],
+    };
+    const linkDevice = { node, name: 'Laptop', state: 'online', side: 'right', mouse_here: false, controls_me: false, input_on: true, clipboard_on: false };
+    const linkView = (over: Record<string, unknown> = {}) => ({
+      seq: 1,
+      devices: [linkDevice],
+      mouse_on: null,
+      controlled_by: null,
+      paused: false,
+      sharing: true,
+      tray: 'Mouse sharing is on',
+      admin_note: "Can't control windows that run as admin.",
+      error: null,
+      clipboard_note: null,
+      supported: true,
+      ...over,
+    });
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'pair_view') return pairView;
+      if (name === 'desk_link_view') return linkView();
+      if (name === 'desk_link_set_side') return linkView({ devices: [{ ...linkDevice, side: 'left' }] });
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    const line = () => host.querySelector('[data-testid="link-status"]')?.textContent ?? '';
+    expect(line()).toContain('Mouse sharing is on · Laptop connected');
+    expect(host.querySelector('.ck-desk-device-status')?.textContent).toBe('Connected');
+    expect(host.textContent).toContain("Can't control windows that run as admin.");
+
+    // The desktop app pushes the new state when the pointer crosses.
+    await act(async () => h.listeners.get('desk://link')!({ payload: linkView({ mouse_on: 'Laptop', devices: [{ ...linkDevice, mouse_here: true }] }) }));
+    expect(line()).toContain('Mouse is on Laptop');
+    expect(host.querySelector('.ck-desk-device-status')?.textContent).toBe('Connected · Mouse is here');
+    expect(button('Bring the mouse back')).toBeDefined();
+
+    // And when the cable goes: the row says Offline, the line says it is still on.
+    await act(async () => h.listeners.get('desk://link')!({ payload: linkView({ devices: [{ ...linkDevice, state: 'offline' }] }) }));
+    expect(host.querySelector('.ck-desk-device-status')?.textContent).toBe('Offline');
+    expect(line()).toContain('Mouse sharing is on');
+    expect(line()).not.toContain('connected');
+
+    // The person says where the laptop sits.
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Where Laptop sits"]')!;
+    await act(async () => {
+      select.value = 'left';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_side', { node, side: 'left' });
+    await act(async () => button('Pause sharing')!.click());
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_pause', { paused: true });
+  });
+
   it('draws nothing while the Labs switch is off', async () => {
     h.invoke.mockRejectedValue('FEATURE_OFF: My computers is off in Labs');
     await act(async () => root.render(<DeskPage />));

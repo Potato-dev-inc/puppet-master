@@ -7,6 +7,8 @@ import { StatusLine } from './StatusLine';
 import { ScreensView } from './ScreensView';
 import { KeysView } from './KeysView';
 import { usePair } from '../../lib/desk-pair';
+import { useLink } from '../../lib/desk-link';
+import { LinkStatus } from './LinkStatus';
 import { AddComputerSheet } from './AddComputerSheet';
 import { DeviceRow } from './DeviceRow';
 import { InboundPairSheet } from './InboundPairSheet';
@@ -22,6 +24,7 @@ export function DeskPage() {
   const hopsTitleId = useId();
   const { snapshot, loadError, actionError, reload, run } = desk;
   const pair = usePair(snapshot !== null);
+  const link = useLink(snapshot !== null);
   const [adding, setAdding] = useState(false);
   const computersTitleId = useId();
   const pairView = pair.view;
@@ -51,6 +54,8 @@ export function DeskPage() {
           </p>
         )}
       </header>
+
+      <LinkStatus view={link.view} error={link.error} onPause={(p) => void link.pause(p)} onPanic={() => void link.panic()} />
 
       {actionError && (
         <p className="ck-desk-hint is-error" role="alert">
@@ -162,16 +167,23 @@ export function DeskPage() {
             {(pairView?.devices.length ?? 0) === 0 ? (
               <p className="ck-desk-hint">Only this computer is here. Add another to share one mouse.</p>
             ) : (
+              <>
               <ul className="ck-desk-devices" aria-label="Paired computers">
                 {pairView?.devices.map((d) => (
                   <DeviceRow
                     key={d.node}
                     device={d}
+                    link={link.view?.devices.find((l) => l.node === d.node)}
+                    onSide={(side) => void link.setSide(d.node, side)}
                     onToggle={(cap, on) => void pair.setPermission(d.node, cap, on)}
                     onRemove={() => void pair.remove(d.node)}
                   />
                 ))}
               </ul>
+              {link.view?.supported && link.view.devices.some((d) => d.input_on) && (
+                <p className="ck-desk-hint">{link.view.admin_note}</p>
+              )}
+              </>
             )}
           </section>
         </>

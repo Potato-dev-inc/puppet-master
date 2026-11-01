@@ -17,6 +17,7 @@ use std::sync::{Arc, OnceLock};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
+use crate::desk::link::{DeskLink, FileLinkStore, LinkView};
 use crate::p2p::capability::Registry;
 use crate::p2p::discovery::NoDiscovery;
 use crate::p2p::endpoint::NodeId;
@@ -51,6 +52,7 @@ impl TrustStorage for FileTrustStorage {
 struct Service {
     p2p: Arc<P2p>,
     mgr: Arc<PairManager>,
+    link: Arc<DeskLink>,
 }
 
 static LABS: AtomicBool = AtomicBool::new(false);
@@ -68,9 +70,12 @@ fn service() -> Result<&'static Service, String> {
         let trust = TrustList::open(storage, Arc::new(KeyStoreSigner::new(keys.clone())));
         let p2p = Arc::new(P2p::new(keys.clone(), Arc::new(IrohFactory), Arc::new(Registry::new()), trust.clone()));
         p2p.apply_settings(&json!({ "desk_enabled": LABS.load(Ordering::SeqCst) }));
-        let mgr = PairManager::new(p2p.clone(), trust, keys, Arc::new(SystemClock), Arc::new(NoDiscovery), &computer_name())
+        let mgr = PairManager::new(p2p.clone(), trust.clone(), keys, Arc::new(SystemClock), Arc::new(NoDiscovery), &computer_name())
             .map_err(|e| e.to_string())?;
-        Ok(Service { p2p, mgr })
+        let store = Arc::new(FileLinkStore { path: crate::app_paths::app_data_dir().join("desk").join("link.json") });
+        let link = DeskLink::new(p2p.clone(), trust, crate::desk::link::remote::default_remote(), store, &computer_name()).map_err(|e| e.to_string())?;
+        link.apply_settings(LABS.load(Ordering::SeqCst));
+        Ok(Service { p2p, mgr, link })
     });
     built.as_ref().map_err(|e| e.clone())
 }
@@ -96,6 +101,7 @@ pub fn apply_settings(public: &Value) {
     LABS.store(crate::p2p::labs_on(public), Ordering::SeqCst);
     if let Some(Ok(s)) = SERVICE.get() {
         s.p2p.apply_settings(public);
+        s.link.apply_settings(crate::p2p::labs_on(public));
         if !crate::p2p::labs_on(public) {
             s.mgr.cancel_hosting();
         }
@@ -105,12 +111,30 @@ pub fn apply_settings(public: &Value) {
 /// App quit.
 pub fn shutdown() {
     if let Some(Ok(s)) = SERVICE.get() {
+        // The pointer comes home first.
+        s.link.shutdown();
         s.mgr.cancel_hosting();
         s.p2p.stop();
     }
 }
 
-fn node_of(hex: &str) -> Result<NodeId, String> {
+/// The desk link for the page's commands: built on first use, listening for the page's changes, started when
+/// Labs is on. Same rules as `ready`.
+pub(crate) fn link_ready(app: &AppHandle) -> Result<Arc<DeskLink>, String> {
+    let s = ready(app)?;
+    static ATTACH: std::sync::Once = std::sync::Once::new();
+    let app = app.clone();
+    let link = s.link.clone();
+    ATTACH.call_once(move || {
+        link.set_notifier(Arc::new(move |view: &LinkView| {
+            let _ = app.emit("desk://link", view);
+        }));
+    });
+    s.link.start();
+    Ok(s.link.clone())
+}
+
+pub(crate) fn node_of(hex: &str) -> Result<NodeId, String> {
     if hex.len() != 64 || !hex.is_ascii() {
         return Err("Not a computer.".into());
     }
@@ -166,6 +190,8 @@ pub async fn pair_nearby(app: AppHandle) -> Result<Value, String> {
 pub async fn trust_set_permission(app: AppHandle, node: String, capability: String, on: bool) -> Result<Value, String> {
     let s = ready(&app)?;
     s.mgr.set_permission(&node_of(&node)?, &capability, on).map_err(text)?;
+    // A switch turned off closes the open link now, not at the next upkeep.
+    s.link.permission_changed();
     Ok(s.mgr.view())
 }
 
@@ -173,5 +199,6 @@ pub async fn trust_set_permission(app: AppHandle, node: String, capability: Stri
 pub async fn trust_remove(app: AppHandle, node: String) -> Result<Value, String> {
     let s = ready(&app)?;
     s.mgr.remove(&node_of(&node)?).map_err(text)?;
+    s.link.permission_changed();
     Ok(s.mgr.view())
 }
