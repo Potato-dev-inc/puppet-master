@@ -57,6 +57,18 @@ export interface PotatoSettings {
   dailyLimitCents: number;
   /** Actions one bot may take on its sandbox computer in a day (default 500). The settings page for it comes with the sandbox settings. */
   sandboxActionsPerDay?: number;
+  /** Read replies aloud: the system voice, its speed, and the bots that read their replies. Missing: the defaults. */
+  voice?: PotatoVoice;
+}
+
+/** Potato Bot's voice settings (`potato/voice.rs`). The webview speaks with the system voices; no key, nothing leaves the PC. */
+export interface PotatoVoice {
+  /** The chosen voice's URI. Empty: the system default voice. */
+  voiceUri: string;
+  /** Speed in percent of normal, 50 to 200. */
+  ratePercent: number;
+  /** The bots whose new replies are read aloud while the page is visible. */
+  readAloudBots: string[];
 }
 
 export interface PotatoState {

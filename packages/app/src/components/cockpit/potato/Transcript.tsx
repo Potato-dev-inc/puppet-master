@@ -2,7 +2,7 @@
 // person is at the bottom; reading further up is left alone. `followToken` goes up when the person sends, which
 // pulls the view to the bottom again.
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import type { PotatoBotView, PotatoMessage, PotatoTransport } from '../../../lib/potato';
+import type { PotatoBotView, PotatoMessage, PotatoTransport, PotatoVoice } from '../../../lib/potato';
 import { THREAD_COPY } from '../../../lib/potato-thread';
 import { MessageRow } from './MessageRow';
 import { TypingRow } from './TypingRow';
@@ -22,9 +22,11 @@ export interface TranscriptProps {
   paneExists?: (paneId: string) => boolean;
   followToken?: number;
   now: number;
+  /** The voice settings, for a reply's Speak button. */
+  voice?: PotatoVoice;
 }
 
-export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, now }: TranscriptProps) {
+export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, now, voice }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
 
@@ -58,6 +60,7 @@ export function Transcript({ bot, messages, agentLabel, transport, onChanged, on
             onOpenPane={onOpenPane}
             paneExists={paneExists}
             now={now}
+            voice={voice}
           />
         ))}
       </ol>

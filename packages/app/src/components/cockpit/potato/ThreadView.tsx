@@ -11,6 +11,7 @@ import { Composer } from './Composer';
 import { ComputerBanner, bannerDue } from './ComputerBanner';
 import { ThreadHeader } from './ThreadHeader';
 import { Transcript } from './Transcript';
+import { useReadAloud } from './useReadAloud';
 import { useScreenState } from './useScreenState';
 import '../../../styles/cockpit-potato-thread.css';
 
@@ -61,6 +62,7 @@ export function ThreadView(props: ThreadViewProps) {
   const [follow, setFollow] = useState(0);
   const through = settings.brain === 'agents' || bot.brainState === 'agents';
   const screenState = useScreenState(through ? undefined : screen);
+  useReadAloud(bot.id, messages, settings.voice);
 
   const run = async (call: () => Promise<unknown>, failed: string) => {
     try {
@@ -124,6 +126,7 @@ export function ThreadView(props: ThreadViewProps) {
         paneExists={paneExists}
         followToken={follow}
         now={now}
+        voice={settings.voice}
       />
 
       <BrainStateCard

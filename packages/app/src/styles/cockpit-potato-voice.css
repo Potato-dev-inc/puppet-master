@@ -1,0 +1,52 @@
+/* Voice in Potato Bot: the Speak button under a bot reply, and the Read replies aloud section of the Advanced tab.
+   Grayscale tokens only. The button stays out of the way until the reply is hovered, focused or being read. */
+
+.cockpit .ck-potato-speak {
+  align-self: center;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--label-2);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.cockpit .ck-potato-line:hover .ck-potato-speak,
+.cockpit .ck-potato-speak:focus-visible,
+.cockpit .ck-potato-speak.is-on {
+  opacity: 1;
+}
+.cockpit .ck-potato-speak:hover {
+  color: var(--label);
+}
+@media (hover: none) {
+  .cockpit .ck-potato-speak {
+    opacity: 1;
+  }
+}
+
+.cockpit .ck-potato-readaloud {
+  padding: 12px 14px;
+  border: 1px solid var(--sep);
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+.cockpit .ck-potato-readaloud-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cockpit .ck-potato-readaloud-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.cockpit .ck-potato-readaloud-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--label-2);
+}

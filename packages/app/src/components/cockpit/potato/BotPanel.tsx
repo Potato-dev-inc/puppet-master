@@ -2,6 +2,7 @@
 // bot's sandbox screen; Routines and Advanced are placeholders until their phases. Every tab stays mounted while the
 // panel is open, so the screen does not reload and a draft in Advanced survives a tab switch.
 import type { AvatarId } from '../../../lib/companion';
+import type { PotatoSettings, PotatoTransport } from '../../../lib/potato';
 import { PANEL_COPY, PANEL_TABS, type PanelTab } from '../../../lib/potato-panel';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { Avatar } from '../../companion/Avatar';
@@ -22,9 +23,13 @@ export interface BotPanelProps {
   /** "Through my agents": the bot has no computer of its own. */
   through: boolean;
   onNotify: (text: string) => void;
+  /** The Advanced tab's settings: the page's settings, the transport that saves them, and the page's re-read. */
+  settings?: PotatoSettings;
+  transport?: PotatoTransport;
+  onChanged?: () => void;
 }
 
-export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, onNotify }: BotPanelProps) {
+export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, onNotify, settings, transport, onChanged }: BotPanelProps) {
   return (
     <div className="ck-potato-botpanel">
       <header className="ck-potato-panel-head">
@@ -45,7 +50,7 @@ export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, on
           <RoutinesTab bot={bot} />
         </div>
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Advanced" hidden={tab !== 'advanced'}>
-          <AdvancedTab bot={bot} />
+          <AdvancedTab bot={bot} settings={settings} transport={transport} onChanged={onChanged} />
         </div>
       </div>
     </div>

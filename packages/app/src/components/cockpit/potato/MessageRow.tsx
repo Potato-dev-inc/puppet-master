@@ -1,7 +1,8 @@
 // One row of a thread: a bubble, a small centred note, or a helper card. The message-list phase grows this file
 // (markdown, hover actions, reply lines); Transcript only decides the order.
-import { formatWhen, type PotatoMessage, type PotatoTransport } from '../../../lib/potato';
+import { formatWhen, type PotatoMessage, type PotatoTransport, type PotatoVoice } from '../../../lib/potato';
 import { HelperCard } from './HelperCard';
+import { SpeakButton } from './SpeakButton';
 import type { ThreadRow } from './model';
 
 export interface MessageRowProps {
@@ -16,9 +17,11 @@ export interface MessageRowProps {
   /** Whether that pane is still there; the button is shown only then. Default: yes. */
   paneExists?: (paneId: string) => boolean;
   now: number;
+  /** The voice settings: a bot reply's Speak button reads with them. */
+  voice?: PotatoVoice;
 }
 
-export function MessageRow({ row, botId, botName, agentLabel, transport, onChanged, onOpenPane, paneExists, now }: MessageRowProps) {
+export function MessageRow({ row, botId, botName, agentLabel, transport, onChanged, onOpenPane, paneExists, now, voice }: MessageRowProps) {
   const m: PotatoMessage = row.message;
   if (row.type === 'note') {
     const canOpen = m.kind === 'helper_result' && !!m.paneId && !!onOpenPane && (paneExists?.(m.paneId) ?? true);
@@ -63,6 +66,7 @@ export function MessageRow({ row, botId, botName, agentLabel, transport, onChang
       <div className={`ck-potato-bubble ck-potato-bubble--${row.side}`} title={formatWhen(m.at, now)}>
         {m.text}
       </div>
+      {row.side === 'bot' && <SpeakButton id={m.id} text={m.text} voice={voice} />}
     </li>
   );
 }

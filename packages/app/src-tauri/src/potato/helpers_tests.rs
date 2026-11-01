@@ -622,7 +622,8 @@ fn the_state_the_page_reads_never_holds_the_key_only_the_last_four() {
     let settings = serde_json::to_value(w.rig.svc.settings().unwrap()).unwrap();
     let mut names: Vec<&str> = settings.as_object().unwrap().keys().map(String::as_str).collect();
     names.sort_unstable();
-    assert_eq!(names, vec!["brain", "dailyLimitCents", "defaultPersona", "sandboxActionsPerDay", "v"], "no field of the settings can hold a key");
+    // `voice` holds the voice's name, the speed and the bot ids that read aloud: no key.
+    assert_eq!(names, vec!["brain", "dailyLimitCents", "defaultPersona", "sandboxActionsPerDay", "v", "voice"], "no field of the settings can hold a key");
 }
 
 #[test]

@@ -10,6 +10,7 @@ import { NumberControl } from '../controls';
 import type { RowDef } from '../model';
 import { Btn, FieldSelect, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
 import { makeSandboxRows } from '../sandbox/SandboxRows';
+import { makePotatoVoiceRows } from './PotatoVoiceRows';
 
 /** The limits of the daily limit, in cents ($0.05 to $20). Rust clamps again. */
 export const MIN_LIMIT_CENTS = 5;
@@ -73,7 +74,8 @@ function usePotatoSettings(transport: PotatoTransport) {
   }, [transport]);
   const save = useCallback(
     async (change: Partial<PotatoSettings>) => {
-      const base = store.value ?? (await transport.settingsGet());
+      // Read again each time: the Voice rows save the same settings file, so a cached copy may be stale.
+      const base = await transport.settingsGet();
       const saved = await transport.settingsSet({ ...base, ...change });
       store.value = saved;
       store.failed = null;
@@ -259,4 +261,4 @@ export function makePotatoRows(transport: PotatoTransport = tauriPotatoTransport
 }
 
 /** Potato Bot's rows, then the sandbox's (its switch is in General > Labs; its other rows show only while that is on). */
-export const potatoRows: RowDef[] = [...makePotatoRows(), ...makeSandboxRows()];
+export const potatoRows: RowDef[] = [...makePotatoRows(), ...makePotatoVoiceRows(), ...makeSandboxRows()];

@@ -125,6 +125,9 @@ export function PotatoPage(props: PotatoPageProps) {
       screen={screenTransport}
       through={through}
       onNotify={onNotify}
+      settings={state.settings}
+      transport={transport}
+      onChanged={onChanged}
     />
   ) : null;
 
