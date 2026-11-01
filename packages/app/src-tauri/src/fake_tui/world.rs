@@ -438,6 +438,24 @@ impl Session {
         self.answer_card_with(pane_id, prompt_id, choice, Some(&click))
     }
 
+    /// The terminal chat's question card for a pane (`terminal_chat_prompt`), as the JSON the UI gets.
+    pub fn terminal_chat_prompt(&self, pane_id: &str) -> Option<Value> {
+        crate::terminal_chat::prompt::view(&self.world.registry, pane_id).and_then(|view| serde_json::to_value(view).ok())
+    }
+
+    /// `terminal_chat_answer`: with `clicked` the fresh trusted click the UI sends, else no gesture at all.
+    /// The error is `{ code, message }`.
+    pub fn terminal_chat_answer(&self, pane_id: &str, prompt_id: &str, option_id: &str, clicked: bool) -> Result<(), Value> {
+        let click = crate::pane_prompt::answers::UserGesture {
+            id: uuid::Uuid::new_v4().to_string(),
+            trusted: true,
+            at_ms: crate::pane_prompt::answers::now_ms(),
+            kind: "click".into(),
+        };
+        crate::terminal_chat::prompt::answer(&self.world.registry, &self.world.app, pane_id, prompt_id, option_id, clicked.then_some(&click))
+            .map_err(|error| json!({ "code": error.code, "message": error.message }))
+    }
+
     /// The person has another project selected in the window than the run's (the bridge's default
     /// project): pane-to-run lookups must not depend on which one it is.
     pub fn select_other_project(&self) -> PathBuf {

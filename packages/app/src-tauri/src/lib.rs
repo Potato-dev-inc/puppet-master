@@ -112,6 +112,7 @@ mod tamper;
 pub mod shell_exec;
 mod standby;
 mod team;
+mod terminal_chat;
 pub mod tool_registry;
 mod toolbelt;
 mod agent_pack;
@@ -462,6 +463,8 @@ pub fn run() {
             settings_patch::settings_patch,
             commands::pane_prompt,
             commands::answer_pane_prompt,
+            commands::terminal_chat_prompt,
+            commands::terminal_chat_answer,
             commands::attention_snapshot,
             commands::focus_state,
             commands::focus_start,

@@ -146,6 +146,12 @@ pub fn note_prompt_event(pane_id: &str) {
     *LEDGER.lock().occurrence.entry(pane_id.to_string()).or_insert(0) += 1;
 }
 
+/// How many times this pane's prompt appeared, changed or cleared (the screen's "generation" for a
+/// question): a view of the prompt taken in an earlier occurrence is stale.
+pub(crate) fn occurrence_of(pane_id: &str) -> u64 {
+    occurrence(&LEDGER.lock(), pane_id)
+}
+
 fn occurrence(ledger: &Ledger, pane_id: &str) -> u64 {
     ledger.occurrence.get(pane_id).copied().unwrap_or(0)
 }

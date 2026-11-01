@@ -215,8 +215,12 @@ fn every_answer_path_is_known_and_presses_its_key_through_answer_once() {
         assert!(code.matches("answer_once(").count() >= keys, "{file}: a key outside answer_once");
     }
     // The desktop's answer function: only the Tauri command (which carries the click) and the
-    // dev-only fake-TUI harness (which builds a click like the UI does).
-    assert_eq!(callers("answer_for_pane("), ["agent_runs/routes/answer.rs", "commands/cockpit.rs", "fake_tui/world.rs"]);
+    // dev-only fake-TUI harness (which builds a click like the UI does), and a terminal chat's answer
+    // (`terminal_chat/prompt.rs`, which refuses without a click before it gets here; its guard test names the call).
+    assert_eq!(
+        callers("answer_for_pane("),
+        ["agent_runs/routes/answer.rs", "commands/cockpit.rs", "fake_tui/world.rs", "terminal_chat/prompt.rs"]
+    );
     // The bare-pane answer: the bridge route (agents and local programs, gated by agent_authority)
     // and a phone's lock-screen tap (a one-shot token minted for that device).
     // (The route calls `answer_with`, the same function with a phone's decided permit.)
