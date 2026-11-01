@@ -79,7 +79,7 @@ export const LAYOUT: Partial<Record<SectionId, LayoutGroup[]>> = {
     { group: 'Public address', rows: ['tunnel'] },
   ],
   potato: [
-    { group: 'Potato Bot', rows: ['potato-bot', 'potato-brain', 'potato-key', 'potato-persona', 'potato-limit'] },
+    { group: 'Potato Bot', rows: ['potato-bot', 'potato-models', 'potato-key', 'potato-persona', 'potato-limit', 'potato-usage'] },
     { group: 'Sandbox', rows: ['potato-sandbox', 'potato-sandbox-idle'] },
   ],
 };

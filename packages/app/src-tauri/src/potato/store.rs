@@ -189,11 +189,20 @@ pub struct Settings {
     pub daily_limit_cents: u32,
     /// How many actions on its sandbox computer one bot may take in a day.
     pub sandbox_actions_per_day: u32,
+    /// The brains to try, in order, when the talk brain is out of balance or down (`fallback.rs`). Empty: none.
+    pub fallbacks: Vec<BrainKind>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { v: STORE_VERSION, brain: BrainKind::Deepseek, default_persona: "fish".into(), daily_limit_cents: super::cost::DEFAULT_LIMIT_CENTS, sandbox_actions_per_day: super::cost::DEFAULT_SANDBOX_ACTIONS }
+        Settings {
+            v: STORE_VERSION,
+            brain: BrainKind::Deepseek,
+            default_persona: "fish".into(),
+            daily_limit_cents: super::cost::DEFAULT_LIMIT_CENTS,
+            sandbox_actions_per_day: super::cost::DEFAULT_SANDBOX_ACTIONS,
+            fallbacks: Vec::new(),
+        }
     }
 }
 
@@ -206,6 +215,7 @@ pub fn load_settings(root: &Path) -> StoreResult<Settings> {
     let mut settings = settings.unwrap_or_default();
     settings.daily_limit_cents = super::cost::clamp_limit_cents(settings.daily_limit_cents);
     settings.sandbox_actions_per_day = super::cost::clamp_sandbox_actions(settings.sandbox_actions_per_day);
+    settings.fallbacks = super::fallback::clean(settings.brain, &settings.fallbacks);
     if !valid_pack(&settings.default_persona) {
         settings.default_persona = "fish".into();
     }
@@ -217,6 +227,7 @@ pub fn save_settings(root: &Path, settings: &Settings) -> StoreResult<()> {
     settings.v = STORE_VERSION;
     settings.daily_limit_cents = super::cost::clamp_limit_cents(settings.daily_limit_cents);
     settings.sandbox_actions_per_day = super::cost::clamp_sandbox_actions(settings.sandbox_actions_per_day);
+    settings.fallbacks = super::fallback::clean(settings.brain, &settings.fallbacks);
     if !valid_pack(&settings.default_persona) {
         return Err(StoreError::new("POTATO_PERSONA_INVALID", "Pick Fish or Potato."));
     }

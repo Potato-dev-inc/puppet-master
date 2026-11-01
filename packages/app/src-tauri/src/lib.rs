@@ -640,6 +640,7 @@ pub fn run() {
             commands::potato_forget_talk_memory,
             commands::potato_settings_get,
             commands::potato_settings_set,
+            commands::potato_usage,
             commands::potato_log,
             commands::potato_helper_folders,
             commands::potato_helper_start,

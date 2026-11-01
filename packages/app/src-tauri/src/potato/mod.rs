@@ -13,6 +13,8 @@
 //! - `sidecar`: the IO of the process (finding Node, starting hidden, stopping the whole tree)
 //! - `store`: the files in `<app data>/potato/` (bots, settings, conversations, persona seeding)
 //! - `cost`: pricing the tokens the brain reports and judging them against the daily limit
+//! - `fallback`: the brains to try after the talk brain when its model is out of balance or down (the switch is in `service`)
+//! - `usage`: the Usage page's numbers (30 days, per bot and in total), read only
 //! - `log`: the 200-line log ring, every line cleaned
 //! - `helpers`: Start / Change folder / Not now, the caps, and watching a helper until it ends
 //! - `service`: the engine that ties them together; `live`: the app's one instance and its thread
@@ -34,7 +36,9 @@
 pub mod auth;
 pub mod cost;
 pub mod env;
+pub mod fallback;
 pub mod helpers;
+pub mod usage;
 pub mod keeper;
 pub mod live;
 pub mod log;
@@ -57,6 +61,8 @@ mod cost_tests;
 #[cfg(test)]
 mod env_tests;
 #[cfg(test)]
+mod fallback_tests;
+#[cfg(test)]
 mod guard_tests;
 #[cfg(test)]
 mod helpers_tests;
@@ -70,6 +76,8 @@ mod resource_dirs_tests;
 mod rules_tests;
 #[cfg(test)]
 mod sandbox_calls_tests;
+#[cfg(test)]
+mod usage_tests;
 #[cfg(test)]
 mod sandbox_host_tests;
 #[cfg(test)]

@@ -51,10 +51,12 @@ const calls = (method: string) => fake.calls.filter((c) => c.method === method);
 describe('Settings > Potato Bot', () => {
   it('shows every row, in the order of the spec, with the exact copy', async () => {
     await mount();
-    expect([...m.host.querySelectorAll('[data-row]')].map((el) => el.getAttribute('data-row'))).toEqual(['potato-bot', 'potato-brain', 'potato-key', 'potato-persona', 'potato-limit']);
-    for (const text of ['Potato Bot', 'Talk brain', 'DeepSeek key', 'Check key', 'Default persona', 'Daily limit', 'Pays DeepSeek per message. Usually cents a day.']) {
+    expect([...m.host.querySelectorAll('[data-row]')].map((el) => el.getAttribute('data-row'))).toEqual(['potato-bot', 'potato-models', 'potato-key', 'potato-persona', 'potato-limit', 'potato-usage']);
+    for (const text of ['Potato Bot', 'Models and fallbacks', 'DeepSeek key', 'Check key', 'Default persona', 'Daily limit', 'Usage']) {
       expect(hasText(m.host, text), text).toBe(true);
     }
+    // the talk brain is on its own sub-page now, not on this one
+    expect(byLabel(m.host, 'Talk brain')).toBeNull();
     expect(m.host.querySelector('[data-row="potato-key"] .st-label')?.textContent ?? '').not.toContain(SECRET);
   });
 
@@ -98,26 +100,6 @@ describe('Settings > Potato Bot', () => {
     expect(sw.getAttribute('aria-checked')).toBe('true');
     await click(sw);
     expect(m.env.patches).toEqual([{ potato_bot_enabled: false }]);
-  });
-
-  it('the brain choice offers the three brains, explains each, saves it in the Potato settings and leaves the settings file alone', async () => {
-    await mount();
-    const select = byLabel<HTMLSelectElement>(m.host, 'Talk brain')!;
-    expect([...select.options].map((o) => o.textContent)).toEqual(['DeepSeek', 'OpenCode Go', 'Through my agents']);
-    expect(select.value).toBe('deepseek');
-    await pickOption(select, 'go');
-    await settle(4);
-    expect(calls('settingsSet').at(-1)?.args[0]).toMatchObject({ brain: 'go', dailyLimitCents: 50 });
-    expect(hasText(m.host, 'Uses your OpenCode Go sign-in.')).toBe(true);
-    // a brain with no DeepSeek key: the key row says it is not needed and shows no field
-    expect(byLabel(m.host, 'DeepSeek key')).toBeNull();
-    expect(buttonByText(m.host, 'Check key')).toBeUndefined();
-    await pickOption(byLabel<HTMLSelectElement>(m.host, 'Talk brain')!, 'agents');
-    await settle(4);
-    expect(hasText(m.host, 'No extra cost.')).toBe(true);
-    expect(calls('settingsSet').at(-1)?.args[0]).toMatchObject({ brain: 'agents' });
-    expect(m.env.patches).toEqual([]);
-    expect(m.env.markSaved).toHaveBeenCalled();
   });
 
   it('the default persona is Fish or Potato', async () => {
@@ -176,16 +158,6 @@ describe('Settings > Potato Bot', () => {
     await click(buttonByText(m.host, 'Check key'));
     await settle(4);
     expect(m.host.querySelector('[role="alert"].st-note')?.textContent).toBe('DeepSeek did not accept that key.');
-  });
-
-  it('says why a save did not work, in plain words', async () => {
-    const broken = fakePotatoTransport();
-    broken.settingsSet = () => Promise.reject(new Error('POTATO_STORE_INVALID: settings.json is damaged.'));
-    m = await mountRows(makePotatoRows(broken, api), { settings: { potato_bot_enabled: true } as never });
-    await settle(6);
-    await pickOption(byLabel<HTMLSelectElement>(m.host, 'Talk brain')!, 'go');
-    await settle(4);
-    expect(m.env.setError).toHaveBeenLastCalledWith('settings.json is damaged.');
   });
 
   it('every word of every label finds its row in search', async () => {
