@@ -4,8 +4,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AcpLaneAgent, AcpLaneView, OverlayDetect } from '../../../lib/acpChat';
-import { addableChat, normalizeLaneView } from '../../../lib/acpChat';
+import type { AcpLaneAgent, AcpLaneView, OverlayDetect, OverlayOption, OverlayProgress } from '../../../lib/acpChat';
+import { addableChat, authorsText, firstAvailable, normalizeLaneView, normalizeOptions, registrySentence } from '../../../lib/acpChat';
 import { AddChatDialog, commandLine, confirmSentence, DETECT_TIMEOUT_MS } from './AddChatDialog';
 import { AgentLaneRows } from './AgentLaneRows';
 import { NewAgentMenu } from '../../cockpit/NewAgentMenu';
@@ -152,6 +152,217 @@ describe('AddChatDialog', () => {
     await click(byText('Cancel'));
     expect(onClose).toHaveBeenCalled();
     expect(overlaySet).not.toHaveBeenCalled();
+  });
+});
+
+const nativeOpt = (over: Partial<OverlayOption> = {}): OverlayOption => ({
+  kind: 'native',
+  label: 'fake on this computer',
+  summary: 'The program you already have starts chat itself.',
+  command_line: 'fake-agent acp',
+  acp: { command: 'fake-agent', args: ['acp'], env_allow: [] },
+  available: true,
+  ...over,
+});
+const registryOpt = (over: Partial<OverlayOption> = {}): OverlayOption => ({
+  kind: 'registry',
+  label: 'Fake Adapter 1.2.3',
+  summary: 'An adapter that speaks ACP.',
+  registry: { id: 'fake-acp', name: 'Fake Adapter', version: '1.2.3', authors: ['Alice', 'Bob'], license: 'MIT', repository: 'https://example.test/fake', distribution: 'npx', size_hint: '40 MB' },
+  available: true,
+  ...over,
+});
+const bridgeOpt = (): OverlayOption => ({ kind: 'bridge', label: 'Chat made by Puppet Master', summary: 'Puppet Master makes a chat adapter.', available: false, reason: 'Fake has no non-interactive mode, so a chat adapter cannot be made' });
+const bridgeOn = (hasMemory: boolean): OverlayOption => ({ kind: 'bridge', label: 'Chat made by Puppet Master', summary: 'Puppet Master will make a chat adapter for Fake.', bridge: { has_memory: hasMemory }, available: true });
+const resolved = (...options: OverlayOption[]) => vi.fn(async () => ({ ok: true, options }));
+
+describe('AddChatDialog with the app resolving the best way (native, registry, bridge)', () => {
+  it('a program that starts chat itself: one confirm screen, saved with overlaySet, no detect call', async () => {
+    const overlayResolve = resolved(nativeOpt(), bridgeOpt());
+    const overlayDetect = vi.fn();
+    const overlaySet = vi.fn(async () => row({ overlay: true }));
+    const { onAdded } = await open({ overlayResolve, overlayDetect, overlaySet });
+    expect(overlayResolve).toHaveBeenCalledTimes(1);
+    expect(overlayDetect).not.toHaveBeenCalled();
+    expect(q('[data-testid="add-chat-options"]')).toBeNull(); // one usable way: no choice to make
+    expect(q('[data-testid="add-chat-summary"]')?.textContent).toBe('Fake will start fake-agent acp for chat.');
+    await click(byText('Add chat'));
+    expect(overlaySet).toHaveBeenCalledWith('fake', { command: 'fake-agent', args: ['acp'], env_allow: [] }, true);
+    expect(onAdded).toHaveBeenCalledTimes(1);
+  });
+
+  it('a registry adapter: says who made it and what happens, downloads with progress, then shows success', async () => {
+    const overlayResolve = resolved(registryOpt(), bridgeOpt());
+    let report: (p: OverlayProgress) => void = () => {};
+    const stop = vi.fn();
+    const overlayProgress = vi.fn(async (_agent: string, cb: (p: OverlayProgress) => void) => {
+      report = cb;
+      return stop;
+    });
+    let finish: () => void = () => {};
+    const overlayInstall = vi.fn(() => new Promise<unknown>((resolve) => (finish = () => resolve({}))));
+    const overlaySet = vi.fn();
+    const { onAdded } = await open({ overlayResolve, overlayDetect: vi.fn(), overlaySet, overlayInstall, overlayProgress });
+    const text = q('[data-testid="add-chat-summary"]')?.textContent;
+    expect(text).toBe('Puppet Master will download Fake Adapter 1.2.3 by Alice, Bob (MIT) from the official ACP registry and run it for chat. About 40 MB.');
+    expect(q('[data-testid="add-chat-registry-about"]')?.textContent).toBe('An adapter that speaks ACP.');
+    expect(overlayInstall).not.toHaveBeenCalled();
+    await click(byText('Add chat'));
+    expect(overlayInstall).toHaveBeenCalledWith('fake', { kind: 'registry', id: 'fake-acp', version: '1.2.3' }, true);
+    expect(q('[data-testid="add-chat-installing"]')).toBeTruthy();
+    expect(byText('Cancel')).toBeUndefined();
+    await act(async () => report({ state: 'installing', lines: ['Downloading Fake Adapter 1.2.3...', 'added 1 package'], detail: '' }));
+    expect(q('[data-testid="add-chat-progress"]')?.textContent).toContain('added 1 package');
+    await act(async () => finish());
+    await flush();
+    expect(q('[data-testid="add-chat-success"]')?.textContent).toBe('Fake Adapter 1.2.3 is ready. Chat is added for Fake.');
+    expect(stop).toHaveBeenCalled();
+    expect(overlaySet).not.toHaveBeenCalled();
+    expect(onAdded).not.toHaveBeenCalled();
+    await click(byText('Done'));
+    expect(onAdded).toHaveBeenCalledWith(null);
+  });
+
+  it('registry text is shown as plain text, never as markup', async () => {
+    const evil = registryOpt({ summary: '<img src=x onerror=alert(1)>', registry: { ...registryOpt().registry!, name: '<b>Bold</b>', authors: ['<i>x</i>'] } });
+    await open({ overlayResolve: resolved(evil), overlaySet: vi.fn(), overlayInstall: vi.fn() });
+    expect(document.querySelector('[data-testid="add-chat-dialog"] img, [data-testid="add-chat-dialog"] b, [data-testid="add-chat-dialog"] i')).toBeNull();
+    expect(q('[data-testid="add-chat-summary"]')?.textContent).toContain('<b>Bold</b>');
+  });
+
+  it('two usable ways are radio choices, best first; an unavailable bridge is never one', async () => {
+    const overlayResolve = resolved(nativeOpt(), registryOpt(), bridgeOpt());
+    const overlaySet = vi.fn(async () => row());
+    const overlayInstall = vi.fn(async () => ({}));
+    await open({ overlayResolve, overlaySet, overlayInstall });
+    const radios = [...document.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios).toHaveLength(2);
+    expect(radios.map((r) => r.checked)).toEqual([true, false]);
+    expect(q('[data-testid="add-chat-command"]')?.textContent).toBe('fake-agent acp');
+    await click(radios[1]);
+    expect(q('[data-testid="add-chat-summary"]')?.textContent).toContain('will download Fake Adapter 1.2.3');
+    await click(radios[0]);
+    await click(byText('Add chat'));
+    expect(overlaySet).toHaveBeenCalledTimes(1);
+    expect(overlayInstall).not.toHaveBeenCalled();
+  });
+
+  it('the bridge is the last resort: alone it is the confirm screen, with the honest sentence, and saves with kind bridge', async () => {
+    const overlayInstall = vi.fn(async () => row({ overlay: true }));
+    const overlaySet = vi.fn();
+    const { onAdded } = await open({ overlayResolve: resolved(nativeOpt({ available: false, reason: 'no' }), bridgeOn(true)), overlaySet, overlayInstall });
+    expect(q('[data-testid="add-chat-options"]')).toBeNull();
+    expect(q('[data-testid="add-chat-summary"]')?.textContent).toBe(
+      'Fake has no chat support of its own, so Puppet Master will make one. It talks to Fake one message at a time: text only, no tool cards, it remembers the conversation.',
+    );
+    await click(byText('Add chat'));
+    await flush();
+    expect(overlayInstall).toHaveBeenCalledWith('fake', { kind: 'bridge' }, true);
+    expect(overlaySet).not.toHaveBeenCalled();
+    expect(onAdded).toHaveBeenCalledTimes(1);
+  });
+
+  it('the bridge says plainly when the agent does not remember earlier messages, and a failure keeps the screen', async () => {
+    const overlayInstall = vi.fn().mockRejectedValueOnce(new Error('NOT_AVAILABLE: Fake has no non-interactive mode, so a chat adapter cannot be made'));
+    await open({ overlayResolve: resolved(bridgeOn(false)), overlaySet: vi.fn(), overlayInstall });
+    expect(q('[data-testid="add-chat-summary"]')?.textContent).toContain('text only, no tool cards, it does not remember earlier messages.');
+    await click(byText('Add chat'));
+    await flush();
+    expect(q('[data-testid="add-chat-error"]')?.textContent).toContain('cannot be made');
+    expect(q('[data-testid="add-chat-confirm"]')).toBeTruthy();
+    expect(byText('Add chat')?.disabled).toBe(false);
+  });
+
+  it('a better way stays first and the bridge is the last radio', async () => {
+    const overlayInstall = vi.fn(async () => row({ overlay: true }));
+    await open({ overlayResolve: resolved(nativeOpt(), bridgeOn(true)), overlaySet: vi.fn(), overlayInstall });
+    const radios = [...document.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios.map((r) => r.checked)).toEqual([true, false]);
+    await click(radios[1]);
+    expect(q('[data-testid="add-chat-summary"]')?.textContent).toContain('so Puppet Master will make one');
+    await click(byText('Add chat'));
+    await flush();
+    expect(overlayInstall).toHaveBeenCalledWith('fake', { kind: 'bridge' }, true);
+  });
+
+  it('the first usable way is preselected even when an unusable one is listed first', async () => {
+    await open({ overlayResolve: resolved(nativeOpt({ available: false, reason: 'Its help does not show a chat (ACP) command.' }), registryOpt(), bridgeOpt()), overlaySet: vi.fn(), overlayInstall: vi.fn() });
+    expect(q('[data-testid="add-chat-summary"]')?.textContent).toContain('will download');
+    expect(q('[data-testid="add-chat-options"]')).toBeNull();
+  });
+
+  it('a failed download shows the sentence, stays on the confirm screen and can be tried again', async () => {
+    const overlayInstall = vi.fn().mockRejectedValueOnce(new Error('ACP_ADDON_FAILED: The download failed: could not reach the server.')).mockResolvedValueOnce({});
+    await open({ overlayResolve: resolved(registryOpt()), overlaySet: vi.fn(), overlayInstall });
+    await click(byText('Add chat'));
+    await flush();
+    expect(q('[data-testid="add-chat-error"]')?.textContent).toBe('The download failed: could not reach the server.');
+    expect(q('[data-testid="add-chat-confirm"]')).toBeTruthy();
+    expect(byText('Add chat')?.disabled).toBe(false);
+    await click(byText('Add chat'));
+    await flush();
+    expect(q('[data-testid="add-chat-success"]')).toBeTruthy();
+    expect(q('[data-testid="add-chat-error"]')).toBeNull();
+  });
+
+  it('nothing usable: says why, shows the form, and a typed command still works', async () => {
+    const overlaySet = vi.fn(async () => row());
+    await open({ overlayResolve: resolved(nativeOpt({ available: false, reason: 'Its help does not show a chat (ACP) command.' }), bridgeOpt()), overlaySet });
+    expect(q('[data-testid="add-chat-confirm"]')).toBeNull();
+    expect(q('[data-testid="add-chat-note"]')?.textContent).toBe('Could not find how Fake offers chat. You can type it in. (Its help does not show a chat (ACP) command.)');
+    await setField('#acp-command', 'my-agent');
+    await setField('#acp-args', 'serve');
+    await click(byText('Review'));
+    await click(byText('Add chat'));
+    expect(overlaySet).toHaveBeenCalledWith('fake', { command: 'my-agent', args: ['serve'], env_allow: [] }, true);
+  });
+
+  it('Change details on a native way pre-fills the form; on a download it starts blank', async () => {
+    await open({ overlayResolve: resolved(nativeOpt()), overlaySet: vi.fn() });
+    await click(q('[data-testid="add-chat-change"]'));
+    expect(q<HTMLInputElement>('#acp-command')?.value).toBe('fake-agent');
+    expect(q<HTMLTextAreaElement>('#acp-args')?.value).toBe('acp');
+    await act(async () => root.render(<div />));
+    await open({ overlayResolve: resolved(registryOpt()), overlaySet: vi.fn(), overlayInstall: vi.fn() });
+    await click(q('[data-testid="add-chat-change"]'));
+    expect(q<HTMLInputElement>('#acp-command')?.value).toBe('');
+  });
+
+  it('an app whose resolve fails falls back to reading the help text', async () => {
+    const overlayResolve = vi.fn(async () => Promise.reject(new Error('unknown command acp_overlay_resolve')));
+    const overlayDetect = vi.fn(async () => detected);
+    const overlaySet = vi.fn(async () => row());
+    await open({ overlayResolve, overlayDetect, overlaySet });
+    expect(overlayDetect).toHaveBeenCalledWith('fake');
+    expect(q('[data-testid="add-chat-command"]')?.textContent).toBe('fake-agent acp --quiet');
+    await click(byText('Add chat'));
+    expect(overlaySet).toHaveBeenCalledWith('fake', { command: 'fake-agent', args: ['acp', '--quiet'], env_allow: [] }, true);
+  });
+
+  it('Cancel on a download confirm closes without installing', async () => {
+    const overlayInstall = vi.fn();
+    const { onClose } = await open({ overlayResolve: resolved(registryOpt()), overlaySet: vi.fn(), overlayInstall });
+    await click(byText('Cancel'));
+    expect(onClose).toHaveBeenCalled();
+    expect(overlayInstall).not.toHaveBeenCalled();
+  });
+});
+
+describe('overlay option helpers', () => {
+  it('writes the confirm sentence with and without optional parts', () => {
+    const info = registryOpt().registry!;
+    expect(registrySentence(info)).toBe('Puppet Master will download Fake Adapter 1.2.3 by Alice, Bob (MIT) from the official ACP registry and run it for chat. About 40 MB.');
+    expect(registrySentence({ ...info, authors: [], license: '', size_hint: null })).toBe('Puppet Master will download Fake Adapter 1.2.3 from the official ACP registry and run it for chat.');
+    expect(authorsText(['A', 'B', 'C', 'D'])).toBe('A, B, C and others');
+  });
+
+  it('picks the first usable option and drops unknown kinds', () => {
+    expect(firstAvailable([nativeOpt({ available: false }), registryOpt(), bridgeOpt()])).toBe(1);
+    expect(firstAvailable([bridgeOpt()])).toBe(-1);
+    expect(firstAvailable(null)).toBe(-1);
+    const list = normalizeOptions({ ok: true, options: [registryOpt(), { kind: 'mystery', label: 'x', summary: '', available: true } as unknown as OverlayOption] });
+    expect(list.map((o) => o.kind)).toEqual(['registry']);
+    expect(normalizeOptions(null)).toEqual([]);
   });
 });
 

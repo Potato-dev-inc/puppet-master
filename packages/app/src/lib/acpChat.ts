@@ -124,6 +124,92 @@ export interface OverlayDetect {
   mentions_protocol?: boolean;
 }
 
+/** What the official ACP registry says about a ready-made adapter (`acp_overlay_resolve`). Plain text only: render, never run. */
+export interface RegistryInfo {
+  id: string;
+  name: string;
+  version: string;
+  authors: string[];
+  license: string;
+  repository?: string;
+  distribution: 'npx' | 'binary' | 'uvx';
+  /** Roughly how big the download is, when known. */
+  size_hint?: string | null;
+}
+
+/** What the built-in bridge gives an agent: a chat over its non-interactive mode, text only. */
+export interface BridgeInfo {
+  /** A later message continues the earlier ones. False: each message starts fresh. */
+  has_memory: boolean;
+  read_only_supported?: boolean;
+  note?: string;
+}
+
+/** One way to give an agent a chat (`acp_overlay_resolve`), best first. */
+export interface OverlayOption {
+  /** `native`: the program you have already starts chat; `registry`: a download from the official ACP registry; `bridge`: the built-in bridge. */
+  kind: 'native' | 'registry' | 'bridge';
+  label: string;
+  summary: string;
+  command_line?: string;
+  /** `native`: the exact program and arguments to save. */
+  acp?: OverlayAcp;
+  registry?: RegistryInfo;
+  /** `bridge`: what the made-by-Puppet-Master chat will be like. */
+  bridge?: BridgeInfo;
+  available: boolean;
+  /** Why it is not available. */
+  reason?: string;
+}
+
+export interface OverlayResolve {
+  ok: boolean;
+  options: OverlayOption[];
+}
+
+/** What the person confirmed for a download. `id` and `version` are what the screen showed; the app refuses if the registry moved. */
+export type OverlayInstallOption = { kind: 'registry'; id?: string; version?: string } | { kind: 'bridge' };
+
+/** The confirm text for the built-in bridge. */
+export function bridgeSentence(label: string, hasMemory: boolean): string {
+  return `${label} has no chat support of its own, so Puppet Master will make one. It talks to ${label} one message at a time: text only, no tool cards, ${hasMemory ? 'it remembers the conversation' : 'it does not remember earlier messages'}.`;
+}
+
+/** Progress of a download, from the `acp-addon-changed` event. */
+export interface OverlayProgress {
+  state: 'installing' | 'installed' | 'failed' | 'not_installed';
+  lines: string[];
+  detail: string;
+}
+
+/** The first option that can be used now, or -1. */
+export function firstAvailable(options: readonly OverlayOption[] | null | undefined): number {
+  return (options ?? []).findIndex((o) => o && o.available === true);
+}
+
+/** Clean list from the wire: unknown kinds dropped, text fields defaulted. */
+export function normalizeOptions(raw: OverlayResolve | null | undefined): OverlayOption[] {
+  const list = Array.isArray(raw?.options) ? raw!.options : [];
+  return list
+    .filter((o) => o && (o.kind === 'native' || o.kind === 'registry' || o.kind === 'bridge'))
+    .map((o) => ({ ...o, label: String(o.label ?? ''), summary: String(o.summary ?? ''), available: o.available === true }));
+}
+
+/** "Alice, Bob" (at most three names, then "and others"); empty when the registry names nobody. */
+export function authorsText(authors: readonly string[] | null | undefined): string {
+  const names = (authors ?? []).filter((a) => typeof a === 'string' && a.trim() !== '');
+  if (names.length === 0) return '';
+  return names.length > 3 ? `${names.slice(0, 3).join(', ')} and others` : names.join(', ');
+}
+
+/** The sentence on the confirm screen for a download from the registry. */
+export function registrySentence(info: RegistryInfo): string {
+  const by = authorsText(info.authors);
+  const license = info.license?.trim() ? ` (${info.license.trim()})` : '';
+  const size = info.size_hint?.trim() ? ` About ${info.size_hint.trim()}.` : '';
+  return `Puppet Master will download ${info.name} ${info.version}${by ? ` by ${by}` : ''}${license} from the official ACP registry and run it for chat.${size}`;
+}
+
 /** The `[acp]` table the person confirmed. */
 export interface OverlayAcp {
   command: string;
@@ -194,6 +280,12 @@ export interface AcpChatApi {
   start: (agentId: string, folder: string, explicit?: boolean) => Promise<AcpStarted>;
   /** Read the agent's help text for how it starts as a chat. Runs nothing but help. */
   overlayDetect?: (agent: string) => Promise<OverlayDetect>;
+  /** Every way to give the agent a chat (its own program, the official ACP registry, the built-in bridge), best first. */
+  overlayResolve?: (agent: string) => Promise<OverlayResolve>;
+  /** Download and set up the registry's adapter. Refused unless `confirmed`; resolves when it is installed, rejects with the reason. */
+  overlayInstall?: (agent: string, option: OverlayInstallOption, confirmed: boolean) => Promise<unknown>;
+  /** Progress lines of a download for `agent`. Returns the stop function. */
+  overlayProgress?: (agent: string, cb: (p: OverlayProgress) => void) => Promise<UnlistenFn>;
   /** Give an agent a chat. Refused (rejects with the reason) unless `confirmed`. Answers with the agent's lane row. */
   overlaySet?: (agent: string, acp: OverlayAcp, confirmed: boolean) => Promise<AcpLaneAgent>;
   /** Take the added chat away again. */
@@ -238,6 +330,17 @@ export const tauriAcpChatApi: AcpChatApi = {
   laneSet: async (agentId, lane) => normalizeLaneView(await call<AcpLaneView>('agent_lane_set', { id: agentId, lane })),
   start: (agentId, folder, explicit) => call<AcpStarted>('acp_chat_start', { agentId, folder, explicit: explicit ?? false }),
   overlayDetect: (agent) => call<OverlayDetect>('acp_overlay_detect', { agent }),
+  overlayResolve: async (agent) => ({ ok: true, options: normalizeOptions(await call<OverlayResolve>('acp_overlay_resolve', { agent })) }),
+  overlayInstall: (agent, option, confirmed) => call<unknown>('acp_overlay_install', { agent, option, confirmed }),
+  overlayProgress: async (agent, cb) => {
+    if (!isTauri()) return noopUnlisten;
+    return listen<{ agent: string; status?: { state?: string; lines?: unknown; detail?: unknown } }>('acp-addon-changed', (e) => {
+      if (String(e.payload?.agent ?? '').toLowerCase() !== agent.toLowerCase()) return;
+      const st = e.payload?.status;
+      const state = st?.state === 'installing' || st?.state === 'installed' || st?.state === 'failed' ? st.state : 'not_installed';
+      cb({ state, lines: Array.isArray(st?.lines) ? st!.lines.filter((l): l is string => typeof l === 'string') : [], detail: typeof st?.detail === 'string' ? st.detail : '' });
+    });
+  },
   overlaySet: (agent, acp, confirmed) => call<AcpLaneAgent>('acp_overlay_set', { agent, acp, confirmed }),
   overlayRemove: async (agent) => {
     await call<unknown>('acp_overlay_remove', { agent });

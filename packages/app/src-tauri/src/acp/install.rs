@@ -88,6 +88,12 @@ pub enum InstallError {
     Unusable(String),
     /// Removal: the folder could not be moved (usually a chat is using it).
     CannotMove(String),
+    /// A registry download failed (network, size, address).
+    Download(String),
+    /// A registry download is not the file the registry's SHA-256 names. Nothing was unpacked.
+    Checksum { found: String, expected: String },
+    /// A registry archive holds something that is refused (a path outside the folder, a link, too much data).
+    Archive(String),
 }
 
 impl std::fmt::Display for InstallError {
@@ -111,6 +117,12 @@ impl std::fmt::Display for InstallError {
             ),
             InstallError::Unusable(why) => write!(f, "The add-on did not install properly: {why}"),
             InstallError::CannotMove(why) => write!(f, "The add-on could not be removed: {why}"),
+            InstallError::Download(why) => write!(f, "The download failed: {why}."),
+            InstallError::Checksum { found, expected } => write!(
+                f,
+                "The download is not the file the registry lists (its fingerprint is {found}, expected {expected}). It was not unpacked and nothing was installed."
+            ),
+            InstallError::Archive(why) => write!(f, "The download was not unpacked: {why}."),
         }
     }
 }
@@ -133,7 +145,7 @@ pub struct Plan {
     pub size_mb: Option<u32>,
 }
 
-fn valid_package_name(name: &str) -> bool {
+pub(crate) fn valid_package_name(name: &str) -> bool {
     let part_ok = |p: &str| !p.is_empty() && !p.starts_with(['.', '_']) && p.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.' | b'_' | b'~'));
     match name.strip_prefix('@') {
         Some(rest) => rest.split_once('/').is_some_and(|(scope, pkg)| part_ok(scope) && part_ok(pkg)),
@@ -141,7 +153,7 @@ fn valid_package_name(name: &str) -> bool {
     }
 }
 
-fn valid_version(version: &str) -> bool {
+pub(crate) fn valid_version(version: &str) -> bool {
     let core = version.split(['-', '+']).next().unwrap_or("");
     let parts: Vec<&str> = core.split('.').collect();
     parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) && version.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'+'))
@@ -360,12 +372,17 @@ pub fn removed_root(host: &dyn HostEnv) -> PathBuf {
 
 /// Moves the add-on's folder into `.removed`. Returns where it went, or `None` when there was nothing to move.
 pub fn move_away(plan: &Plan, host: &dyn HostEnv) -> Result<Option<PathBuf>, InstallError> {
-    if !plan.dir.exists() {
+    move_dir_away(&plan.dir, host)
+}
+
+/// [`move_away`] for any folder under the adapters folder.
+pub fn move_dir_away(dir: &Path, host: &dyn HostEnv) -> Result<Option<PathBuf>, InstallError> {
+    if !dir.exists() {
         return Ok(None);
     }
     let root = removed_root(host);
     std::fs::create_dir_all(&root).map_err(|e| InstallError::CannotMove(format!("{}: {e}", root.display())))?;
-    let name = plan.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "addon".into());
+    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "addon".into());
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
     let mut to = root.join(format!("{name}-{stamp}"));
     let mut n = 1;
@@ -373,7 +390,7 @@ pub fn move_away(plan: &Plan, host: &dyn HostEnv) -> Result<Option<PathBuf>, Ins
         to = root.join(format!("{name}-{stamp}-{n}"));
         n += 1;
     }
-    std::fs::rename(&plan.dir, &to).map_err(|e| InstallError::CannotMove(format!("{e}. If a chat with this agent is open, close it first")))?;
+    std::fs::rename(dir, &to).map_err(|e| InstallError::CannotMove(format!("{e}. If a chat with this agent is open, close it first")))?;
     Ok(Some(to))
 }
 
@@ -497,6 +514,28 @@ impl Addons {
             changed();
         };
         run_install(&plan, host, runner, &mut on_line)
+    }
+
+    /// Runs `job` as the install of `agent_id` (`begin` must have been called): its progress lines are kept for the
+    /// screen, `changed` is called after each line and at the end. Used by the registry install, which has no
+    /// definition table to plan from.
+    pub fn run_job(&self, agent_id: &str, changed: &dyn Fn(), job: &mut dyn FnMut(&mut dyn FnMut(&str)) -> Result<String, InstallError>) -> Result<String, InstallError> {
+        let mut on_line = |line: &str| {
+            self.push_line(agent_id, line);
+            changed();
+        };
+        let result = job(&mut on_line);
+        self.finish(agent_id, &result);
+        changed();
+        result
+    }
+
+    /// What `agent_id` is doing now: `Installing` with the newest lines, `Failed` with the reason, else `None`.
+    pub fn live_state(&self, agent_id: &str) -> Option<(AddonState, Vec<String>, String)> {
+        match self.live.lock().get(agent_id)? {
+            Live::Installing { lines } => Some((AddonState::Installing, lines.clone(), String::new())),
+            Live::Failed { reason } => Some((AddonState::Failed, Vec::new(), reason.clone())),
+        }
     }
 
     /// Moves the add-on away. `Ok(None)`: nothing was installed.

@@ -463,7 +463,7 @@ impl Descriptor {
 /// A dispatchable CLI profile that implements `headless_command`. Probing builds the command line
 /// only (no process starts); a missing binary still counts as headless-capable, since `installed`
 /// reports that separately. Only the trait's default "unsupported" error means no headless mode.
-fn supports_headless(profile: &dyn TuiProfile) -> bool {
+pub(crate) fn supports_headless(profile: &dyn TuiProfile) -> bool {
     let features = profile.features();
     if !features.dispatchable || features.kind != Kind::Cli {
         return false;

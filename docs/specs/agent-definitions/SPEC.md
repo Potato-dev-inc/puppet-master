@@ -671,6 +671,19 @@ catalog definition, or one the person keeps as is). The setup is kept beside it 
   `acp_overlay_remove` (Labs switch on). `acp_overlay_set` takes the exact command line and refuses unless
   `confirmed: true` (the person's click). No bridge route, no MCP tool: a phone or an agent cannot add a program the app starts.
 - Removing it leaves the agent's chat conversations as records; they show the "agent not available" notice.
+- Entries carry a `source`: `command` (the shape above; a file without `source` loads as `command`), `registry` (the app
+  installed an adapter or ACP-speaking build listed in the official ACP registry: `{registry_id, version, kind:
+  "npx"|"binary", package?, archive?, installed_entry (relative to the adapters folder), entry_sha256, args, env_allow,
+  resume_command?}`) and `bridge` (reserved for the built-in bridge; it parses and reports "not ready yet"). A `registry`
+  entry's spawn spec is built by the app, not typed by the person: `npx` runs `node` on the installed script, `binary` runs
+  the unpacked program, so VAL-4 (no interpreter as `command`) applies to `command` entries only; VAL-5 and the secret check
+  still apply. The file's SHA-256 is recorded on install (trust on first use) and checked by `acp::pin` before every start.
+- Resolution order for "Add chat" (`acp_overlay_resolve`, all with one confirm click): (1) native, the installed program's
+  help shows an ACP command; (2) registry, the official ACP registry (`acp::registry`, live file, 24 h cache, snapshot
+  compiled in) has a match by program name or normalised id; `npx` with an exact `package@version` is preferred, else
+  `binary` for this platform with a SHA-256 (no checksum: refused; `uvx` and `.tar.bz2`: not supported yet); (3) bridge.
+  `acp_overlay_install` (Tauri only, `confirmed: true`) installs with `--ignore-scripts`, or downloads over https, checks the
+  SHA-256 before unpacking and refuses paths outside the folder and links.
 
 ### 7.2 Complete example 1: Kilo Code (the proof agent)
 

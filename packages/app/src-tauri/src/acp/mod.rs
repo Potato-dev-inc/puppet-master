@@ -59,6 +59,7 @@
 // The chat (A2) is `chat/`; the callers that resume sessions, switch to the terminal and show config chips land in A3 to A5.
 #![allow(dead_code)]
 
+pub mod bridge;
 pub mod chat;
 pub mod config;
 pub mod conn;
@@ -67,11 +68,14 @@ pub mod error;
 pub mod handover;
 pub mod handshake;
 pub mod install;
+pub mod install_archive;
+pub mod install_registry;
 pub mod job;
 pub mod lane;
 pub mod overlay;
 pub mod pin;
 pub mod record;
+pub mod registry;
 pub mod ring;
 pub mod session;
 pub mod state;
