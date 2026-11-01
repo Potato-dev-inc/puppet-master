@@ -4,7 +4,7 @@
 // `voice` adds the mic (phone only): speech turned into text on the device, see hooks/useVoiceInput.ts.
 // `draftKey` (the pane) keeps the unsent text across pane switches and reloads, see lib/composerDraft.ts.
 // `draft` is a message from the Point and Fix box ("Edit in Chat"): it goes into the box once, see useComposerDraft.
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { MAX_MESSAGE_CHARS } from '../../lib/paneOutbox';
 import { clearDraft, DRAFT_SAVE_MS, readDraft, writeDraft, type ComposerDraft } from '../../lib/composerDraft';
 import { insertAtCursor } from '../../lib/voice';
@@ -32,6 +32,8 @@ export interface ChatComposerProps {
   draft?: ComposerDraft | null;
   /** The slash commands the agent offers (a chat session over ACP). With some, typing "/" opens a menu above the box. */
   slashCommands?: readonly AcpCommand[];
+  /** Controls drawn inside the box under the text (the agent's settings), left of the send button. */
+  toolbar?: ReactNode;
 }
 
 function MicIcon() {
@@ -49,7 +51,7 @@ export function ChatComposer(props: ChatComposerProps) {
   return <ChatComposerBox key={props.draftKey ?? ''} {...props} />;
 }
 
-function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft: pointDraft, slashCommands }: ChatComposerProps) {
+function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft: pointDraft, slashCommands, toolbar }: ChatComposerProps) {
   const [text, setText] = useState(() => (draftKey ? readDraft(draftKey) : ''));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -319,8 +321,13 @@ function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft
             {mic.recording && <span className="ck-chat-mic-dot" aria-hidden="true" data-testid="chat-composer-mic-dot" />}
           </button>
         )}
+        {toolbar && <div className="ck-chat-composer-toolbar">{toolbar}</div>}
         <button type="submit" className="ck-btn ck-btn--primary ck-chat-send" disabled={blocked || busy || empty || tooLong}>
-          Send
+          <svg className="ck-chat-send-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 19V5" />
+            <path d="m5 12 7-7 7 7" />
+          </svg>
+          <span className="ck-chat-send-label">Send</span>
         </button>
       </div>
       {voice && mic.note && (

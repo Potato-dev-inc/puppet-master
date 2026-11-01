@@ -249,6 +249,20 @@ fn a_disabled_agent_cannot_start_a_conversation() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn an_old_session_imported_becomes_a_conversation_on_that_session() {
+    let rig = Rig::new("");
+    let view = rig.conversations.import("fake", &rig.dir, "old-session-1").unwrap();
+    assert_eq!(view.session_id.as_deref(), Some("old-session-1"));
+    assert!(rig.conversations.session(&view.id).is_some());
+    // One writer: the chat now holds the session, so a second way in is refused by the writer lookup.
+    assert!(rig.conversations.writer_of_session("fake", "old-session-1").is_some());
+    // It survives a restart as a conversation on the same session.
+    let again = rig.restarted();
+    assert_eq!(again.record(&view.id).unwrap().session_id.as_deref(), Some("old-session-1"));
+    assert!(matches!(rig.conversations.import("other", &rig.dir, "x"), Err(ConversationError::NoDefinition(_))));
+}
+
 // ---- hand-over ------------------------------------------------------------------------------------------
 
 #[test]

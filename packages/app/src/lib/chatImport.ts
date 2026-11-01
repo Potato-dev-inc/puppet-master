@@ -90,6 +90,8 @@ export interface ImportApi {
   clear: () => Promise<ImportStatus>;
   open: (agent: string, session: string) => Promise<OpenedImportedChat>;
   resumePlan: (agent: string, session: string) => Promise<ResumePlan>;
+  /** Continue the old chat as a chat session (ACP, Labs): resolves to the new chat pane's id. */
+  continueAsChat?: (agent: string, session: string) => Promise<string>;
 }
 
 export const CHAT_IMPORT_PROGRESS_EVENT = 'chat-import-progress';
@@ -165,6 +167,12 @@ export async function chatImportResumePlan(agent: string, session: string): Prom
   return invoke<ResumePlan>('chat_import_resume_plan', { agent, session });
 }
 
+/** Continues an old chat as a chat session (ACP) and returns the chat pane's id. */
+export async function chatImportContinueAsChat(agent: string, session: string): Promise<string> {
+  if (!isTauri()) throw new Error('Continuing a chat works in the desktop app only.');
+  return invoke<string>('chat_import_continue_as_chat', { agent, session });
+}
+
 /** The real wrappers, in the shape the panels take (see `ImportApi`). */
 export const chatImportApi: ImportApi = {
   state: chatImportState,
@@ -175,6 +183,7 @@ export const chatImportApi: ImportApi = {
   clear: chatImportClear,
   open: chatImportOpen,
   resumePlan: chatImportResumePlan,
+  continueAsChat: chatImportContinueAsChat,
 };
 
 /** Listens for `chat-import-progress` (sent at most 4 times a second). Returns the stop function. */
