@@ -8,6 +8,7 @@ import { agentsRows } from './sections/AgentsSection';
 import { bridgeRows } from './sections/BridgeSection';
 import { generalRows } from './sections/GeneralSection';
 import { keysRows } from './sections/KeysSection';
+import { modelBridgeRows } from './sections/ModelBridgeSection';
 import { modelsRows } from './sections/ModelsSection';
 import { phoneRows } from './sections/PhoneSection';
 import { potatoRows } from './sections/PotatoSection';
@@ -15,7 +16,7 @@ import { potatoRows } from './sections/PotatoSection';
 export const BASE_SECTIONS: SectionDef[] = [
   { id: 'general', title: 'General', blurb: 'Project, appearance, safety, early features and updates.', rows: generalRows },
   { id: 'agents', title: 'Agents', blurb: 'Logins, keeping agents ready, versions and your own agents.', rows: agentsRows },
-  { id: 'models', title: 'Orchestrator & Models', blurb: 'Choose the AI that coordinates your other agents, and which models it can use.', rows: modelsRows },
+  { id: 'models', title: 'Orchestrator & Models', blurb: 'Choose the AI that coordinates your other agents, and which models it can use.', rows: [...modelsRows, ...modelBridgeRows] },
   { id: 'keys', title: 'Keys', blurb: 'API keys. They are kept in your system keychain when there is one.', rows: keysRows },
   { id: 'bridge', title: 'Bridge & MCP', blurb: 'How other tools and agents connect to Puppet Master.', rows: bridgeRows },
   { id: 'phone', title: 'Phone', blurb: 'Pair a phone to watch and steer your agents.', rows: phoneRows },

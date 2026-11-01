@@ -17,6 +17,7 @@ pub const DEV_LABS_KEYS: &[&str] = &[
     "potato_sandbox_enabled",
     "acp_chat_enabled",
     "desk_enabled",
+    "model_bridge_enabled",
 ];
 
 /// Tests turn the override on through this; it is off in every test unless a test sets it.
@@ -84,6 +85,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "potato_sandbox_enabled",
     "acp_chat_enabled",
     "desk_enabled",
+    "model_bridge_enabled",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -124,6 +126,8 @@ pub fn default_public_settings() -> Value {
         "acp_chat_enabled": false,
         // My computers (Labs): share one mouse and keyboard between computers. Off until chosen.
         "desk_enabled": false,
+        // Model Bridge (Labs): plug a model service into an app such as Codex. Off until chosen. Rust: model_bridge.
+        "model_bridge_enabled": false,
     })
 }
 
@@ -171,6 +175,7 @@ fn apply_public_settings(effective: &Value) {
     crate::acp::apply_settings(effective);
     crate::desk::apply_settings(effective);
     crate::pairing_commands::apply_settings(effective);
+    crate::model_bridge::apply_settings(effective);
 }
 
 /// Merge `patch` into the public mirror (bridge state + mobile SSE) without any window event.
@@ -321,5 +326,13 @@ mod tests {
         assert_eq!(default_public_settings()["desk_enabled"], json!(false));
         let on = with_dev_labs(&default_public_settings(), true);
         assert_eq!(on["desk_enabled"], json!(true));
+    }
+
+    #[test]
+    fn model_bridge_labs_switch_is_off_by_default_patchable_and_on_in_dev_builds() {
+        assert!(DEV_LABS_KEYS.contains(&"model_bridge_enabled"));
+        assert!(PATCHABLE_KEYS.contains(&"model_bridge_enabled"));
+        assert_eq!(default_public_settings()["model_bridge_enabled"], json!(false));
+        assert_eq!(with_dev_labs(&default_public_settings(), true)["model_bridge_enabled"], json!(true));
     }
 }

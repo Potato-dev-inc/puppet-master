@@ -126,6 +126,8 @@ export const SettingsSchema = z.object({
   acp_chat_enabled: z.boolean().optional(),
   /** My computers (Settings › General › Labs): share one mouse and keyboard between your computers. Off unless chosen. Rust: settings_store (desk). */
   desk_enabled: z.boolean().optional(),
+  /** Model Bridge (Settings › General › Labs): connect a model service with a key and add it to Codex. Off unless chosen. Rust: model_bridge. */
+  model_bridge_enabled: z.boolean().optional(),
   /** Simple mode: the cockpit with fewer buttons and plain words, for people who do not write code. Off unless chosen. */
   simple_mode: z.boolean().optional(),
   /** How the New agent page greets you ("What's up next, <name>?"). Empty or absent: no name. Never derived from the computer. */
