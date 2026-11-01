@@ -163,6 +163,8 @@ export function PotatoPage(props: PotatoPageProps) {
       onNotify={onNotify}
       defaultBrain={state.settings.brain}
       botSettings={botSettings}
+      settings={state.settings}
+      transport={transport}
       onChanged={onChanged}
     />
   ) : null;

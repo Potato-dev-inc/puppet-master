@@ -51,7 +51,8 @@ export function usePotatoSettings(transport: PotatoTransport) {
   }, [transport]);
   const save = useCallback(
     async (change: Partial<PotatoSettings>) => {
-      const base = store.value ?? (await transport.settingsGet());
+      // Read again each time: the Voice rows save the same settings file, so a cached copy may be stale.
+      const base = await transport.settingsGet();
       const saved = await transport.settingsSet({ ...base, ...change });
       store.value = saved;
       store.failed = null;

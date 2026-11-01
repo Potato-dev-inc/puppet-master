@@ -11,6 +11,7 @@ import { NumberControl } from '../controls';
 import type { RowDef } from '../model';
 import { Btn, FieldSelect, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
 import { makeSandboxRows } from '../sandbox/SandboxRows';
+import { makePotatoVoiceRows } from './PotatoVoiceRows';
 import { makePotatoSubPageRows } from '../potato/PotatoSubPages';
 import { usePotatoSettings } from '../potato/usePotatoSettings';
 
@@ -162,4 +163,4 @@ export function makePotatoRows(transport: PotatoTransport = tauriPotatoTransport
 }
 
 /** Potato Bot's rows, then the sandbox's (its switch is in General > Labs; its other rows show only while that is on). */
-export const potatoRows: RowDef[] = [...makePotatoRows(), ...makeSandboxRows()];
+export const potatoRows: RowDef[] = [...makePotatoRows(), ...makePotatoVoiceRows(), ...makeSandboxRows()];

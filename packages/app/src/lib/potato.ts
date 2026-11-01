@@ -62,6 +62,18 @@ export interface PotatoSettings {
   sandboxActionsPerDay?: number;
   /** The brains to try, in order, when the talk brain is out of balance or not answering. Never `agents`; empty: none. */
   fallbacks?: BrainKind[];
+  /** Read replies aloud: the system voice, its speed, and the bots that read their replies. Missing: the defaults. */
+  voice?: PotatoVoice;
+}
+
+/** Potato Bot's voice settings (`potato/voice.rs`). The webview speaks with the system voices; no key, nothing leaves the PC. */
+export interface PotatoVoice {
+  /** The chosen voice's URI. Empty: the system default voice. */
+  voiceUri: string;
+  /** Speed in percent of normal, 50 to 200. */
+  ratePercent: number;
+  /** The bots whose new replies are read aloud while the page is visible. */
+  readAloudBots: string[];
 }
 
 export interface PotatoState {

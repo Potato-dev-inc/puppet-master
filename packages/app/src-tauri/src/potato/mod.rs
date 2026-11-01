@@ -66,11 +66,13 @@ pub mod sandbox_host;
 pub mod service;
 pub mod sidecar;
 pub mod store;
+pub mod voice;
 pub mod window_guard;
 
 #[cfg(test)]
 mod attachments_tests;
 mod artifacts_tests;
+mod voice_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]

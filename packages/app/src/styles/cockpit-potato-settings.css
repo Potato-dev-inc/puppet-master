@@ -8,10 +8,10 @@
   padding-bottom: 8px;
   font-size: 13px;
 }
-.cockpit .ck-potato-section {
+.cockpit .ck-potato-psec {
   min-width: 0;
 }
-.cockpit .ck-potato-section-head {
+.cockpit .ck-potato-psec-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -19,29 +19,29 @@
   margin: 0 0 6px;
   min-height: 28px;
 }
-.cockpit .ck-potato-section-title {
+.cockpit .ck-potato-psec-title {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--label);
 }
-.cockpit .ck-potato-section-card {
+.cockpit .ck-potato-psec-card {
   border: 1px solid var(--sep);
   border-radius: 12px;
   background: var(--bg-raised);
   box-shadow: var(--raise-hi);
   padding: 8px 12px;
 }
-.cockpit .ck-potato-section-hint {
+.cockpit .ck-potato-psec-hint {
   margin: 0;
   padding: 4px 0;
   line-height: 1.5;
 }
-.cockpit .ck-potato-section-note {
+.cockpit .ck-potato-psec-note {
   margin: 8px 0 0;
   line-height: 1.5;
 }
-.cockpit .ck-potato-section-error {
+.cockpit .ck-potato-psec-error {
   margin: 8px 0 0;
   color: var(--label);
   font-weight: 500;

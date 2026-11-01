@@ -118,7 +118,7 @@ describe('the three regions', () => {
     expect(visiblePanel()).toBe('Advanced');
     const advanced = host.querySelector('[role="tabpanel"][aria-label="Advanced"]')!;
     expect(advanced.textContent).toContain('Model');
-    expect([...advanced.querySelectorAll('.ck-potato-section-title')].map((t) => t.textContent)).toEqual(['Notifications', 'Open work', 'Memory']);
+    expect([...advanced.querySelectorAll('.ck-potato-psec-title')].map((t) => t.textContent)).toEqual(['Notifications', 'Open work', 'Memory']);
   });
 
   it("remembers each bot's tab while the page is open", async () => {

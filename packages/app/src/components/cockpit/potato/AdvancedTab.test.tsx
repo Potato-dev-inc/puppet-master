@@ -75,7 +75,7 @@ async function pick(select: HTMLSelectElement, value: string) {
   await flush();
 }
 
-const titles = () => [...host.querySelectorAll('.ck-potato-adv-title, .ck-potato-section-title')].map((h) => h.textContent);
+const titles = () => [...host.querySelectorAll('.ck-potato-adv-title, .ck-potato-psec-title')].map((h) => h.textContent);
 const textarea = () => host.querySelector<HTMLTextAreaElement>('textarea')!;
 const switchNamed = (label: string) => {
   const row = [...host.querySelectorAll('.ck-potato-adv-switch-row')].find((r) => r.querySelector('.ck-potato-adv-switch-label')?.textContent === label);

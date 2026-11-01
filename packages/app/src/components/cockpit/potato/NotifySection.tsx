@@ -52,7 +52,7 @@ export function NotifySection({ botId, transport = tauriNotifyTransport }: Notif
 
   return (
     <PanelSection id="ck-potato-notify" title={NOTIFY_COPY.title}>
-      <p className="ck-sub ck-potato-section-hint">{NOTIFY_COPY.hint}</p>
+      <p className="ck-sub ck-potato-psec-hint">{NOTIFY_COPY.hint}</p>
       <fieldset className="ck-potato-radios" disabled={choice === null || busy}>
         <legend className="ck-potato-sr">{NOTIFY_COPY.title}</legend>
         {NOTIFY_CHOICES.map((option) => (
@@ -68,9 +68,9 @@ export function NotifySection({ botId, transport = tauriNotifyTransport }: Notif
           </label>
         ))}
       </fieldset>
-      {choice === 'needs_you' && <p className="ck-sub ck-potato-section-note">{NOTIFY_COPY.needsYouLater}</p>}
+      {choice === 'needs_you' && <p className="ck-sub ck-potato-psec-note">{NOTIFY_COPY.needsYouLater}</p>}
       {error && (
-        <p className="ck-sub ck-potato-section-error" role="alert">
+        <p className="ck-sub ck-potato-psec-error" role="alert">
           {error}
         </p>
       )}

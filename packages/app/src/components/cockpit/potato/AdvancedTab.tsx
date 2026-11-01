@@ -1,8 +1,8 @@
-// The Advanced tab of the bot panel (per-bot settings, spec Rakazo 1.9): Name, Model, Instructions, Tools, then the bot's
-// own actions (Export chat, Delete). Every section is a labelled card. The tab stays mounted while the panel is open, so
+// The Advanced tab of the bot panel (per-bot settings, spec Rakazo 1.9): Read replies aloud, Name, Model, Instructions,
+// Tools, Notifications, Open work, Memory, then the bot's own actions (Export chat, Delete). Every section is a labelled card. The tab stays mounted while the panel is open, so
 // a draft survives a tab switch. Its state is read once from the engine and replaced by each save's answer.
 import { useCallback, useEffect, useState } from 'react';
-import type { BrainKind } from '../../../lib/potato';
+import type { BrainKind, PotatoSettings, PotatoTransport } from '../../../lib/potato';
 import { plainError } from '../../../lib/potato';
 import { ADVANCED_COPY, tauriBotSettingsTransport, type BotOptions, type BotSettingsTransport, type ToolSwitches } from '../../../lib/potato-botsettings';
 import { AdvancedBot } from './AdvancedBot';
@@ -13,6 +13,7 @@ import { AdvancedTools } from './AdvancedTools';
 import { MemoryList } from './MemoryList';
 import { NotifySection } from './NotifySection';
 import { OpenWork } from './OpenWork';
+import { ReadAloudSection } from './ReadAloudSection';
 import '../../../styles/cockpit-potato-advanced.css';
 import '../../../styles/cockpit-potato-settings.css';
 
@@ -25,9 +26,12 @@ export interface AdvancedTabProps {
   /** After a change that the page should read again (a rename, a delete). */
   onChanged?: () => void;
   onNotify?: (text: string) => void;
+  /** The page's Potato Bot settings and the transport that saves them: the Read replies aloud switch (`voice.readAloudBots`). */
+  settings?: PotatoSettings;
+  potatoTransport?: PotatoTransport;
 }
 
-export function AdvancedTab({ bot, defaultBrain = 'deepseek', transport = tauriBotSettingsTransport, onChanged, onNotify }: AdvancedTabProps) {
+export function AdvancedTab({ bot, defaultBrain = 'deepseek', transport = tauriBotSettingsTransport, onChanged, onNotify, settings, potatoTransport }: AdvancedTabProps) {
   const [options, setOptions] = useState<BotOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,6 +85,7 @@ export function AdvancedTab({ bot, defaultBrain = 'deepseek', transport = tauriB
           {error}
         </p>
       )}
+      <ReadAloudSection bot={bot} settings={settings} transport={potatoTransport} onChanged={onChanged} />
       <AdvancedName name={bot.name} onSave={rename} />
       <AdvancedModel brain={options.brain} defaultBrain={defaultBrain} onChange={(brain) => void apply(() => transport.setBrain(bot.id, brain))} />
       <AdvancedInstructions

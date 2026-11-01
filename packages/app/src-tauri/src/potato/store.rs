@@ -210,6 +210,8 @@ pub struct Settings {
     pub sandbox_actions_per_day: u32,
     /// The brains to try, in order, when the talk brain is out of balance or down (`fallback.rs`). Empty: none.
     pub fallbacks: Vec<BrainKind>,
+    /// The system voice, its speed, and the bots that read their replies aloud (see `voice.rs`).
+    pub voice: super::voice::VoiceSettings,
 }
 
 impl Default for Settings {
@@ -221,6 +223,7 @@ impl Default for Settings {
             daily_limit_cents: super::cost::DEFAULT_LIMIT_CENTS,
             sandbox_actions_per_day: super::cost::DEFAULT_SANDBOX_ACTIONS,
             fallbacks: Vec::new(),
+            voice: super::voice::VoiceSettings::default(),
         }
     }
 }
@@ -235,6 +238,7 @@ pub fn load_settings(root: &Path) -> StoreResult<Settings> {
     settings.daily_limit_cents = super::cost::clamp_limit_cents(settings.daily_limit_cents);
     settings.sandbox_actions_per_day = super::cost::clamp_sandbox_actions(settings.sandbox_actions_per_day);
     settings.fallbacks = super::fallback::clean(settings.brain, &settings.fallbacks);
+    settings.voice = settings.voice.cleaned();
     if !valid_pack(&settings.default_persona) {
         settings.default_persona = "fish".into();
     }
@@ -247,6 +251,7 @@ pub fn save_settings(root: &Path, settings: &Settings) -> StoreResult<()> {
     settings.daily_limit_cents = super::cost::clamp_limit_cents(settings.daily_limit_cents);
     settings.sandbox_actions_per_day = super::cost::clamp_sandbox_actions(settings.sandbox_actions_per_day);
     settings.fallbacks = super::fallback::clean(settings.brain, &settings.fallbacks);
+    settings.voice = settings.voice.cleaned();
     if !valid_pack(&settings.default_persona) {
         return Err(StoreError::new("POTATO_PERSONA_INVALID", "Pick Fish or Potato."));
     }

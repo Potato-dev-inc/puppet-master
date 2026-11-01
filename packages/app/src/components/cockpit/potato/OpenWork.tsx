@@ -133,8 +133,8 @@ export function OpenWork({ botId, transport = tauriOpenWorkTransport }: OpenWork
           </button>
         </form>
       )}
-      {view === null && !error && <p className="ck-sub ck-potato-section-hint">Loading…</p>}
-      {view !== null && items.length === 0 && helpers.length === 0 && <p className="ck-sub ck-potato-section-hint">{OPEN_WORK_COPY.empty}</p>}
+      {view === null && !error && <p className="ck-sub ck-potato-psec-hint">Loading…</p>}
+      {view !== null && items.length === 0 && helpers.length === 0 && <p className="ck-sub ck-potato-psec-hint">{OPEN_WORK_COPY.empty}</p>}
       {shown.length > 0 && (
         <ul className="ck-potato-todo">
           {shown.map((item) => (
@@ -174,7 +174,7 @@ export function OpenWork({ botId, transport = tauriOpenWorkTransport }: OpenWork
         </p>
       ))}
       {error && (
-        <p className="ck-sub ck-potato-section-error" role="alert">
+        <p className="ck-sub ck-potato-psec-error" role="alert">
           {error}
         </p>
       )}

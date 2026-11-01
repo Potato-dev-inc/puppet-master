@@ -13,6 +13,7 @@ import { ComputerBanner, bannerDue } from './ComputerBanner';
 import { FirstMessage } from './FirstMessage';
 import { ThreadHeader } from './ThreadHeader';
 import { Transcript } from './Transcript';
+import { useReadAloud } from './useReadAloud';
 import { useScreenState } from './useScreenState';
 import '../../../styles/cockpit-potato-thread.css';
 
@@ -77,6 +78,7 @@ export function ThreadView(props: ThreadViewProps) {
   const showFirst = newBot && !firstDone;
   // "Use the computer" is offered only while the sandbox Labs switch is on.
   const computerOn = screenState?.enabled === true;
+  useReadAloud(bot.id, messages, settings.voice);
 
   const run = async (call: () => Promise<unknown>, failed: string) => {
     try {
@@ -146,6 +148,7 @@ export function ThreadView(props: ThreadViewProps) {
         followToken={follow}
         hideEmpty={showFirst}
         now={now}
+        voice={settings.voice}
       />
 
       <BrainStateCard

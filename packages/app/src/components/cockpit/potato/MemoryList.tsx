@@ -98,8 +98,8 @@ export function MemoryList({ botId, transport = tauriMemoryTransport }: MemoryLi
 
   return (
     <PanelSection id="ck-potato-memory" title={MEMORY_COPY.title}>
-      {notes === null && !error && <p className="ck-sub ck-potato-section-hint">{MEMORY_COPY.loading}</p>}
-      {notes !== null && all.length === 0 && <p className="ck-sub ck-potato-section-hint">{MEMORY_COPY.empty}</p>}
+      {notes === null && !error && <p className="ck-sub ck-potato-psec-hint">{MEMORY_COPY.loading}</p>}
+      {notes !== null && all.length === 0 && <p className="ck-sub ck-potato-psec-hint">{MEMORY_COPY.empty}</p>}
       {shown.length > 0 && (
         <ul className="ck-potato-notes">
           {shown.map((note) => {
@@ -153,7 +153,7 @@ export function MemoryList({ botId, transport = tauriMemoryTransport }: MemoryLi
         </button>
       )}
       {error && (
-        <p className="ck-sub ck-potato-section-error" role="alert">
+        <p className="ck-sub ck-potato-psec-error" role="alert">
           {error}
         </p>
       )}

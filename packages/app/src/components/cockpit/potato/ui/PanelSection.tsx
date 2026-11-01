@@ -13,14 +13,14 @@ export interface PanelSectionProps {
 
 export function PanelSection({ id, title, action, children }: PanelSectionProps) {
   return (
-    <section className="ck-potato-section" aria-labelledby={`${id}-title`}>
-      <header className="ck-potato-section-head">
-        <h3 className="ck-potato-section-title" id={`${id}-title`}>
+    <section className="ck-potato-psec" aria-labelledby={`${id}-title`}>
+      <header className="ck-potato-psec-head">
+        <h3 className="ck-potato-psec-title" id={`${id}-title`}>
           {title}
         </h3>
         {action}
       </header>
-      <div className="ck-potato-section-card">{children}</div>
+      <div className="ck-potato-psec-card">{children}</div>
     </section>
   );
 }

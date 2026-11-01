@@ -1,10 +1,10 @@
 // The right bot panel (spec: Rakazo's side panel): who the bot is, a close button, and three tabs. Computer holds the
-// bot's sandbox screen; Routines and Advanced are placeholders until their phases. Every tab stays mounted while the
+// bot's sandbox screen; Routines lists its scheduled prompts. Every tab stays mounted while the
 // panel is open, so the screen does not reload and a draft in Advanced survives a tab switch.
 import type { AvatarId } from '../../../lib/companion';
+import type { BrainKind, PotatoSettings, PotatoTransport } from '../../../lib/potato';
 import { PANEL_COPY, PANEL_TABS, type PanelTab } from '../../../lib/potato-panel';
 import type { SandboxTransport } from '../../../lib/potato-sandbox';
-import type { BrainKind } from '../../../lib/potato';
 import type { BotSettingsTransport } from '../../../lib/potato-botsettings';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { Avatar } from '../../companion/Avatar';
@@ -35,9 +35,12 @@ export interface BotPanelProps {
   onChanged?: () => void;
   /** Tests pass a fake; the app passes nothing. */
   botSettings?: BotSettingsTransport;
+  /** The Read replies aloud switch: the page's settings and the transport that saves them. */
+  settings?: PotatoSettings;
+  transport?: PotatoTransport;
 }
 
-export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, sandbox, onOpenSettings, through, onNotify, defaultBrain, onChanged, botSettings }: BotPanelProps) {
+export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, sandbox, onOpenSettings, through, onNotify, defaultBrain, onChanged, botSettings, settings, transport }: BotPanelProps) {
   return (
     <div className="ck-potato-botpanel">
       <header className="ck-potato-panel-head">
@@ -58,7 +61,7 @@ export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, sandbox, on
           <RoutinesTab bot={bot} />
         </div>
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Advanced" hidden={tab !== 'advanced'}>
-          <AdvancedTab bot={bot} defaultBrain={defaultBrain} transport={botSettings} onChanged={onChanged} onNotify={onNotify} />
+          <AdvancedTab bot={bot} defaultBrain={defaultBrain} transport={botSettings} onChanged={onChanged} onNotify={onNotify} settings={settings} potatoTransport={transport} />
         </div>
       </div>
     </div>
