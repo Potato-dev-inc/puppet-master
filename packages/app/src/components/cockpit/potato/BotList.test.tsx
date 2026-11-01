@@ -223,7 +223,7 @@ describe('BotList sections', () => {
     expect(names()).toEqual(['Ann', 'Bo']);
   });
 
-  it('shows a status line: Working, Needs you, Error and Paused', () => {
+  it('shows a second line: Thinking, Waiting for you, Paused; and an error pill', () => {
     const bots = [
       bot({ id: 'w', name: 'Work', typing: true }),
       bot({ id: 'n', name: 'Need', openCards: 1 }),
@@ -231,10 +231,10 @@ describe('BotList sections', () => {
       bot({ id: 'p', name: 'Pause', brainState: 'stopped' }),
     ];
     act(() => root.render(<BotList {...props({ bots })} />));
-    expect(rowOf('Work')?.querySelector('.ck-potato-status')?.textContent).toBe('Working');
-    expect(rowOf('Need')?.querySelector('.ck-potato-pill--strong')?.textContent).toBe('Needs you');
+    expect(rowOf('Work')?.querySelector('.ck-potato-status')?.textContent).toBe('Thinking…');
+    expect(rowOf('Need')?.querySelector('.ck-potato-status')?.textContent).toBe('Waiting for you');
     expect(rowOf('Err')?.querySelector('.ck-potato-pill--quiet')?.textContent).toBe('Error');
-    expect(rowOf('Pause')?.querySelector('.ck-potato-pill--dim')?.textContent).toBe('Paused');
+    expect(rowOf('Pause')?.querySelector('.ck-potato-status')?.textContent).toBe('Paused');
   });
 });
 

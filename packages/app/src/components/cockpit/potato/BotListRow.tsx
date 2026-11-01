@@ -1,9 +1,11 @@
 // One row of the bot list: face, name, App tag, time, the last message, a status line (a pill, or the working dots),
 // the mood word and an unread dot. Its "..." button and its right-click open the row menu (only when the page gave the
 // list actions). In the strip only the face is left, with a dot for a bot that needs you (or a "!" for an error).
+import { useEffect, useState } from 'react';
 import type { AvatarId } from '../../../lib/companion';
 import { moodWord, type PotatoBotView } from '../../../lib/potato';
 import { listStatus, listTime, LIST_COPY, needsYou, type ListStatus } from '../../../lib/potato-list';
+import { listNextLine, tauriRoutinesTransport, type ListNextLine, type RoutineView, type RoutinesTransport } from '../../../lib/potato-routines';
 import { previewLine } from '../../../lib/potato-thread';
 import { Avatar } from '../../companion/Avatar';
 import { DotSpinner } from '../DotSpinner';
@@ -22,11 +24,27 @@ export interface BotListRowProps {
   onOpen: () => void;
   /** Opens the row menu at a point on the screen. */
   onMenu: (x: number, y: number) => void;
+  /** Where the bot's routines come from (the desktop app by default). */
+  routines?: RoutinesTransport;
 }
 
-export function BotListRow({ bot, avatar, active, mini, now, menu, menuOpen, onOpen, onMenu }: BotListRowProps) {
+export function BotListRow({ bot, avatar, active, mini, now, menu, menuOpen, onOpen, onMenu, routines = tauriRoutinesTransport }: BotListRowProps) {
   const status = listStatus(bot);
   const statusWord = status ? LIST_COPY.status[status] : null;
+  const [botRoutines, setBotRoutines] = useState<RoutineView[]>([]);
+  // The strip shows no second line, so only the full row asks for the routines. A new run (lastAt) asks again.
+  useEffect(() => {
+    if (mini) return;
+    let live = true;
+    routines.list(bot.id).then(
+      (rows) => live && setBotRoutines(rows),
+      () => live && setBotRoutines([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [routines, bot.id, bot.lastAt, mini]);
+  const nextLine = mini ? null : listNextLine(status, botRoutines, now);
   const classes = ['ck-row', 'ck-potato-conv', active && 'is-active', bot.unread > 0 && 'is-unread', needsYou(status) && 'is-needs'];
   return (
     <div className={`ck-potato-row-wrap${menu ? ' has-menu' : ''}${menuOpen ? ' is-menu-open' : ''}`}>
@@ -58,9 +76,9 @@ export function BotListRow({ bot, avatar, active, mini, now, menu, menuOpen, onO
               <span className="ck-potato-last">{bot.lastLine ? previewLine(bot.lastLine) : 'No messages yet'}</span>
               {bot.unread > 0 && <span className="ck-potato-dot" role="img" aria-label={`${bot.unread} unread`} />}
             </span>
-            {(status || bot.mood) && (
+            {(status || nextLine || bot.mood) && (
               <span className="ck-potato-conv-status">
-                {status && <StatusLine status={status} />}
+                {nextLine ? <NextLine line={nextLine} /> : status && <StatusLine status={status} />}
                 {bot.mood && <span className="ck-potato-mood-word">{moodWord(bot.mood.mood)}</span>}
               </span>
             )}
@@ -93,6 +111,26 @@ function StripMark({ status, unread }: { status: ListStatus | null; unread: numb
   if (needsYou(status)) return <span className="ck-potato-dot ck-potato-dot--corner ck-potato-dot--needs" role="img" aria-label={LIST_COPY.status.needs} />;
   if (unread > 0) return <span className="ck-potato-dot ck-potato-dot--corner" role="img" aria-label={`${unread} unread`} />;
   return null;
+}
+
+/** The grey second line under the name: "Waiting for you" with the one accent dot, "Thinking...", "Paused" or "Next: ...". */
+export function NextLine({ line }: { line: ListNextLine }) {
+  if (line.tone === 'working') {
+    return (
+      <span className="ck-potato-status ck-potato-status--working">
+        <span aria-hidden="true">
+          <DotSpinner status="running" size={3} />
+        </span>
+        {line.text}
+      </span>
+    );
+  }
+  return (
+    <span className="ck-potato-status">
+      {line.tone === 'needs' && <span className="ck-potato-dot" aria-hidden="true" style={{ background: 'var(--accent)' }} />}
+      {line.text}
+    </span>
+  );
 }
 
 /** The status line under the preview. Monochrome: weight, a pill, the dots. */
