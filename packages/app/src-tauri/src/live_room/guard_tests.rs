@@ -66,7 +66,7 @@ fn the_tunnel_auth_tests_do_not_know_live_room() {
 #[test]
 fn catalog_version_is_the_pinned_one() {
     // The same value `tool_registry/tests.rs` pins: adding Live Room must not move it.
-    assert_eq!(crate::tool_registry::catalog_version(), "73-caaf894656d938ac");
+    assert_eq!(crate::tool_registry::catalog_version(), "73-97116b3a4eee3edf");
 }
 
 #[test]

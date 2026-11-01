@@ -20,6 +20,8 @@ export default defineConfig({
       injectManifest: {
         // Same precache set as the old generateSW config.
         globPatterns: ['**/*.{js,css,html,woff2}'],
+        // The main bundle outgrew the 2 MiB default; precaching it is the point of the phone app.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
       manifest: {
         name: 'Puppet Master',

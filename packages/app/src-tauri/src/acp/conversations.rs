@@ -205,6 +205,40 @@ impl Conversations {
         session.ensure_running().map_err(ConversationError::Chat)
     }
 
+    /// The session of a conversation stops and leaves the supervisor; the record stays as it is.
+    pub fn forget_session(&self, id: &str) {
+        self.0.supervisor.remove(id);
+    }
+
+    /// Drops a conversation that never got going (its first start failed): the record, the session, the claim.
+    pub fn discard(&self, id: &str) {
+        self.0.supervisor.remove(id);
+        self.0.writers.forget(id);
+        let changed = {
+            let mut records = self.0.records.lock();
+            let before = records.len();
+            records.retain(|r| r.id != id);
+            records.len() != before
+        };
+        if changed {
+            self.save();
+        }
+    }
+
+    /// The conversations a chat pane can be built for after an app start: live ones, with a session in the
+    /// supervisor (nothing is started). A conversation that is in a terminal pane is included: its pane shows
+    /// that, and offers "Back to chat".
+    pub fn open_ids(&self) -> Vec<String> {
+        let records = self.0.records.lock().clone();
+        records.into_iter().filter(|r| r.last_known_state != LastState::Closed && self.session(&r.id).is_some()).map(|r| r.id).collect()
+    }
+
+    /// The conversation whose terminal pane is `pane_id`, if that pane holds one.
+    pub fn of_terminal(&self, pane_id: &str) -> Option<ConversationView> {
+        let record = self.0.records.lock().iter().find(|r| r.terminal_pane.as_deref() == Some(pane_id) && r.last_known_state == LastState::Terminal).cloned()?;
+        Some(self.view_of(&record))
+    }
+
     /// The person closed the conversation: the adapter goes, the record stays (as closed).
     pub fn close(&self, id: &str) -> Result<(), ConversationError> {
         self.record(id).ok_or(ConversationError::Unknown)?;

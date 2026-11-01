@@ -1,11 +1,13 @@
 // What a chat session over ACP adds under its conversation: the agent's permission questions as cards (the Inbox's own
 // question card, with the agent's real options and no default), and a strip that says what the session is doing with
-// a Stop button that reads "Stopping…" until the agent has ended the turn.
+// a Stop button that reads "Stopping…" until the agent has ended the turn. While a question is open it also holds the
+// small switch that lets an agent answer these questions (off by default).
 import { useEffect, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { useAcpChatState } from '../../hooks/useAcpChatState';
 import { permissionCards, runStrip, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
 import { QuestionCard } from '../cockpit/QuestionCard';
+import { AgentAnsweringSwitch } from './AgentAnsweringSwitch';
 import '../../styles/cockpit-acp.css';
 
 export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c: CockpitApi; paneId: string; paneName: string; api?: AcpChatApi }) {
@@ -38,6 +40,7 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
           />
         </div>
       ))}
+      {cards.length > 0 && <AgentAnsweringSwitch paneId={paneId} state={state} api={api} />}
       {strip && (
         <div className="ck-acp-strip" data-testid="acp-strip" data-stopping={strip.stopping ? '' : undefined}>
           <span className="ck-acp-strip-text" role="status">

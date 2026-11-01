@@ -294,6 +294,11 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return a.name === 'anthropic_api_key' ? { set: true, last4: 'WXYZ' } : { set: false, last4: null };
         case 'get_opencode_key_status':
           return { active_profile: 'a', profiles: [{ id: 'a', label: 'Primary', configured: true }, { id: 'b', label: 'Secondary', configured: false }], key_automation_mode: 'notify_only', restart_pane_on_rotate: true };
+        // Chat sessions (ACP) are off in the preview: no agent offers Chat, and no terminal holds a conversation.
+        case 'agent_lane_get':
+          return { labs_enabled: false, agents: [] };
+        case 'acp_conversation_of_terminal':
+          return null;
         case 'agent_run_mode_get':
         case 'agent_run_mode_set':
           // The dev harness has no custom agents to choose for.

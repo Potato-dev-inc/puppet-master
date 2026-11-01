@@ -598,6 +598,9 @@ pub fn run() {
             commands::acp_chat_start,
             commands::acp_chat_cancel,
             commands::acp_chat_state,
+            commands::acp_chat_set_config,
+            commands::acp_chat_set_agent_answering,
+            commands::acp_conversation_of_terminal,
             commands::agent_lane_get,
             commands::agent_lane_set,
             commands::acp_conversations_list,
@@ -805,6 +808,14 @@ pub fn run() {
             #[cfg(not(test))]
             checkpoints::bisect::live::live().sweep_stale();
             settings_store::load_saved_public_settings(app.handle());
+            // With the Labs switch on (known now), each conversation that came back is a chat pane in the pane list.
+            // Nothing starts yet: the adapter starts when the chat is read or a message is sent.
+            if acp::chat_enabled() {
+                let state = app.state::<AppState>();
+                let deps = commands::acp_chat::live_deps(app.handle(), &state.registry);
+                let panes = acp::chat::restore_panes(&deps);
+                tracing::info!(panes = panes.len(), "acp: chat panes restored");
+            }
             ui_mode::load_saved();
             // A standalone worker host (`--worker`) is a user-launched single-terminal window with
             // its own webview, and opens nothing else.

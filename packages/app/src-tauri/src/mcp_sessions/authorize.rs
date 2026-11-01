@@ -232,7 +232,9 @@ pub fn authorize(
             if let Some(handle) = handle {
                 check_run_read_access(session_id, handle)?;
             }
-        } else if let Some(handle) = handle {
+        } else if let Some(handle) = handle.filter(|h| !crate::acp::chat::is_chat_handle(h)) {
+            // A chat session over ACP has no run record: its own rule (`acp::chat::surface`, an agent steers only a
+            // chat it started) is applied by the route.
             check_run_access(session_id, handle)?;
         }
     }

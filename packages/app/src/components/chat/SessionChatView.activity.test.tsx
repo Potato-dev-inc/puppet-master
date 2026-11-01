@@ -123,6 +123,34 @@ describe('the activity line', () => {
   });
 });
 
+/** A turn as a chat session over ACP writes it: lower-case tool names (`edit`, `run`), the title as the summary, no helper marks. */
+const ACP_TURN: ChatItem[] = [
+  { kind: 'user', id: 'u1', at: null, text: 'update both files and run the tests' },
+  { kind: 'toolCall', id: 'a1.t1', at: null, callId: 't1', name: 'edit', summary: 'Edit src/a.ts', paths: ['C:\work\app\src\a.ts'], writes: true, input: { file_path: 'C:\work\app\src\a.ts', old_string: 'one', new_string: 'two' } },
+  { kind: 'toolResult', id: 'a1.t1r', at: null, callId: 't1', ok: true, output: '' },
+  { kind: 'toolCall', id: 'a1.t2', at: null, callId: 't2', name: 'edit', summary: 'Edit src/b.ts', paths: ['C:\work\app\src\b.ts'], writes: true, input: { file_path: 'C:\work\app\src\b.ts', old_string: 'x', new_string: 'y' } },
+  { kind: 'toolResult', id: 'a1.t2r', at: null, callId: 't2', ok: true, output: '' },
+  { kind: 'toolCall', id: 'a1.t3', at: null, callId: 't3', name: 'run', summary: 'npm test', input: { command: 'npm test' } },
+  { kind: 'toolResult', id: 'a1.t3r', at: null, callId: 't3', ok: true, output: 'all green' },
+  { kind: 'assistant', id: 'a1.1', at: null, text: 'Both files are updated and the tests pass.', model: null, finalAnswer: true },
+  { kind: 'turnEnd', id: 'a1.end', at: null, outcome: 'completed', durationMs: null },
+];
+
+describe('a chat session over ACP', () => {
+  it('folds its tool calls into one collapsible line, like any other chat', () => {
+    render(ACP_TURN, { source: 'acp' });
+    expect(lines()).toHaveLength(1);
+    expect(lines()[0]!.textContent).toBe('Edited 2 files · Ran 1 command');
+    // Folded: the rows are not drawn until the line is opened.
+    expect(rows()).toHaveLength(0);
+    expect(lines()[0]!.getAttribute('aria-expanded')).toBe('false');
+    click(lines()[0]!);
+    expect(lines()[0]!.getAttribute('aria-expanded')).toBe('true');
+    expect(rows().length).toBeGreaterThanOrEqual(3);
+    expect(text()).toContain('Both files are updated and the tests pass.');
+  });
+});
+
 describe('the tool detail', () => {
   it('shows an edit as a diff with plus and minus gutters, and the file as a chip with its full path', () => {
     render(EDIT_TURN);

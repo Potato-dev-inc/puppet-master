@@ -2,6 +2,7 @@
 // consent, review and approval). Most blocks save through their own command; the Live updates row calls env.patch.
 import { AccountsGroup } from '../accounts/AccountsGroup';
 import { AgentDefinitions } from '../blocks/AgentDefinitions';
+import { AgentLaneRows } from '../blocks/AgentLaneRows';
 import { AgentVersions } from '../blocks/AgentVersions';
 import { COLLISION_LABEL, CollisionSettings } from '../blocks/CollisionSettings';
 import { PreloadSettings } from '../blocks/PreloadSettings';
@@ -101,6 +102,15 @@ export const agentsRows: RowDef[] = [
         onChange={(value) => void env.patch({ pane_mcp_enabled: value })}
       />
     ),
+  },
+  {
+    id: 'agent-lane',
+    label: 'How to run',
+    hint: 'Run an agent in a terminal (the default) or as a chat. The terminal stays available for every agent.',
+    keywords: 'chat acp terminal lane run mode conversation session how to run',
+    group: 'How to run',
+    labsFlag: 'acp_chat_enabled',
+    render: () => <AgentLaneRows />,
   },
   {
     id: 'versions',

@@ -28,11 +28,14 @@ pub mod api;
 pub mod cards;
 pub mod mapper;
 mod start;
+pub mod surface;
 
 #[cfg(test)]
 mod golden_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod workspace_tests;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -43,9 +46,11 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
+use super::conversations::Conversations;
 use super::error::AcpError;
 use super::session::{AcpSession, Resolution, SessionEvent, SteerOutcome};
 use super::state::{Phase, Snapshot};
+use super::writers::Writer;
 use crate::pty::registry::VirtualPaneHandles;
 use crate::pty::status::PaneStatus;
 use crate::questions::{self, Question, QuestionState, ACP_KIND_PERMISSION};
@@ -53,7 +58,7 @@ use crate::session_chat::{Feed, PushedChanges, PushedPos, PushedSource};
 use cards::Card;
 use mapper::Mapper;
 
-pub use start::{start_gated, StartDeps, StartError, StartRequest};
+pub use start::{restore_panes, start_gated, StartDeps, StartError, StartRequest};
 
 /// `PaneInfo.lane` of a chat session.
 pub const LANE: &str = "acp";
@@ -90,6 +95,20 @@ pub enum SendError {
     Refused(String),
 }
 
+/// Why an agent's answer to a permission question was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentAnswerError {
+    /// The person has not let agents answer in this chat (the default).
+    NotAllowed,
+    /// The question is not open (answered, withdrawn, or never existed).
+    NoSuchQuestion,
+    /// The choice is not one the agent offered; these are the ones it did.
+    BadChoice(Vec<String>),
+    /// The chat was closed.
+    Closed,
+    Failed(String),
+}
+
 /// How a message went in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sent {
@@ -124,6 +143,17 @@ pub struct AcpChat {
     closed: AtomicBool,
     /// How long a card lives before it is raised again (a day; a test makes it short).
     card_timeout_s: AtomicU64,
+    /// The saved conversation behind this pane (its id is the pane's id): hand-over to a terminal and restart
+    /// resume. `None` for a session that exists only for the life of the app (some tests).
+    conversations: Option<Conversations>,
+    /// The person let agents (the one that started this chat through the MCP tools, or any other) answer this
+    /// chat's permission questions. Off by default and off again after a restart: only the person turns it on.
+    agent_answering: AtomicBool,
+    /// A restored chat is being brought back by a viewer that asked to read it (so it starts once).
+    waking: AtomicBool,
+    /// The MCP session of the agent that started this chat through the agent tools, if an agent did. Such an agent
+    /// may steer, answer (when allowed), stop and close it; no other agent may. `None`: the person started it.
+    started_by: Mutex<Option<String>>,
 }
 
 static CHATS: Lazy<Mutex<HashMap<String, Arc<AcpChat>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
@@ -131,6 +161,11 @@ static CHATS: Lazy<Mutex<HashMap<String, Arc<AcpChat>>>> = Lazy::new(|| Mutex::n
 /// The chat session of a pane, if the pane is one.
 pub fn get(pane_id: &str) -> Option<Arc<AcpChat>> {
     CHATS.lock().get(pane_id).cloned()
+}
+
+/// Whether `handle` names a chat session (its handle is the pane's id).
+pub fn is_chat_handle(handle: &str) -> bool {
+    CHATS.lock().contains_key(handle.trim())
 }
 
 /// Every open chat session.
@@ -153,7 +188,21 @@ fn close_these(chats: Vec<Arc<AcpChat>>) {
 pub fn on_pane_closed(pane_id: &str) {
     let chat = CHATS.lock().remove(pane_id);
     if let Some(chat) = chat {
+        // Closing the pane ends the conversation (the confirm sheet says so); its record stays, as closed.
+        let conversations = chat.conversations.clone();
         chat.retire();
+        if let Some(conversations) = conversations {
+            let _ = conversations.close(pane_id);
+        }
+    }
+}
+
+/// The conversation `conversation` is about to be brought back with a replay of everything the agent has in its own
+/// session (it came back from a terminal): the chat of its pane starts over from that replay, so what was said in
+/// the terminal is in it.
+pub fn history_will_be_replayed(conversation: &str) {
+    if let Some(chat) = get(conversation) {
+        chat.start_over();
     }
 }
 
@@ -183,7 +232,7 @@ fn control_only(text: &str) -> bool {
 }
 
 impl AcpChat {
-    fn build(pane_id: &str, label: &str, session: Arc<AcpSession>, host: Arc<dyn ChatHost>) -> Arc<AcpChat> {
+    pub(crate) fn build(pane_id: &str, label: &str, session: Arc<AcpSession>, host: Arc<dyn ChatHost>, conversations: Option<Conversations>) -> Arc<AcpChat> {
         Arc::new(AcpChat {
             pane_id: pane_id.to_string(),
             agent_id: session.agent_id().to_string(),
@@ -197,6 +246,10 @@ impl AcpChat {
             pending_user: Mutex::new(None),
             closed: AtomicBool::new(false),
             card_timeout_s: AtomicU64::new(cards::CARD_TIMEOUT_S),
+            conversations,
+            agent_answering: AtomicBool::new(false),
+            waking: AtomicBool::new(false),
+            started_by: Mutex::new(None),
         })
     }
 
@@ -206,6 +259,19 @@ impl AcpChat {
 
     pub fn agent_id(&self) -> &str {
         &self.agent_id
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// The MCP session that started this chat, if an agent did.
+    pub fn started_by(&self) -> Option<String> {
+        self.started_by.lock().clone()
+    }
+
+    pub fn set_started_by(&self, session: Option<&str>) {
+        *self.started_by.lock() = session.map(str::to_string);
     }
 
     pub fn session(&self) -> &Arc<AcpSession> {
@@ -258,6 +324,10 @@ impl AcpChat {
         let at = now_iso();
         match event {
             SessionEvent::Snapshot(snapshot) => {
+                if !snapshot.config_options.is_empty() {
+                    let items = self.mapper.lock().observe_config_options(&snapshot.config_options, &at);
+                    self.push(items);
+                }
                 self.apply_status(snapshot);
                 self.host.state_changed(&self.pane_id, &self.state());
             }
@@ -538,7 +608,12 @@ impl AcpChat {
             }
         }
         self.session.close();
-        super::supervisor::global().remove(self.session.key());
+        match &self.conversations {
+            Some(conversations) => conversations.forget_session(self.session.key()),
+            None => {
+                super::supervisor::global().remove(self.session.key());
+            }
+        }
         if let Some(handles) = self.handles.lock().as_ref() {
             *handles.exited.lock() = true;
         }
@@ -553,6 +628,105 @@ impl AcpChat {
         self.feed.close();
         crate::session_chat::pushed::unregister(&self.pane_id);
         CHATS.lock().remove(&self.pane_id);
+    }
+
+    // ---- restart, settings, agents ------------------------------------------------------------------------
+
+    /// The chat starts over: what it shows is about to be rebuilt from a replay of the agent's own session.
+    fn start_over(&self) {
+        self.feed.clear();
+        *self.mapper.lock() = Mapper::new();
+        self.pending_user.lock().take();
+    }
+
+    /// A viewer asked to read a chat that was brought back after a restart and has nothing to show yet: the
+    /// adapter starts in the background and loads the conversation (the replay fills the chat). Once per chat; a
+    /// failure is a notice in the chat, and the next message tries again.
+    fn wake_for_reader(&self) {
+        let Some(conversations) = &self.conversations else { return };
+        if self.is_closed() || !self.feed.is_empty() || self.session.held_by().is_some() {
+            return;
+        }
+        if self.session.snapshot().phase != Phase::Dormant {
+            return;
+        }
+        if !conversations.record(&self.pane_id).is_some_and(|r| r.session_id.is_some()) {
+            return;
+        }
+        if self.waking.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let session = self.session.clone();
+        std::thread::spawn(move || {
+            let _ = session.ensure_running();
+        });
+    }
+
+    /// Changes a setting the agent offers (model, mode, effort) with `session/set_config_option`. The value must be
+    /// one the agent lists for that option. Never typed into the chat as a command.
+    pub fn set_config(&self, option_id: &str, value: &str) -> Result<(), AcpError> {
+        let offered = self.session.snapshot().config_options.iter().any(|option| {
+            option.get("id").and_then(Value::as_str) == Some(option_id)
+                && option.get("options").and_then(Value::as_array).is_some_and(|list| list.iter().any(|v| v.get("value").and_then(Value::as_str) == Some(value)))
+        });
+        if !offered {
+            return Err(AcpError::BadOption(format!("{option_id}={value}")));
+        }
+        self.session.set_config_option(option_id, Value::String(value.to_string()))?;
+        self.host.state_changed(&self.pane_id, &self.state());
+        Ok(())
+    }
+
+    /// Whether agents may answer this chat's permission questions.
+    pub fn agent_answering(&self) -> bool {
+        self.agent_answering.load(Ordering::SeqCst)
+    }
+
+    /// The person's switch. Only the app's own window reaches this (a Tauri command); no bridge route does.
+    pub fn set_agent_answering(&self, allowed: bool) {
+        if self.agent_answering.swap(allowed, Ordering::SeqCst) != allowed {
+            crate::audit::record(
+                crate::audit::Kind::Approval,
+                crate::audit::Who::Desktop,
+                if allowed { "You let agents answer permission questions in a chat session" } else { "You stopped agents answering permission questions in a chat session" },
+                json!({ "pane_id": self.pane_id, "allowed": allowed }),
+            );
+            self.host.state_changed(&self.pane_id, &self.state());
+        }
+    }
+
+    /// An agent answers a permission question of this chat with one of the agent's own options, only when the
+    /// person allowed it (`set_agent_answering`). `prompt` is the card's question id (or the ask number) and `choice`
+    /// one of the offered option ids. The answer goes through the question store exactly like the person's, so the
+    /// card closes, the audit line is written and the choice reaches the agent. Returns the option's name.
+    pub fn answer_for_agent(&self, prompt: &str, choice: &str, who: crate::audit::Who) -> Result<String, AgentAnswerError> {
+        if self.is_closed() {
+            return Err(AgentAnswerError::Closed);
+        }
+        if !self.agent_answering() {
+            return Err(AgentAnswerError::NotAllowed);
+        }
+        self.reconcile_cards();
+        let (question_id, option) = {
+            let cards = self.cards.lock();
+            let found = cards.iter().find(|(ask_id, card)| !card.resolved && (card.question_id == prompt || ask_id.to_string() == prompt));
+            let Some((_, card)) = found else { return Err(AgentAnswerError::NoSuchQuestion) };
+            let Some(option) = card.options.iter().find(|o| o.choice_id == choice || o.option_id == choice) else {
+                return Err(AgentAnswerError::BadChoice(card.options.iter().map(|o| o.option_id.clone()).collect()));
+            };
+            (card.question_id.clone(), option.clone())
+        };
+        let resolution = questions::store().answer(&question_id, Some(&option.choice_id), None, "agent", questions::now_ms()).map_err(|e| AgentAnswerError::Failed(format!("{}: {}", e.code, e.message)))?;
+        if !resolution.accepted {
+            return Err(AgentAnswerError::NoSuchQuestion);
+        }
+        crate::audit::record(
+            crate::audit::Kind::Approval,
+            who,
+            &format!("An agent answered a question in a chat session ({}): {}", self.label, option.name),
+            json!({ "pane_id": self.pane_id, "prompt_id": question_id, "choice": option.option_id }),
+        );
+        Ok(option.name)
     }
 
     // ---- state -------------------------------------------------------------------------------------------
@@ -578,6 +752,10 @@ impl AcpChat {
             })
             .collect();
         drop(cards);
+        let in_terminal = self.conversations.as_ref().and_then(|c| match c.writer(&self.pane_id) {
+            Some(Writer::Terminal { pane_id }) => Some(json!({ "paneId": pane_id })),
+            _ => None,
+        });
         json!({
             "lane": LANE,
             "agent": self.agent_id,
@@ -599,6 +777,9 @@ impl AcpChat {
             "permissions": permissions,
             "exit": snapshot.exit.as_ref().map(|e| json!({ "kind": serde_json::to_value(e.kind).unwrap_or(Value::Null), "code": e.code, "reason": e.reason })),
             "closed": self.is_closed(),
+            "conversation": self.conversations.as_ref().map(|_| self.pane_id.clone()),
+            "inTerminal": in_terminal,
+            "agentAnswering": self.agent_answering(),
         })
     }
 }
@@ -610,6 +791,7 @@ impl PushedSource for AcpChat {
         }
         // A reader that asks is a viewer that may have missed a card (a reloaded view, a phone that came back).
         self.reconcile_cards();
+        self.wake_for_reader();
         Some(self.feed.changes_since(known))
     }
 
@@ -629,6 +811,7 @@ fn send_error(error: &AcpError) -> SendError {
         AcpError::AuthRequired { .. } => SendError::Refused("The agent needs you to sign in.".into()),
         AcpError::Rpc { code: -32000, .. } => SendError::Refused("The agent needs you to sign in.".into()),
         AcpError::HistoryLost => SendError::Refused("The earlier conversation could not be brought back. Send again to start a new one.".into()),
+        AcpError::Held(_) => SendError::Refused("This conversation is open in a terminal. Go back to the chat first.".into()),
         other => SendError::Refused(format!("The message was not sent: {other}")),
     }
 }

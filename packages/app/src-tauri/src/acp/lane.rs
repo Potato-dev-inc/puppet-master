@@ -2,8 +2,8 @@
 //!
 //! Stored in `<app data>/agent_lane.json`, one entry per agent that was changed. Like the run-mode and
 //! authority switches it is not in the phone-patchable settings mirror: it changes how an agent runs, so
-//! only the Settings window (a Tauri command) writes it. Nothing reads it to start a session yet (the UI
-//! and the launch path come in A3/A4); it is stored so the choice survives until they do.
+//! only the Settings window (a Tauri command) writes it. It is the default of the + menu's Terminal | Chat
+//! switch and of `run_agent` without a `lane` (`acp::chat::surface::wants`).
 //!
 //! The terminal stays a full option, not only a fallback: this setting never removes it.
 

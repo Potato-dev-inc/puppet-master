@@ -45,7 +45,7 @@ impl ChatHost for LiveChatHost {
 
 /// What a start needs from the live app.
 pub fn live_deps(app: &AppHandle, registry: &Arc<Mutex<PaneRegistry>>) -> StartDeps {
-    StartDeps { registry: registry.clone(), host: Arc::new(LiveChatHost::new(app.clone())), env: Arc::new(crate::acp::config::RealHost) }
+    StartDeps { registry: registry.clone(), host: Arc::new(LiveChatHost::new(app.clone())), env: Arc::new(crate::acp::config::RealHost), conversations: Some(crate::acp::conversations::global().clone()) }
 }
 
 pub fn start_error_text(error: &StartError) -> String {
@@ -85,4 +85,30 @@ pub async fn acp_chat_state(pane_id: String) -> Result<Value, String> {
         }
         None => Value::Null,
     })
+}
+
+/// Changes a setting the agent offers (model, mode, effort) in a chat session. Refused while a turn runs. Returns the
+/// new state.
+#[tauri::command]
+pub async fn acp_chat_set_config(pane_id: String, option_id: String, value: String) -> Result<Value, String> {
+    let session = chat::get(&pane_id).ok_or_else(|| format!("PANE_NOT_FOUND: {pane_id} is not a chat session"))?;
+    let worker = session.clone();
+    tauri::async_runtime::spawn_blocking(move || worker.set_config(&option_id, &value))
+        .await
+        .map_err(|e| format!("INTERNAL: {e}"))?
+        .map_err(|e| match e {
+            crate::acp::error::AcpError::Busy => "BUSY: The agent is working. Change this when the turn ends.".to_string(),
+            crate::acp::error::AcpError::BadOption(what) => format!("INVALID_ARGUMENT: the agent does not offer {what}"),
+            other => format!("ACP_CONFIG_FAILED: {other}"),
+        })?;
+    Ok(session.state())
+}
+
+/// The person's switch: may agents answer this chat's permission questions (default: no, only you)? Only this
+/// window can turn it on; the bridge and the MCP tools have no route to it.
+#[tauri::command]
+pub async fn acp_chat_set_agent_answering(pane_id: String, allowed: bool) -> Result<Value, String> {
+    let session = chat::get(&pane_id).ok_or_else(|| format!("PANE_NOT_FOUND: {pane_id} is not a chat session"))?;
+    session.set_agent_answering(allowed);
+    Ok(session.state())
 }
