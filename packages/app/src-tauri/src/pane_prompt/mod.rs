@@ -240,6 +240,11 @@ fn gate_prompt(agent_type: &str, screen: &str) -> Option<Value> {
 /// Master never answers one itself. See `tui/README.md`, "Startup gates".
 pub(crate) const STARTUP_GATE_KINDS: &[&str] = &["workspace_trust", "startup_screen"];
 
+/// Whether a prompt kind is a startup gate (folder trust, sign-in, onboarding).
+pub(crate) fn is_startup_gate_kind(kind: &str) -> bool {
+    STARTUP_GATE_KINDS.contains(&kind)
+}
+
 /// The startup gate the screen shows, if any (a prompt of one of `STARTUP_GATE_KINDS`).
 /// Panes whose startup gate the user answered "deny" to. Declining the folder-trust dialog makes the
 /// agent exit, but its host shell may stay alive at a prompt, so "the agent exited" cannot be
