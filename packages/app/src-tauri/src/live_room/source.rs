@@ -88,7 +88,7 @@ impl WatchSource {
     fn opening_of(&mut self, pane_id: &str) -> Option<Opening> {
         if !self.openings.contains_key(pane_id) {
             let agent_type = self.registry.lock().get(pane_id).map(|pane| pane.info.agent_type.clone())?;
-            self.openings.insert(pane_id.to_string(), Opening::for_agent(&agent_type)?);
+            self.openings.insert(pane_id.to_string(), Opening::for_pane(pane_id, &agent_type)?);
         }
         self.openings.get(pane_id).cloned()
     }

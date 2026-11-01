@@ -1,0 +1,55 @@
+[
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "cliVersion": "1.2.3",
+    "id": "session",
+    "kind": "session",
+    "model": null
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "id": "u1",
+    "kind": "user",
+    "text": "Create spike.txt"
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "callId": "toolu_01MoD8SXECMPsAAfsTc2UDpQ",
+    "id": "t:toolu_01MoD8SXECMPsAAfsTc2UDpQ",
+    "input": {
+      "file_path": "D:\\pm-hunt\\demo-a\\spike.txt",
+      "new_string": "ok",
+      "old_string": ""
+    },
+    "kind": "toolCall",
+    "name": "edit",
+    "paths": [
+      "D:\\pm-hunt\\demo-a\\spike.txt"
+    ],
+    "summary": "Write spike.txt",
+    "writes": true
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "callId": "toolu_01MoD8SXECMPsAAfsTc2UDpQ",
+    "id": "r:toolu_01MoD8SXECMPsAAfsTc2UDpQ",
+    "kind": "toolResult",
+    "ok": false,
+    "output": "User refused permission to run tool"
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "finalAnswer": true,
+    "id": "a1.1",
+    "kind": "assistant",
+    "model": null,
+    "text": "I didn't create `spike.txt`. The write was refused, so no file exists. I can try again if you want."
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "durationMs": 3500,
+    "id": "end:1",
+    "kind": "turnEnd",
+    "outcome": "completed"
+  }
+]

@@ -184,6 +184,9 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         ("POST", [_, _, "opencode", "question", "reply"]) => Need::Cap(Answer),
 
         ("POST", ["panes", _, "input" | "key" | "resize"]) => Need::Cap(Type),
+        // Stopping the turn of a chat session over ACP is the Stop key of its pane: typing. Starting one is `control`
+        // (the default of a POST); its state is a read (`watch`, the default of a GET).
+        ("POST", ["acp", "sessions", _, "cancel"]) => Need::Cap(Type),
         // The Chat tab's message box (`pane_outbox`): writing or cancelling a message is typing; the list
         // of a pane's messages is a read of the conversation.
         ("POST", ["panes", _, "messages"]) | ("DELETE", ["panes", _, "messages", _]) => Need::Cap(Type),
@@ -378,6 +381,13 @@ mod tests {
     #[test]
     fn the_attention_list_is_open_to_a_phone_that_can_watch_or_answer() {
         assert_eq!(route_need("GET", &["attention"]), Need::AnyOf(Cap::Watch, Cap::Answer));
+    }
+
+    #[test]
+    fn a_chat_session_is_started_with_control_stopped_with_type_and_read_with_watch() {
+        assert_eq!(route_need("POST", &["acp", "sessions"]), Need::Cap(Cap::Control));
+        assert_eq!(route_need("POST", &["acp", "sessions", "p1", "cancel"]), Need::Cap(Cap::Type));
+        assert_eq!(route_need("GET", &["acp", "sessions", "p1"]), Need::Cap(Cap::Watch));
     }
 
     #[test]

@@ -78,6 +78,15 @@ pub enum Readiness {
     Started(StartKind),
 }
 
+/// What the agent did with text sent into a running turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SteerOutcome {
+    /// The running turn took it.
+    Injected,
+    /// No turn was running (it ended meanwhile): send it as a normal prompt.
+    PromptRequired,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TickAction {
     Nothing,
@@ -757,6 +766,41 @@ impl AcpSession {
             Ok((conn, parked.rpc_id))
         })?;
         conn.respond(&rpc_id, selected_outcome(option_id))
+    }
+
+    /// Sends text into the turn that runs, when the agent takes that (`AgentCaps::steering`, the adapters' own
+    /// `_session/steering`). The answer tells whether the turn took it; with no turn running the answer is
+    /// `PromptRequired` and nothing was sent. An agent that does not take it gets `Unsupported`: the caller
+    /// queues the text instead.
+    pub fn steer(&self, content: Vec<Value>) -> Result<SteerOutcome, AcpError> {
+        if content.is_empty() {
+            return Err(AcpError::Unsupported("a message needs at least one content block".into()));
+        }
+        let planned = self.with_core(|core, _| {
+            if core.closed {
+                return Err(AcpError::SessionClosed);
+            }
+            if core.turn.is_none() {
+                return Ok(None);
+            }
+            if !core.caps.as_ref().is_some_and(|caps| caps.steering) {
+                return Err(AcpError::Unsupported("the agent does not take text while it works".into()));
+            }
+            let conn = core.conn.clone().filter(AcpConnection::is_alive).ok_or(AcpError::Closed)?;
+            let session_id = core.state.session_id().ok_or_else(|| AcpError::Protocol("no session id".into()))?.to_string();
+            Ok(Some((conn, session_id)))
+        })?;
+        let Some((conn, session_id)) = planned else { return Ok(SteerOutcome::PromptRequired) };
+        let answer = conn.request(
+            "_session/steering",
+            json!({ "sessionId": session_id, "prompt": content, "_meta": { "steering": { "idleBehavior": "promptRequired" } } }),
+            Duration::from_secs(10),
+        )?;
+        match answer.get("outcome").and_then(Value::as_str) {
+            Some("injected") => Ok(SteerOutcome::Injected),
+            Some("promptRequired") => Ok(SteerOutcome::PromptRequired),
+            other => Err(AcpError::Protocol(format!("unexpected steering answer: {other:?}"))),
+        }
     }
 
     /// The person has seen the "history lost" notice.

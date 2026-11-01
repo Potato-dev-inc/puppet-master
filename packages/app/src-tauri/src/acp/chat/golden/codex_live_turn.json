@@ -1,0 +1,63 @@
+[
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "cliVersion": "1.2.3",
+    "id": "session",
+    "kind": "session",
+    "model": null
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "id": "u1",
+    "kind": "user",
+    "text": "Create spike.txt with the word ok"
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "finalAnswer": false,
+    "id": "a1.1",
+    "kind": "assistant",
+    "model": null,
+    "text": "ok1 — Honey never*Conversation interrupted*I can’t write files in this session because the workspace is mounted read-only. I’ll check whether a file-writing tool is available before I stop."
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "callId": "exec-133eccce-5ec4-446c-a14e-406ab0bde24b",
+    "id": "t:exec-133eccce-5ec4-446c-a14e-406ab0bde24b",
+    "input": {
+      "file_path": "D:\\pm-hunt\\demo-a\\spike.txt",
+      "new_string": "ok\n",
+      "old_string": ""
+    },
+    "kind": "toolCall",
+    "name": "edit",
+    "paths": [
+      "D:\\pm-hunt\\demo-a\\spike.txt"
+    ],
+    "summary": "Editing files",
+    "writes": true
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "callId": "exec-133eccce-5ec4-446c-a14e-406ab0bde24b",
+    "id": "r:exec-133eccce-5ec4-446c-a14e-406ab0bde24b",
+    "kind": "toolResult",
+    "ok": false,
+    "output": ""
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "finalAnswer": true,
+    "id": "a1.2",
+    "kind": "assistant",
+    "model": null,
+    "text": "I couldn’t create `spike.txt`; the file-writing attempt was rejected."
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "durationMs": 14250,
+    "id": "end:1",
+    "kind": "turnEnd",
+    "outcome": "completed"
+  }
+]

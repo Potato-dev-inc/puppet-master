@@ -1,0 +1,13 @@
+{"update":{"_meta":{"claudeCode":{"toolName":"Write"},"dev.openab/backgroundTool":false,"dev.openab/taskEpoch":"02cff3aa-b2fb-4b9d-8fa4-6935f487e4d3","dev.openab/taskToken":"<redacted>"},"content":[],"kind":"edit","locations":[],"rawInput":{},"sessionUpdate":"tool_call","status":"pending","title":"Preparing file…","toolCallId":"toolu_01MoD8SXECMPsAAfsTc2UDpQ"}}
+{"update":{"_meta":{"claudeCode":{"toolName":"Write"},"dev.openab/backgroundTool":false,"dev.openab/taskEpoch":"02cff3aa-b2fb-4b9d-8fa4-6935f487e4d3","dev.openab/taskToken":"<redacted>"},"kind":"edit","locations":[{"path":"D:\\pm-hunt\\demo-a\\spike.txt"}],"rawInput":{"file_path":"D:\\pm-hunt\\demo-a\\spike.txt"},"sessionUpdate":"tool_call_update","title":"Write spike.txt","toolCallId":"toolu_01MoD8SXECMPsAAfsTc2UDpQ"}}
+{"update":{"_meta":{"claudeCode":{"toolName":"Write"},"dev.openab/backgroundTool":false,"dev.openab/taskEpoch":"02cff3aa-b2fb-4b9d-8fa4-6935f487e4d3","dev.openab/taskToken":"<redacted>"},"content":[{"newText":"ok","oldText":null,"path":"D:\\pm-hunt\\demo-a\\spike.txt","type":"diff"}],"kind":"edit","locations":[{"path":"D:\\pm-hunt\\demo-a\\spike.txt"}],"rawInput":{"content":"ok","file_path":"D:\\pm-hunt\\demo-a\\spike.txt"},"sessionUpdate":"tool_call_update","title":"Write spike.txt","toolCallId":"toolu_01MoD8SXECMPsAAfsTc2UDpQ"}}
+{"update":{"_meta":{"claudeCode":{"nonExecutionKind":"permission-rule","toolName":"Write"},"dev.openab/backgroundTool":false,"dev.openab/taskEpoch":"02cff3aa-b2fb-4b9d-8fa4-6935f487e4d3","dev.openab/taskToken":"<redacted>"},"content":[{"content":{"text":"```\nUser refused permission to run tool\n```","type":"text"},"type":"content"}],"rawOutput":"User refused permission to run tool","sessionUpdate":"tool_call_update","status":"failed","toolCallId":"toolu_01MoD8SXECMPsAAfsTc2UDpQ"}}
+{"update":{"content":{"text":"I did","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"n't create `","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"spike.txt`. The","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" write was","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" ref","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"used, so","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" no","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" file exists. I can","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" try again if you want.","type":"text"},"sessionUpdate":"agent_message_chunk"}}

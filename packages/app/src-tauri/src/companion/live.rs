@@ -199,7 +199,7 @@ impl Host for LiveHost {
 
     fn last_reply(&self, pane_id: &str, companion_id: &str) -> Option<Reply> {
         let agent = self.agent_of(pane_id)?;
-        let opening = Opening::for_agent(&agent)?;
+        let opening = Opening::for_pane(pane_id, &agent)?;
         let watchers = self.app.state::<SessionChatState>().watchers(&self.app, &self.registry);
         let holder = format!("companion#{companion_id}");
         if self.readers.lock().insert(format!("{pane_id}|{companion_id}")) {

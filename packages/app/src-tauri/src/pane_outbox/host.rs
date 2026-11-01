@@ -83,4 +83,10 @@ pub trait Host: Send + Sync + 'static {
     fn type_message(&self, pane_id: &str, text: &str) -> Attempt;
     /// Tells the windows and phones the pane's messages changed (the whole list, newest last).
     fn publish(&self, pane_id: &str, messages: &[OutboxMessage]);
+    /// Hands the text to a running turn at once, for a chat session whose agent takes text while it works.
+    /// `None`: not applicable (a terminal, an agent that does not take it, no turn running); the message is queued.
+    /// `Some(Err)`: the agent was asked and the sentence says what went wrong.
+    fn steer(&self, _pane_id: &str, _text: &str) -> Option<Result<(), String>> {
+        None
+    }
 }

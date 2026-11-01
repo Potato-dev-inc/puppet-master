@@ -48,6 +48,10 @@ pub(super) fn attempt_of(outcome: Delivery, typed: bool) -> Attempt {
 /// One look at a live pane: the readiness verdict, what the input box holds, and whether the pane reads idle.
 /// Also what the Point box asks for each pane in its "To:" list.
 pub fn look_pane(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<Look> {
+    // A chat session over ACP has no screen to read: the session says whether it is ready.
+    if let Some(chat) = crate::acp::chat::get(pane_id) {
+        return super::chat::look(&chat);
+    }
     let (agent, idle, waiting) = {
         let registry = registry.lock();
         let pane = registry.get(pane_id)?;
@@ -88,6 +92,9 @@ impl Host for LiveHost {
     }
 
     fn type_message(&self, pane_id: &str, text: &str) -> Attempt {
+        if let Some(chat) = crate::acp::chat::get(pane_id) {
+            return super::chat::type_message(&chat, text);
+        }
         let Some(agent) = self.agent_type(pane_id) else { return Attempt::Gone };
         let profile = crate::tui::profile_for(&agent);
         let mut pane = PaneIo { registry: &self.registry, app: &self.app, pane_id };
@@ -113,6 +120,10 @@ impl Host for LiveHost {
             tracing::warn!(pane_id, outcome = name, typed, %why, "outbox message was not sent");
         }
         attempt
+    }
+
+    fn steer(&self, pane_id: &str, text: &str) -> Option<Result<(), String>> {
+        crate::acp::chat::get(pane_id)?.steer(text)
     }
 
     fn publish(&self, pane_id: &str, messages: &[OutboxMessage]) {

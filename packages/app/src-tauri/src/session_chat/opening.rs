@@ -2,7 +2,10 @@
 //! desktop command and the phone route, so both treat a pane the same way.
 
 use super::api::SessionApi;
+use std::sync::Arc;
+
 use super::model::ChatItem;
+use super::pushed::PushedSource;
 use super::source::SessionSource;
 use super::watch::{Hold, Watchers};
 
@@ -18,9 +21,19 @@ pub enum Opening {
     Screen(String),
     /// The agent's local session API, and the terminal's text while the API does not answer. Holds the agent type.
     Api(&'static dyn SessionApi, String),
+    /// The agent pushes its conversation to us over a protocol (the ACP lane); there is no file and no screen.
+    Pushed(Arc<dyn PushedSource>),
 }
 
 impl Opening {
+    /// How the chat of this pane is read: pushed when the pane is a protocol chat (no terminal), else as for its agent.
+    pub fn for_pane(pane_id: &str, agent_type: &str) -> Option<Opening> {
+        match super::pushed::lookup(pane_id) {
+            Some(source) => Some(Opening::Pushed(source)),
+            None => Self::for_agent(agent_type),
+        }
+    }
+
     /// How this agent's chat is read; `None` for a pane that has no agent to read a conversation from (a shell).
     pub fn for_agent(agent_type: &str) -> Option<Opening> {
         let profile = crate::tui::profile_for(agent_type);
@@ -48,6 +61,7 @@ impl Opening {
             Opening::FileOrScreen(..) => "screen",
             Opening::Screen(_) => "screen",
             Opening::Api(..) => "api",
+            Opening::Pushed(_) => "acp",
         }
     }
 
@@ -63,6 +77,15 @@ impl Opening {
             Opening::FileOrScreen(source, agent_type) => watchers.open_screen_first(pane_id, hold, *source, agent_type),
             Opening::Screen(agent_type) => watchers.open_screen(pane_id, hold, agent_type),
             Opening::Api(api, agent_type) => watchers.open_api(pane_id, hold, *api, agent_type),
+            Opening::Pushed(source) => watchers.open_pushed(pane_id, hold, source.clone()),
+        }
+    }
+
+    /// The facts about the session behind a pushed chat (phase, queue...), for the viewer. `None` for any other.
+    pub fn state(&self) -> Option<serde_json::Value> {
+        match self {
+            Opening::Pushed(source) => source.state(),
+            _ => None,
         }
     }
 }
