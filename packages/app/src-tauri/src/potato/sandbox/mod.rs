@@ -5,8 +5,9 @@
 //! - `wsl`: the ONE door to `wsl.exe` (name allowlist `^pm-sbx-[a-z0-9-]{1,40}$`, refused flags, UTF-16
 //!   output, a fake runner can be injected)
 //! - `install`: the steps, the guest files streamed in over stdin, `PROGRESS` parsing, the reset point
-//! - `lifecycle`: lazy start, idle stop, readiness checks, the control token push
-//! - `control`: the HTTP client of the guest's control service (`ControlToken` lives in memory only)
+//! - `lifecycle`: lazy start, idle stop, readiness checks (waits for the guest's boot verdict), the secrets push
+//! - `secrets`: the control token and the two VNC passwords, made by the app, in memory only
+//! - `control`: the HTTP client of the guest's control service
 //! - `lease`: who holds the screen (a mirror of the brain's `screen-lease.ts` plus expiry and run binding)
 //!
 //! The `Sandbox` trait is what the rest of the app talks to. `WslSandbox` is the real one; `FakeSandbox`
@@ -14,7 +15,7 @@
 //!
 //! Invariants (`guard_tests.rs` checks them): no file but `wsl.rs` builds a `wsl.exe` command or names
 //! `--shutdown`; nothing here touches the person's WSL settings file; this folder never writes a file on
-//! Windows (the distro and its reset points are written by `wsl.exe` itself); the control token's value is
+//! Windows (the distro and its reset points are written by `wsl.exe` itself); the secrets' values are
 //! read in two files only; generic code names no agent and no chat app.
 
 // The callers (screen links, brain tools, the wizard and settings page) land in the next pieces.
@@ -24,6 +25,7 @@ pub mod control;
 pub mod install;
 pub mod lease;
 pub mod lifecycle;
+pub mod secrets;
 pub mod wsl;
 
 use std::sync::Arc;
@@ -31,6 +33,7 @@ use std::sync::Arc;
 use control::{Action, ControlError};
 use install::{GuestFiles, InstallError, InstallOptions, Layout, Progress};
 use lifecycle::{Lifecycle, LifecycleError, Phase};
+use secrets::ScreenSecrets;
 use wsl::{GuestUser, SandboxName, Wsl, WslError};
 
 /// An error with a short wire word for the UI and a plain sentence.
@@ -112,12 +115,15 @@ pub struct Status {
 }
 
 /// Where the screen can be reached from this computer (loopback ports of the forwards WSL makes).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct ScreenTarget {
-    /// noVNC, view only.
+    /// noVNC (the viewer page and its websocket). The password typed decides view or control.
     pub view_port: u16,
     /// Changes at every start and stop; a screen link made for another generation is dead.
     pub generation: u64,
+    /// The two VNC passwords of this run, only while the sandbox is running. The one way later code (the screen
+    /// links) gets them; the type prints nothing and cannot be copied or saved.
+    pub passwords: Option<Arc<ScreenSecrets>>,
 }
 
 /// The sandbox, as the rest of the app sees it.
@@ -280,7 +286,8 @@ impl Sandbox for WslSandbox {
         let _busy = self.lifecycle.begin_use();
         self.lifecycle.ensure_ready(now_ms())?;
         let tool = format!("{}/page-browser/pm-sbx-page-browser", lifecycle::GUEST_SHARE);
-        let mut argv: Vec<&str> = vec!["/usr/bin/env", "DISPLAY=:99", "/usr/bin/python3", "-I", &tool];
+        // (`Wsl::exec` as pm puts the sandbox display and the no-WSLg environment in front of the program.)
+        let mut argv: Vec<&str> = vec!["/usr/bin/python3", "-I", &tool];
         argv.extend(args.iter().map(String::as_str));
         let out = self.wsl.exec(&self.name, GuestUser::Pm, &argv, None, BROWSER_TIMEOUT)?;
         self.lifecycle.touch(now_ms());
@@ -288,7 +295,11 @@ impl Sandbox for WslSandbox {
     }
 
     fn screen_target(&self) -> SbxResult<ScreenTarget> {
-        Ok(ScreenTarget { view_port: self.lifecycle.view_port(), generation: self.lifecycle.generation() })
+        Ok(ScreenTarget {
+            view_port: self.lifecycle.view_port(),
+            generation: self.lifecycle.generation(),
+            passwords: self.lifecycle.screen_secrets(),
+        })
     }
 }
 
@@ -499,7 +510,7 @@ impl Sandbox for FakeSandbox {
     }
 
     fn screen_target(&self) -> SbxResult<ScreenTarget> {
-        Ok(ScreenTarget { view_port: lifecycle::DEFAULT_VIEW_PORT, generation: self.state.lock().generation })
+        Ok(ScreenTarget { view_port: lifecycle::DEFAULT_VIEW_PORT, generation: self.state.lock().generation, passwords: None })
     }
 }
 
@@ -511,6 +522,8 @@ mod fakes_tests;
 mod guard_tests;
 #[cfg(test)]
 mod install_tests;
+#[cfg(test)]
+mod live;
 #[cfg(test)]
 mod lease_tests;
 #[cfg(test)]

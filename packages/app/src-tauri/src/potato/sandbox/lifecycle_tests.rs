@@ -13,12 +13,25 @@ fn rig() -> (Arc<FakeGuest>, Lifecycle) {
     (guest, lifecycle)
 }
 
-fn pushes(guest: &FakeGuest) -> Vec<String> {
+/// What the app pushed in one start: the control token, the view password and the control password.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Pushed {
+    token: String,
+    view: String,
+    control: String,
+}
+
+fn pushes(guest: &FakeGuest) -> Vec<Pushed> {
     guest
         .calls()
         .iter()
         .filter(|c| c.args.iter().any(|a| a.contains("control.token")) && c.stdin.is_some())
-        .map(|c| String::from_utf8(c.stdin.clone().unwrap()).unwrap())
+        .map(|c| {
+            let text = String::from_utf8(c.stdin.clone().unwrap()).unwrap();
+            let lines: Vec<&str> = text.lines().collect();
+            assert_eq!(lines.len(), 3, "token, view password, control password: {} lines", lines.len());
+            Pushed { token: lines[0].to_string(), view: lines[1].to_string(), control: lines[2].to_string() }
+        })
         .collect()
 }
 
@@ -38,6 +51,11 @@ fn the_guest_report_is_parsed() {
     let broken = parse_readiness("boot_done=0\nboot_failed=1\n");
     assert!(broken.fatal().unwrap().0.contains("safety check"));
 
+    // the boot hook's own reason is carried into the card
+    let why = parse_readiness("boot_done=0\nboot_failed=1\nboot_reason=pm-no-wslg.sh failed (exit 1)\n");
+    assert_eq!(why.boot_reason, "pm-no-wslg.sh failed (exit 1)");
+    assert!(why.fatal().unwrap().0.contains("pm-no-wslg.sh failed (exit 1)"), "{:?}", why.fatal());
+
     // nothing printed (an old guest, or a failed script) means nothing is up
     let empty = parse_readiness("");
     assert!(!empty.ready());
@@ -47,7 +65,7 @@ fn the_guest_report_is_parsed() {
 
 #[test]
 fn missing_names_the_first_thing_that_is_not_up() {
-    let base = Readiness { boot_done: true, boot_failed: false, egress: Egress::Passed, desktop_up: true, control_up: true };
+    let base = Readiness { boot_done: true, boot_failed: false, boot_reason: String::new(), egress: Egress::Passed, desktop_up: true, control_up: true };
     assert!(base.ready());
     let no_walls = Readiness { egress: Egress::Unknown, ..base.clone() };
     assert!(no_walls.missing().0.contains("network walls"));
@@ -58,16 +76,26 @@ fn missing_names_the_first_thing_that_is_not_up() {
 }
 
 #[test]
-fn the_readiness_script_reads_both_boot_flags_and_our_ports() {
+fn the_readiness_script_reads_the_one_boot_verdict_and_our_ports() {
     let script = readiness_script(6080, 47801);
     assert!(script.contains("/run/pm-sbx/boot.done"));
-    assert!(script.contains("/run/pm-no-wslg.done"));
+    assert!(script.contains("/run/pm-sbx/boot.failed"), "and the reason in it");
     assert!(script.contains("/run/pm-sbx/egress-probe.status"));
     assert!(script.contains("listening 6080") && script.contains("listening 47801"));
+    // the duplicate path of the WSLg cut is gone: the boot hook is the only writer of the verdict
+    assert!(!script.contains("pm-no-wslg"), "one verdict, not two");
     // it reads; it never changes anything
     for writer in ["rm ", "kill", "iptables", "tee ", "mkdir", "touch", "chmod", "chown"] {
         assert!(!script.contains(writer), "{writer}");
     }
+}
+
+#[test]
+fn the_app_waits_about_ninety_seconds_for_the_boot_hook() {
+    let timing = Timing::default();
+    let waited = timing.poll * timing.boot_polls;
+    assert!(waited >= std::time::Duration::from_secs(90), "{waited:?}");
+    assert!(waited <= std::time::Duration::from_secs(120), "{waited:?}");
 }
 
 #[test]
@@ -93,7 +121,7 @@ fn nothing_runs_until_a_use_asks() {
 }
 
 #[test]
-fn a_start_runs_every_check_in_order_and_pushes_the_token_over_stdin() {
+fn a_start_waits_for_the_boot_verdict_pushes_the_secrets_over_stdin_and_starts_one_script() {
     let (guest, lifecycle) = rig();
     let ready = lifecycle.ensure_ready(1_000).unwrap();
     assert_eq!(lifecycle.phase(), Phase::Ready);
@@ -104,27 +132,69 @@ fn a_start_runs_every_check_in_order_and_pushes_the_token_over_stdin() {
     let at = |needle: &str| joined.iter().position(|c| c.contains(needle)).unwrap_or_else(|| panic!("no call with {needle}: {joined:#?}"));
     assert!(at("--status") < at("--list --verbose"));
     assert!(at("--list --verbose") < at("sleep infinity"));
-    assert!(at("sleep infinity") < at("/bin/sh -s"));
-    assert!(at("pm-sbx-egress.sh") < at("pm-sbx-egress-probe.sh"));
-    assert!(at("pm-sbx-egress-probe.sh") < at("control.token"));
+    assert!(at("sleep infinity") < at("/bin/sh -s"), "the boot verdict is read after the holder starts the distro");
+    assert!(at("/bin/sh -s") < at("control.token"), "secrets only after the boot verdict");
     assert!(at("control.token") < at("pm-sbx-start-desktop"));
-    assert!(at("pm-sbx-start-desktop") < at("pm-sbx-control"));
 
-    // the walls and the probe run as root, the desktop and the control service as the pm user
-    assert!(joined[at("pm-sbx-egress.sh")].contains("-u root"));
-    assert!(joined[at("pm-sbx-start-desktop")].contains("-u pm"));
-    assert!(joined[at("pm-sbx-control")].contains("-u pm"));
+    // the app runs no wall and no probe: the guest's boot hook did, and wrote boot.done
+    assert!(!joined.iter().any(|c| c.contains("pm-sbx-egress")), "the app must not run the egress scripts: {joined:#?}");
+    // and no separate launch of the control service: the desktop script starts it
+    assert!(!joined.iter().any(|c| c.contains("pm-sbx-control")), "the control service is started by pm-sbx-start-desktop only: {joined:#?}");
+    assert_eq!(joined.iter().filter(|c| c.contains("pm-sbx-start-desktop")).count(), 1);
 
-    // the token: 64 hex characters, in stdin only, never in an argument
+    // the secrets go in as root; the desktop starts as the pm user, with the sandbox display and without WSLg
+    assert!(joined[at("control.token")].contains("-u root"));
+    let desktop = &joined[at("pm-sbx-start-desktop")];
+    assert!(desktop.contains("-u pm"));
+    assert!(desktop.contains("--exec /usr/bin/env -u WAYLAND_DISPLAY"), "{desktop}");
+    assert!(desktop.contains("DISPLAY=:99") && desktop.contains("XDG_RUNTIME_DIR=/tmp/pm-runtime"), "{desktop}");
+    for call in guest.calls() {
+        if call.args.windows(2).any(|w| w[0] == "-u" && w[1] == "pm") {
+            assert!(call.args.join(" ").contains("--exec /usr/bin/env -u WAYLAND_DISPLAY"), "{:?}", call.args);
+        }
+    }
+
+    // the three secrets: in stdin only, never in an argument
     let pushed = pushes(&guest);
     assert_eq!(pushed.len(), 1);
-    assert_eq!(pushed[0].len(), 64);
-    assert!(pushed[0].bytes().all(|b| b.is_ascii_hexdigit()));
-    for call in guest.calls() {
-        assert!(call.args.iter().all(|a| !a.contains(&pushed[0])), "the token is in an argument: {:?}", call.args);
+    let p = &pushed[0];
+    assert_eq!(p.token.len(), 64);
+    assert!(p.token.bytes().all(|b| b.is_ascii_hexdigit()));
+    for password in [&p.view, &p.control] {
+        assert_eq!(password.len(), 8, "VNC reads 8 characters");
+        assert!(password.bytes().all(|b| b.is_ascii_alphanumeric()));
     }
-    // and it is not in the debug text of what the caller got
-    assert!(!format!("{ready:?}").contains(&pushed[0]));
+    assert_ne!(p.view, p.control, "view and control must differ or the server cannot tell them apart");
+    for call in guest.calls() {
+        for secret in [&p.token, &p.view, &p.control] {
+            assert!(call.args.iter().all(|a| !a.contains(secret.as_str())), "a secret is in an argument: {:?}", call.args);
+        }
+    }
+    // the script that writes them names the files, owner and mode (0400, pm runs the services)
+    let script = guest.calls().iter().find(|c| c.args.iter().any(|a| a.contains("control.token"))).unwrap().args.last().unwrap().clone();
+    for file in ["/run/pm-sbx/control.token", "/run/pm-sbx/vnc-view.pass", "/run/pm-sbx/vnc-control.pass"] {
+        assert!(script.contains(file), "{file}");
+    }
+    assert!(script.contains("chown pm:pm") && script.contains("chmod 0400"), "{script}");
+    // and none is in the debug text of what the caller got
+    for secret in [&p.token, &p.view, &p.control] {
+        assert!(!format!("{ready:?}").contains(secret.as_str()));
+    }
+}
+
+#[test]
+fn the_passwords_leave_only_through_the_screen_secrets_and_only_while_it_runs() {
+    let (guest, lifecycle) = rig();
+    assert!(lifecycle.screen_secrets().is_none(), "nothing before a start");
+    lifecycle.ensure_ready(1_000).unwrap();
+    let p = pushes(&guest).remove(0);
+    let screen = lifecycle.screen_secrets().expect("running");
+    assert_eq!(screen.view().expose(), p.view);
+    assert_eq!(screen.control().expose(), p.control);
+    let shown = format!("{screen:?} {:?} {:?}", screen.view(), screen.control());
+    assert!(!shown.contains(&p.view) && !shown.contains(&p.control), "{shown}");
+    lifecycle.stop().unwrap();
+    assert!(lifecycle.screen_secrets().is_none(), "forgotten at the stop");
 }
 
 #[test]
@@ -134,7 +204,7 @@ fn a_second_use_does_not_start_again() {
     let before = guest.calls().len();
     let generation = lifecycle.generation();
     lifecycle.ensure_ready(2_000).unwrap();
-    assert_eq!(pushes(&guest).len(), 1, "one token for the run");
+    assert_eq!(pushes(&guest).len(), 1, "one set of secrets for the run");
     assert_eq!(guest.st.lock().holders.len(), 1, "one holder");
     assert_eq!(lifecycle.generation(), generation);
     // it only asked the guest how it is
@@ -163,13 +233,20 @@ fn stop_ends_the_holder_stops_only_our_distro_and_forgets_the_token() {
     assert_eq!(lifecycle.phase(), Phase::Stopped);
     assert!(!guest.holder_alive());
     assert!(guest.st.lock().running.is_empty());
-    assert!(guest.joined().contains(&"--terminate pm-sbx-main".to_string()));
+    let joined = guest.joined();
+    assert!(joined.contains(&"--terminate pm-sbx-main".to_string()));
+    // the desktop is stopped by its own script first (that is what stops Chrome), then the distro
+    let stop_script = joined.iter().position(|c| c.contains("pm-sbx-start-desktop") && c.ends_with(" stop")).expect("the desktop script is told to stop");
+    assert!(joined[stop_script].contains("-u pm"));
+    assert!(stop_script < joined.iter().position(|c| c == "--terminate pm-sbx-main").unwrap());
     assert_ne!(lifecycle.generation(), generation, "screen links of the old run die");
-    // a start after a stop makes a NEW token
+    // a start after a stop makes NEW secrets (all three)
     lifecycle.ensure_ready(5_000).unwrap();
     let pushed = pushes(&guest);
     assert_eq!(pushed.len(), 2);
-    assert_ne!(pushed[0], pushed[1]);
+    assert_ne!(pushed[0].token, pushed[1].token);
+    assert_ne!(pushed[0].view, pushed[1].view);
+    assert_ne!(pushed[0].control, pushed[1].control);
     // stopping twice is fine
     lifecycle.stop().unwrap();
     lifecycle.stop().unwrap();
@@ -249,12 +326,13 @@ fn a_boot_that_never_finishes_fails_with_the_reason_and_is_cleaned_up() {
     assert_eq!(error, LifecycleError::NotReady("The sandbox did not finish starting.".to_string()));
     assert!(!guest.holder_alive(), "the holder is stopped");
     assert!(guest.st.lock().running.is_empty(), "and the distro is stopped again");
-    assert!(pushes(&guest).is_empty(), "no token was handed to a sandbox that did not boot");
+    assert!(pushes(&guest).is_empty(), "no secret was handed to a sandbox that did not boot");
     assert_eq!(lifecycle.phase(), Phase::Failed("The sandbox did not finish starting.".to_string()));
 }
 
 #[test]
-fn walls_that_fail_their_probe_stop_the_start_before_any_token_is_pushed() {
+fn walls_that_fail_their_probe_stop_the_start_before_any_secret_is_pushed() {
+    // the guest's boot hook runs the walls and the probe; its failure is read from the guest, not run by the app
     let (guest, lifecycle) = rig();
     guest.st.lock().egress_probe_passes = false;
     let error = lifecycle.ensure_ready(0).unwrap_err();
@@ -263,7 +341,7 @@ fn walls_that_fail_their_probe_stop_the_start_before_any_token_is_pushed() {
         other => panic!("{other:?}"),
     }
     assert!(pushes(&guest).is_empty());
-    assert!(!guest.joined().iter().any(|c| c.contains("pm-sbx-start-desktop")), "no screen starts behind failed walls");
+    assert!(!guest.joined().iter().any(|c| c.contains("pm-sbx-start-desktop") && c.ends_with(" start")), "no screen starts behind failed walls");
     assert!(!guest.holder_alive());
 }
 
@@ -271,10 +349,15 @@ fn walls_that_fail_their_probe_stop_the_start_before_any_token_is_pushed() {
 fn a_boot_hook_that_reports_failure_stops_the_start() {
     let (guest, lifecycle) = rig();
     guest.st.lock().boot_failed = true;
+    guest.st.lock().boot_reason = "pm-no-wslg.sh failed (exit 1)".to_string();
     match lifecycle.ensure_ready(0).unwrap_err() {
-        LifecycleError::NotReady(why) => assert!(why.contains("safety check"), "{why}"),
+        LifecycleError::NotReady(why) => {
+            assert!(why.contains("safety check"), "{why}");
+            assert!(why.contains("pm-no-wslg.sh failed (exit 1)"), "the guest's own reason is in the card: {why}");
+        }
         other => panic!("{other:?}"),
     }
+    assert!(pushes(&guest).is_empty());
     assert!(!guest.holder_alive());
 }
 
@@ -283,7 +366,7 @@ fn a_desktop_that_does_not_start_fails_the_start() {
     let (guest, lifecycle) = rig();
     guest.st.lock().desktop_starts = false;
     assert_eq!(lifecycle.ensure_ready(0).unwrap_err(), LifecycleError::NotReady("The sandbox screen did not start.".to_string()));
-    assert!(!guest.joined().iter().any(|c| c.contains("pm-sbx-control")), "the control service is not started without a screen");
+    assert!(!guest.joined().iter().any(|c| c.contains("pm-sbx-control")), "the app never launches the control service itself");
     assert!(!guest.holder_alive());
 }
 

@@ -6,16 +6,15 @@
 # OUTPUT chain) now lives in guest/egress/pm-sbx-egress.sh, started by pm-sbx-boot.sh. Logs to /var/log/pm-sbx/boot.log.
 #
 # WSLg cut for the PM sandbox distro. Run by pm-sbx-boot.sh (the one wsl.conf boot command) as root on every distro start.
-# Idempotent. Exit 0 and /run/pm-no-wslg.done only when nothing of WSLg is reachable any more; exit 1 and
-# /run/pm-no-wslg.failed if a WSLg mount, socket or drvfs entry is still there at the end.
-# pm-sbx-start-desktop does not read these flags; it checks /run/pm-sbx/boot.done (written by pm-sbx-boot.sh) and re-checks the mounts itself.
+# Idempotent. Exit 0 only when nothing of WSLg is reachable any more; exit 1 if a WSLg mount, socket or drvfs entry is still
+# there at the end. It writes NO flag file of its own: the one verdict is /run/pm-sbx/boot.done or boot.failed, written by
+# pm-sbx-boot.sh from this script's exit code. (pm-sbx-start-desktop re-checks the mounts itself.)
 
 LOG=/var/log/pm-sbx/boot.log
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 exec >>"$LOG" 2>&1
 echo "== $(date -Is) pm-no-wslg start"
 
-rm -f /run/pm-no-wslg.done /run/pm-no-wslg.failed
 
 # 1. Lazily unmount everything under /mnt/wslg (deepest first), then the mount point itself.
 for m in $(awk '$2 ~ "^/mnt/wslg" {print $2}' /proc/mounts | sort -r); do
@@ -59,10 +58,8 @@ if mountpoint -q /tmp/.X11-unix 2>/dev/null; then echo "still a mount point: /tm
 if [ -e /tmp/.X11-unix/X0 ]; then echo "still there: /tmp/.X11-unix/X0"; LEFT=1; fi
 if grep -qs drvfs /etc/fstab || awk '$3 == "drvfs" || $3 == "9p"' /proc/mounts | grep -q .; then echo "drvfs or 9p mount present"; LEFT=1; fi
 if [ "$LEFT" -ne 0 ]; then
-  touch /run/pm-no-wslg.failed
   echo "== WSLg cut FAILED"
   exit 1
 fi
 
-touch /run/pm-no-wslg.done
 echo "== done"

@@ -16,10 +16,21 @@
 #               PM_SBX_WEB_DIR (folder websockify serves; default /usr/local/share/pm-sbx/viewer when it holds embed.html,
 #               else /usr/share/novnc), PM_SBX_BOOT_WAIT (seconds to wait for the boot hook, 90).
 # Writes: $STATE/env (source it to join the session from outside), $STATE/pids/*.pid, $STATE/logs/*.log,
-#         $STATE/vnc/{view.plain,control.plain,passwd}, $STATE/control.token (bearer token of the control service).
-# Two random local VNC passwords, one x11vnc. The VIEW password gives a screen that cannot send input (x11vnc drops it
-# server side). The CONTROL password gives mouse and keyboard (take-over). The host reads view.plain to show the screen and
-# control.plain only when a person takes over. Bot actions do not use VNC; they go through the control service.
+#         $STATE/vnc/{view.plain,control.plain,passwd} (x11vnc's files, built from the app's passwords).
+#
+# WHO OWNS THE SECRETS: the app (Puppet Master, on Windows). It generates the control token and the two VNC passwords per start and
+# pushes them over stdin, as root, into /run/pm-sbx/ (a memory file system, emptied at every stop) BEFORE it calls this script:
+#   /run/pm-sbx/control.token       bearer token of the control service
+#   /run/pm-sbx/vnc-view.pass       the VIEW password (8 letters/digits)
+#   /run/pm-sbx/vnc-control.pass    the CONTROL password (8 letters/digits, different)
+# each owned by pm, mode 0400. This script uses those files when they are present and never invents a secret the app gave.
+# The self-generated fallback (random values under $STATE) stays only for manual testing without the app, and it logs
+# "FALLBACK" when it is used. A pushed file that is present but unusable stops the start (it never silently falls back).
+#
+# Two local VNC passwords, one x11vnc. The VIEW password gives a screen that cannot send input (x11vnc drops it
+# server side). The CONTROL password gives mouse and keyboard (take-over). Bot actions do not use VNC; they go through
+# the control service. The service is started here and nowhere else.
+# stop also stops Chrome (everything the browser launcher started for this user), then the services, then the display.
 
 set -u
 
@@ -92,6 +103,10 @@ wait_port() {
 BOOT_DONE=/run/pm-sbx/boot.done
 BOOT_FAILED=/run/pm-sbx/boot.failed
 PROBE_STATUS=/run/pm-sbx/egress-probe.status
+# Pushed by the app (see the header).
+PUSHED_TOKEN=/run/pm-sbx/control.token
+PUSHED_VIEW=/run/pm-sbx/vnc-view.pass
+PUSHED_CONTROL=/run/pm-sbx/vnc-control.pass
 gate() {
   i=0
   while [ ! -f "$BOOT_DONE" ] && [ ! -f "$BOOT_FAILED" ] && [ "$i" -lt $((BOOT_WAIT * 10)) ]; do sleep 0.1; i=$((i + 1)); done
@@ -107,6 +122,21 @@ stop_one() {
   p=$(pid_of "$1")
   if alive_named "$p" "$2"; then kill "$p" 2>/dev/null && log "stopped $1 ($p)"; fi
   rm -f "$(pidfile "$1")"
+}
+
+# Chrome is started by pm-sbx-browser / pm-sbx-control with no PID file, so it is found by its exact program path and
+# only among this user's processes (a stopped desktop must not leave a browser behind). TERM first, KILL after 5 s.
+chrome_pids() { pgrep -u "$(id -u)" -f '^/opt/google/chrome/chrome( |$)' 2>/dev/null; }
+stop_chrome() {
+  pids=$(chrome_pids)
+  [ -n "$pids" ] || return 0
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null
+  for _ in $(seq 1 50); do [ -z "$(chrome_pids)" ] && break; sleep 0.1; done
+  left=$(chrome_pids)
+  # shellcheck disable=SC2086
+  [ -z "$left" ] || kill -9 $left 2>/dev/null
+  log "stopped Chrome"
 }
 
 start_xvfb() {
@@ -189,15 +219,37 @@ require_loopback() {
 # VNC authentication uses only the first 8 characters of a password. x11vnc reads two sections from the password file:
 # the lines before __BEGIN_VIEWONLY__ give full access (control), the lines after it give a screen that cannot send input.
 # The two passwords must differ, or the server could not tell which one was typed.
+VNC_CHANGED=0
+VNC_SOURCE=""
+valid_vnc_password() { printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9]{8}$'; }
 make_vnc_passwords() {
-  if [ -s "$VNCDIR/view.plain" ] && [ -s "$VNCDIR/control.plain" ] && [ -s "$VNCDIR/passwd" ]; then return 0; fi
-  ctl=$(rand8)
-  view=$(rand8)
-  while [ "$view" = "$ctl" ] || [ "${#view}" -ne 8 ] || [ "${#ctl}" -ne 8 ]; do ctl=$(rand8); view=$(rand8); done
+  VNC_CHANGED=0
+  if [ -e "$PUSHED_VIEW" ] || [ -e "$PUSHED_CONTROL" ]; then
+    [ -r "$PUSHED_VIEW" ] && [ -r "$PUSHED_CONTROL" ] || die "REFUSING: the app's VNC passwords are not both readable by $(id -un) in /run/pm-sbx" 3
+    ctl=$(cat "$PUSHED_CONTROL"); view=$(cat "$PUSHED_VIEW")
+    if ! valid_vnc_password "$ctl" || ! valid_vnc_password "$view" || [ "$ctl" = "$view" ]; then
+      die "REFUSING: the app's VNC passwords must be two different 8-character letter/digit values" 3
+    fi
+    VNC_SOURCE="from the app"
+  else
+    VNC_SOURCE="self-generated fallback"
+    if [ -s "$VNCDIR/view.plain" ] && [ -s "$VNCDIR/control.plain" ] && [ -s "$VNCDIR/passwd" ]; then
+      log "FALLBACK: reusing self-generated VNC passwords (the app pushed none; manual testing only)"
+      return 0
+    fi
+    log "FALLBACK: generating VNC passwords here (the app pushed none; manual testing only)"
+    ctl=$(rand8)
+    view=$(rand8)
+    while [ "$view" = "$ctl" ] || [ "${#view}" -ne 8 ] || [ "${#ctl}" -ne 8 ]; do ctl=$(rand8); view=$(rand8); done
+  fi
+  want=$(printf '%s\n__BEGIN_VIEWONLY__\n%s' "$ctl" "$view")
+  have=$(cat "$VNCDIR/passwd" 2>/dev/null || true)
+  [ "$want" = "$have" ] && return 0
+  VNC_CHANGED=1
   umask 077
   printf '%s' "$ctl" >"$VNCDIR/control.plain"
   printf '%s' "$view" >"$VNCDIR/view.plain"
-  printf '%s\n__BEGIN_VIEWONLY__\n%s\n' "$ctl" "$view" >"$VNCDIR/passwd"
+  printf '%s\n' "$want" >"$VNCDIR/passwd"
   chmod 600 "$VNCDIR/control.plain" "$VNCDIR/view.plain" "$VNCDIR/passwd"
 }
 
@@ -211,6 +263,8 @@ web_dir() {
 start_vnc() {
   mkdir -p "$VNCDIR" && chmod 700 "$VNCDIR"
   make_vnc_passwords
+  # New passwords: a running x11vnc still holds the old ones.
+  if [ "$VNC_CHANGED" = 1 ]; then stop_one x11vnc x11vnc; fi
   if ! alive_key x11vnc; then
     # -localhost binds loopback only. (-listen 127.0.0.1 still opened [::]:5900 on the spike.) No -viewonly: the password
     # typed decides view or control (see make_vnc_passwords).
@@ -226,28 +280,43 @@ start_vnc() {
   fi
   wait_port "$NOVNC_PORT" websockify
   require_loopback "$NOVNC_PORT" websockify
-  log "VNC on 127.0.0.1:$VNC_PORT, noVNC on 127.0.0.1:$NOVNC_PORT (view and control passwords in $VNCDIR)"
+  log "VNC on 127.0.0.1:$VNC_PORT, noVNC on 127.0.0.1:$NOVNC_PORT (passwords: $VNC_SOURCE)"
 }
 
 # The control service (screenshots, mouse, keyboard, app launch for the bot) on 127.0.0.1 with a bearer token read from a file.
+# This is the only place that starts it. The token is the one the app pushed; the fallback is for manual testing only.
+hash_of() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
 start_control() {
   [ -x /usr/local/bin/pm-sbx-control ] || { log "control service not installed; skipping"; return 0; }
-  if [ ! -s "$STATE/control.token" ]; then
-    (umask 077; head -c 512 /dev/urandom | tr -dc 'a-f0-9' | head -c 32 >"$STATE/control.token")
-    chmod 600 "$STATE/control.token"
+  if [ -e "$PUSHED_TOKEN" ]; then
+    { [ -s "$PUSHED_TOKEN" ] && [ -r "$PUSHED_TOKEN" ]; } || die "REFUSING: the app's control token in /run/pm-sbx is empty or not readable by $(id -un)" 3
+    TOKEN_FILE="$PUSHED_TOKEN"
+    TOKEN_SOURCE="from the app"
+  else
+    log "FALLBACK: generating the control token here (the app pushed none; manual testing only)"
+    if [ ! -s "$STATE/control.token" ]; then
+      (umask 077; head -c 512 /dev/urandom | tr -dc 'a-f0-9' | head -c 32 >"$STATE/control.token")
+      chmod 600 "$STATE/control.token"
+    fi
+    TOKEN_FILE="$STATE/control.token"
+    TOKEN_SOURCE="self-generated fallback"
   fi
+  # A service that runs with another token (a second start with new secrets) is replaced.
+  tokhash="$PIDS/control.tokenhash"
+  if alive_key control && [ "$(hash_of "$TOKEN_FILE")" != "$(cat "$tokhash" 2>/dev/null)" ]; then stop_one control pm-sbx-control; fi
   if ! alive_key control; then
     LAUNCHERS=""
     [ -f /etc/pm-sbx/launchers.json ] && LAUNCHERS=/etc/pm-sbx/launchers.json
-    setsid nohup env PM_SBX_CONTROL_TOKEN_FILE="$STATE/control.token" PM_SBX_CONTROL_PORT="$CONTROL_PORT" \
+    setsid nohup env PM_SBX_CONTROL_TOKEN_FILE="$TOKEN_FILE" PM_SBX_CONTROL_PORT="$CONTROL_PORT" \
       PM_SBX_DISPLAY="$DISPLAY_NAME" ${LAUNCHERS:+PM_SBX_LAUNCHERS_FILE="$LAUNCHERS"} \
       ${DBUS:+DBUS_SESSION_BUS_ADDRESS="$DBUS"} \
       python3 -I /usr/local/bin/pm-sbx-control >"$LOGS/control.log" 2>&1 </dev/null &
     echo $! >"$(pidfile control)"
+    hash_of "$TOKEN_FILE" >"$tokhash"
   fi
   wait_port "$CONTROL_PORT" control
   require_loopback "$CONTROL_PORT" control
-  log "control service on 127.0.0.1:$CONTROL_PORT (token in $STATE/control.token)"
+  log "control service on 127.0.0.1:$CONTROL_PORT (token: $TOKEN_SOURCE)"
 }
 
 write_env() {
@@ -277,6 +346,7 @@ do_start() {
 }
 
 do_stop() {
+  stop_chrome
   stop_one control pm-sbx-control
   stop_one websockify websockify
   stop_one x11vnc x11vnc

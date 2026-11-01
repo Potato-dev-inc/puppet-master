@@ -93,7 +93,10 @@ fn the_gate_accepts_the_calls_the_sandbox_makes() {
         (vec!["--unregister", "pm-sbx-main"], Verb::Unregister(n.clone())),
         (vec!["--terminate", "pm-sbx-main"], Verb::Terminate(n.clone())),
         (vec!["-t", "pm-sbx-main"], Verb::Terminate(n.clone())),
-        (vec!["-d", "pm-sbx-main", "-u", "pm", "--exec", "/usr/bin/id"], Verb::Guest { name: n.clone(), user: GuestUser::Pm }),
+        (
+            [vec!["-d", "pm-sbx-main", "-u", "pm", "--exec"], PM_ENV.to_vec(), vec!["/usr/bin/id"]].concat(),
+            Verb::Guest { name: n.clone(), user: GuestUser::Pm },
+        ),
         (vec!["-d", "pm-sbx-main", "--exec", "/bin/sh", "-s"], Verb::Guest { name: n.clone(), user: GuestUser::Root }),
         (
             vec!["--distribution", "pm-sbx-main", "--user", "root", "--exec", "/bin/tar", "-x", "-f", "-"],
@@ -103,6 +106,33 @@ fn the_gate_accepts_the_calls_the_sandbox_makes() {
     for (case, verb) in cases {
         assert_eq!(check_args(&args(&case)).unwrap(), verb, "{case:?}");
     }
+}
+
+#[test]
+fn a_call_as_pm_always_carries_the_sandbox_display_and_drops_the_wslg_variables() {
+    // the env prefix is the contract: `wsl -u pm` injects WAYLAND_DISPLAY and PULSE_SERVER
+    let joined = PM_ENV.join(" ");
+    assert!(joined.contains("-u WAYLAND_DISPLAY") && joined.contains("-u PULSE_SERVER"), "{joined}");
+    assert!(PM_ENV.contains(&"DISPLAY=:99") && PM_ENV.contains(&"XDG_RUNTIME_DIR=/tmp/pm-runtime"), "{joined}");
+    // missing, or cut short, is refused by the gate
+    for bad in [
+        vec!["-d", "pm-sbx-main", "-u", "pm", "--exec", "/usr/bin/id"],
+        vec!["-d", "pm-sbx-main", "-u", "pm", "--exec", "/usr/bin/env", "DISPLAY=:99", "/usr/bin/id"],
+    ] {
+        assert!(matches!(check_args(&args(&bad)), Err(WslError::Refused(_))), "{bad:?}");
+    }
+    let mut short = vec!["-d", "pm-sbx-main", "-u", "pm", "--exec"];
+    short.extend_from_slice(PM_ENV);
+    assert!(check_args(&args(&short)).is_err(), "the env prefix with no program behind it is not a call");
+    // root calls are not wrapped
+    assert!(check_args(&args(&["-d", "pm-sbx-main", "-u", "root", "--exec", "/usr/bin/id"])).is_ok());
+    // Wsl::exec as pm adds the prefix by itself
+    let guest = FakeGuest::with_installed("pm-sbx-main");
+    let wsl = guest.wsl();
+    wsl.exec(&name("pm-sbx-main"), GuestUser::Pm, &["/bin/mkdir", "-p", "/tmp/x"], None, SHORT).unwrap();
+    let call = guest.joined().pop().unwrap();
+    assert!(call.starts_with("-d pm-sbx-main -u pm --exec /usr/bin/env -u WAYLAND_DISPLAY -u PULSE_SERVER"), "{call}");
+    assert!(call.ends_with("DISPLAY=:99 XDG_RUNTIME_DIR=/tmp/pm-runtime /bin/mkdir -p /tmp/x"), "{call}");
 }
 
 #[test]

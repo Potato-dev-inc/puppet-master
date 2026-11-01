@@ -1,11 +1,13 @@
 //! Start and stop of the sandbox: lazy start on first use, idle stop, and the readiness checks.
 //!
 //! - Start is lazy: nothing runs until a screen action asks (`ensure_ready`). A start is, in order: a hidden
-//!   holder process keeps the distro up; the boot hook finishes; the network walls are applied and proved;
-//!   a new control token is made here and pushed in over stdin as root (it lives in the distro's memory
-//!   file system and in this process, nowhere on Windows); the desktop and the control service start as the
-//!   `pm` user; the checks pass. If any check does not, the start fails with the reason and the distro is
-//!   stopped again.
+//!   holder process keeps the distro up; the guest's boot hook (`pm-sbx-boot.sh`: WSLg cut, network walls,
+//!   proof of the walls) finishes and writes `/run/pm-sbx/boot.done` (or `boot.failed` with its reason; the
+//!   app waits up to about 90 s and does not run the walls itself); the app's secrets for this run (the control
+//!   token and the two VNC passwords, `secrets.rs`) are made here and pushed in over stdin as root (they live
+//!   in the distro's memory file system and in this process, nowhere on Windows); one script starts the
+//!   desktop and the control service as the `pm` user; the checks pass. If any check does not, the start
+//!   fails with the reason and the distro is stopped again.
 //! - Idle stop: after N minutes (default 15, the setting) without use, `idle_check` stops only our own
 //!   distro with `wsl --terminate <our name>`. Nothing is stopped while a `UseGuard` is alive.
 //! - A start always begins from a stopped distro: a distro that is running without our holder (the app
@@ -20,7 +22,8 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 
-use super::control::{ControlClient, ControlToken, DEFAULT_PORT};
+use super::control::{ControlClient, DEFAULT_PORT};
+use super::secrets::{RunSecrets, ScreenSecrets};
 use super::wsl::{GuestUser, Holder, SandboxName, Wsl, WslError};
 
 pub const DEFAULT_IDLE_MINUTES: u32 = 15;
@@ -30,8 +33,8 @@ pub const MAX_IDLE_MINUTES: u32 = 240;
 pub const GUEST_SHARE: &str = "/usr/local/share/pm-sbx";
 /// The noVNC port inside the distro (view only).
 pub const DEFAULT_VIEW_PORT: u16 = 6080;
-/// The folder in the distro's memory file system that holds the token. It is empty after every stop.
-const TOKEN_FILE: &str = "/run/pm-sbx/control.token";
+/// The one script that starts (and stops) the desktop, the VNC servers and the control service. Runs as `pm`.
+pub const START_DESKTOP: &str = "/usr/local/bin/pm-sbx-start-desktop";
 
 pub fn clamp_idle_minutes(minutes: u32) -> u32 {
     minutes.clamp(MIN_IDLE_MINUTES, MAX_IDLE_MINUTES)
@@ -40,7 +43,7 @@ pub fn clamp_idle_minutes(minutes: u32) -> u32 {
 #[derive(Clone, Copy, Debug)]
 pub struct Timing {
     pub poll: Duration,
-    /// How many polls to wait for the boot hook.
+    /// How many polls to wait for the boot hook (the proof of the walls alone takes about 14 s).
     pub boot_polls: u32,
     /// How many polls to wait for the desktop and the control service.
     pub ready_polls: u32,
@@ -48,7 +51,7 @@ pub struct Timing {
 
 impl Default for Timing {
     fn default() -> Self {
-        Self { poll: Duration::from_millis(500), boot_polls: 120, ready_polls: 60 }
+        Self { poll: Duration::from_millis(500), boot_polls: 190, ready_polls: 60 }
     }
 }
 
@@ -74,6 +77,8 @@ pub enum Egress {
 pub struct Readiness {
     pub boot_done: bool,
     pub boot_failed: bool,
+    /// The `reason=` line of `/run/pm-sbx/boot.failed`.
+    pub boot_reason: String,
     pub egress: Egress,
     pub desktop_up: bool,
     pub control_up: bool,
@@ -86,12 +91,13 @@ pub struct NotReady(pub String);
 impl Readiness {
     /// A reason to stop waiting: the guest says it will not get there.
     pub fn fatal(&self) -> Option<NotReady> {
-        if self.boot_failed {
-            return Some(NotReady("The sandbox's start-up safety check failed, so it will not start.".to_string()));
-        }
         if let Egress::Failed(reason) = &self.egress {
             let why = if reason.is_empty() { String::new() } else { format!(" ({reason})") };
             return Some(NotReady(format!("The sandbox could not prove its network walls hold{why}, so it will not start.")));
+        }
+        if self.boot_failed {
+            let why = if self.boot_reason.is_empty() { String::new() } else { format!(" ({})", self.boot_reason) };
+            return Some(NotReady(format!("The sandbox's start-up safety check failed{why}, so it will not start.")));
         }
         None
     }
@@ -119,13 +125,14 @@ impl Readiness {
     }
 }
 
-/// The script (POSIX sh, as root, over stdin) that prints `key=value` lines about the guest. Both boot
-/// flag names are read: the ones the boot hook writes today and the folder `/run/pm-sbx/` the app uses.
+/// The script (POSIX sh, as root, over stdin) that prints `key=value` lines about the guest. The boot verdict is one
+/// pair of files, `/run/pm-sbx/boot.done` and `boot.failed`, written by the guest's boot hook; nothing else is read for it.
 pub fn readiness_script(view_port: u16, control_port: u16) -> String {
     format!(
         r#"listening() {{ ss -ltn 2>/dev/null | awk '{{print $4}}' | grep -Fqx "127.0.0.1:$1" && echo 1 || echo 0; }}
-echo "boot_done=$( [ -e /run/pm-sbx/boot.done ] || [ -e /run/pm-no-wslg.done ] && echo 1 || echo 0 )"
-echo "boot_failed=$( [ -e /run/pm-sbx/boot.failed ] || [ -e /run/pm-no-wslg.failed ] && echo 1 || echo 0 )"
+echo "boot_done=$( [ -e /run/pm-sbx/boot.done ] && echo 1 || echo 0 )"
+echo "boot_failed=$( [ -e /run/pm-sbx/boot.failed ] && echo 1 || echo 0 )"
+echo "boot_reason=$(sed -n 's/^reason=//p' /run/pm-sbx/boot.failed 2>/dev/null | head -1)"
 echo "egress_state=$(sed -n 's/^state=//p' /run/pm-sbx/egress-probe.status 2>/dev/null | head -1)"
 echo "egress_reason=$(sed -n 's/^reason=//p' /run/pm-sbx/egress-probe.status 2>/dev/null | head -1)"
 echo "desktop_up=$(listening {view_port})"
@@ -150,6 +157,7 @@ pub fn parse_readiness(text: &str) -> Readiness {
     Readiness {
         boot_done: get("boot_done") == "1",
         boot_failed: get("boot_failed") == "1",
+        boot_reason: crate::redact::text(&get("boot_reason")).into_inner().chars().filter(|c| !c.is_control()).take(120).collect(),
         egress,
         desktop_up: get("desktop_up") == "1",
         control_up: get("control_up") == "1",
@@ -250,7 +258,7 @@ pub struct Ready {
 struct Inner {
     phase: Phase,
     holder: Option<Box<dyn Holder>>,
-    token: Option<Arc<ControlToken>>,
+    secrets: Option<Arc<RunSecrets>>,
     last_active_ms: i64,
     idle_minutes: u32,
 }
@@ -291,7 +299,7 @@ impl Lifecycle {
             inner: Mutex::new(Inner {
                 phase: Phase::Stopped,
                 holder: None,
-                token: None,
+                secrets: None,
                 last_active_ms: 0,
                 idle_minutes: DEFAULT_IDLE_MINUTES,
             }),
@@ -323,6 +331,16 @@ impl Lifecycle {
 
     pub fn view_port(&self) -> u16 {
         self.view_port
+    }
+
+    /// The two VNC passwords of the run in progress (`None` when the sandbox is not ready). Handed out only
+    /// through `Sandbox::screen_target`, in a type that prints nothing.
+    pub fn screen_secrets(&self) -> Option<Arc<ScreenSecrets>> {
+        let inner = self.inner.lock();
+        if inner.phase != Phase::Ready {
+            return None;
+        }
+        inner.secrets.as_ref().map(|s| s.screen.clone())
     }
 
     pub fn generation(&self) -> u64 {
@@ -384,7 +402,7 @@ impl Lifecycle {
             if !alive {
                 return None;
             }
-            inner.token.clone()?
+            inner.secrets.as_ref()?.token.clone()
         };
         match self.read_readiness() {
             Ok(r) if r.ready() => {
@@ -427,52 +445,23 @@ impl Lifecycle {
         let holder = self.wsl.spawn_holder(&self.name)?;
         self.inner.lock().holder = Some(holder);
 
-        // 1. the boot hook
+        // 1. the boot hook: it cuts WSLg, sets the network walls and proves them, then writes boot.done (or
+        //    boot.failed with its reason, which `poll` turns into the error). The app waits; it runs no wall itself.
         self.poll(self.timing.boot_polls, |r| r.boot_done)?;
 
-        // 2. the network walls: set them, then prove them. Fail closed.
-        let share = GUEST_SHARE;
-        let walls = format!("{share}/egress/pm-sbx-egress.sh");
-        let probe = format!("{share}/egress/pm-sbx-egress-probe.sh");
-        self.wsl.exec(&self.name, GuestUser::Root, &["/bin/bash", &walls], None, super::wsl::SHORT)?;
-        let probed = self.wsl.exec(&self.name, GuestUser::Root, &["/bin/bash", &probe], None, super::wsl::SHORT)?;
-        if !probed.success() {
-            let after = self.read_readiness()?;
-            let fatal = after.fatal().map(|f| f.0);
-            return Err(LifecycleError::NotReady(
-                fatal.unwrap_or_else(|| "The sandbox could not prove its network walls hold, so it will not start.".to_string()),
-            ));
-        }
-        self.poll(1, |r| r.egress == Egress::Passed)?;
+        // 2. this run's secrets, pushed in as root over stdin (never an argument, never a Windows file). Nothing
+        //    is handed to a sandbox whose boot did not finish clean.
+        let secrets = Arc::new(RunSecrets::generate());
+        let (push, stdin) = secrets.push();
+        self.wsl.exec(&self.name, GuestUser::Root, &["/bin/sh", "-c", &push], Some(stdin), super::wsl::SHORT)?.ok()?;
 
-        // 3. a new token, pushed in as root over stdin (never an argument, never a Windows file)
-        let token = Arc::new(ControlToken::generate());
-        let push = format!(
-            "umask 077; mkdir -p /run/pm-sbx && cat > {TOKEN_FILE} && chown pm:pm {TOKEN_FILE} && chmod 600 {TOKEN_FILE}"
-        );
-        self.wsl
-            .exec(&self.name, GuestUser::Root, &["/bin/sh", "-c", &push], Some(token.expose().as_bytes().to_vec()), super::wsl::SHORT)?
-            .ok()?;
-
-        // 4. the desktop, then the control service, as the pm user
-        let desktop = self.wsl.exec(
-            &self.name,
-            GuestUser::Pm,
-            &["/usr/local/bin/pm-sbx-start-desktop", "start"],
-            None,
-            Duration::from_secs(120),
-        )?;
+        // 3. the desktop, the VNC servers and the control service: ONE script, as the pm user. It uses the pushed files.
+        let desktop = self.wsl.exec(&self.name, GuestUser::Pm, &[START_DESKTOP, "start"], None, Duration::from_secs(120))?;
         if !desktop.success() {
             return Err(LifecycleError::NotReady("The sandbox screen did not start.".to_string()));
         }
-        let service = format!("{share}/control/pm-sbx-control");
-        let launch = format!(
-            "PM_SBX_CONTROL_TOKEN_FILE={TOKEN_FILE} PM_SBX_CONTROL_PORT={} setsid nohup /usr/bin/python3 -I {service} >/dev/null 2>&1 </dev/null &",
-            self.control_port
-        );
-        self.wsl.exec(&self.name, GuestUser::Pm, &["/bin/sh", "-c", &launch], None, super::wsl::SHORT)?.ok()?;
 
-        // 5. everything answers
+        // 4. everything answers
         self.poll(self.timing.ready_polls, |r| r.ready())?;
 
         if self.window_check.visible_remote_window() {
@@ -480,9 +469,9 @@ impl Lifecycle {
         }
 
         self.generation.fetch_add(1, Ordering::SeqCst);
-        let client = ControlClient::new(self.control_port, token.clone());
+        let client = ControlClient::new(self.control_port, secrets.token.clone());
         let mut inner = self.inner.lock();
-        inner.token = Some(token);
+        inner.secrets = Some(secrets);
         inner.phase = Phase::Ready;
         inner.last_active_ms = now_ms;
         Ok(Ready { client, generation: self.generation() })
@@ -497,14 +486,20 @@ impl Lifecycle {
     }
 
     fn stop_inner(&self) -> Result<(), WslError> {
+        let holder = self.inner.lock().holder.take();
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        if self.wsl.is_installed(&self.name)? && self.wsl.is_running(&self.name)? {
+            // The desktop first (the guest script stops Chrome, the services and the display), then the distro. The
+            // terminate below ends everything anyway, so a script that fails or times out changes nothing.
+            let _ = self.wsl.exec(&self.name, GuestUser::Pm, &[START_DESKTOP, "stop"], None, super::wsl::SHORT);
+        }
         {
             let mut inner = self.inner.lock();
-            if let Some(mut holder) = inner.holder.take() {
+            if let Some(mut holder) = holder {
                 holder.stop();
             }
-            inner.token = None;
+            inner.secrets = None;
         }
-        self.generation.fetch_add(1, Ordering::SeqCst);
         if self.wsl.is_installed(&self.name)? && self.wsl.is_running(&self.name)? {
             self.wsl.terminate(&self.name)?;
         }

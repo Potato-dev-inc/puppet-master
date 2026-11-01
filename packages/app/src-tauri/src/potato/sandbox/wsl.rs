@@ -70,6 +70,21 @@ impl GuestUser {
     }
 }
 
+/// What every program run as `pm` starts with: `wsl -u pm` injects the WSLg variables (`WAYLAND_DISPLAY`, `PULSE_SERVER`,
+/// ...), so the sandbox's own display and runtime folder are set and the WSLg ones are removed. `Wsl::exec` puts this in front
+/// of the program and the gate refuses a `pm` call that lacks it, so nothing run as `pm` can reach WSLg by forgetting it.
+pub const PM_ENV: &[&str] = &[
+    "/usr/bin/env",
+    "-u",
+    "WAYLAND_DISPLAY",
+    "-u",
+    "PULSE_SERVER",
+    "-u",
+    "XDG_SESSION_TYPE",
+    "DISPLAY=:99",
+    "XDG_RUNTIME_DIR=/tmp/pm-runtime",
+];
+
 /// `^pm-sbx-[a-z0-9-]{1,40}$`
 pub fn valid_name(name: &str) -> bool {
     match name.strip_prefix(NAME_PREFIX) {
@@ -343,7 +358,14 @@ pub fn check_args(args: &[String]) -> Result<Verb, WslError> {
                 tail => (GuestUser::Root, tail),
             };
             match tail {
-                [exec, program, ..] if exec == "--exec" && program.starts_with('/') => Ok(Verb::Guest { name, user }),
+                [exec, program, ..] if exec == "--exec" && program.starts_with('/') => {
+                    let program_argv = &tail[1..];
+                    let has_env = program_argv.len() > PM_ENV.len() && program_argv.iter().zip(PM_ENV).all(|(a, b)| a == b);
+                    if user == GuestUser::Pm && !has_env {
+                        return Err(refuse("a call as pm starts with the sandbox display and without the WSLg variables"));
+                    }
+                    Ok(Verb::Guest { name, user })
+                }
                 _ => Err(refuse("a call into the distro is --exec with an absolute program path")),
             }
         }
@@ -509,6 +531,9 @@ impl Wsl {
 
     fn guest_call(name: &SandboxName, user: GuestUser, argv: &[&str]) -> Call {
         let mut args = vec!["-d", name.as_str(), "-u", user.as_str(), "--exec"];
+        if user == GuestUser::Pm {
+            args.extend_from_slice(PM_ENV);
+        }
         args.extend_from_slice(argv);
         Call::new(&args)
     }

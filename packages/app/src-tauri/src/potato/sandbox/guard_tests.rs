@@ -3,7 +3,7 @@
 //! - one door: only `wsl.rs` starts a process or names a `wsl.exe` verb, and no other file of the app names
 //!   `--shutdown` or the person's WSL settings file or builds a sandbox distro name;
 //! - the sandbox folder writes no file on Windows, deletes nothing recursively, logs nothing;
-//! - the control token's value is read in two files only;
+//! - the secrets' values (control token, VNC passwords) are read in two files only, and the app, not the guest, runs no boot step;
 //! - generic code names no agent and no chat app;
 //! - the fake is not in a release build.
 //!
@@ -29,7 +29,8 @@ fn production(text: &str) -> String {
 }
 
 fn is_test_file(rel: &str) -> bool {
-    rel.ends_with("_tests.rs") || rel.ends_with("/tests.rs") || rel == "tests.rs" || rel.contains("/tests/") || rel.starts_with("tests/")
+    // `live.rs` is the opt-in live test (`PM_SBX_LIVE=1`); it is only compiled for tests (checked below).
+    rel == "live.rs" || rel.ends_with("/live.rs") || rel.ends_with("_tests.rs") || rel.ends_with("/tests.rs") || rel == "tests.rs" || rel.contains("/tests/") || rel.starts_with("tests/")
 }
 
 /// (relative path with `/`, production code) of every non-test `.rs` file under `dir`.
@@ -139,33 +140,70 @@ fn the_sandbox_logs_nothing() {
 }
 
 #[test]
-fn the_token_value_is_read_in_two_files_only() {
+fn the_secrets_values_are_read_in_two_files_only() {
     for (name, code) in sandbox_files() {
         let reads = lines_with(&code, ".expose()").len();
         match name.as_str() {
             "control.rs" => assert_eq!(reads, 1, "control.rs reads the token for the one header"),
-            "lifecycle.rs" => assert_eq!(reads, 1, "lifecycle.rs reads it for the push into the distro"),
-            _ => assert_eq!(reads, 0, "{name} reads the token"),
+            // the push into the distro (one line: token, view, control) and the check that the two passwords differ
+            "secrets.rs" => assert_eq!(reads, 2, "secrets.rs reads the values for the push and for the difference check"),
+            _ => assert_eq!(reads, 0, "{name} reads a secret"),
         }
     }
-    // outside the sandbox nothing names the type
+    // outside the sandbox nothing names the types
     for (name, code) in all_files() {
         if !name.starts_with("potato/sandbox/") {
-            assert!(!code.contains("ControlToken"), "{name}");
+            for ty in ["ControlToken", "VncPassword", "ScreenSecrets", "RunSecrets"] {
+                assert!(!code.contains(ty), "{name} names {ty}");
+            }
         }
     }
 }
 
 #[test]
-fn the_token_type_cannot_be_copied_printed_or_saved() {
+fn the_secret_types_cannot_be_copied_printed_or_saved() {
+    let secrets = sandbox_files().into_iter().find(|(n, _)| n == "secrets.rs").unwrap().1;
+    for ty in ["ControlToken", "VncPassword", "ScreenSecrets", "RunSecrets"] {
+        let at = secrets.find(&format!("pub struct {ty}")).unwrap_or_else(|| panic!("the type {ty}"));
+        let attrs = secrets[..at].lines().rev().take(3).collect::<String>();
+        assert!(!attrs.contains("derive"), "{ty} has no derive (no Clone, Serialize or Debug): {attrs}");
+        assert!(secrets.contains(&format!("impl std::fmt::Debug for {ty}")), "{ty} has a Debug that prints nothing");
+        assert!(!secrets.contains(&format!("impl std::fmt::Display for {ty}")), "{ty}");
+        assert!(!secrets.contains(&format!("impl Clone for {ty}")), "{ty}");
+        assert!(!secrets.contains(&format!("impl serde::Serialize for {ty}")), "{ty}");
+    }
+    // the two that hold a value wipe it when dropped
+    assert!(secrets.contains("impl Drop for ControlToken") && secrets.contains("impl Drop for VncPassword"));
+    // control.rs only uses the type, it does not define it
     let control = sandbox_files().into_iter().find(|(n, _)| n == "control.rs").unwrap().1;
-    let at = control.find("pub struct ControlToken").expect("the type");
-    let before = &control[..at];
-    let attrs = before.lines().rev().take(3).collect::<String>();
-    assert!(!attrs.contains("derive"), "ControlToken has no derive (no Clone, Serialize or Debug): {attrs}");
-    assert!(control.contains("impl std::fmt::Debug for ControlToken"));
-    assert!(!control.contains("impl std::fmt::Display for ControlToken"));
-    assert!(!control.contains("impl Clone for ControlToken"));
+    assert!(!control.contains("pub struct ControlToken"));
+}
+
+#[test]
+fn the_app_runs_no_boot_step_the_guest_owns_the_boot_verdict() {
+    // pm-sbx-boot.sh (wsl.conf [boot]) cuts WSLg, sets the walls and proves them, then writes boot.done or boot.failed.
+    // The app waits for that file; it never runs those scripts and never reads the old duplicate flag.
+    for (name, code) in sandbox_files() {
+        for needle in ["pm-sbx-egress", "pm-no-wslg", "/run/pm-no-wslg"] {
+            // install.rs only lists the egress scripts among the guest files it ships
+            if name == "install.rs" && needle == "pm-sbx-egress" {
+                continue;
+            }
+            assert!(!code.contains(needle), "{name} names {needle}; the guest's boot hook owns it");
+        }
+    }
+    let lifecycle = sandbox_files().into_iter().find(|(n, _)| n == "lifecycle.rs").unwrap().1;
+    assert!(lifecycle.contains("/run/pm-sbx/boot.done") && lifecycle.contains("/run/pm-sbx/boot.failed"));
+}
+
+#[test]
+fn the_live_test_is_compiled_for_tests_only() {
+    let text = std::fs::read_to_string(sandbox_dir().join("mod.rs")).unwrap();
+    assert!(text.contains("#[cfg(test)]\nmod live;") || text.contains("#[cfg(test)]\r\nmod live;"), "mod live; must sit under #[cfg(test)]");
+    let live = std::fs::read_to_string(sandbox_dir().join("live.rs")).unwrap();
+    assert!(live.contains("#[ignore"), "the live test is ignored by default");
+    assert!(live.contains("PM_SBX_LIVE"), "and needs PM_SBX_LIVE=1");
+    assert!(live.contains("pm-sbx-e2e"), "it uses its own distro name");
 }
 
 #[test]

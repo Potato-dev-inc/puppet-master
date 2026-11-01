@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use super::wsl::{Holder, Output, Prepared, Runner, Verb, Wsl, WslError};
+use super::wsl::{GuestUser, Holder, Output, Prepared, Runner, Verb, Wsl, WslError, PM_ENV};
 
 pub struct State {
     pub wsl_ok: bool,
@@ -15,12 +15,17 @@ pub struct State {
     pub boot_done: bool,
     pub boot_hangs: bool,
     pub boot_failed: bool,
+    /// What the boot hook wrote after `reason=` in `boot.failed`.
+    pub boot_reason: String,
     /// `None` = the probe has not run; `Some(true)` passed; `Some(false)` failed.
     pub egress: Option<bool>,
+    /// What the boot hook finds when it runs the probe at the distro's start (the app never runs it).
     pub egress_probe_passes: bool,
     pub desktop_up: bool,
     pub control_up: bool,
     pub desktop_starts: bool,
+    /// The three secret files were written into /run/pm-sbx (they go away with the distro's stop).
+    pub secrets_pushed: bool,
     pub apply_lines: Vec<String>,
     pub apply_code: i32,
     pub install_code: i32,
@@ -73,11 +78,13 @@ impl FakeGuest {
                 boot_done: false,
                 boot_hangs: false,
                 boot_failed: false,
+                boot_reason: String::new(),
                 egress: None,
                 egress_probe_passes: true,
                 desktop_up: false,
                 control_up: false,
                 desktop_starts: true,
+                secrets_pushed: false,
                 apply_lines: vec![
                     "PROGRESS 1/4 Installing packages".to_string(),
                     "PROGRESS 2/4 Installing Chrome".to_string(),
@@ -123,9 +130,10 @@ impl FakeGuest {
             None => "egress_state=\negress_reason=\n".to_string(),
         };
         format!(
-            "boot_done={}\nboot_failed={}\n{egress}desktop_up={}\ncontrol_up={}\n",
+            "boot_done={}\nboot_failed={}\nboot_reason={}\n{egress}desktop_up={}\ncontrol_up={}\n",
             u8::from(st.boot_done),
             u8::from(st.boot_failed),
+            st.boot_reason,
             u8::from(st.desktop_up),
             u8::from(st.control_up)
         )
@@ -143,27 +151,35 @@ impl FakeGuest {
 
     fn guest(&self, st: &mut State, call: &Prepared, on_line: &mut dyn FnMut(&str)) -> Result<Output, WslError> {
         let at = call.args.iter().position(|a| a == "--exec").unwrap_or(0);
-        let argv: Vec<&str> = call.args[at + 1..].iter().map(String::as_str).collect();
+        let mut argv: Vec<&str> = call.args[at + 1..].iter().map(String::as_str).collect();
+        // The gate guarantees a call as pm starts with the sandbox display and without the WSLg variables; the guest
+        // program then sees exactly its own argv.
+        if matches!(&call.verb, Verb::Guest { user: GuestUser::Pm, .. }) {
+            assert!(argv.starts_with(PM_ENV), "a call as pm reached the guest without the environment: {argv:?}");
+            argv.drain(..PM_ENV.len());
+        }
         let joined = argv.join(" ");
         match argv.as_slice() {
             ["/bin/sh", "-s"] => ok(Self::readiness_text(st).into_bytes()),
-            ["/bin/bash", script] if script.ends_with("pm-sbx-egress.sh") => code(0),
-            ["/bin/bash", script] if script.ends_with("pm-sbx-egress-probe.sh") => {
-                st.egress = Some(st.egress_probe_passes);
-                code(if st.egress_probe_passes { 0 } else { 1 })
-            }
-            ["/bin/sh", "-c", script] if script.contains("pm-sbx-control") => {
-                st.control_up = true;
+            // the app's secrets: three files from stdin, owned by pm, mode 0400
+            ["/bin/sh", "-c", script] if script.contains("vnc-view.pass") && script.contains("control.token") => {
+                st.secrets_pushed = true;
                 ok(Vec::new())
             }
-            ["/bin/sh", "-c", script] if script.contains("control.token") => ok(Vec::new()),
+            // the one script that starts the desktop, the VNC servers AND the control service (it refuses without the pushed files)
             ["/usr/local/bin/pm-sbx-start-desktop", "start"] => {
-                if st.desktop_starts {
+                if st.desktop_starts && st.secrets_pushed {
                     st.desktop_up = true;
+                    st.control_up = true;
                     code(0)
                 } else {
-                    code(1)
+                    code(if st.desktop_starts { 3 } else { 1 })
                 }
+            }
+            ["/usr/local/bin/pm-sbx-start-desktop", "stop"] => {
+                st.desktop_up = false;
+                st.control_up = false;
+                ok(b"DESKTOP_STOPPED".to_vec())
             }
             ["/bin/mkdir", ..] | ["/bin/tar", ..] => code(0),
             ["/usr/bin/python3", "-I", script, ..] if script.ends_with("apply-recipe.py") => {
@@ -172,7 +188,7 @@ impl FakeGuest {
                 }
                 code(st.apply_code)
             }
-            ["/usr/bin/env", "DISPLAY=:99", "/usr/bin/python3", ..] => ok(b"{\"ok\":true}".to_vec()),
+            ["/usr/bin/python3", "-I", script, ..] if script.ends_with("pm-sbx-page-browser") => ok(b"{\"ok\":true}".to_vec()),
             _ => panic!("the fake guest was asked for something it does not know: {joined}"),
         }
     }
@@ -209,6 +225,7 @@ impl Runner for FakeGuest {
                 st.desktop_up = false;
                 st.control_up = false;
                 st.egress = None;
+                st.secrets_pushed = false;
                 code(0)
             }
             Verb::Unregister(name) => {
@@ -241,7 +258,15 @@ impl Runner for FakeGuest {
             return Err(WslError::Failed { code: Some(1), detail: "no such distro".to_string() });
         }
         st.running.push(name.to_string());
+        // The distro's start runs the boot hook in the guest: walls, then the probe, then one verdict.
         if !st.boot_hangs {
+            st.egress = Some(st.egress_probe_passes);
+        }
+        if !st.egress_probe_passes && !st.boot_hangs {
+            st.boot_failed = true;
+            st.boot_reason = "pm-sbx-egress-probe.sh failed (exit 1)".to_string();
+        }
+        if !st.boot_hangs && !st.boot_failed {
             st.boot_done = true;
         }
         let flag = Arc::new(AtomicBool::new(true));

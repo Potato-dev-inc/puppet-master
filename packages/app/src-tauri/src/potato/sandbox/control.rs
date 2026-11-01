@@ -2,7 +2,7 @@
 //!
 //! The service listens on the distro's loopback (`127.0.0.1:47801`), which WSL forwards to the same
 //! address on Windows. Every request carries `Authorization: Bearer <token>`. The token is made here
-//! (`ControlToken::generate`), pushed into the distro over stdin by `lifecycle.rs` and kept in memory
+//! (`secrets::ControlToken::generate`), pushed into the distro over stdin by `lifecycle.rs` and kept in memory
 //! only: it has no `Clone`, no `Serialize`, no `Display`, and `Debug` does not print it.
 //!
 //! An `Action` is turned into the exact argv shapes the service allows (`xdotool` forms and
@@ -14,9 +14,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine;
-use rand::RngCore;
 use serde_json::{json, Value};
 
+use super::secrets::ControlToken;
 use super::Observation;
 use crate::potato::wire_names::GUEST_POINTER_FIELD;
 
@@ -32,40 +32,6 @@ const MAX_TITLE_CHARS: usize = 200;
 const FOCUS_OR_LAUNCH: &str = "pm-sbx-focus-or-launch";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const READ_TIMEOUT: Duration = Duration::from_secs(40);
-
-/// The secret that opens the control service. 32 random bytes as hex.
-pub struct ControlToken(String);
-
-impl ControlToken {
-    pub fn generate() -> Self {
-        let mut bytes = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut bytes);
-        Self(bytes.iter().map(|b| format!("{b:02x}")).collect())
-    }
-
-    /// The value, for the one request header and the one push into the distro. Nothing else calls this
-    /// (`guard_tests` checks which files do).
-    pub fn expose(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::fmt::Debug for ControlToken {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ControlToken(..)")
-    }
-}
-
-impl Drop for ControlToken {
-    fn drop(&mut self) {
-        // Best effort: the memory holding the secret is overwritten before it is freed.
-        let mut bytes = std::mem::take(&mut self.0).into_bytes();
-        for b in bytes.iter_mut() {
-            *b = 0;
-        }
-        std::hint::black_box(&bytes);
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Button {

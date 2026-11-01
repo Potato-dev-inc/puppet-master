@@ -216,7 +216,7 @@ fn the_browser_tool_runs_as_the_pm_user_and_its_output_is_capped() {
     let call = rig.guest.joined().into_iter().find(|c| c.contains("pm-sbx-page-browser")).unwrap();
     assert_eq!(
         call,
-        "-d pm-sbx-main -u pm --exec /usr/bin/env DISPLAY=:99 /usr/bin/python3 -I /usr/local/share/pm-sbx/page-browser/pm-sbx-page-browser snapshot --json"
+        "-d pm-sbx-main -u pm --exec /usr/bin/env -u WAYLAND_DISPLAY -u PULSE_SERVER -u XDG_SESSION_TYPE DISPLAY=:99 XDG_RUNTIME_DIR=/tmp/pm-runtime /usr/bin/python3 -I /usr/local/share/pm-sbx/page-browser/pm-sbx-page-browser snapshot --json"
     );
 }
 

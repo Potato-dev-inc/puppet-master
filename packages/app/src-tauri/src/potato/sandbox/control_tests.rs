@@ -10,6 +10,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use super::control::*;
+use super::secrets::ControlToken;
 use super::FakeSandbox;
 
 pub(super) struct Seen {
