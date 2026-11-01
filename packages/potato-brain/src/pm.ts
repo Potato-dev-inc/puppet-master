@@ -83,6 +83,8 @@ async function main(): Promise<void> {
       pack = next;
     },
     onExit: (code) => process.exit(code),
+    // What the computer's pages and programs print is hidden from the model if it holds one of these.
+    secrets: () => [token, env("DEEPSEEK_API_KEY"), env("OPENCODE_API_KEY")].filter((v) => v.length >= 8),
     log: (line) => console.error(`potato-brain: ${line}`),
   });
 

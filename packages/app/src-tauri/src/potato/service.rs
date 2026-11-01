@@ -20,7 +20,8 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use parking_lot::{Condvar, Mutex};
@@ -34,6 +35,7 @@ use super::keeper::{Action, Keeper, Phase};
 use super::log::LogRing;
 use super::protocol::{self, ErrorCode, Event, HelperStatus, PauseReason, Trust};
 use super::rules::{self, Caps, Channel, Decision, Facts, Sender};
+use super::sandbox_calls::{self, Calls, Gates, Port};
 use super::sidecar::{Child, Launcher, LineSink, NodeState, SpawnSpec};
 use super::wire_names;
 use super::store::{self, BrainKind, FromKind, Message, MsgKind, StoreError};
@@ -254,6 +256,16 @@ struct Inner {
     bots: HashMap<String, BotRt>,
 }
 
+/// A piece of work for another thread (a sandbox call can take seconds; the brain's post must not wait for it).
+pub(super) type Job = Box<dyn FnOnce() + Send>;
+pub(super) type Spawner = Arc<dyn Fn(Job) + Send + Sync>;
+
+fn thread_spawner() -> Spawner {
+    Arc::new(|job: Job| {
+        let _ = std::thread::Builder::new().name("potato-sandbox-call".into()).spawn(job);
+    })
+}
+
 pub struct Service {
     root: PathBuf,
     host: Arc<dyn Host>,
@@ -261,6 +273,12 @@ pub struct Service {
     brains: Arc<Brains>,
     inner: Mutex<Inner>,
     cv: Condvar,
+    me: Weak<Service>,
+    /// The bot's computer: the dispatcher, the sandbox wired in (if any) and the Labs switch.
+    calls: Calls,
+    port: Mutex<Option<Port>>,
+    sandbox_on: AtomicBool,
+    spawner: Mutex<Spawner>,
     /// The helpers' world (`helpers.rs`): what starts them, and the ones now running.
     pub(super) helpers: super::helpers::HelperState,
 }
@@ -273,7 +291,47 @@ fn err(code: &'static str, message: impl Into<String>) -> StoreError {
 
 impl Service {
     pub fn new(root: PathBuf, host: Arc<dyn Host>, launcher: Arc<dyn Launcher>, brains: Arc<Brains>) -> Arc<Service> {
-        Arc::new(Service { root, host, launcher, brains, inner: Mutex::new(Inner::default()), cv: Condvar::new(), helpers: super::helpers::HelperState::default() })
+        Arc::new_cyclic(|me| Service {
+            calls: Calls::new(root.clone(), host.clone()),
+            root,
+            host,
+            launcher,
+            brains,
+            inner: Mutex::new(Inner::default()),
+            cv: Condvar::new(),
+            me: me.clone(),
+            port: Mutex::new(None),
+            sandbox_on: AtomicBool::new(false),
+            spawner: Mutex::new(thread_spawner()),
+            helpers: super::helpers::HelperState::default(),
+        })
+    }
+
+    // ---- the bot's computer --------------------------------------------------------------------
+
+    /// Wires in the sandbox (and the screen lease it shares with the Computer panel). `None` unwires it.
+    pub fn set_sandbox_port(&self, port: Option<Port>) {
+        *self.port.lock() = port;
+    }
+
+    /// The Sandbox Labs switch (`potato_sandbox_enabled`).
+    pub fn set_sandbox_enabled(&self, on: bool) {
+        self.sandbox_on.store(on, Ordering::SeqCst);
+    }
+
+    /// Whether a brain is told it has a computer: Potato Bot on, the Labs switch on, and a sandbox wired in.
+    pub fn sandbox_offered(&self) -> bool {
+        self.brains.enabled() && self.sandbox_on.load(Ordering::SeqCst) && self.port.lock().is_some()
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_spawner(&self, spawner: Spawner) {
+        *self.spawner.lock() = spawner;
+    }
+
+    #[cfg(test)]
+    pub(super) fn calls(&self) -> &Calls {
+        &self.calls
     }
 
     pub fn root(&self) -> &Path {
@@ -511,6 +569,7 @@ impl Service {
             context: None,
             tools,
         });
+        let item = protocol::with_capabilities(item, self.sandbox_offered());
         self.deliver(rt, &saved.id, &conversation, item);
         rt.keeper.want_run(now);
         let actions = rt.keeper.step(now);
@@ -950,6 +1009,7 @@ impl Service {
         self.brains.unregister(bot);
         let _ = &session.secrets;
         rt.typing.clear();
+        self.calls.end_bot(self.port.lock().as_ref(), bot);
         let mut lost: Vec<(String, String)> = Vec::new();
         for (id, conversation) in &session.in_flight {
             let index = session.send_index.get(id).copied().unwrap_or(0);
@@ -1101,6 +1161,8 @@ impl Service {
                 if !self.own_conversation(bot, &conversation_id) {
                     return false;
                 }
+                // The turn is over: the bot lets go of the screen (the person's hold is not touched).
+                self.calls.end_run(self.port.lock().as_ref(), bot, &conversation_id);
                 let name = self.name_of(bot);
                 let mood = {
                     let mut g = self.inner.lock();
@@ -1142,6 +1204,7 @@ impl Service {
                 true
             }
             Event::HelperRequest { request_id, conversation_id, task, project } => self.on_helper_request(bot, now, request_id, conversation_id, task, project),
+            Event::SandboxCall { call_id, conversation_id, tool, args, image } => self.on_sandbox_call(bot, now, call_id, conversation_id, tool, args, image),
             Event::Error { code, conversation_id, in_reply_to } => {
                 let name = self.name_of(bot);
                 let line = match code {
@@ -1197,6 +1260,38 @@ impl Service {
         }
     }
 
+    /// A `sandbox_call`: checked and run on another thread, answered with a `sandbox_result` in the inbox. The
+    /// trust of the turn is the one Puppet Master recorded when it sent the message, never anything the brain says.
+    #[allow(clippy::too_many_arguments)]
+    fn on_sandbox_call(&self, bot: &str, now: i64, call_id: String, conversation_id: String, tool: String, args: Value, image: bool) -> bool {
+        if !self.own_conversation(bot, &conversation_id) {
+            return false;
+        }
+        let trust = {
+            let mut g = self.inner.lock();
+            let Some(rt) = g.bots.get_mut(bot) else { return false };
+            rt.keeper.touch(now);
+            rt.turn_trust.get(&conversation_id).copied().unwrap_or(Trust::Others)
+        };
+        let Some(me) = self.me.upgrade() else { return false };
+        let ctx = sandbox_calls::Context { bot: bot.to_string(), conversation: conversation_id, trust, want_image: image };
+        let spawn = self.spawner.lock().clone();
+        spawn(Box::new(move || me.run_sandbox_call(ctx, call_id, tool, args)));
+        false
+    }
+
+    fn run_sandbox_call(&self, ctx: sandbox_calls::Context, call_id: String, tool: String, args: Value) {
+        let gates = Gates { bot_on: self.brains.enabled(), sandbox_on: self.sandbox_on.load(Ordering::SeqCst) };
+        let port = self.port.lock().clone();
+        let item = match self.calls.execute(port.as_ref(), gates, &ctx, &tool, &args) {
+            Ok(result) => protocol::sandbox_result_ok(&call_id, result),
+            Err(e) => protocol::sandbox_result_err(&call_id, e.code, &e.message, e.needs_you),
+        };
+        // A brain that left meanwhile does not get it: a new brain knows nothing of the call.
+        self.push_to_brain(&ctx.bot, item);
+        self.keep_awake(&ctx.bot);
+    }
+
     fn on_helper_request(&self, bot: &str, now: i64, request_id: String, conversation_id: String, task: String, project: Option<String>) -> bool {
         if !self.own_conversation(bot, &conversation_id) {
             return false;
@@ -1209,7 +1304,7 @@ impl Service {
                 self.cv.notify_all();
             }
         };
-        if !trust.is_owner() {
+        if !rules::tool_access(trust).helpers {
             refuse(HelperStatus::Refused, "");
             return false;
         }
