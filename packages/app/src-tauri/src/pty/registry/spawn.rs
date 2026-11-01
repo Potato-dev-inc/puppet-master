@@ -216,6 +216,11 @@ pub fn spawn_pane(
     // Names the pane to any MCP shim the agent starts, so a helper it starts can be nested under it.
     let mut own_env = hooks.env;
     own_env.extend(pane_mcp.env);
+    // Model Bridge: a service the person added to this agent gets its key in the environment (never in argv).
+    // Nothing for a Linux pane, and nothing while the Labs switch is off.
+    if linux.is_none() {
+        own_env.extend(crate::model_bridge::launch_env(profile.id()));
+    }
     let account_env = compose_pane_env(account_env, own_env, &pane_id, guard_env);
     // An agent that serves its session over a local API is told where (the chat view reads it from there).
     let api_args = profile.prepare_session_api(&pane_id, &user_args);

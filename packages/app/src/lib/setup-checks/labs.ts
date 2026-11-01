@@ -9,6 +9,7 @@ const LABEL: Record<string, string> = {
   potato_sandbox_enabled: "Fish's computer",
   acp_chat_enabled: 'Chat',
   desk_enabled: 'Desk',
+  model_bridge_enabled: 'Model Bridge',
 };
 
 export function checkLabs(ctx: SetupCheckContext): CheckRow[] {
