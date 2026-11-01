@@ -62,6 +62,9 @@ export function Sidebar({
   potato,
   potatoOpen = false,
   onOpenPotato,
+  desk,
+  deskOpen = false,
+  onOpenDesk,
   onOpenToSide,
   onPaneAction,
   ship = shipApi,
@@ -101,6 +104,11 @@ export function Sidebar({
   /** The Potato Bot page is the view on screen: its row is the active one. */
   potatoOpen?: boolean;
   onOpenPotato?: () => void;
+  /** My computers (Labs). Absent, or `enabled` false: no row. */
+  desk?: { enabled: boolean } | null;
+  /** The My computers page is the view on screen: its row is the active one. */
+  deskOpen?: boolean;
+  onOpenDesk?: () => void;
   ship?: ShipApi;
   /** Chat sessions (ACP): which agents can run as a chat, and starting one. Replaceable in tests. */
   acp?: AcpChatApi;
@@ -235,7 +243,7 @@ export function Sidebar({
   const row = (p: Pane, awayFrom?: Pane) => {
     const id = p.info.id;
     const since = c.statusSince.get(id);
-    const active = c.selectedId === id && !c.spawn && !openCompanionId && !potatoOpen;
+    const active = c.selectedId === id && !c.spawn && !openCompanionId && !potatoOpen && !deskOpen;
     const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
     const detail =
       activityText(p.status, c.activities?.[id]) ??
@@ -455,6 +463,21 @@ export function Sidebar({
             {potato.unread > 0 && <span className="ck-count">{potato.unread}</span>}
           </button>
         )}
+        {desk?.enabled && onOpenDesk && (
+          <button
+            type="button"
+            className={`ck-row ck-row--flat${deskOpen ? ' is-active' : ''}`}
+            aria-current={deskOpen ? 'true' : undefined}
+            onClick={onOpenDesk}
+          >
+            <span className="ck-row-glyph ck-row-glyph--icon">
+              <IconGlobe />
+            </span>
+            <span className="ck-row-main">
+              <span className="ck-row-title">My computers</span>
+            </span>
+          </button>
+        )}
         {companions &&
           (companions.length === 0
             ? onNewCompanion && <MakeCompanionRow onMake={onNewCompanion} />
@@ -468,7 +491,7 @@ export function Sidebar({
               )))}
         <button
           type="button"
-          className={`ck-row ck-row--flat${c.selectedId === null && !c.spawn && !openCompanionId && !potatoOpen && !newAgentOpen ? ' is-active' : ''}`}
+          className={`ck-row ck-row--flat${c.selectedId === null && !c.spawn && !openCompanionId && !potatoOpen && !deskOpen && !newAgentOpen ? ' is-active' : ''}`}
           onClick={() => {
             c.select(null);
             onOpenInbox?.();
