@@ -161,6 +161,45 @@ pub struct PotatoState {
     pub bots: Vec<BotView>,
 }
 
+/// Who a message for a brain is from. A routine is trusted like the person at this computer, but it is
+/// marked as a routine in the thread and to the brain.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Origin<'a> {
+    Person,
+    Routine { title: &'a str, context: Option<&'a str> },
+}
+
+impl<'a> Origin<'a> {
+    /// The saved line: the person's own words, or the routine's name and prompt.
+    fn message(self, at: i64, text: &str) -> Message {
+        match self {
+            Origin::Person => Message::new(at, FromKind::You, None, MsgKind::Text, text),
+            Origin::Routine { title, .. } => Message::new(at, FromKind::Note, Some("routine"), MsgKind::Text, &format!("Routine: {title}\n\n{text}")),
+        }
+    }
+
+    fn from_id(self) -> &'static str {
+        match self {
+            Origin::Person => "owner",
+            Origin::Routine { .. } => "routine",
+        }
+    }
+
+    fn from_name(self) -> &'static str {
+        match self {
+            Origin::Person => "you",
+            Origin::Routine { .. } => "routine",
+        }
+    }
+
+    fn context(self) -> Option<&'a str> {
+        match self {
+            Origin::Person => None,
+            Origin::Routine { context, .. } => context,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendOutcome {
@@ -598,6 +637,12 @@ impl Service {
 
     /// One message from the person at this computer.
     pub fn send(&self, bot: &str, text: &str) -> Result<SendOutcome> {
+        self.send_as(bot, text, Origin::Person)
+    }
+
+    /// A message for a bot's brain, from the person (`Origin::Person`) or from a due routine (`Origin::Routine`).
+    /// Both are trusted as the owner at this computer; the routine's late note travels as the item's `context`.
+    pub(super) fn send_as(&self, bot: &str, text: &str, origin: Origin<'_>) -> Result<SendOutcome> {
         self.require_bot(bot)?;
         let now = self.host.now_ms();
         let settings = self.settings_for(bot, &store::load_settings(&self.root)?);
@@ -636,7 +681,7 @@ impl Service {
             Decision::Drop(rules::Why::RateLimited) => return Err(err("POTATO_RATE", "That is too fast. Wait a moment, then try again.")),
             Decision::Drop(rules::Why::OverLimit) => {
                 drop(g);
-                let mine = Message::new(now, FromKind::You, None, MsgKind::Text, text);
+                let mine = origin.message(now, text);
                 let saved = self.save(bot, &conversation, mine)?;
                 self.note(bot, &format!("{name} has used today's limit ({}). Raise it in Settings or wait until tomorrow.", cost::dollars(settings.daily_limit_cents)));
                 self.host.changed(bot);
@@ -645,7 +690,7 @@ impl Service {
             Decision::Drop(_) | Decision::Pending => return Err(err("POTATO_REFUSED", "That message was not sent.")),
         };
 
-        let mine = Message::new(now, FromKind::You, None, MsgKind::Text, text);
+        let mine = origin.message(now, text);
         let saved = self.save(bot, &conversation, mine)?;
         let sent_text = crate::redact::text(&store::clean_text(text, self.home_of(bot).as_deref())).into_inner();
 
@@ -677,11 +722,11 @@ impl Service {
             id: &saved.id,
             conversation_id: &conversation,
             surface: "app",
-            from_id: "owner",
-            from_name: "you",
+            from_id: origin.from_id(),
+            from_name: origin.from_name(),
             trust,
             text: &sent_text,
-            context: None,
+            context: origin.context(),
             tools,
         });
         let item = protocol::with_capabilities(item, self.sandbox_offered());

@@ -686,6 +686,12 @@ pub fn run() {
             commands::potato_sandbox_set_idle,
             commands::potato_sandbox_linux_ask,
             commands::potato_sandbox_linux_enable,
+            commands::potato_routines_list,
+            commands::potato_routine_create,
+            commands::potato_routine_update,
+            commands::potato_routine_pause,
+            commands::potato_routine_delete,
+            commands::potato_routine_run_now,
         ])
         .setup(|app| {
             // Before the first window: an older version's desktop service worker would serve its UI.

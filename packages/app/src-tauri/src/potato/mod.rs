@@ -17,6 +17,7 @@
 //!   "notify me" per bot); commands in `commands/potato_panel.rs`
 //! - `bot_settings`: a bot's own talk brain, instructions with their history, tool switches, delete and export
 //!   (one file per bot; the Advanced tab's commands are in `commands/potato_bot_settings.rs`)
+//! - `routines`: prompts a bot runs on a schedule (`routines.json`), the 30 s tick that sends the due ones
 //! - `cost`: pricing the tokens the brain reports and judging them against the daily limit
 //! - `log`: the 200-line log ring, every line cleaned
 //! - `helpers`: Start / Change folder / Not now, the caps, and watching a helper until it ends
@@ -51,6 +52,7 @@ pub mod open_work;
 pub mod wire_names;
 pub mod protocol;
 pub mod resource_dirs;
+pub mod routines;
 pub mod rules;
 pub mod sandbox;
 pub mod sandbox_calls;
@@ -86,6 +88,8 @@ mod open_work_tests;
 mod protocol_tests;
 #[cfg(test)]
 mod resource_dirs_tests;
+#[cfg(test)]
+mod routines_tests;
 #[cfg(test)]
 mod rules_tests;
 #[cfg(test)]
