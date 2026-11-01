@@ -429,10 +429,10 @@ fn anyone_may_use_the_sandbox_and_only_the_owner_may_start_a_helper() {
     }
     let others = tool_access(Trust::Others);
     assert!(!others.helpers, "an outside voice can never start a helper");
-    assert!(others.sandbox, "but may use the bot's own computer");
+    assert!(!others.sandbox, "and the computer is never offered to an outside voice (H6b-8)");
 
     let f = Fixture::new("others");
-    for trust in [Trust::OwnerPc, Trust::OwnerRemote, Trust::Others] {
+    for trust in [Trust::OwnerPc, Trust::OwnerRemote] {
         let mut ctx = f.ctx(&format!("bot-{trust:?}").to_lowercase());
         ctx.trust = trust;
         assert!(f.call_as(&ctx, "computer_observe", json!({})).is_ok(), "{trust:?}");
