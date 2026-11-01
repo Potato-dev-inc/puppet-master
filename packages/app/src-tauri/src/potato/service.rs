@@ -32,6 +32,7 @@ use super::auth::{self, Brains};
 use super::cost::{self, Budget};
 use super::env::{self, Brain, HostEnv};
 use super::fallback;
+use super::hold;
 use super::keeper::{Action, Keeper, Phase};
 use super::log::{self, LogRing};
 use super::protocol::{self, ErrorCode, Event, HelperStatus, PauseReason, Trust};
@@ -654,6 +655,7 @@ impl Service {
         let day = self.host.local_day(now);
         let used = cost::day_of(&self.root, &day, bot).map_err(|e| err("POTATO_STORE_INVALID", e))?.cost_nano();
         let over = cost::budget(used, settings.daily_limit_cents) == Budget::Over;
+        let held = hold::is_held(&self.root);
         let text = text.trim();
         let conversation = store::app_conversation(bot);
         let name = self.name_of(bot);
@@ -664,7 +666,7 @@ impl Service {
         let rt = g.bots.entry(bot.to_string()).or_insert_with(BotRt::new);
         let caps = Caps {
             disabled: !self.brains.enabled(),
-            paused: false,
+            paused: held,
             over_limit: over,
             sends_last_minute: Self::rate_ok(rt, now),
         };
@@ -683,6 +685,7 @@ impl Service {
             Decision::Send { trust, tools, .. } => (trust, tools),
             Decision::Drop(rules::Why::Disabled) => return Err(err("POTATO_OFF", "Potato Bot is switched off.")),
             Decision::Drop(rules::Why::Empty) => return Err(err("POTATO_EMPTY", "Write a message first.")),
+            Decision::Drop(rules::Why::Paused) => return Err(err("POTATO_PAUSED", "Bots are paused. Press Start bots again to resume.")),
             Decision::Drop(rules::Why::RateLimited) => return Err(err("POTATO_RATE", "That is too fast. Wait a moment, then try again.")),
             Decision::Drop(rules::Why::OverLimit) => {
                 drop(g);
@@ -766,6 +769,9 @@ impl Service {
     /// "Start again": forgets the crashes and starts.
     pub fn start_bot(&self, bot: &str) -> Result<()> {
         self.require_bot(bot)?;
+        if hold::is_held(&self.root) {
+            return Err(err("POTATO_PAUSED", "Bots are paused. Press Start bots again to resume."));
+        }
         let now = self.host.now_ms();
         let settings = self.settings_for(bot, &store::load_settings(&self.root)?);
         let blocked = self.preflight(&settings);
@@ -793,6 +799,11 @@ impl Service {
         }
         drop(g);
         self.host.changed(bot);
+    }
+
+    /// How many brains are running right now (the "stop everything" sheet counts them).
+    pub fn running_bots(&self) -> usize {
+        self.inner.lock().bots.values().filter(|rt| rt.session.is_some()).count()
     }
 
     /// Stops every brain now: the kill switch, the panic button and the app's exit. Each brain is asked to

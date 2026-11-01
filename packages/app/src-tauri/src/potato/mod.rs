@@ -59,6 +59,7 @@ pub mod wire_names;
 pub mod protocol;
 pub mod resource_dirs;
 pub mod routines;
+pub mod hold;
 pub mod rules;
 pub mod sandbox;
 pub mod sandbox_calls;
@@ -103,6 +104,8 @@ mod protocol_tests;
 mod resource_dirs_tests;
 #[cfg(test)]
 mod routines_tests;
+#[cfg(test)]
+mod hold_tests;
 #[cfg(test)]
 mod rules_tests;
 #[cfg(test)]

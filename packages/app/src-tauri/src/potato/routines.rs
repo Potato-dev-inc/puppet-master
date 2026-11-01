@@ -425,6 +425,7 @@ pub fn run_due(service: &Service, now_ms: i64) -> usize {
         return 0;
     }
     let root = service.root();
+    let held = super::hold::is_held(root);
     let dues = {
         let _files = store::files_lock();
         let mut file = match load_file(root) {
@@ -444,6 +445,10 @@ pub fn run_due(service: &Service, now_ms: i64) -> usize {
         dues
     };
     for due in &dues {
+        if held {
+            service.note(&due.bot, &super::hold::skipped_note(&due.title));
+            continue;
+        }
         let origin = Origin::Routine { title: &due.title, context: due.context.as_deref() };
         if let Err(e) = service.send_as(&due.bot, &due.prompt, origin) {
             tracing::warn!(%e, routine = %due.id, "a routine could not reach its bot");

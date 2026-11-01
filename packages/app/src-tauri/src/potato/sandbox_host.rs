@@ -165,6 +165,14 @@ fn manager_unchecked() -> Arc<Manager> {
     manager
 }
 
+/// "Stop everything": Fish's computer goes to sleep now. Returns whether there was a computer to put to sleep.
+pub fn sleep() -> bool {
+    match MANAGER.get() {
+        Some(manager) => manager.stop().is_ok(),
+        None => false,
+    }
+}
+
 /// The sandbox leaves with the app.
 pub fn stop_on_exit() {
     if let Some(manager) = MANAGER.get() {
