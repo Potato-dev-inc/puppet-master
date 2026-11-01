@@ -207,29 +207,23 @@ export function activityTitle(steps: readonly ToolStep[]): string {
 
 // ---- reply: quote into the composer -----------------------------------------------------------------
 
-/** The window event the Reply button sends. The composer picks it up and puts the quote in its box. */
+/** The window event the Reply button sends. The composer picks it up and puts the quote in its box as "> " lines. */
 export const POTATO_QUOTE_EVENT = 'pm:potato-quote';
 
 export interface PotatoQuoteDetail {
   botId: string;
-  /** The text to quote, already prefixed with "> ". */
-  quote: string;
+  /** The text to quote, as the bot wrote it. The composer adds the "> " marks. */
+  text: string;
 }
 
 const QUOTE_MAX = 600;
 
-/** The text of a message as a "> " quote, long ones cut short, ending in a blank line so the answer starts below it. */
-export function quoteText(text: string): string {
+/** A long message cut short for a quote. */
+export function quoteExcerpt(text: string): string {
   const clean = text.trim();
-  const cut = clean.length > QUOTE_MAX ? `${clean.slice(0, QUOTE_MAX).trimEnd()}…` : clean;
-  return `${cut.split(/\r?\n/).map((line) => `> ${line}`.trimEnd()).join('\n')}\n\n`;
+  return clean.length > QUOTE_MAX ? `${clean.slice(0, QUOTE_MAX).trimEnd()}…` : clean;
 }
 
 export function emitQuote(botId: string, text: string, target: Pick<Window, 'dispatchEvent'> = window): void {
-  target.dispatchEvent(new CustomEvent<PotatoQuoteDetail>(POTATO_QUOTE_EVENT, { detail: { botId, quote: quoteText(text) } }));
-}
-
-/** A draft with a quote put in front of what is already typed. */
-export function withQuote(draft: string, quote: string): string {
-  return `${quote}${draft}`;
+  target.dispatchEvent(new CustomEvent<PotatoQuoteDetail>(POTATO_QUOTE_EVENT, { detail: { botId, text: quoteExcerpt(text) } }));
 }

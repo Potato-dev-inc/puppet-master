@@ -208,7 +208,7 @@ describe('Transcript, hover actions', () => {
   });
 
   it('Reply sends a quote event for this bot', () => {
-    const seen: Array<{ botId: string; quote: string }> = [];
+    const seen: Array<{ botId: string; text: string }> = [];
     const on = (e: Event) => seen.push((e as CustomEvent).detail);
     window.addEventListener(POTATO_QUOTE_EVENT, on);
     try {
@@ -220,22 +220,26 @@ describe('Transcript, hover actions', () => {
     expect(seen).toEqual([{ botId: 'fish', quote: '> line one\n> line two\n\n' }]);
   });
 
-  it('the composer puts the quote in front of what is typed, and ignores another bot', () => {
+  it('the composer puts the quote under what is typed, and ignores another bot', () => {
     const transport = fakePotatoTransport({ bots: [bot()] });
-    act(() => root.render(<Composer bot={bot()} transport={transport} onChanged={() => {}} onNotify={() => {}} />));
+    act(() => root.render(<Composer bot={bot()} transport={transport} onChanged={() => {}} onNotify={() => {}} attach={null} />));
     const field = host.querySelector('textarea')!;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'my answer');
     act(() => {
       field.dispatchEvent(new Event('input', { bubbles: true }));
     });
     act(() => {
-      window.dispatchEvent(new CustomEvent(POTATO_QUOTE_EVENT, { detail: { botId: 'other', quote: '> no\n\n' } }));
+      window.dispatchEvent(new CustomEvent(POTATO_QUOTE_EVENT, { detail: { botId: 'other', text: 'no' } }));
     });
     expect(field.value).toBe('my answer');
     act(() => {
-      window.dispatchEvent(new CustomEvent(POTATO_QUOTE_EVENT, { detail: { botId: 'fish', quote: '> hi\n\n' } }));
+      window.dispatchEvent(new CustomEvent(POTATO_QUOTE_EVENT, { detail: { botId: 'fish', text: 'hi' } }));
     });
-    expect(field.value).toBe('> hi\n\nmy answer');
+    expect(field.value).toBe('my answer
+
+> hi
+
+');
     expect(buttonByText(host, 'Send')).toBeDefined();
   });
 });

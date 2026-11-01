@@ -3,7 +3,7 @@
 // words), the activity title, and the quote text.
 import { describe, expect, it, vi } from 'vitest';
 import type { PotatoMessage } from './potato';
-import { POTATO_QUOTE_EVENT, activityTitle, clockLabel, dayLabel, emitQuote, firstUnreadId, isRawJson, quoteText, sameDay, toolStep, withQuote } from './potato-thread';
+import { POTATO_QUOTE_EVENT, activityTitle, clockLabel, dayLabel, emitQuote, firstUnreadId, isRawJson, quoteExcerpt, sameDay, toolStep } from './potato-thread';
 
 const at = (y: number, mo: number, d: number, h = 12, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime();
 const m = (id: string, kind: 'you' | 'bot' | 'note' = 'bot', text = id): PotatoMessage => ({ id, at: 0, from: { kind }, kind: 'text', text });
@@ -108,20 +108,16 @@ describe('activityTitle', () => {
 });
 
 describe('quote', () => {
-  it('prefixes every line with "> " and ends with a blank line for the answer', () => {
-    expect(quoteText('one\ntwo\n\nthree')).toBe('> one\n> two\n>\n> three\n\n');
-  });
   it('cuts a very long message short', () => {
-    const q = quoteText('x'.repeat(2000));
+    const q = quoteExcerpt('x'.repeat(2000));
     expect(q.length).toBeLessThan(700);
     expect(q).toContain('…');
+    expect(quoteExcerpt('  short  ')).toBe('short');
   });
-  it('puts the quote in front of what is typed', () => {
-    expect(withQuote('hello', '> hi\n\n')).toBe('> hi\n\nhello');
-  });
-  it('sends the quote on a window event with the bot id', () => {
+  it('sends the text on one window event with the bot id', () => {
     const seen = vi.fn();
     emitQuote('fish', 'a line', { dispatchEvent: (e) => (seen(e.type, (e as CustomEvent).detail), true) });
-    expect(seen).toHaveBeenCalledWith(POTATO_QUOTE_EVENT, { botId: 'fish', quote: '> a line\n\n' });
+    expect(seen).toHaveBeenCalledWith('pm:potato-quote', { botId: 'fish', text: 'a line' });
+    expect(POTATO_QUOTE_EVENT).toBe('pm:potato-quote');
   });
 });
