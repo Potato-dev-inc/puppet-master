@@ -5,7 +5,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fakeRoutinesTransport, ROUTINE_COPY, type FakeRoutinesTransport, type RoutineView } from '../../../lib/potato-routines';
-import { RoutinesTab } from './RoutinesTab';
+import { fakeTrashTransport, type FakeTrashTransport } from '../../../lib/potato-trash';
+import { ROUTINE_DELETED_COPY, RoutinesTab } from './RoutinesTab';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -57,9 +58,9 @@ const flush = () =>
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-async function render(transport: FakeRoutinesTransport) {
+async function render(transport: FakeRoutinesTransport, trash: FakeTrashTransport = fakeTrashTransport()) {
   await act(async () => {
-    root.render(<RoutinesTab bot={{ id: 'nimbus', name: 'Nimbus' }} transport={transport} now={NOW} />);
+    root.render(<RoutinesTab bot={{ id: 'nimbus', name: 'Nimbus' }} transport={transport} trash={trash} now={NOW} />);
   });
   await flush();
 }
@@ -129,19 +130,16 @@ describe('Routines tab', () => {
     expect(host.textContent).toContain('Sent to Nimbus.');
   });
 
-  it('Delete asks first: Keep changes nothing, and the second Delete removes the row', async () => {
+  it('Delete removes the row at once, and Undo brings it back from Recently deleted', async () => {
     const transport = fakeRoutinesTransport([weekdays]);
-    await render(transport);
-    await click(button('Delete'));
-    expect(host.textContent).toContain('Delete this routine?');
-    expect(transport.calls.some((c) => c.method === 'remove')).toBe(false);
-    await click(button('Keep it'));
-    expect(rows()).toHaveLength(1);
-    await click(button('Delete'));
+    const trash = fakeTrashTransport();
+    await render(transport, trash);
     await click(button('Delete'));
     expect(transport.calls.find((c) => c.method === 'remove')?.args).toEqual(['r-1']);
     expect(rows()).toHaveLength(0);
-    expect(host.textContent).toContain(ROUTINE_COPY.empty);
+    expect(host.textContent).toContain(ROUTINE_DELETED_COPY);
+    await click(button('Undo'));
+    expect(trash.calls).toEqual([{ method: 'restore', args: ['trash-r-1'] }]);
   });
 
   it('the New routine form sends the values it was filled with, then shows the new row', async () => {

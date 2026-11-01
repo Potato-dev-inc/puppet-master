@@ -660,6 +660,9 @@ pub fn run() {
             commands::companion_feed,
             commands::companion_open_folder,
             commands::potato_state,
+            commands::potato_hold_state,
+            commands::potato_pause_all,
+            commands::potato_resume_all,
             commands::potato_messages,
             commands::potato_send,
             commands::potato_send_files,
@@ -726,6 +729,8 @@ pub fn run() {
             commands::potato_routine_update,
             commands::potato_routine_pause,
             commands::potato_routine_delete,
+            commands::potato_trash_list,
+            commands::potato_trash_restore,
             commands::potato_routine_run_now,
         ])
         .setup(|app| {

@@ -1,5 +1,5 @@
 // My computers (Labs `desk_enabled`, off by default): the Labs switch hook, then the engine wire types and calls.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
@@ -145,4 +145,76 @@ export function deskCommand(cmd: DeskCommand): Promise<DeskSnapshot> {
 /** Every changed snapshot, pushed by the engine. */
 export function onDeskSnapshot(handler: (snapshot: DeskSnapshot) => void): Promise<UnlistenFn> {
   return listen<DeskSnapshot>('desk://snapshot', (event) => handler(event.payload));
+}
+
+// ---- The page's data hook. Starts from the engine's own snapshot, then follows every pushed change.
+
+/** How long the first snapshot may take before the page says it could not start. */
+export const DESK_START_LIMIT_MS = 3000;
+
+export interface DeskView {
+  /** null until the first snapshot arrives. */
+  snapshot: DeskSnapshot | null;
+  /** Plain words, set when the first read failed or took too long. Cleared by `reload`. */
+  loadError: string | null;
+  /** The last command that failed. Cleared by the next command. */
+  actionError: string | null;
+  reload: () => void;
+  /** Sends a command. Resolves true when it worked. */
+  run: (cmd: DeskCommand) => Promise<boolean>;
+}
+
+export function useDesk(): DeskView {
+  const [snapshot, setSnapshot] = useState<DeskSnapshot | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [slow, setSlow] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const newest = useRef(-1);
+
+  const apply = useCallback((next: DeskSnapshot) => {
+    if (next.seq < newest.current) return; // an older snapshot never replaces a newer one
+    newest.current = next.seq;
+    setSnapshot(next);
+    setReadError(null);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let off: UnlistenFn | undefined;
+    setReadError(null);
+    setSlow(false);
+    const timer = setTimeout(() => !disposed && setSlow(true), DESK_START_LIMIT_MS);
+    onDeskSnapshot((s) => !disposed && apply(s))
+      .then((u) => (disposed ? u() : (off = u)))
+      .catch(() => {});
+    deskSnapshot()
+      .then((s) => !disposed && apply(s))
+      .catch((e: unknown) => !disposed && setReadError(String(e)));
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      off?.();
+    };
+  }, [attempt, apply]);
+
+  const run = useCallback(
+    async (cmd: DeskCommand) => {
+      setActionError(null);
+      try {
+        apply(await deskCommand(cmd));
+        return true;
+      } catch (e) {
+        setActionError(String(e));
+        return false;
+      }
+    },
+    [apply],
+  );
+
+  const reload = useCallback(() => setAttempt((n) => n + 1), []);
+
+  const loadError =
+    readError ?? (slow && snapshot === null ? 'Took longer than 3 seconds to start. Try again.' : null);
+  return { snapshot, loadError, actionError, reload, run };
 }

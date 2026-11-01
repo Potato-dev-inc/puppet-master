@@ -60,7 +60,7 @@ describe('the sub-page rows on Settings > Potato Bot', () => {
 
   it('is part of the Potato Bot page', () => {
     const ids = makePotatoRows(fake, undefined, fakeUsageTransport(usage)).map((r) => r.id);
-    expect(ids).toEqual(['potato-bot', 'potato-models', 'potato-key', 'potato-persona', 'potato-limit', 'potato-usage']);
+    expect(ids).toEqual(['potato-bot', 'potato-models', 'potato-recently-deleted', 'potato-key', 'potato-persona', 'potato-limit', 'potato-usage']);
   });
 });
 
