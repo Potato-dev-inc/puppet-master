@@ -4,6 +4,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use std::time::Duration;
+
 use super::fakes_tests::{FakeGuest, Scratch};
 use super::install::*;
 use super::lifecycle::{Lifecycle, Timing};
@@ -238,6 +240,62 @@ fn progress_lines_are_read_strictly() {
 }
 
 #[test]
+fn the_installers_fine_grained_lines_keep_their_numbers_and_their_text() {
+    // apply-recipe.py counts out of 1000 and says what it is doing, with the speed and the time left
+    let line = parse_progress_line("PROGRESS 345/1000 Desktop base: Downloading 120 of 340 MB \u{b7} 4.1 MB/s \u{b7} about 1 min left").unwrap();
+    assert_eq!((line.done, line.total), (345, 1000));
+    assert_eq!(line.text, "Desktop base: Downloading 120 of 340 MB \u{b7} 4.1 MB/s \u{b7} about 1 min left");
+    let line = parse_progress_line("PROGRESS 612/1000 XFCE desktop: Unpacking 11 of 42 \u{b7} libxfce4ui-2-0").unwrap();
+    assert_eq!(line.text, "XFCE desktop: Unpacking 11 of 42 \u{b7} libxfce4ui-2-0");
+    assert_eq!(parse_progress_line("PROGRESS 1000/1000 Everything is installed").unwrap().done, 1000);
+}
+
+#[test]
+fn the_ubuntu_download_shows_time_and_a_bar_that_keeps_moving() {
+    let (start, text) = create_progress(Duration::from_secs(0), None);
+    assert_eq!(start, 0.0);
+    assert_eq!(text, "Downloading Ubuntu (about 340 MB) \u{b7} 0:00");
+    let mut last = 0.0;
+    for secs in [1, 5, 30, 60, 125, 400, 3000] {
+        let (fraction, text) = create_progress(Duration::from_secs(secs), None);
+        assert!(fraction > last && fraction < 0.7, "{secs}: {fraction}");
+        assert!(text.starts_with("Downloading Ubuntu"));
+        last = fraction;
+    }
+    assert!(create_progress(Duration::from_secs(125), None).1.ends_with("2:05"));
+    // once wsl.exe says it is installing, the bar is past the download and keeps creeping
+    let (a, text) = create_progress(Duration::from_secs(150), Some(Duration::from_secs(0)));
+    let (b, _) = create_progress(Duration::from_secs(165), Some(Duration::from_secs(15)));
+    assert!(a >= 0.7 && b > a && b < 1.0, "{a} {b}");
+    assert!(text.starts_with("Unpacking Ubuntu"));
+}
+
+#[test]
+fn the_install_time_wsl_conf_has_no_systemd_and_ships() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("potato-sandbox");
+    let conf = std::fs::read_to_string(root.join("guest").join("desktop").join("wsl-install.conf")).unwrap();
+    assert!(conf.lines().any(|l| l.trim() == "systemd=false"));
+    assert!(!conf.lines().any(|l| l.trim().starts_with("command=")), "no boot hook yet: its script is not installed at this point");
+    let files = GuestFiles::new(&root).list().unwrap();
+    assert!(files.iter().any(|(name, _)| name == "desktop/wsl-install.conf"));
+    // the base recipe leaves out novnc (its dependencies were 60 packages and an extra Node.js) and installs the pages itself
+    let base: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("recipes").join("base.json")).unwrap()).unwrap();
+    let apt: Vec<&str> = base["apt"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
+    assert!(!apt.contains(&"novnc"));
+    assert!(base["post"].to_string().contains("pm-sbx-novnc-lite.sh"));
+    assert!(files.iter().any(|(name, _)| name == "desktop/pm-sbx-novnc-lite.sh"));
+}
+
+#[test]
+fn the_download_step_reports_while_it_waits() {
+    let rig = rig();
+    let (result, progress) = go(&rig, &options(), &AtomicBool::new(false));
+    result.unwrap();
+    let create: Vec<&Progress> = progress.iter().filter(|p| p.step == "create").collect();
+    assert!(create.iter().any(|p| p.detail.as_deref().is_some_and(|d| d.starts_with("Downloading Ubuntu (about 340 MB)"))), "{create:?}");
+}
+
+#[test]
 fn the_plan_and_the_bar() {
     let with_snapshot = plan(&options());
     assert_eq!(with_snapshot.first(), Some(&Step::CheckWsl));
@@ -285,6 +343,7 @@ struct Rig {
     layout: Layout,
     files: GuestFiles,
     lifecycle: Lifecycle,
+    records: Arc<MemoryRecords>,
     _folder: Scratch,
     data: Scratch,
 }
@@ -296,11 +355,11 @@ fn rig() -> Rig {
     let data = Scratch::new("data");
     let layout = Layout::new(&data.0);
     let lifecycle = Lifecycle::new(wsl.clone(), main_name()).with_timing(Timing::instant());
-    Rig { guest, wsl, layout, files: GuestFiles::new(&folder.0), lifecycle, _folder: folder, data }
+    Rig { guest, wsl, layout, files: GuestFiles::new(&folder.0), lifecycle, records: Arc::new(MemoryRecords::default()), _folder: folder, data }
 }
 
 fn go(rig: &Rig, options: &InstallOptions, cancel: &AtomicBool) -> (Result<(), InstallError>, Vec<Progress>) {
-    let env = InstallEnv { wsl: &rig.wsl, layout: &rig.layout, files: &rig.files, lifecycle: &rig.lifecycle };
+    let env = InstallEnv { wsl: &rig.wsl, layout: &rig.layout, files: &rig.files, lifecycle: &rig.lifecycle, records: &*rig.records };
     let mut seen = Vec::new();
     let result = run(&env, options, cancel, &|| 1_000, &mut |p| seen.push(p));
     (result, seen)
@@ -324,8 +383,14 @@ fn a_full_install_runs_the_steps_in_order() {
     assert!(at("/bin/tar -x") < at("apply-recipe.py"));
     assert!(joined[at("apply-recipe.py")].ends_with("--recipe xfce --recipe coding --opt coding.pkg=pnpm --opt coding.languages=python,go"));
     assert!(joined[at("apply-recipe.py")].contains("-u root --exec /usr/bin/python3 -I /usr/local/share/pm-sbx/desktop/apply-recipe.py"));
-    assert!(at("apply-recipe.py") < at("--terminate pm-sbx-main"));
-    assert!(at("--terminate pm-sbx-main") < at("sleep infinity"), "the boot check starts after the restart");
+    // the install runs without systemd: the short wsl.conf goes in and the distro restarts once BEFORE the recipes
+    assert!(at("/bin/tar -x") < at("cp /usr/local/share/pm-sbx/desktop/wsl-install.conf /etc/wsl.conf"));
+    assert!(at("cp /usr/local/share/pm-sbx/desktop/wsl-install.conf /etc/wsl.conf") < at("--terminate pm-sbx-main"));
+    assert!(at("--terminate pm-sbx-main") < at("apply-recipe.py"), "no systemd while the recipes run");
+    assert!(joined[at("wsl-install.conf")].contains("test -e /usr/local/sbin/pm-sbx-boot.sh || cp "), "never over the real wsl.conf of a set up that is carried on");
+    let apply_at = at("apply-recipe.py");
+    let restart = joined.iter().enumerate().position(|(i, c)| i > apply_at && c.contains("--terminate pm-sbx-main")).expect("a restart after the recipes");
+    assert!(restart < at("sleep infinity"), "the boot check starts after the restart, which makes the real wsl.conf take effect");
     assert!(at("sleep infinity") < at("--export pm-sbx-main"));
 
     // the guest files went over stdin as a tar, and only that call carried them
@@ -496,7 +561,7 @@ fn a_cancel_before_the_start_does_nothing() {
 fn a_cancel_half_way_stops_at_the_next_step_and_takes_the_new_distro_away() {
     let rig = rig();
     let cancel = AtomicBool::new(false);
-    let env = InstallEnv { wsl: &rig.wsl, layout: &rig.layout, files: &rig.files, lifecycle: &rig.lifecycle };
+    let env = InstallEnv { wsl: &rig.wsl, layout: &rig.layout, files: &rig.files, lifecycle: &rig.lifecycle, records: &*rig.records };
     let result = run(&env, &options(), &cancel, &|| 1_000, &mut |p| {
         if p.step == "copy" {
             cancel.store(true, Ordering::SeqCst);

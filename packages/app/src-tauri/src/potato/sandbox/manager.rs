@@ -75,7 +75,7 @@ pub struct ErrorView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxView {
-    /// `not_installed`, `installing`, `stopped`, `starting`, `running` or `failed`.
+    /// `not_installed`, `installing`, `incomplete` (set up did not finish), `stopped`, `starting`, `running` or `failed`.
     pub state: &'static str,
     /// Why it failed or cannot be used, in plain English.
     pub reason: Option<String>,
@@ -88,12 +88,15 @@ pub struct SandboxView {
     /// There is a saved reset point (`Reset` goes back to it).
     pub has_reset_point: bool,
     pub reset_point_bytes: Option<u64>,
+    /// State `incomplete` and the answers it started with are known, so "Continue setup" works (else only "Start over").
+    pub can_continue: bool,
     pub install: InstallView,
 }
 
 fn state_word(state: State) -> &'static str {
     match state {
         State::NotInstalled => "not_installed",
+        State::Incomplete => "incomplete",
         State::Stopped => "stopped",
         State::Starting => "starting",
         State::Running => "running",
@@ -377,6 +380,7 @@ impl Manager {
             }
             None => (None, false, None),
         };
+        let install_idle = install.state != "running";
         let state = if install.state == "running" { "installing" } else { state_word(status.state) };
         Ok(SandboxView {
             state,
@@ -387,6 +391,7 @@ impl Manager {
             disk_bytes,
             has_reset_point,
             reset_point_bytes,
+            can_continue: status.state == State::Incomplete && install_idle && self.sandbox.resume_options().is_some(),
             install,
         })
     }
@@ -403,6 +408,27 @@ impl Manager {
     /// (and can read `status()` any time).
     pub fn start_install(self: &Arc<Self>, answers: &WizardAnswers) -> SbxResult<()> {
         let options = self.prepare_install(answers)?;
+        self.spawn_install(options)
+    }
+
+    /// "Continue setup": runs the steps again on the distro whose set up was cut off, with the answers it started with.
+    pub fn continue_install(self: &Arc<Self>) -> SbxResult<()> {
+        if !self.sandbox.linux_feature() {
+            return Err(InstallError::NeedsWindowsFeature.into());
+        }
+        if self.sandbox.status()?.state != State::Incomplete {
+            return Err(SandboxError::new("SANDBOX_NOT_UNFINISHED", "There is no unfinished set up to carry on."));
+        }
+        let mut options = self
+            .sandbox
+            .resume_options()
+            .ok_or_else(|| SandboxError::new("SANDBOX_CANNOT_CONTINUE", "This set up cannot be carried on. Start over instead."))?;
+        options.resume = true;
+        options.validate()?;
+        self.spawn_install(options)
+    }
+
+    fn spawn_install(self: &Arc<Self>, options: InstallOptions) -> SbxResult<()> {
         let lane = self.claim()?;
         self.inner.lock().install = InstallView::running();
         self.events.install_progress(&InstallView::running());

@@ -35,6 +35,14 @@ export const COMPUTER_COPY = {
   setUpButton: 'Set up the computer',
   settingUp: (percent: number) => `Setting up the computer… ${Math.round(percent)}%`,
   showSetUp: 'Show',
+  unfinishedTitle: "Setup didn't finish",
+  unfinishedBody: 'Setting up the computer was cut off, for example because the app was closed. You can pick it up where it stopped, or start over.',
+  unfinishedBodyNoResume: 'Setting up the computer was cut off, and it cannot be picked up from here. Start over to set it up again.',
+  continueSetUp: 'Continue setup',
+  continuing: 'Continuing…',
+  startOver: 'Start over',
+  startOverTitle: 'Start over?',
+  startOverBody: 'The unfinished computer is deleted and set up begins again from the start.',
   labsOff: (name: string) => `${name} has no computer here. Turn on Sandbox in Settings > General > Labs.`,
 };
 
