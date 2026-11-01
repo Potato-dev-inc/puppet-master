@@ -165,11 +165,22 @@ fn manager_unchecked() -> Arc<Manager> {
     manager
 }
 
-/// "Stop everything": Fish's computer goes to sleep now. Returns whether there was a computer to put to sleep.
+/// "Stop everything": Fish's computer goes to sleep now if it was up. Returns whether it was up and is now asleep.
 pub fn sleep() -> bool {
     match MANAGER.get() {
-        Some(manager) => manager.stop().is_ok(),
+        Some(manager) => {
+            let state = manager.status().ok().map(|view| view.state);
+            sleep_if_up(state, || manager.stop().is_ok())
+        }
         None => false,
+    }
+}
+
+/// Stops the computer only when it was running or starting. Returns whether it was up (only then is it "asleep").
+pub fn sleep_if_up(state: Option<&str>, stop: impl FnOnce() -> bool) -> bool {
+    match state {
+        Some("running") | Some("starting") => stop(),
+        _ => false,
     }
 }
 

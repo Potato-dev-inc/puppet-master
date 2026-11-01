@@ -7,6 +7,7 @@ use std::time::Duration;
 use chrono::{Local, NaiveDateTime, TimeZone};
 
 use super::hold::{self, Hold};
+use super::sandbox_host;
 use super::routines::{create, run_due, Schedule, RoutineInput};
 use super::service_tests::Rig;
 
@@ -21,6 +22,18 @@ fn morning() -> RoutineInput {
 
 fn held() -> Hold {
     Hold { held: true, since_ms: Some(5), bots_paused: 2, routines_held: 4, computer_asleep: true }
+}
+
+#[test]
+fn the_computer_counts_as_asleep_only_when_it_was_up() {
+    let mut stops = 0;
+    assert!(!sandbox_host::sleep_if_up(Some("stopped"), || { stops += 1; true }), "stopped: not asleep");
+    assert!(!sandbox_host::sleep_if_up(Some("not_installed"), || { stops += 1; true }), "not installed: not asleep");
+    assert!(!sandbox_host::sleep_if_up(None, || { stops += 1; true }), "unknown: not asleep");
+    assert_eq!(stops, 0, "nothing was stopped");
+    assert!(sandbox_host::sleep_if_up(Some("running"), || { stops += 1; true }), "running: asleep");
+    assert!(sandbox_host::sleep_if_up(Some("starting"), || { stops += 1; true }), "starting: asleep");
+    assert_eq!(stops, 2);
 }
 
 #[test]
