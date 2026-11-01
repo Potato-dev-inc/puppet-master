@@ -930,3 +930,38 @@ fn brain_started_turns_stop_at_twenty_a_day_and_person_messages_do_not_count() {
     rig.advance(86_400_000);
     assert!(routine(21).unwrap().delivered);
 }
+
+#[test]
+fn a_brain_that_dies_with_sends_in_flight_gives_their_holds_back() {
+    let rig = Rig::ready("crash-hold");
+    near_the_cap(&rig);
+    for i in 0..3 {
+        assert!(rig.svc.send("nimbus", &format!("in flight {i}")).unwrap().delivered);
+    }
+    // the brain takes the three (they are handed over, not answered), then dies
+    let _ = rig.inbox(0);
+    rig.child(0).exit_with(1);
+    rig.advance(100);
+    rig.svc.tick();
+    // the three are reported as lost, and their holds are gone: nine sends fit again, the tenth would pass 50 cents
+    rig.advance(100);
+    let accepted = (0..10).filter(|i| rig.svc.send("nimbus", &format!("after {i}")).is_ok_and(|o| o.delivered)).count();
+    assert_eq!(accepted, 9, "{:?}", rig.notes());
+}
+
+#[test]
+fn a_fallback_switch_releases_the_hold_and_takes_it_again_once() {
+    let rig = limited_rig("fallback-hold");
+    near_the_cap(&rig);
+    let first = rig.svc.send("nimbus", "needs a brain").unwrap();
+    assert!(first.delivered);
+    // the talk brain fetches it and fails with a provider error: the message moves to the next brain
+    let _ = rig.inbox(0);
+    rig.post(vec![json!({"v":1,"type":"error","code":"PROVIDER_DOWN","inReplyTo": first.id})]);
+    assert!(rig.notes().iter().any(|n| n.contains("Trying your next fallback")), "{:?}", rig.notes());
+    rig.advance(100);
+    rig.svc.tick();
+    // the one hold is back once (not twice, not zero): the room left is nine sends less one, eight accepted
+    let accepted = (0..10).filter(|i| rig.svc.send("nimbus", &format!("after {i}")).is_ok_and(|o| o.delivered)).count();
+    assert_eq!(accepted, 8, "{:?}", rig.notes());
+}

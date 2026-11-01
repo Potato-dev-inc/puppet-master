@@ -286,6 +286,8 @@ struct BotRt {
     reserved: VecDeque<Reservation>,
     /// The real cost of the newest turns; the next estimate is their average (the floor when there is none).
     recent_turn_nano: VecDeque<u64>,
+    /// The local day the holds in `reserved` belong to; a new day clears them.
+    reserved_day: String,
 }
 
 /// One accepted send's hold on the day's limit.
@@ -330,6 +332,7 @@ impl BotRt {
             chain_step: 0,
             reserved: VecDeque::new(),
             recent_turn_nano: VecDeque::new(),
+            reserved_day: String::new(),
         }
     }
 }
@@ -1232,10 +1235,15 @@ impl Service {
                     in_flight: HashMap::new(),
                     send_index: HashMap::new(),
                 };
+                // A send that comes back from a dead session holds its place on the limit again, once.
+                let estimate = rt.reserve_estimate();
                 for item in rt.queued.drain(..) {
                     if let (Some(id), Some(conversation)) = (item.get("id").and_then(Value::as_str), item.get("conversationId").and_then(Value::as_str)) {
                         session.send_index.insert(id.to_string(), inbox.end());
                         session.in_flight.insert(id.to_string(), conversation.to_string());
+                        if !rt.reserved.iter().any(|r| r.id == id) {
+                            rt.reserved.push_back(Reservation { id: id.to_string(), nano: estimate });
+                        }
                     }
                     inbox.push(item);
                 }
@@ -1260,6 +1268,9 @@ impl Service {
         let now = self.host.now_ms();
         let Some(rt) = g.bots.get_mut(bot) else { return };
         let Some(session) = rt.session.take() else { return };
+        // Whatever the dead session had in flight is not charged by it: its holds go back. A requeued send holds
+        // its place again when it is handed to the next session.
+        rt.reserved.retain(|r| !session.in_flight.contains_key(&r.id));
         self.brains.unregister(bot);
         let _ = &session.secrets;
         rt.typing.clear();
@@ -1271,6 +1282,9 @@ impl Service {
                 // Never handed to the brain: it goes to the next one.
                 if let Some(item) = session.inbox.items.get((index.saturating_sub(session.inbox.base)) as usize) {
                     rt.queued.push(item.clone());
+                    if !rt.reserved.iter().any(|r| &r.id == id) {
+                        rt.reserved.push_back(Reservation { id: id.clone(), nano: rt.reserve_estimate() });
+                    }
                 }
             } else {
                 lost.push((id.clone(), conversation.clone()));
@@ -1299,6 +1313,15 @@ impl Service {
         let bots: Vec<String> = self.inner.lock().bots.keys().cloned().collect();
         for bot in bots {
             let mut g = self.inner.lock();
+            // A new day: yesterday's holds are not for today's limit.
+            if let Some(rt) = g.bots.get_mut(&bot) {
+                if rt.reserved_day.is_empty() {
+                    rt.reserved_day = day.clone();
+                } else if rt.reserved_day != day {
+                    rt.reserved.clear();
+                    rt.reserved_day = day.clone();
+                }
+            }
             let exited = g.bots.get_mut(&bot).and_then(|rt| rt.session.as_mut()).and_then(|s| s.child.try_wait().map(|code| (code, s.shutdown_at.is_some())));
             if let Some((code, asked)) = exited {
                 if !asked {
@@ -1588,7 +1611,11 @@ impl Service {
         session.in_flight.remove(id);
         session.send_index.remove(id);
         session.child.kill_tree();
+        // The hold goes and comes back once: the message waits for the next brain, so it keeps its place on the limit.
+        rt.reserved.retain(|r| r.id != id);
         rt.queued.push(item);
+        let estimate = rt.reserve_estimate();
+        rt.reserved.push_back(Reservation { id: id.to_string(), nano: estimate });
         rt.chain_step = next;
         rt.last_error = None;
         rt.keeper.touch(now);
