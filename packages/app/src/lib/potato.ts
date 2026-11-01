@@ -60,6 +60,8 @@ export interface PotatoSettings {
   dailyLimitCents: number;
   /** Actions one bot may take on its sandbox computer in a day (default 500). The settings page for it comes with the sandbox settings. */
   sandboxActionsPerDay?: number;
+  /** The brains to try, in order, when the talk brain is out of balance or not answering. Never `agents`; empty: none. */
+  fallbacks?: BrainKind[];
 }
 
 export interface PotatoState {

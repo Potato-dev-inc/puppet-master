@@ -2,114 +2,22 @@
 // switch (the same flag as General > Labs). Everything else is saved by Tauri commands in
 // `<app data>/potato/settings.json`, never in the settings file the phone can patch. The DeepSeek key goes to the
 // system keychain through the same key field as the other keys; this page only ever sees "set" and the last 4.
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { brainLabel, dollars, plainError, tauriPotatoTransport, type BrainKind, type PotatoSettings, type PotatoTransport, type TalkPersona } from '../../../lib/potato';
+import { useState } from 'react';
+import { dollars, plainError, tauriPotatoTransport, type PotatoTransport, type TalkPersona } from '../../../lib/potato';
+import { tauriUsageTransport, type PotatoUsageTransport } from '../../../lib/potato-usage';
 import { secretsApi, type SecretsApi } from '../../../lib/secrets';
 import { ApiKeyField } from '../ApiKeyField';
 import { NumberControl } from '../controls';
 import type { RowDef } from '../model';
 import { Btn, FieldSelect, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
 import { makeSandboxRows } from '../sandbox/SandboxRows';
+import { makePotatoSubPageRows } from '../potato/PotatoSubPages';
+import { usePotatoSettings } from '../potato/usePotatoSettings';
 
 /** The limits of the daily limit, in cents ($0.05 to $20). Rust clamps again. */
 export const MIN_LIMIT_CENTS = 5;
 export const MAX_LIMIT_CENTS = 2000;
-
-export const BRAIN_NOTE: Record<BrainKind, string> = {
-  deepseek: 'Pays DeepSeek per message. Usually cents a day.',
-  go: 'Uses your OpenCode Go sign-in.',
-  agents: 'No extra cost.',
-};
-const BRAINS: BrainKind[] = ['deepseek', 'go', 'agents'];
 const PERSONAS: TalkPersona[] = ['fish', 'potato'];
-
-// ---- the saved settings, read once and shared by the rows -------------------------------------------------------
-
-interface Store {
-  value: PotatoSettings | null;
-  failed: string | null;
-  listeners: Set<() => void>;
-}
-const stores = new WeakMap<PotatoTransport, Store>();
-
-function storeOf(transport: PotatoTransport): Store {
-  let store = stores.get(transport);
-  if (!store) {
-    store = { value: null, failed: null, listeners: new Set() };
-    stores.set(transport, store);
-  }
-  return store;
-}
-
-function usePotatoSettings(transport: PotatoTransport) {
-  const store = storeOf(transport);
-  const value = useSyncExternalStore(
-    (listener) => {
-      store.listeners.add(listener);
-      return () => store.listeners.delete(listener);
-    },
-    () => store.value,
-  );
-  const tell = () => store.listeners.forEach((l) => l());
-  useEffect(() => {
-    let live = true;
-    transport
-      .settingsGet()
-      .then((found) => {
-        if (!live) return;
-        store.value = found;
-        store.failed = null;
-        tell();
-      })
-      .catch((error) => {
-        if (!live) return;
-        store.failed = plainError(error, 'Could not read the Potato Bot settings.');
-        tell();
-      });
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transport]);
-  const save = useCallback(
-    async (change: Partial<PotatoSettings>) => {
-      const base = store.value ?? (await transport.settingsGet());
-      const saved = await transport.settingsSet({ ...base, ...change });
-      store.value = saved;
-      store.failed = null;
-      store.listeners.forEach((l) => l());
-      return saved;
-    },
-    [store, transport],
-  );
-  return { settings: value, failed: store.failed, save };
-}
-
-// ---- the rows -------------------------------------------------------------------------------------------------------
-
-function BrainRow({ transport, onSaved, setError }: { transport: PotatoTransport; onSaved: () => void; setError: (m: string | null) => void }) {
-  const { settings, save } = usePotatoSettings(transport);
-  const brain = settings?.brain ?? 'deepseek';
-  return (
-    <SettingRow label="Talk brain" description={BRAIN_NOTE[brain]}>
-      <FieldSelect
-        aria-label="Talk brain"
-        value={brain}
-        disabled={!settings}
-        onChange={(e) => {
-          setError(null);
-          save({ brain: e.target.value as BrainKind }).then(onSaved, (error) => setError(plainError(error, 'Could not save that.')));
-        }}
-      >
-        {BRAINS.map((kind) => (
-          <option key={kind} value={kind}>
-            {brainLabel(kind)}
-          </option>
-        ))}
-      </FieldSelect>
-    </SettingRow>
-  );
-}
 
 function KeyRow({ transport, api }: { transport: PotatoTransport; api: SecretsApi }) {
   const { settings } = usePotatoSettings(transport);
@@ -206,7 +114,8 @@ function LimitRow({ transport, onSaved, setError }: { transport: PotatoTransport
 
 const KEYWORDS = 'potato fish bot chat friend brain deepseek opencode go agents persona limit budget cost';
 
-export function makePotatoRows(transport: PotatoTransport = tauriPotatoTransport, api: SecretsApi = secretsApi): RowDef[] {
+export function makePotatoRows(transport: PotatoTransport = tauriPotatoTransport, api: SecretsApi = secretsApi, usage: PotatoUsageTransport = tauriUsageTransport): RowDef[] {
+  const [models, usageRow] = makePotatoSubPageRows(transport, usage);
   return [
     {
       id: 'potato-bot',
@@ -223,14 +132,7 @@ export function makePotatoRows(transport: PotatoTransport = tauriPotatoTransport
         />
       ),
     },
-    {
-      id: 'potato-brain',
-      label: 'Talk brain',
-      hint: 'Which AI answers when you chat: DeepSeek, OpenCode Go, or your own agents.',
-      keywords: KEYWORDS,
-      group: 'Potato Bot',
-      render: (env) => <BrainRow transport={transport} onSaved={env.markSaved} setError={env.setError} />,
-    },
+    models,
     {
       id: 'potato-key',
       label: 'DeepSeek key',
@@ -255,6 +157,7 @@ export function makePotatoRows(transport: PotatoTransport = tauriPotatoTransport
       group: 'Potato Bot',
       render: (env) => <LimitRow transport={transport} onSaved={env.markSaved} setError={env.setError} />,
     },
+    usageRow,
   ];
 }
 

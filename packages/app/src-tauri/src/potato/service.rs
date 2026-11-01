@@ -31,6 +31,7 @@ use serde_json::Value;
 use super::auth::{self, Brains};
 use super::cost::{self, Budget};
 use super::env::{self, Brain, HostEnv};
+use super::fallback;
 use super::keeper::{Action, Keeper, Phase};
 use super::log::LogRing;
 use super::protocol::{self, ErrorCode, Event, HelperStatus, PauseReason, Trust};
@@ -40,6 +41,7 @@ use super::sidecar::{Child, Launcher, LineSink, NodeState, SpawnSpec};
 use super::wire_names;
 use super::bot_settings::{self, BotOptions, BotSettings, ToolSwitches};
 use super::store::{self, BrainKind, FromKind, Message, MsgKind, StoreError};
+use super::usage::{self, UsageReport};
 use crate::secrets::{self, SecretMask};
 
 pub const SECRET_DEEPSEEK: &str = "deepseek_api_key";
@@ -273,6 +275,8 @@ struct BotRt {
     /// The day on which the bot was paused for its limit.
     paused_for_limit: Option<String>,
     last_surface: String,
+    /// Where the run is in its brain chain (`fallback.rs`): 0 is the talk brain. Reset when a new run starts.
+    chain_step: usize,
 }
 
 impl BotRt {
@@ -291,6 +295,7 @@ impl BotRt {
             turn_trust: HashMap::new(),
             paused_for_limit: None,
             last_surface: "app".into(),
+            chain_step: 0,
         }
     }
 }
@@ -716,6 +721,10 @@ impl Service {
             return Ok(SendOutcome { id: saved.id, state: BrainState::Stopped, delivered: false });
         }
         rt.blocked = None;
+        if rt.session.is_none() {
+            // A new run starts on the talk brain; a fallback only lasts for the run it was needed in.
+            rt.chain_step = 0;
+        }
         rt.sends_ms.push_back(now);
         rt.turn_trust.insert(conversation.clone(), trust);
         let item = protocol::send_item(&protocol::SendFacts {
@@ -1092,7 +1101,10 @@ impl Service {
         let script = super::sidecar::script_path(resources.as_deref()).ok_or(Some(Blocked::MissingProgram))?;
         let url = self.host.bridge_url().ok_or(Some(Blocked::NoBridge))?;
         let key = self.host.secret(SECRET_DEEPSEEK).filter(|k| !k.trim().is_empty());
-        if settings.brain == BrainKind::Deepseek && key.is_none() {
+        let chain = fallback::chain(settings.brain, &settings.fallbacks, key.is_some());
+        rt.chain_step = rt.chain_step.min(chain.len() - 1);
+        let kind = chain[rt.chain_step];
+        if kind == BrainKind::Deepseek && key.is_none() {
             return Err(Some(Blocked::NeedsKey));
         }
         let pack = store::load_bots(&self.root).map_err(fail)?.into_iter().find(|b| b.id == bot).map(|b| b.talk_persona).ok_or(None::<Blocked>)?;
@@ -1109,7 +1121,7 @@ impl Service {
         let state_dir = store::state_dir(&self.root, bot).map_err(fail)?;
         let share_dir = store::share_dir(&self.root, bot).map_err(fail)?;
         let brain_env = env::build(&env::Inputs {
-            brain: if settings.brain == BrainKind::Go { Brain::Go } else { Brain::DeepSeek },
+            brain: if kind == BrainKind::Go { Brain::Go } else { Brain::DeepSeek },
             pack: &pack,
             model: None,
             vault: &vault,
@@ -1372,6 +1384,14 @@ impl Service {
             Event::HelperRequest { request_id, conversation_id, task, project } => self.on_helper_request(bot, now, request_id, conversation_id, task, project),
             Event::SandboxCall { call_id, conversation_id, tool, args, image } => self.on_sandbox_call(bot, now, call_id, conversation_id, tool, args, image),
             Event::Error { code, conversation_id, in_reply_to } => {
+                if self.fall_back(bot, now, code, in_reply_to.as_deref()) {
+                    let name = self.name_of(bot);
+                    let why = if code == ErrorCode::ProviderLimit { "model is busy or out of balance" } else { "model is not answering" };
+                    let line = format!("{name}'s {why}. Trying your next fallback.");
+                    let conversation = conversation_id.filter(|c| self.own_conversation(bot, c)).unwrap_or_else(|| store::app_conversation(bot));
+                    let _ = self.save(bot, &conversation, Message::new(now, FromKind::Note, None, MsgKind::Note, &line));
+                    return true;
+                }
                 let name = self.name_of(bot);
                 let line = match code {
                     ErrorCode::ProviderAuth => format!("{name} could not use the model key. Check it in Settings."),
@@ -1424,6 +1444,45 @@ impl Service {
         } else if charged.warn_now {
             self.note(bot, &format!("{name} has used 80% of today's limit ({limit})."));
         }
+    }
+
+    /// A provider error on a message that has a fallback brain left: the brain that failed is stopped, the message it
+    /// failed on goes back to the queue, and the next brain starts for it (`fallback.rs` decides the brain). Returns
+    /// true when it switched; false leaves the error to be shown as before.
+    fn fall_back(&self, bot: &str, now: i64, code: ErrorCode, in_reply_to: Option<&str>) -> bool {
+        let Some(id) = in_reply_to else { return false };
+        let Ok(settings) = store::load_settings(&self.root) else { return false };
+        let chain = fallback::chain(settings.brain, &settings.fallbacks, self.has_key());
+        let mut g = self.inner.lock();
+        let Some(rt) = g.bots.get_mut(bot) else { return false };
+        let step = rt.chain_step.min(chain.len() - 1);
+        let Some(next) = fallback::next_step(chain.len(), step, code) else { return false };
+        let Some(session) = rt.session.as_mut() else { return false };
+        if session.shutdown_at.is_some() || !session.in_flight.contains_key(id) {
+            return false;
+        }
+        // The message is needed again: it must still be in the inbox this brain was given.
+        let Some(&index) = session.send_index.get(id) else { return false };
+        let Some(offset) = index.checked_sub(session.inbox.base).map(|o| o as usize) else { return false };
+        let Some(item) = session.inbox.items.get(offset).cloned() else { return false };
+        session.in_flight.remove(id);
+        session.send_index.remove(id);
+        session.child.kill_tree();
+        rt.queued.push(item);
+        rt.chain_step = next;
+        rt.last_error = None;
+        rt.keeper.touch(now);
+        // Asked to leave (not a crash): the keeper still wants a run, so the next brain starts at once.
+        self.end_session(&mut g, bot, true);
+        true
+    }
+
+    /// Settings > Potato Bot > Usage: the last 30 days per bot and in total, read only.
+    pub fn usage_report(&self) -> Result<UsageReport> {
+        let settings = store::load_settings(&self.root)?;
+        let today = self.host.local_day(self.host.now_ms());
+        let bots: Vec<(String, String)> = store::load_bots(&self.root)?.into_iter().map(|b| (b.id.clone(), self.name_of(&b.id))).collect();
+        usage::build(&self.root, &today, &bots, settings.daily_limit_cents, settings.sandbox_actions_per_day).map_err(|e| err("POTATO_STORE_INVALID", e))
     }
 
     /// A `sandbox_call`: checked and run on another thread, answered with a `sandbox_result` in the inbox. The

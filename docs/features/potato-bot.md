@@ -10,16 +10,17 @@ is off there is no sidebar row, no palette entry, no page and no Settings sectio
 ## How to set it up
 
 1. **Turn it on.** Settings > General > Labs > Potato Bot. A new section, **Potato Bot**, appears in Settings.
-2. **Pick the talk brain** (Settings > Potato Bot > Talk brain):
+2. **Pick the talk brain** (Settings > Potato Bot > Models and fallbacks, the first row):
    - **DeepSeek** (the default): pays DeepSeek per message, usually cents a day. It needs your DeepSeek key.
    - **OpenCode Go**: uses your OpenCode Go sign-in.
    - **Through my agents**: no extra cost. The chat is the companion's own chat; mood and personas are not available.
+   - **Fallbacks** (same page): if the talk brain is busy, out of balance or not answering, the next brain in the list is tried for that message. A new run starts on the talk brain again. Only DeepSeek and OpenCode Go can be fallbacks.
 3. **Add your DeepSeek key** (Settings > Potato Bot > DeepSeek key). It is kept in your system keychain. The page only ever shows
    "set" and the last 4 characters (`•••• 1a2b`). **Check key** sends one tiny message and says `Works.` or one plain sentence
    about what is wrong.
 4. **Pick the default persona** (Fish or Potato). You can change a bot's voice at any time in its chat; its name, thread, memory and
    mood stay.
-5. **Set the daily limit** ($0.05 to $20, default $0.50). It is per bot and covers everything it says.
+5. **Set the daily limit** ($0.05 to $20, default $0.50). It is per bot and covers everything it says. The **Usage** page (Settings > Potato Bot > Usage) shows the last 30 days per bot and today against this limit. It is read only.
 6. **Make a bot.** A bot is a companion with a brain. Open **Potato Bot** in the sidebar and press `Make <name> a bot` on a companion,
    or `New bot` to make a companion first.
 7. **Node.js 20 or newer** must be on this computer. If it is not, the chat shows `Potato Bot needs Node.js 20 or newer.` with an
