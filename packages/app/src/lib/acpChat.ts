@@ -214,11 +214,11 @@ export function firstAvailable(options: readonly OverlayOption[] | null | undefi
   return (options ?? []).findIndex((o) => o && o.available === true);
 }
 
-/** Clean list from the wire: unknown kinds dropped, text fields defaulted. `terminal_chat` is kept out until the dialog renders it. */
+/** Clean list from the wire: unknown kinds dropped, text fields defaulted. */
 export function normalizeOptions(raw: OverlayResolve | null | undefined): OverlayOption[] {
   const list = Array.isArray(raw?.options) ? raw!.options : [];
   return list
-    .filter((o) => o && (o.kind === 'native' || o.kind === 'registry' || o.kind === 'bridge'))
+    .filter((o) => o && (o.kind === 'native' || o.kind === 'registry' || o.kind === 'terminal_chat' || o.kind === 'bridge'))
     .map((o) => ({ ...o, label: String(o.label ?? ''), summary: String(o.summary ?? ''), available: o.available === true }));
 }
 
