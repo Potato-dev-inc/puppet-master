@@ -31,6 +31,8 @@ from pathlib import Path
 
 DEFAULT_RECIPES_DIR = "/usr/local/share/pm-sbx/recipes"
 DEFAULT_ASSETS_DIR = "/usr/local/share/pm-sbx/desktop"
+# Folders next to the assets folder that post lines read through $PM_SBX_GUEST (the copy of the package's guest/ folder).
+GUEST_SUBDIRS = ("egress", "control", "page-browser")
 DEFAULT_STATE_FILE = "/var/lib/pm-sbx/recipes-state.json"
 DEFAULT_LOG_FILE = "/var/log/pm-sbx/apply-recipe.log"
 DESKTOP_CONF = "/etc/pm-sbx/desktop.conf"
@@ -87,17 +89,28 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
+def guest_dir_of(assets_dir):
+    """The guest/ folder copy: the parent of the desktop assets folder."""
+    return str(Path(assets_dir).resolve().parent)
+
+
 def assets_digest(path):
+    """Hash of the assets folder plus the guest subfolders the post lines copy from, so a changed file re-runs its step."""
     root = Path(path)
     if not root.is_dir():
         return "missing"
     digest = hashlib.sha256()
-    for item in sorted(root.rglob("*")):
-        if item.is_file():
-            digest.update(str(item.relative_to(root)).encode("utf-8"))
-            digest.update(b"\0")
-            digest.update(item.read_bytes())
-            digest.update(b"\0")
+    roots = [root] + [root.resolve().parent / name for name in GUEST_SUBDIRS]
+    for base in roots:
+        if not base.is_dir():
+            continue
+        digest.update(base.name.encode("utf-8") + b"\1")
+        for item in sorted(base.rglob("*")):
+            if item.is_file() and "__pycache__" not in item.parts:
+                digest.update(str(item.relative_to(base)).encode("utf-8"))
+                digest.update(b"\0")
+                digest.update(item.read_bytes())
+                digest.update(b"\0")
     return digest.hexdigest()
 
 
@@ -326,7 +339,7 @@ class Runner:
         self.log_path = log_path
         self.env = dict(os.environ)
         self.env.update({"DEBIAN_FRONTEND": "noninteractive", "LC_ALL": "C.UTF-8",
-                         "PM_SBX_ASSETS": assets_dir})
+                         "PM_SBX_ASSETS": assets_dir, "PM_SBX_GUEST": guest_dir_of(assets_dir)})
 
     def _append(self, text):
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
@@ -340,7 +353,8 @@ class Runner:
         self._append("+ " + shown)
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         with open(self.log_path, "a", encoding="utf-8") as fh:
-            code = subprocess.call(argv, env=self.env, stdout=fh, stderr=subprocess.STDOUT)
+            # stdin is closed so a tool that asks a question fails at once instead of hanging the install.
+            code = subprocess.call(argv, env=self.env, stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT)
         if code != 0:
             raise StepError("%s failed (exit %d). Details: %s" % (what, code, self.log_path))
 
@@ -479,7 +493,8 @@ def parse_args(argv):
     ap = argparse.ArgumentParser(description="Install the PM sandbox desktop recipes (idempotent).")
     ap.add_argument("--recipes-dir", default=DEFAULT_RECIPES_DIR, help="folder with <recipe>.json files")
     ap.add_argument("--assets-dir", default=DEFAULT_ASSETS_DIR,
-                    help="folder with the PM guest files (a copy of guest/desktop)")
+                    help="folder with the PM desktop files (a copy of guest/desktop); its parent folder must hold "
+                         "egress/, control/ and page-browser/ (a copy of guest/)")
     ap.add_argument("--recipe", action="append", default=[], metavar="ID",
                     help="recipe to install; base is always included")
     ap.add_argument("--opt", action="append", default=[], metavar="RECIPE.OPTION[=VALUE]",

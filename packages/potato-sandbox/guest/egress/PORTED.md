@@ -6,7 +6,7 @@ logic for one WSL2 guest, not a line-by-line port.
 | our file | their file | what changed | lines kept/removed |
 |---|---|---|---|
 | `pm-sbx-egress.sh` (346 lines) | `infra/compose/restrict-computer-egress.sh` (388 lines) | Rewritten for the guest's own OUTPUT path (chain `PM_SBX_EGRESS`), not Docker's DOCKER-USER forward path. Kept: the 11 IPv4 blocked CIDRs (all) and the 4 IPv6 blocked entries (all, `::1/128` included; it only matters off `lo`), the root check, the `--print` mode, the usage text. Removed: Docker bridge-name rules (`<prefix>-c+`), the INPUT rules, the Docker wait, the systemd unit install and remove, and the prefix and stale-rule repair (replaced by a build-then-swap of a whole new chain). Added: DNS allowed only to the `resolv.conf` servers on port 53 with all other traffic to them dropped; the WSL default gateway blocked by address; `iptables` first with an `nft` fallback; ip6tables required when IPv6 addresses exist; IPv6 `ff02::/16` ICMPv6 exception; wait up to 30 s for the default route at boot; status file; full PATH at start. | about 45 kept, about 340 removed or replaced |
-| `pm-sbx-egress-probe.sh` (252 lines) | `infra/sandboxes/supervisor/src/egress-probe.ts` (154 lines) | Rewritten as a shell check; no probe container or Docker network. Kept: the rule that only a timeout proves a drop, the cloud metadata address check, and the idea of a DNS-answer check (now an https check). Changed: Windows ports 135, 445, 3389, 5357 and one random high port on the gateway and private resolvers (their ports were 22 and 1). Added: mirrored networking detection (no gateway, gateway is a guest address, gateway outside 172.16.0.0/12, guest address listed in an optional host-address file), a check that the apply script reported `state=applied`, a curl internet check with retries (TCP fallback without curl), a probe status file. | about 25 kept, about 130 removed |
+| `pm-sbx-egress-probe.sh` (252 lines) | `infra/sandboxes/supervisor/src/egress-probe.ts` (154 lines) | Rewritten as a shell check; no probe container or Docker network. Kept: the rule that only a timeout proves a drop, the cloud metadata address check, and the idea of a DNS-answer check (now an https check). Changed: Windows ports 135, 445, 3389, 5357 and one random high port on the gateway and private resolvers (their ports were 22 and 1). Added: mirrored networking detection (no gateway, gateway is a guest address, gateway that is not a private (RFC 1918 or CGNAT) address, guest address listed in an optional host-address file), a check that the apply script reported `state=applied`, a curl internet check with retries (TCP fallback without curl), a probe status file. | about 25 kept, about 130 removed |
 
 ## Not ported
 
@@ -23,8 +23,9 @@ logic for one WSL2 guest, not a line-by-line port.
 - ICMPv6 to `ff02::/16` is allowed. Their ruleset dropped `ff00::/8` on the forward path, where
   locally sent neighbour discovery does not pass. Our OUTPUT rules would break IPv6 neighbour
   discovery without this exception.
-- The WSL gateway is blocked by address, as the brief asks. The gateway is also in 172.16.0.0/12,
-  so the range rule already covers it; the explicit rule documents the intent.
+- The WSL gateway is blocked by address, as the brief asks. On PCs where WSL picks 172.16.0.0/12, 192.168.0.0/16 or 10.0.0.0/8
+  the range rule also covers it; the explicit rule documents the intent. (The first version of the probe wrongly required
+  172.16.0.0/12; on the test PC the gateway is in 192.168.0.0/16. Fixed in the integration pass: any private or CGNAT gateway is accepted.)
 - `iptables` is the first backend, with `nft` as a fallback (the brief's preference). Their script
   supported only iptables.
 - The rules live in a new chain that is swapped in only when complete, so a failed run never leaves

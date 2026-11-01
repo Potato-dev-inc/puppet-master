@@ -1,5 +1,5 @@
 {
-  "_header": "Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/computer/Dockerfile.\nCopyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;\nsee packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: package list cut to a desktop-agnostic base for Ubuntu 24.04 (no Docker, no Chromium snap, no Brave, no Node or Python tool chain, no xcapture build); Google Chrome .deb instead of Chromium; xterm, pcmanfm, mousepad and evince instead of xterm-only (they work under any window manager); post lines install the PM guest files and the pm user with no sudo.",
+  "_header": "Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/computer/Dockerfile.\nCopyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;\nsee packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: package list cut to a desktop-agnostic base for Ubuntu 24.04 (no Docker, no Chromium snap, no Brave, no Node or Python tool chain, no xcapture build); Google Chrome .deb instead of Chromium; xterm, pcmanfm, mousepad and evince instead of xterm-only (they work under any window manager); post lines install the PM guest files and the pm user with no sudo. Boot, egress, control, page-browser and launcher files installed; /etc/hosts and /etc/hostname written for the pm-sandbox host name.",
   "id": "base",
   "title": "Desktop base",
   "description": "What every sandbox needs: a hidden screen, a remote view that cannot type, the Chrome browser, fonts for every language, a terminal, a file manager, a text editor, a PDF reader, zip tools and Python. Always installed.",
@@ -44,12 +44,22 @@
     "install -d -o pm -g pm -m 0755 /home/pm/Downloads",
     "install -d -m 0755 /usr/local/sbin /usr/local/bin /etc/pm-sbx /var/log/pm-sbx /etc/opt/chrome/policies/managed",
     "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-no-wslg.sh\" > /usr/local/sbin/pm-no-wslg.sh && chmod 0755 /usr/local/sbin/pm-no-wslg.sh",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-boot.sh\" > /usr/local/sbin/pm-sbx-boot.sh && chmod 0755 /usr/local/sbin/pm-sbx-boot.sh",
+    "tr -d '\\r' < \"$PM_SBX_GUEST/egress/pm-sbx-egress.sh\" > /usr/local/sbin/pm-sbx-egress.sh && chmod 0755 /usr/local/sbin/pm-sbx-egress.sh",
+    "tr -d '\\r' < \"$PM_SBX_GUEST/egress/pm-sbx-egress-probe.sh\" > /usr/local/sbin/pm-sbx-egress-probe.sh && chmod 0755 /usr/local/sbin/pm-sbx-egress-probe.sh",
     "tr -d '\\r' < \"$PM_SBX_ASSETS/wsl.conf\" > /etc/wsl.conf && chmod 0644 /etc/wsl.conf",
     "tr -d '\\r' < \"$PM_SBX_ASSETS/profile-pm.sh\" > /etc/profile.d/pm-sandbox.sh && chmod 0644 /etc/profile.d/pm-sandbox.sh",
     "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-start-desktop.sh\" > /usr/local/bin/pm-sbx-start-desktop && chmod 0755 /usr/local/bin/pm-sbx-start-desktop",
     "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-browser\" > /usr/local/bin/pm-sbx-browser && chmod 0755 /usr/local/bin/pm-sbx-browser",
     "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-browser.desktop\" > /usr/share/applications/pm-sbx-browser.desktop && chmod 0644 /usr/share/applications/pm-sbx-browser.desktop",
-    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-chrome-policy.json\" > /etc/opt/chrome/policies/managed/pm-sbx.json && chmod 0644 /etc/opt/chrome/policies/managed/pm-sbx.json"
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-chrome-policy.json\" > /etc/opt/chrome/policies/managed/pm-sbx.json && chmod 0644 /etc/opt/chrome/policies/managed/pm-sbx.json",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-launchers.json\" > /etc/pm-sbx/launchers.json && chmod 0644 /etc/pm-sbx/launchers.json",
+    "tr -d '\\r' < \"$PM_SBX_GUEST/control/pm-sbx-control\" > /usr/local/bin/pm-sbx-control && chmod 0755 /usr/local/bin/pm-sbx-control",
+    "tr -d '\\r' < \"$PM_SBX_GUEST/control/pm-sbx-focus-or-launch\" > /usr/local/bin/pm-sbx-focus-or-launch && chmod 0755 /usr/local/bin/pm-sbx-focus-or-launch",
+    "tr -d '\\r' < \"$PM_SBX_GUEST/page-browser/pm-sbx-page-browser\" > /usr/local/bin/pm-sbx-page-browser && chmod 0755 /usr/local/bin/pm-sbx-page-browser",
+    "install -d -o pm -g pm -m 0700 /home/pm/.browser-profiles",
+    "printf '127.0.0.1 localhost\\n127.0.1.1 pm-sandbox\\n::1 localhost ip6-localhost ip6-loopback\\nff02::1 ip6-allnodes\\nff02::2 ip6-allrouters\\n' > /etc/hosts",
+    "echo pm-sandbox > /etc/hostname"
   ],
   "options": []
 }

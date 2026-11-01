@@ -5,7 +5,9 @@ Copyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2
 see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: noVNC is loaded by dynamic import from one
 constant path (./novnc/); view-only is the default (control needs ?control=1); status goes to the parent via postMessage
 type pm-sbx-screen-status with a parent-origin allowlist (no wildcard) and a 15 s stall timeout; VideoDecoder is hidden
-before noVNC loads; the path parameter is restricted to safe characters; window hooks and attributes renamed to pm-sbx-*.
+before noVNC loads; the path parameter is restricted to safe characters; window hooks and attributes renamed to pm-sbx-*;
+the VNC password comes from the URL fragment (#vnc=...), is removed from the address bar at once and is sent when noVNC asks for
+credentials (our x11vnc always requires one; the password decides view or control).
 -->
 <html lang="en">
   <head>
@@ -130,8 +132,8 @@ before noVNC loads; the path parameter is restricted to safe characters; window 
       } from "./clipboard-bridge.js";
       import { attachMobileKeyboard, attachMobileTrackpad, isTouchBrowser } from "./mobile-keyboard.js";
 
-      // The only place that names the noVNC location. noVNC is vendored here later under its own
-      // MPL-2.0 licence; its source must never be copied into the rest of this folder.
+      // The only place that names the noVNC location. noVNC is vendored in ./novnc/ under its own
+      // MPL-2.0 licence (see novnc/LICENSE.txt); its source must never be copied into the rest of this folder.
       const NOVNC_BASE = "./novnc/";
       // Fixed message type for every status message this page posts to its parent.
       const STATUS_MESSAGE_TYPE = "pm-sbx-screen-status";
@@ -139,6 +141,20 @@ before noVNC loads; the path parameter is restricted to safe characters; window 
       const STALL_TIMEOUT_MS = 15000;
       const DEFAULT_WS_PATH = "websockify";
       const PARENT_ORIGIN_META = "pm-sbx-parent-origins";
+
+      // The VNC password travels in the URL fragment (#vnc=...). A fragment is never sent to a server and never
+      // reaches a log line. It is read once and removed from the address bar and history before anything else runs.
+      function takeVncPassword() {
+        const match = window.location.hash.match(/[#&]vnc=([A-Za-z0-9]{1,64})/);
+        if (!match) return "";
+        try {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        } catch {
+          // Not allowed in this frame: the fragment stays, but it still never leaves the browser.
+        }
+        return match[1];
+      }
+      const VNC_PASSWORD = takeVncPassword();
 
       function query(name, fallback) {
         const match = `${document.location.href}${window.location.hash}`.match(
@@ -255,6 +271,7 @@ before noVNC loads; the path parameter is restricted to safe characters; window 
         // View-only unless the URL explicitly asks for control. view_only=1 always wins.
         const controlRequested = flag("control") && !flag("view_only");
         let rfb;
+        let securityFailed = false;
         try {
           rfb = new RFB(document.getElementById("screen"), websocketUrl());
         } catch {
@@ -262,11 +279,20 @@ before noVNC loads; the path parameter is restricted to safe characters; window 
           return;
         }
         report("connecting");
+        // The server decides what the password allows: the view password gets a screen that drops input, the control
+        // password gets mouse and keyboard. viewOnly below only stops this page from sending input it would not be allowed to.
+        rfb.addEventListener("credentialsrequired", () => {
+          if (VNC_PASSWORD) {
+            rfb.sendCredentials({ password: VNC_PASSWORD });
+          } else {
+            securityFailed = true;
+            rfb.disconnect();
+          }
+        });
         rfb.viewOnly = !controlRequested;
         rfb.scaleViewport = true;
         rfb.clipViewport = false;
 
-        let securityFailed = false;
         rfb.addEventListener("connect", () => report("connected"));
         rfb.addEventListener("securityfailure", () => {
           securityFailed = true;

@@ -1,0 +1,24 @@
+{
+  "launchers": {
+    "chrome": {
+      "path": "/usr/local/bin/pm-sbx-browser",
+      "wm_class": "google-chrome",
+      "browser_profile": true
+    },
+    "terminal": {
+      "path": "/usr/bin/xterm",
+      "wm_class": "xterm",
+      "browser_profile": false
+    },
+    "files": {
+      "path": "/usr/bin/pcmanfm",
+      "wm_class": "pcmanfm",
+      "browser_profile": false
+    },
+    "editor": {
+      "path": "/usr/bin/mousepad",
+      "wm_class": "mousepad",
+      "browser_profile": false
+    }
+  }
+}

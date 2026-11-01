@@ -103,6 +103,21 @@ class XdotoolAllowlistTests(unittest.TestCase):
             with self.subTest(argv=argv):
                 self.assertFalse(self.allowed(argv))
 
+    def test_integers_are_ascii_digits_only(self):
+        # str.isdigit() is true for "²" (superscript two), but int() rejects it and xdotool would too.
+        for value in ("²", "-²", "1²", "٣", "１"):  # also Arabic-Indic and fullwidth digits
+            with self.subTest(value=value):
+                self.assertFalse(control._is_int_string(value))
+                self.assertFalse(self.allowed(xdotool("mousemove", "--", value, "5")))
+                self.assertFalse(self.allowed(xdotool("mousemove", "--", "5", value)))
+                self.assertFalse(self.allowed(xdotool("mousemove", "--", "5", "5", "click", "--repeat", value, "5")))
+        for value in ("0", "7", "-5", "1234"):
+            with self.subTest(value=value):
+                self.assertTrue(control._is_int_string(value))
+        for value in ("", "-", "+1", "1.5", " 1", "1\n"):
+            with self.subTest(value=value):
+                self.assertFalse(control._is_int_string(value))
+
     def test_xdotool_shape_is_checked_on_argv_not_on_strings(self):
         self.assertFalse(self.allowed("env DISPLAY=:99 xdotool mouseup 1"))
         self.assertFalse(self.allowed(["env", f"DISPLAY={DISPLAY}"]))

@@ -14,9 +14,9 @@
 # DNS (port 53, UDP and TCP) is allowed only to the servers in resolv.conf, even
 # when such a server has a private address.
 #
-# Runs as root at distro boot, from /etc/wsl.conf:
-#   [boot]
-#   command = "bash /usr/local/sbin/pm-sbx-egress.sh; bash /usr/local/sbin/pm-sbx-egress-probe.sh"
+# Runs as root at distro boot. /etc/wsl.conf has one [boot] command, /usr/local/sbin/pm-sbx-boot.sh, which runs
+# pm-no-wslg.sh, then this script, then pm-sbx-egress-probe.sh. The gateway may be in any private range
+# (172.16/12, 192.168/16 or 10/8 on different PCs); it is read from the default route, never assumed.
 #
 #   bash pm-sbx-egress.sh            apply the rules (what the boot command runs)
 #   bash pm-sbx-egress.sh --print   print the iptables commands, change nothing

@@ -37,14 +37,12 @@ Allowed:
 ## Install
 
 Copy both scripts to the distro, for example to `/usr/local/sbin/`, and make them readable by root.
-Then tell WSL to run them at boot. Add this to `/etc/wsl.conf` inside the distro:
+The base recipe installs both to `/usr/local/sbin/`. WSL runs them at boot through the one boot command in
+`/etc/wsl.conf`, which is `/usr/local/sbin/pm-sbx-boot.sh` (see `guest/desktop/`). That script runs the WSLg cut, then
+`pm-sbx-egress.sh`, then `pm-sbx-egress-probe.sh`, and writes `/run/pm-sbx/boot.done` only when all three pass.
 
-```ini
-[boot]
-command = "bash /usr/local/sbin/pm-sbx-egress.sh; bash /usr/local/sbin/pm-sbx-egress-probe.sh"
-```
-
-Restart the distro after editing `wsl.conf` (`wsl --shutdown` from Windows, then start it again).
+Restart the distro after editing `wsl.conf` (`wsl --terminate <distro>` from Windows, then start it again).
+Never use `wsl --shutdown`: it stops every other distro on the PC too.
 
 Needs `iptables` (on Ubuntu 24.04 this is `iptables-nft`) or `nft`, plus `ip`, `awk` and `timeout`.
 `curl` is used for the internet check. Without it, the probe checks a plain TCP connection instead.
@@ -73,7 +71,7 @@ first, and refuse to start if it is missing or says `failed`.
 ## Limits
 
 - Mirrored networking is not supported. The probe fails on purpose.
-- The probe expects the WSL NAT gateway to be inside `172.16.0.0/12`. If it is not, the probe fails closed.
+- The probe accepts a WSL NAT gateway in any private range (`10/8`, `172.16/12`, `192.168/16` or CGNAT `100.64/10`). A gateway outside those, or none at all, fails closed.
 - The walls only cover the distro's own traffic. Anything running as root inside the distro can change them.
   The `pm` user has no sudo, so it cannot.
 - Public DNS and the public internet stay open, so a program could still tunnel data out through them.
