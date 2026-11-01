@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import { plainError, type PotatoSettings, type PotatoTransport } from '../../../lib/potato';
 import { normalizeVoice, speechSupported } from '../../../lib/potato-speech';
-import { Switch } from '../../settings/controls';
 import { AdvancedSection } from './AdvancedSection';
 import '../../../styles/cockpit-potato-voice.css';
 
@@ -53,7 +52,17 @@ export function ReadAloudSection({ bot, settings, transport, onChanged }: ReadAl
     <AdvancedSection title={READ_ALOUD_COPY.title} line={READ_ALOUD_COPY.about}>
       <div className="ck-potato-adv-row ck-potato-readaloud-row">
         <span className="ck-potato-adv-switch-label">{bot.name}</span>
-        <Switch checked={on} onChange={(value) => void toggle(value)} label={`${READ_ALOUD_COPY.title} for ${bot.name}`} disabled={!transport || !settings || busy} />
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label={`${READ_ALOUD_COPY.title} for ${bot.name}`}
+          className={`ck-potato-switch${on ? ' is-on' : ''}`}
+          disabled={!transport || !settings || busy}
+          onClick={() => void toggle(!on)}
+        >
+          <span className="ck-potato-adv-sr">{on ? 'On' : 'Off'}</span>
+        </button>
       </div>
       {error && (
         <p className="ck-potato-readaloud-error" role="alert">
