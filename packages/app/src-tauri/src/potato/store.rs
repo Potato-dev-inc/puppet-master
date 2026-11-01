@@ -174,6 +174,16 @@ pub fn set_talk_persona(root: &Path, id: &str, talk_persona: &str) -> StoreResul
     Ok(copy)
 }
 
+/// Takes a bot off the list. Its files are the caller's to move (`bot_settings::move_bot_files`).
+pub fn remove_bot(root: &Path, id: &str) -> StoreResult<Bot> {
+    let _files = files_lock();
+    let mut bots = load_bots(root)?;
+    let at = bots.iter().position(|b| b.id == id).ok_or_else(|| StoreError::new("POTATO_BOT_NOT_FOUND", "No bot has that name."))?;
+    let gone = bots.remove(at);
+    save_bots(root, &bots)?;
+    Ok(gone)
+}
+
 // ---- settings -----------------------------------------------------------------------------------
 
 /// What the brain talks to.

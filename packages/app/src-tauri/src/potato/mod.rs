@@ -15,6 +15,8 @@
 //! - `store`: the files in `<app data>/potato/` (bots, settings, conversations, persona seeding)
 //! - `open_work`, `memory_notes`, `notify`: the bot panel's Advanced tab (the bot's open work list, what it remembers,
 //!   "notify me" per bot); commands in `commands/potato_panel.rs`
+//! - `bot_settings`: a bot's own talk brain, instructions with their history, tool switches, delete and export
+//!   (one file per bot; the Advanced tab's commands are in `commands/potato_bot_settings.rs`)
 //! - `cost`: pricing the tokens the brain reports and judging them against the daily limit
 //! - `log`: the 200-line log ring, every line cleaned
 //! - `helpers`: Start / Change folder / Not now, the caps, and watching a helper until it ends
@@ -36,6 +38,7 @@
 
 pub mod attachments;
 pub mod auth;
+pub mod bot_settings;
 pub mod cost;
 pub mod env;
 pub mod helpers;
@@ -61,6 +64,8 @@ pub mod window_guard;
 mod attachments_tests;
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod bot_settings_tests;
 #[cfg(test)]
 mod cost_tests;
 #[cfg(test)]

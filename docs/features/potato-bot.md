@@ -65,6 +65,23 @@ answers them.
   path taken out.
 - **No window.** The brain starts hidden; a helper opens its pane in the cockpit grid like any agent run you start.
 
+## Per-bot settings (Advanced tab)
+
+The bot panel's **Advanced** tab holds what is set per bot, not for all of Potato Bot:
+
+- **Name.** Renames the bot. The name is the companion's name, so it changes in one place.
+- **Model.** The talk brain this bot uses: DeepSeek, OpenCode Go, Through my agents, or **Use the default** (the Settings brain).
+  It is stored in `potato/bot-settings/<bot>.json`. A running brain is stopped, so the next message starts it on the new brain.
+- **Instructions.** Extra text for this bot. Every save is a version (the last 50 are kept); **History** lists them and **Restore**
+  brings an old one back as the newest. The text in use is written to the bot's persona folder as `instructions.md` when its brain
+  starts, and the brain reads it with the persona files.
+- **Tools.** Three switches, all on by default. **Helpers** (`ask_helper`) and **Computer** (`computer_observe`, `computer_act`,
+  `ask_person_for_screen`; shown only with the sandbox Labs switch on) and **Web reading** (`browser_navigate`, `browser_snapshot`,
+  `browser_act`). A switch that is off makes the engine refuse that tool before it runs.
+- **Export chat.** The chat as one Markdown file, saved through the same save dialog as the pane exports.
+- **Delete bot.** Asks you to type the bot's name. The bot stops, leaves the list, and its chat, settings and brain folder move to
+  `potato/.removed/`. Nothing is deleted. The companion stays.
+
 ## Limits
 
 - The daily limit is judged by Puppet Master from the token counts the brain reports, with its own price table (an unknown model is

@@ -7,6 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fakeCompanionTransport, type CompanionView } from '../../../lib/companion';
 import { fakePotatoTransport, type FakePotatoTransport, type PotatoState } from '../../../lib/potato';
+import { fakeBotSettingsTransport } from '../../../lib/potato-botsettings';
 import { LAYOUT_KEYS } from '../../../lib/potato-layout';
 import { fakeScreenTransport, type FakeScreenTransport } from '../../../lib/potatoScreen';
 import { usePotatoState } from '../../../hooks/usePotato';
@@ -54,6 +55,7 @@ function Harness({ transport, screen, companions }: { transport: FakePotatoTrans
       onNotify={() => {}}
       onOpenSettings={() => {}}
       screenTransport={screen}
+      botSettings={fakeBotSettingsTransport()}
     />
   );
 }
@@ -104,7 +106,7 @@ describe('the three regions', () => {
     expect(panel()).toBeNull();
   });
 
-  it('has the tabs Computer, Routines and Advanced: Routines says "Coming soon", Advanced has its three sections', async () => {
+  it('has the tabs Computer, Routines and Advanced: Routines says "Coming soon", Advanced has its sections', async () => {
     await mount({ screen: fakeScreenTransport() });
     await click(toggle());
     expect(tabs()).toEqual(['Computer', 'Routines', 'Advanced']);
@@ -115,6 +117,7 @@ describe('the three regions', () => {
     await click(tab('Advanced'));
     expect(visiblePanel()).toBe('Advanced');
     const advanced = host.querySelector('[role="tabpanel"][aria-label="Advanced"]')!;
+    expect(advanced.textContent).toContain('Model');
     expect([...advanced.querySelectorAll('.ck-potato-section-title')].map((t) => t.textContent)).toEqual(['Notifications', 'Open work', 'Memory']);
   });
 
