@@ -1196,6 +1196,10 @@ mod tests {
     fn the_tooltip_says_when_the_mouse_is_shared() {
         assert_eq!(with_mouse_sharing("Puppet Master".into(), false), "Puppet Master");
         assert_eq!(with_mouse_sharing("Puppet Master".into(), true), "Puppet Master \u{b7} Mouse sharing is on");
+        assert_eq!(
+            with_mouse_sharing(tooltip_for(false, "Puppet Master \u{b7} 2 need you".into()), true),
+            "Puppet Master \u{b7} 2 need you \u{b7} Mouse sharing is on"
+        );
     }
 
     #[test]
