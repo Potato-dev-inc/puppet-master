@@ -736,7 +736,10 @@ impl Service {
                 drop(g);
                 let mine = origin.message(now, text);
                 let saved = self.save(bot, &conversation, mine)?;
-                self.note(bot, &format!("{name} has used today's limit ({}). Raise it in Settings or wait until tomorrow.", cost::dollars(settings.daily_limit_cents)));
+                match origin {
+                    Origin::Routine { title, .. } => self.note(bot, &format!("Skipped: daily limit reached: {title}")),
+                    Origin::Person => self.note(bot, &format!("{name} has used today's limit ({}). Raise it in Settings or wait until tomorrow.", cost::dollars(settings.daily_limit_cents))),
+                }
                 self.host.changed(bot);
                 return Ok(SendOutcome { id: saved.id, state: BrainState::DailyLimit, delivered: false });
             }
@@ -745,6 +748,10 @@ impl Service {
 
         let mine = origin.message(now, text);
         let saved = self.save(bot, &conversation, mine)?;
+        // A routine run is written as "due, not yet taken" before it goes to the queue; the brain's reply clears it.
+        if let Origin::Routine { title, .. } = origin {
+            super::routines::add_pending(&self.root, super::routines::PendingRun { id: saved.id.clone(), bot: bot.to_string(), title: title.to_string(), at_ms: now });
+        }
         let sent_text = crate::redact::text(&store::clean_text(text, self.home_of(bot).as_deref())).into_inner();
 
         if settings.brain == BrainKind::Agents {
@@ -802,7 +809,8 @@ impl Service {
             context: origin.context(),
             tools,
         });
-        let item = protocol::with_capabilities(item, self.sandbox_offered());
+        // The computer is offered only to a turn whose trust allows it (never `others`).
+        let item = protocol::with_capabilities(item, self.sandbox_offered() && rules::tool_access(trust).sandbox);
         self.deliver(rt, &saved.id, &conversation, item);
         rt.keeper.want_run(now);
         let actions = rt.keeper.step(now);
@@ -1454,6 +1462,7 @@ impl Service {
                     if let Some(session) = rt.session.as_mut() {
                         session.in_flight.remove(&in_reply_to);
                     }
+                    super::routines::clear_pending(&self.root, &in_reply_to);
                     rt.mood.as_ref().map(|m| m.mood.clone())
                 };
                 let said = crate::companion::view::scrub(&segments.join(" "), None);
@@ -1505,6 +1514,9 @@ impl Service {
                     return true;
                 }
                 let name = self.name_of(bot);
+                if let Some(id) = in_reply_to.as_deref() {
+                    super::routines::clear_pending(&self.root, id);
+                }
                 // Paused for the daily limit: the message is refused with the same note the pause gave.
                 let paused = self.inner.lock().bots.get(bot).is_some_and(|rt| rt.paused_for_limit.is_some());
                 let line = match code {

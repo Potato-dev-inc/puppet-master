@@ -452,9 +452,99 @@ pub fn run_due(service: &Service, now_ms: i64) -> usize {
         let origin = Origin::Routine { title: &due.title, context: due.context.as_deref() };
         if let Err(e) = service.send_as(&due.bot, &due.prompt, origin) {
             tracing::warn!(%e, routine = %due.id, "a routine could not reach its bot");
+            // A refused run is never silent: its history line says why (the code is stable, the text is for people).
+            if let Some(line) = refused_note(&e.code, &due.title) {
+                service.note(&due.bot, &line);
+            }
         }
     }
     dues.len()
+}
+
+/// The history line for a routine run the app refused to send. `None` when the refusal already left its own line.
+pub fn refused_note(code: &str, title: &str) -> Option<String> {
+    Some(match code {
+        "POTATO_TURNS" | "POTATO_BOT_NOT_FOUND" => return None,
+        "POTATO_PAUSED" => super::hold::skipped_note(title),
+        "POTATO_RATE" => format!("Skipped: too many messages in a minute: {title}"),
+        "POTATO_OFF" => format!("Skipped: Potato Bot is switched off: {title}"),
+        _ => format!("Skipped: the message could not be sent: {title}"),
+    })
+}
+
+// ---- runs that are due but not yet taken by a brain (survive a restart) ---------------------------
+
+/// A routine run that was written to the thread and handed to a bot, and that no brain has answered yet.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingRun {
+    /// The saved message id: the brain's reply or error names it in `inReplyTo`.
+    pub id: String,
+    pub bot: String,
+    pub title: String,
+    pub at_ms: i64,
+}
+
+pub fn pending_path(root: &Path) -> std::path::PathBuf {
+    root.join("routine_pending.json")
+}
+
+/// The pending runs on disk. A damaged file is read as none (logged), so the app still starts.
+fn load_pending(root: &Path) -> Vec<PendingRun> {
+    match store::read_json::<Vec<PendingRun>>(&pending_path(root), "routine pending runs") {
+        Ok(found) => found.unwrap_or_default(),
+        Err(e) => {
+            tracing::warn!(%e, "could not read the pending routine runs");
+            Vec::new()
+        }
+    }
+}
+
+fn save_pending(root: &Path, runs: &[PendingRun]) {
+    if let Err(e) = store::write_json(&pending_path(root), &runs.to_vec(), "routine pending runs") {
+        tracing::warn!(%e, "could not save the pending routine runs");
+    }
+}
+
+/// Written BEFORE the run goes to the queue, so a quit before the brain takes it leaves it on disk.
+pub fn add_pending(root: &Path, run: PendingRun) {
+    let _files = store::files_lock();
+    let mut runs = load_pending(root);
+    runs.push(run);
+    save_pending(root, &runs);
+}
+
+/// The brain answered (a reply or an error) for this message: the run was taken.
+pub fn clear_pending(root: &Path, id: &str) {
+    let _files = store::files_lock();
+    let runs = load_pending(root);
+    if runs.iter().any(|r| r.id == id) {
+        save_pending(root, &runs.into_iter().filter(|r| r.id != id).collect::<Vec<_>>());
+    }
+}
+
+#[cfg(test)]
+pub fn pending_count(root: &Path) -> usize {
+    load_pending(root).len()
+}
+
+#[cfg(test)]
+pub fn pending_ids(root: &Path) -> Vec<String> {
+    load_pending(root).into_iter().map(|r| r.id).collect()
+}
+
+/// On a fresh start: every run still pending was never answered. It is written as missed (never run again, so it
+/// cannot run twice) and the list is cleared.
+pub fn recover_pending(service: &Service, _now_ms: i64) {
+    let missed = {
+        let _files = store::files_lock();
+        let runs = load_pending(service.root());
+        save_pending(service.root(), &[]);
+        runs
+    };
+    for run in missed {
+        service.note(&run.bot, &format!("Missed while the app was closed: {}", run.title));
+    }
 }
 
 /// "Run now": sends the routine's prompt at once. The schedule does not move.

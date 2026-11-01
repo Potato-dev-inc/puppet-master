@@ -429,10 +429,10 @@ fn anyone_may_use_the_sandbox_and_only_the_owner_may_start_a_helper() {
     }
     let others = tool_access(Trust::Others);
     assert!(!others.helpers, "an outside voice can never start a helper");
-    assert!(others.sandbox, "but may use the bot's own computer");
+    assert!(!others.sandbox, "and the computer is never offered to an outside voice (H6b-8)");
 
     let f = Fixture::new("others");
-    for trust in [Trust::OwnerPc, Trust::OwnerRemote, Trust::Others] {
+    for trust in [Trust::OwnerPc, Trust::OwnerRemote] {
         let mut ctx = f.ctx(&format!("bot-{trust:?}").to_lowercase());
         ctx.trust = trust;
         assert!(f.call_as(&ctx, "computer_observe", json!({})).is_ok(), "{trust:?}");
@@ -996,4 +996,27 @@ fn a_card_that_nobody_answers_ends_with_its_thirty_minutes() {
     f.port.lease.lock().tick(f.now());
     assert!(f.port.lease.lock().card(f.now()).is_none());
     assert!(f.port.lease.lock().current(f.now()).is_none());
+}
+
+#[test]
+fn an_others_turn_is_refused_its_computer_call_and_nothing_reaches_the_sandbox() {
+    let f = Fixture::new("others-refused");
+    let mut ctx = f.ctx("nimbus");
+    ctx.trust = Trust::Others;
+    let refused = f.call_as(&ctx, "computer_observe", json!({})).unwrap_err();
+    assert_eq!(refused.code, "TOOL_NOT_ALLOWED");
+    assert!(f.fake.calls().is_empty(), "the sandbox was never touched: {:?}", f.fake.calls());
+    assert!(f.call_as(&ctx, "computer_click", json!({"x": 1, "y": 1})).is_err());
+    assert!(f.fake.calls().is_empty(), "no click either");
+}
+
+#[test]
+fn an_owner_turn_still_reaches_the_sandbox() {
+    let f = Fixture::new("owner-allowed");
+    for trust in [Trust::OwnerPc, Trust::OwnerRemote] {
+        let mut ctx = f.ctx("nimbus");
+        ctx.trust = trust;
+        assert!(f.call_as(&ctx, "computer_observe", json!({})).is_ok(), "{trust:?}");
+    }
+    assert_eq!(f.fake.calls(), vec![Recorded::Observe, Recorded::Observe]);
 }
