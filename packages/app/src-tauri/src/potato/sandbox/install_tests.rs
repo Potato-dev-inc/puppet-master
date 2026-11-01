@@ -343,6 +343,7 @@ struct Rig {
     layout: Layout,
     files: GuestFiles,
     lifecycle: Lifecycle,
+    records: Arc<MemoryRecords>,
     _folder: Scratch,
     data: Scratch,
 }
@@ -354,11 +355,11 @@ fn rig() -> Rig {
     let data = Scratch::new("data");
     let layout = Layout::new(&data.0);
     let lifecycle = Lifecycle::new(wsl.clone(), main_name()).with_timing(Timing::instant());
-    Rig { guest, wsl, layout, files: GuestFiles::new(&folder.0), lifecycle, _folder: folder, data }
+    Rig { guest, wsl, layout, files: GuestFiles::new(&folder.0), lifecycle, records: Arc::new(MemoryRecords::default()), _folder: folder, data }
 }
 
 fn go(rig: &Rig, options: &InstallOptions, cancel: &AtomicBool) -> (Result<(), InstallError>, Vec<Progress>) {
-    let env = InstallEnv { wsl: &rig.wsl, layout: &rig.layout, files: &rig.files, lifecycle: &rig.lifecycle };
+    let env = InstallEnv { wsl: &rig.wsl, layout: &rig.layout, files: &rig.files, lifecycle: &rig.lifecycle, records: &*rig.records };
     let mut seen = Vec::new();
     let result = run(&env, options, cancel, &|| 1_000, &mut |p| seen.push(p));
     (result, seen)
@@ -383,9 +384,10 @@ fn a_full_install_runs_the_steps_in_order() {
     assert!(joined[at("apply-recipe.py")].ends_with("--recipe xfce --recipe coding --opt coding.pkg=pnpm --opt coding.languages=python,go"));
     assert!(joined[at("apply-recipe.py")].contains("-u root --exec /usr/bin/python3 -I /usr/local/share/pm-sbx/desktop/apply-recipe.py"));
     // the install runs without systemd: the short wsl.conf goes in and the distro restarts once BEFORE the recipes
-    assert!(at("/bin/tar -x") < at("/bin/cp /usr/local/share/pm-sbx/desktop/wsl-install.conf /etc/wsl.conf"));
-    assert!(at("/bin/cp /usr/local/share/pm-sbx/desktop/wsl-install.conf /etc/wsl.conf") < at("--terminate pm-sbx-main"));
+    assert!(at("/bin/tar -x") < at("cp /usr/local/share/pm-sbx/desktop/wsl-install.conf /etc/wsl.conf"));
+    assert!(at("cp /usr/local/share/pm-sbx/desktop/wsl-install.conf /etc/wsl.conf") < at("--terminate pm-sbx-main"));
     assert!(at("--terminate pm-sbx-main") < at("apply-recipe.py"), "no systemd while the recipes run");
+    assert!(joined[at("wsl-install.conf")].contains("test -e /usr/local/sbin/pm-sbx-boot.sh || cp "), "never over the real wsl.conf of a set up that is carried on");
     let apply_at = at("apply-recipe.py");
     let restart = joined.iter().enumerate().position(|(i, c)| i > apply_at && c.contains("--terminate pm-sbx-main")).expect("a restart after the recipes");
     assert!(restart < at("sleep infinity"), "the boot check starts after the restart, which makes the real wsl.conf take effect");
@@ -559,7 +561,7 @@ fn a_cancel_before_the_start_does_nothing() {
 fn a_cancel_half_way_stops_at_the_next_step_and_takes_the_new_distro_away() {
     let rig = rig();
     let cancel = AtomicBool::new(false);
-    let env = InstallEnv { wsl: &rig.wsl, layout: &rig.layout, files: &rig.files, lifecycle: &rig.lifecycle };
+    let env = InstallEnv { wsl: &rig.wsl, layout: &rig.layout, files: &rig.files, lifecycle: &rig.lifecycle, records: &*rig.records };
     let result = run(&env, &options(), &cancel, &|| 1_000, &mut |p| {
         if p.step == "copy" {
             cancel.store(true, Ordering::SeqCst);

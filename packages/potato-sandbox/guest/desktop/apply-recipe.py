@@ -84,6 +84,7 @@ ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,47}$")
 PKG_RE = re.compile(r"^[a-z0-9][a-z0-9.+-]{0,127}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 URI_LINE_RE = re.compile(r"^'(https?://[^']+)'\s+(\S+)\s+(\d+)\s*(\S*)")
+PKG_ARCH_RE = re.compile(r"^[a-z0-9][a-z0-9.+-]*(:[a-z0-9-]+)?$")
 ARCHIVE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~%-]*\.deb$")
 DEB_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~-]*\.deb$")
 TRUE_WORDS = ("true", "1", "yes", "on")
@@ -1059,6 +1060,63 @@ class Runner:
                     pass
         self._append("quiet: update jobs masked (systemd %s)" % ("running, stopped them" if systemd_up else "off"))
 
+    def repair_dpkg(self, tell=None):
+        """A run that was cut off (the app quit, the PC slept) can leave dpkg half way through a package: put that right first.
+
+        Packages that were only unpacked are configured; packages whose unpacking was cut off ("in a mess") are installed
+        again from the downloaded files; if that fails they are taken out so the install puts them back."""
+        updates = "/var/lib/dpkg/updates"
+        if self.dry_run:
+            return
+        try:
+            pending = [n for n in os.listdir(updates) if not n.startswith(".")]
+        except OSError:
+            return
+        audit = self._dpkg_audit()
+        if not pending and not audit["mess"] and not audit["unconfigured"]:
+            return
+        self._append("dpkg was cut off in the middle of a package (%d pending, %s in a mess); putting it right" % (len(pending), audit["mess"]))
+        if tell:
+            tell("Finishing what the cut-off set up left half done")
+
+        def attempt(argv, what):
+            try:
+                self.exec(argv, " ".join(argv), what)
+                return True
+            except StepError as err:
+                self._append("repair step failed (%s); going on" % err)
+                return False
+
+        attempt(["dpkg", "--configure", "-a", "--force-confold", "--force-unsafe-io"], "repairing a cut-off install")
+        mess = self._dpkg_audit()["mess"]
+        if mess:
+            ok = attempt(["apt-get", "install", "--reinstall", "-y", "--no-install-recommends"] + APT_RUN_OPTS + mess, "reinstalling cut-off packages")
+            if not ok:
+                attempt(["dpkg", "--remove", "--force-remove-reinstreq"] + mess, "removing cut-off packages")
+            attempt(["dpkg", "--configure", "-a", "--force-confold", "--force-unsafe-io"], "repairing a cut-off install")
+
+    def _dpkg_audit(self):
+        """{'mess': [packages half installed], 'unconfigured': [packages unpacked, not configured]} from `dpkg --audit`."""
+        out = {"mess": [], "unconfigured": []}
+        try:
+            text = subprocess.run(["dpkg", "--audit"], env=self.env, stdin=subprocess.DEVNULL, capture_output=True,
+                                  text=True, errors="replace", timeout=60).stdout
+        except (OSError, subprocess.SubprocessError):
+            return out
+        section = None
+        for line in text.splitlines():
+            if "in a mess" in line:
+                section = "mess"
+            elif "unpacked but not yet configured" in line:
+                section = "unconfigured"
+            elif not line.strip():
+                section = None
+            elif line.startswith(" ") and section:
+                name = line.split()[0]
+                if PKG_ARCH_RE.match(name):
+                    out[section].append(name)
+        return out
+
     def write_apt_conf(self):
         if self.dry_run:
             print("  + write %s (no language files, retries, pipelining, lock wait)" % APT_CONF_FILE, flush=True)
@@ -1505,6 +1563,7 @@ def run_install(args, requested, units, chosen_all):
     if needs_apt:
         # Nothing else may hold apt, then the nearest fast server, then the first list refresh.
         runner.quiet_guest()
+        runner.repair_dpkg(lambda text: reporter.update(0.02, text, True))
         runner.write_apt_conf()
         reporter.update(0.05, "Choosing the fastest download server", True)
         server = runner.pick_mirror()

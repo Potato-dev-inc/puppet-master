@@ -192,6 +192,24 @@ class RunnerTests(unittest.TestCase):
         self.runner.stream([sys.executable, "-c", "import time;time.sleep(0.35)"], "t", "test", on_tick=lambda: ticks.append(1), tick=0.1)
         self.assertGreaterEqual(len(ticks), 2)
 
+    def test_the_dpkg_audit_names_half_installed_and_unconfigured_packages(self):
+        audit = (
+            "The following packages are in a mess due to serious problems during" + chr(10) +
+            "installation.  They must be reinstalled for them (and any packages" + chr(10) +
+            "that depend on them) to function properly:" + chr(10) +
+            " libxkbregistry0:amd64 library to query available RMLVO" + chr(10) + chr(10) +
+            "The following packages have been unpacked but not yet configured." + chr(10) +
+            "They must be configured using dpkg --configure or the configure" + chr(10) +
+            "menu option in dselect for them to work:" + chr(10) +
+            " evince               Document viewer" + chr(10))
+        from unittest import mock
+        done = subprocess.CompletedProcess([], 0, stdout=audit, stderr="")
+        with mock.patch.object(subprocess, "run", return_value=done):
+            result = self.runner._dpkg_audit()
+        self.assertEqual(result, {"mess": ["libxkbregistry0:amd64"], "unconfigured": ["evince"]})
+        with mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="", stderr="")):
+            self.assertEqual(self.runner._dpkg_audit(), {"mess": [], "unconfigured": []})
+
     def test_a_failed_mirror_puts_the_original_sources_back(self):
         sources = os.path.join(self.dir.name, "ubuntu.sources")
         orig = os.path.join(self.dir.name, "orig")

@@ -47,6 +47,32 @@ const click = async (label: string) => {
 const line = () => host.querySelector('.ck-potato-maint-line')?.textContent;
 const names = (sandbox: FakeSandboxTransport) => sandbox.calls.map((c) => c.method).filter((m) => m === 'start' || m === 'stop');
 
+describe("Setup didn't finish", () => {
+  const cutOff: FakeSandboxSeed = { status: { state: 'incomplete', reason: "Setup didn't finish.", canContinue: true } };
+
+  it('shows the card with Continue setup and Start over instead of Wake and the upkeep', async () => {
+    await mount({ sandboxSeed: cutOff });
+    expect(host.querySelector("[aria-label=\"Setup didn't finish\"]")).toBeTruthy();
+    expect(buttonByText(host, 'Continue setup')).toBeTruthy();
+    expect(buttonByText(host, 'Start over')).toBeTruthy();
+    expect(buttonByText(host, 'Wake')).toBeUndefined();
+    expect(host.querySelector('.ck-potato-maint')).toBeNull();
+  });
+
+  it('Continue setup asks the app to carry on', async () => {
+    const { sandbox } = await mount({ sandboxSeed: cutOff });
+    await click('Continue setup');
+    expect(sandbox.calls.filter((c) => c.method === 'continueInstall')).toHaveLength(1);
+    expect(sandbox.view.state).toBe('installing');
+  });
+
+  it('with unknown answers there is only Start over', async () => {
+    await mount({ sandboxSeed: { status: { state: 'incomplete', canContinue: false } } });
+    expect(buttonByText(host, 'Continue setup')).toBeUndefined();
+    expect(buttonByText(host, 'Start over')).toBeTruthy();
+  });
+});
+
 describe('the upkeep section', () => {
   it('says Running with the disk it uses, and has Stop, Restart and the way to the settings', async () => {
     await mount({ onOpenSettings: () => {} });

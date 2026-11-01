@@ -26,7 +26,7 @@ use tauri::AppHandle;
 
 use super::sandbox::control::Action;
 use super::sandbox::screen::{self, ScreenHub, ScreenSource};
-use super::sandbox::install::{GuestFiles, InstallError, InstallOptions, Layout, Progress};
+use super::sandbox::install::{GuestFiles, InstallError, InstallOptions, InstallRecords, Layout, Progress, SavedInstall};
 use super::sandbox::lifecycle::{Lifecycle, DEFAULT_IDLE_MINUTES};
 use super::sandbox::manager::{Events, InstallView, Manager};
 use super::sandbox::wsl::{SandboxName, Wsl};
@@ -122,7 +122,8 @@ pub fn usable_of(on: bool, manager: Option<&Arc<Manager>>) -> Option<Arc<dyn San
     }
     let sandbox = manager?.sandbox().clone();
     match sandbox.status() {
-        Ok(status) if status.state != State::NotInstalled => Some(sandbox),
+        // A set up that did not finish is not a sandbox the bot can use (the settings page offers Continue / Start over).
+        Ok(status) if !matches!(status.state, State::NotInstalled | State::Incomplete) => Some(sandbox),
         _ => None,
     }
 }
@@ -167,9 +168,9 @@ fn manager_unchecked() -> Arc<Manager> {
 /// The sandbox leaves with the app.
 pub fn stop_on_exit() {
     if let Some(manager) = MANAGER.get() {
-        // A set up that is still running is asked to stop at its next step (the half-made sandbox is then taken away);
-        // a stop of a sandbox that is busy installing is refused, so this does not wait for it.
-        let _ = manager.cancel_install();
+        // A set up that is still running is NOT cancelled (that would take the half-made sandbox away): it ends with the app, its
+        // record stays "not finished", and the next start of the app shows "Setup didn't finish" with Continue / Start over.
+        // A stop of a sandbox that is busy installing is refused, so this does not wait for it.
         let _ = manager.stop();
     }
 }
@@ -207,6 +208,33 @@ fn load_idle_minutes() -> u32 {
 /// Saves the idle-stop minutes (already clamped by the sandbox) for the next run of the app.
 pub fn save_idle_minutes(minutes: u32) {
     let _ = store::write_json(&settings_path(), &SandboxSettings { v: 1, idle_minutes: minutes }, "sandbox-settings.json");
+}
+
+// ---- the record of a set up ------------------------------------------------------------------------
+
+/// Keeps the record of the set up (finished or not, and the answers it started with) in `<app data>/potato/sandbox-install-<name>.json`.
+/// The sandbox folder writes no file on Windows, so the host does it.
+struct FileRecords;
+
+impl FileRecords {
+    fn path(name: &SandboxName) -> PathBuf {
+        data_root().join(format!("sandbox-install-{}.json", name.as_str()))
+    }
+}
+
+impl InstallRecords for FileRecords {
+    fn load(&self, name: &SandboxName) -> Option<SavedInstall> {
+        let value = store::read_json::<Value>(&Self::path(name), "sandbox-install.json").ok()??;
+        SavedInstall::from_json(name, &value)
+    }
+
+    fn save(&self, name: &SandboxName, saved: &SavedInstall) {
+        let _ = store::write_json(&Self::path(name), &saved.to_json(), "sandbox-install.json");
+    }
+
+    fn clear(&self, name: &SandboxName) {
+        let _ = std::fs::remove_file(Self::path(name));
+    }
 }
 
 // ---- building it ----------------------------------------------------------------------------------
@@ -258,7 +286,7 @@ fn build() -> Arc<Manager> {
             let lifecycle = Arc::new(Lifecycle::new(wsl.clone(), name.clone()).with_window_check(Arc::new(Msrdc::live())));
             lifecycle.set_idle_minutes(load_idle_minutes());
             let files = GuestFiles::new(root.as_deref().unwrap_or_else(|| std::path::Path::new("")));
-            Arc::new(WslSandbox::new(wsl, name.clone(), layout.clone(), files, lifecycle))
+            Arc::new(WslSandbox::new(wsl, name.clone(), layout.clone(), files, lifecycle).with_records(Arc::new(FileRecords)))
         }
         Err(_) => Arc::new(NoLinux),
     };

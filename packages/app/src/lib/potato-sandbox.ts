@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { isTauri } from './cockpit-api';
 
-export type SandboxState = 'not_installed' | 'installing' | 'stopped' | 'starting' | 'running' | 'failed';
+export type SandboxState = 'not_installed' | 'installing' | 'incomplete' | 'stopped' | 'starting' | 'running' | 'failed';
 export type InstallState = 'idle' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface InstallView {
@@ -36,6 +36,8 @@ export interface SandboxView {
   diskBytes: number | null;
   hasResetPoint: boolean;
   resetPointBytes: number | null;
+  /** State `incomplete` (set up did not finish) and the answers it started with are known: "Continue setup" works. Else only "Start over". */
+  canContinue: boolean;
   install: InstallView;
 }
 
@@ -95,6 +97,8 @@ export interface SandboxTransport {
   detect(): Promise<Detected>;
   /** Starts set up and returns at once; follow `onInstall`. A bad answer rejects with a plain sentence. */
   install(answers: WizardAnswers): Promise<void>;
+  /** Carries on a set up that did not finish (state `incomplete`), with the answers it started with. Follow `onInstall`. */
+  continueInstall(): Promise<void>;
   cancelInstall(): Promise<void>;
   /** The page showed the end of a set up: forget it. */
   dismissInstall(): Promise<void>;
@@ -119,6 +123,7 @@ export const tauriSandboxTransport: SandboxTransport = {
   menu: () => invoke<Recipe[]>('potato_sandbox_menu'),
   detect: () => invoke<Detected>('potato_sandbox_detect'),
   install: (answers) => invoke<void>('potato_sandbox_install', { answers }),
+  continueInstall: () => invoke<void>('potato_sandbox_continue_install'),
   cancelInstall: () => invoke<void>('potato_sandbox_cancel_install'),
   dismissInstall: () => invoke<void>('potato_sandbox_dismiss_install'),
   start: () => invoke<void>('potato_sandbox_start'),
@@ -143,6 +148,7 @@ export const tauriSandboxTransport: SandboxTransport = {
 export const STATE_WORD: Record<SandboxState, string> = {
   not_installed: 'Not set up',
   installing: 'Setting up',
+  incomplete: "Setup didn't finish",
   stopped: 'Stopped',
   starting: 'Starting',
   running: 'Running',
@@ -452,6 +458,7 @@ export function fakeSandboxTransport(seed: FakeSandboxSeed = {}): FakeSandboxTra
     diskBytes: null,
     hasResetPoint: false,
     resetPointBytes: null,
+    canContinue: false,
     install: emptyInstall(),
     ...seed.status,
   };
@@ -511,6 +518,14 @@ export function fakeSandboxTransport(seed: FakeSandboxSeed = {}): FakeSandboxTra
         view.state = 'installing';
         emitInstall();
       }),
+    continueInstall: () =>
+      log('continueInstall', [], () => {
+        if (view.state !== 'incomplete') throw new Error('SANDBOX_NOT_UNFINISHED: There is no unfinished set up to carry on.');
+        if (!view.canContinue) throw new Error('SANDBOX_CANNOT_CONTINUE: This set up cannot be carried on. Start over instead.');
+        view.install = { ...emptyInstall(), state: 'running' };
+        view.state = 'installing';
+        emitInstall();
+      }),
     cancelInstall: () =>
       log('cancelInstall', [], () => {
         view.install = { ...view.install, cancelling: true };
@@ -539,6 +554,8 @@ export function fakeSandboxTransport(seed: FakeSandboxSeed = {}): FakeSandboxTra
       log('remove', [typed], () => {
         if (typed.trim().toLowerCase() !== REMOVE_WORD) throw new Error('SANDBOX_CONFIRM_WORD: Type the word remove to remove the sandbox.');
         view.state = 'not_installed';
+        view.reason = null;
+        view.canContinue = false;
         view.hasResetPoint = false;
         view.diskBytes = null;
         view.install = emptyInstall();
