@@ -351,6 +351,8 @@ pub fn run() {
             commands::agent_wizard_capture,
             commands::agent_wizard_finish,
             commands::agent_wizard_cancel,
+            commands::agent_wizard_acp_detect,
+            commands::agent_wizard_acp_finish,
             commands::agent_wizard_ask,
             commands::recorder_start,
             commands::recorder_status,

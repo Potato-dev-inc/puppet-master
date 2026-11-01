@@ -17,6 +17,7 @@ import {
   type PromptOptions,
   type Sample,
 } from './agentWizardPrompt';
+import type { AcpDetectResult, AcpValue } from './agentWizardAcp';
 import { streamLlm } from './llm';
 import { resolveApiKey } from './secrets';
 import { listModels, loadSettings } from './settings';
@@ -394,6 +395,10 @@ export interface WizardApi {
   captureFinish(session: string): Promise<CaptureFacts | null>;
   captureDiscard(session: string): Promise<void>;
   finish(session: string, provenance: Provenance, auto?: AutoFinish): Promise<FinishResult>;
+  /** Chat (ACP): candidates read from the probe's help text. Runs no program. */
+  acpDetect?(session: string): Promise<AcpDetectResult>;
+  /** Chat (ACP) only: writes an unapproved definition that has just the `[acp]` table (no capture, no tests). */
+  acpFinish?(req: { session: string; id?: string; label: string; acp: AcpValue }): Promise<FinishResult>;
   cancel(session: string): Promise<unknown>;
   /** One read-only question to an installed local agent, in the session's work folder. */
   ask(session: string, agent: string, prompt: string): Promise<string>;
@@ -436,6 +441,8 @@ export const tauriWizardApi: WizardApi = {
     await invoke('agent_wizard_capture', { body: { session, op: 'discard' } });
   },
   finish: (session, provenance, auto) => invoke<FinishResult>('agent_wizard_finish', { session, provenance, autonomous: auto ?? null }),
+  acpDetect: (session) => invoke<AcpDetectResult>('agent_wizard_acp_detect', { session }),
+  acpFinish: ({ session, id, label, acp }) => invoke<FinishResult>('agent_wizard_acp_finish', { session, id: id ?? null, label, acp }),
   cancel: (session) => invoke('agent_wizard_cancel', { session }),
   ask: async (session, agent, prompt) =>
     (await invoke<{ answer: string }>('agent_wizard_ask', { session, agent, prompt: maskEmails(prompt) })).answer,
@@ -713,6 +720,8 @@ export interface LoopOptions {
   ask: (prompt: string, round: number) => Promise<string>;
   maxChars: number;
   maxRounds?: number;
+  /** "Both" (terminal and chat): adds the person's `[acp]` table to each drafted text before it is checked. */
+  appendToml?: (drafted: string) => string;
   /** More prompt options: the benchmark's leave-one-out, or "add the one-task mode to this file". */
   promptOptions?: Partial<Omit<PromptOptions, 'maxChars' | 'feedback'>>;
   /**
@@ -777,9 +786,11 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
     }
     lastToml = extracted.toml;
     lastExpects = extracted.expects;
+    // The text that is checked, tested and written; feedback to the writer keeps its own text.
+    const toml = opts.appendToml ? opts.appendToml(extracted.toml) : extracted.toml;
 
     emit({ step: 'check', status: 'running', round });
-    const verify = await opts.api.verify(opts.session, extracted.toml, extracted.expects);
+    const verify = await opts.api.verify(opts.session, toml, extracted.expects);
     if (stopped()) return { status: 'cancelled', rounds: round };
     // A draft that is not valid at all goes straight back. One that only fails the shared rules or the
     // fixture checks (a plan is present) is still tested on the real program, so the next round gets
@@ -828,7 +839,7 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
           opts.autonomous.onDecision(`Will run (visible test): ${commandLine(opts.facts.command, plannedVisible.args)}`);
         } else {
           const go = (await opts.confirmVisible?.(plannedVisible)) ?? false;
-          if (!go) return { status: 'declined', toml: extracted.toml, expects: extracted.expects, rounds: round, verify };
+          if (!go) return { status: 'declined', toml, expects: extracted.expects, rounds: round, verify };
         }
         confirmedVisible = plannedVisible.fingerprint;
       }
@@ -859,7 +870,7 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
         emit({ step: 'visible', status: 'failed', round, detail: visible.errors[0]?.message });
         const ae = visible.agent_error ? { stage: visible.agent_error.check, message: visible.agent_error.message, external: visible.agent_error.external } : null;
         const stop = fail(visible.text, ae);
-        if (stop) return { status: 'agent_error', toml: extracted.toml, expects: extracted.expects, rounds: round, verify, live, visible, error: stop.stop };
+        if (stop) return { status: 'agent_error', toml, expects: extracted.expects, rounds: round, verify, live, visible, error: stop.stop };
         continue;
       }
       emit({ step: 'visible', status: 'done', round });
@@ -872,7 +883,7 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
             opts.autonomous.onDecision(`Will run (one-task test, ${stage.label.toLowerCase()}): ${commandLine(opts.facts.command, stage.args)}`);
           }
         } else if (!(await opts.confirmLive?.(planned))) {
-          return { status: 'declined', toml: extracted.toml, expects: extracted.expects, rounds: round, verify };
+          return { status: 'declined', toml, expects: extracted.expects, rounds: round, verify };
         }
         confirmedPlan = planned.fingerprint;
       }
@@ -896,7 +907,7 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
         emit({ step: 'live', status: 'failed', round, detail: live.errors[0]?.message });
         samples = samplesFrom(live);
         const stop = fail(live.text, live.agent_error ?? null);
-        if (stop) return { status: 'agent_error', toml: extracted.toml, expects: extracted.expects, rounds: round, verify, live, visible, error: stop.stop };
+        if (stop) return { status: 'agent_error', toml, expects: extracted.expects, rounds: round, verify, live, visible, error: stop.stop };
         continue;
       }
       emit({ step: 'live', status: 'done', round });
@@ -909,7 +920,7 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
       feedback = { previousToml: extracted.toml, previousExpects: extracted.expects, text: verify.text };
       continue;
     }
-    return { status: 'tested', toml: extracted.toml, expects: extracted.expects, rounds: round, verify, live, visible };
+    return { status: 'tested', toml, expects: extracted.expects, rounds: round, verify, live, visible };
   }
   return { status: 'gave_up', rounds: round, lastToml, lastText };
 }
