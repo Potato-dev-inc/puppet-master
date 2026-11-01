@@ -4,7 +4,7 @@
 // again and takes the "New" line away.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PotatoBotView, PotatoMessage, PotatoTransport, PotatoVoice } from '../../../lib/potato';
-import { THREAD_COPY, firstUnreadId } from '../../../lib/potato-thread';
+import { THREAD_COPY, firstUnreadId, type ToolStep } from '../../../lib/potato-thread';
 import { MessageRow } from './MessageRow';
 import { DaySeparator, TimeSeparator, UnreadDivider } from './Separators';
 import { ThreadIcon } from './ThreadIcons';
@@ -32,9 +32,13 @@ export interface TranscriptProps {
   openLink?: (url: string) => void;
   /** The voice settings, for a reply's Speak button. */
   voice?: PotatoVoice;
+  /** Sends a message as the person (a failed step's "Try again"). */
+  onSendText?: (text: string) => void;
+  /** Opens the bot's computer (a failed step's "Take control"). */
+  onTakeControl?: () => void;
 }
 
-export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, hideEmpty = false, now, openLink, voice }: TranscriptProps) {
+export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, hideEmpty = false, now, openLink, voice, onSendText, onTakeControl }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const [away, setAway] = useState(false);
@@ -56,6 +60,24 @@ export function Transcript({ bot, messages, agentLabel, transport, onChanged, on
 
   const unreadId = useMemo(() => firstUnreadId(messages, unread), [messages, unread]);
   const items = useMemo(() => threadItems(messages, { now, unreadId }), [messages, now, unreadId]);
+
+  // Each run of tool steps: the step before it (its previous attempt), and whether it is Fish's latest reply (no bot
+  // text after it). Only the latest reply offers Try again or Take control.
+  const { before, latest } = useMemo(() => {
+    const previous = new Map<string, ToolStep | null>();
+    let last: ToolStep | null = null;
+    let latestKey: string | null = null;
+    for (const item of items) {
+      if (item.type === 'activity') {
+        previous.set(item.key, last);
+        last = item.steps[item.steps.length - 1] ?? null;
+        latestKey = item.key;
+      } else if (item.type === 'bubble' && item.side === 'bot') {
+        latestKey = null;
+      }
+    }
+    return { before: previous, latest: latestKey };
+  }, [items]);
 
   useEffect(() => {
     pinned.current = true;
@@ -98,7 +120,15 @@ export function Transcript({ bot, messages, agentLabel, transport, onChanged, on
               case 'unread':
                 return <UnreadDivider key={item.key} />;
               case 'activity':
-                return <ToolActivity key={item.key} steps={item.steps} />;
+                return (
+                  <ToolActivity
+                    key={item.key}
+                    steps={item.steps}
+                    before={before.get(item.key) ?? null}
+                    onSendText={item.key === latest ? onSendText : undefined}
+                    onTakeControl={item.key === latest ? onTakeControl : undefined}
+                  />
+                );
               default:
                 return (
                   <MessageRow
