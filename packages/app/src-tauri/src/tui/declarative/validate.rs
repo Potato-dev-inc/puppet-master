@@ -87,9 +87,28 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
             e.add("AGENT_DEF_PANE_MCP_INVALID", &path, message);
         }
     }
+    check_acp(def, &mut e);
     check_profile(def, &mut e);
     check_regexes(&regexes, &mut e);
     e.0
+}
+
+/// `[acp]`: the table's own checks, plus the two rules every program a definition starts is held to.
+fn check_acp(def: &Definition, e: &mut Errors) {
+    let Some(table) = &def.acp else { return };
+    for (path, message) in crate::acp::config::table_problems(table) {
+        e.add("AGENT_DEF_ACP_INVALID", &path, message);
+    }
+    let program = table.command.to_ascii_lowercase();
+    let file = program.rsplit(['/', '\\']).next().unwrap_or(&program);
+    let stem = file.rsplit_once('.').map_or(file, |(s, ext)| if WINDOWS_EXTENSIONS.contains(&ext) { s } else { file });
+    if INTERPRETERS.contains(&stem) && !def.agent.allow_interpreter {
+        e.add("AGENT_DEF_SHELL_INTERPRETER", "acp.command", format!("`{}` is a shell or interpreter; needs agent.allow_interpreter", table.command));
+    }
+    let named = table.env.keys().chain(table.env_allow.iter()).chain(std::iter::once(&table.mcp_config.env));
+    for key in named.filter(|key| !key.is_empty()) {
+        check_env_key(key, "acp.env", e);
+    }
 }
 
 fn check_install(def: &Definition, e: &mut Errors) {

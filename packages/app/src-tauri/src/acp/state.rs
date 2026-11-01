@@ -235,6 +235,9 @@ pub struct SessionState {
     turn_active: bool,
     cancel_requested: bool,
     output_seen: bool,
+    /// `config::Quirks::cancel_reports_end_turn`: a stop that was asked for is reported as cancelled even
+    /// when the agent says `end_turn`.
+    cancel_reports_end_turn: bool,
 }
 
 impl Default for SessionState {
@@ -246,7 +249,11 @@ impl Default for SessionState {
 impl SessionState {
     pub fn new() -> Self {
         let initial = Snapshot::initial();
-        Self { working: initial.clone(), published: initial, next_ask: 1, turn_active: false, cancel_requested: false, output_seen: false }
+        Self { working: initial.clone(), published: initial, next_ask: 1, turn_active: false, cancel_requested: false, output_seen: false, cancel_reports_end_turn: true }
+    }
+
+    pub fn set_cancel_reports_end_turn(&mut self, on: bool) {
+        self.cancel_reports_end_turn = on;
     }
 
     pub fn snapshot(&self) -> &Snapshot {
@@ -386,7 +393,7 @@ impl SessionState {
             TurnOutcome::Hung => (StopKind::Hung, None, None, None),
         };
         // An agent that answers `end_turn` after being told to stop did stop: report what the person did.
-        let stop = if self.cancel_requested && matches!(stop, StopKind::EndTurn | StopKind::Cancelled) { StopKind::Cancelled } else { stop };
+        let stop = if self.cancel_requested && (stop == StopKind::Cancelled || (stop == StopKind::EndTurn && self.cancel_reports_end_turn)) { StopKind::Cancelled } else { stop };
         let summary = TurnSummary {
             turn: self.working.turn,
             stop,
@@ -779,6 +786,21 @@ mod tests {
         assert_eq!(summary.stop_reason.as_deref(), Some("end_turn"));
         state.commit();
         assert_eq!(state.snapshot().phase, Phase::Idle);
+    }
+
+    #[test]
+    fn an_agent_that_reports_its_own_stop_reason_is_believed_when_the_quirk_is_off() {
+        let mut state = SessionState::new();
+        state.set_cancel_reports_end_turn(false);
+        ready(&mut state);
+        state.on_prompt_sent();
+        state.on_cancel_requested();
+        let summary = state.on_turn_end(TurnOutcome::Stop(StopReason::EndTurn));
+        assert_eq!(summary.stop, StopKind::EndTurn, "its word is kept");
+        assert!(summary.cancel_requested, "but we still know we asked");
+        state.on_prompt_sent();
+        state.on_cancel_requested();
+        assert_eq!(state.on_turn_end(TurnOutcome::Stop(StopReason::Cancelled)).stop, StopKind::Cancelled);
     }
 
     #[test]

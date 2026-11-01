@@ -597,6 +597,12 @@ pub fn run() {
             commands::telegram_tag_remove,
             commands::agent_lane_get,
             commands::agent_lane_set,
+            commands::acp_conversations_list,
+            commands::acp_conversations_restore,
+            commands::acp_conversation_create,
+            commands::acp_open_in_terminal,
+            commands::acp_back_to_chat,
+            commands::acp_conversation_notices_seen,
             commands::agent_run_mode_get,
             commands::agent_run_mode_set,
             commands::audit_recent,
@@ -748,6 +754,13 @@ pub fn run() {
             };
 
             push::init(app.state::<AppState>().registry.clone());
+
+            // Chat conversations that were live come back, lazily: no adapter starts until one is used.
+            {
+                let state = app.state::<AppState>();
+                let report = commands::acp_restore_at_start(app.handle(), &state);
+                tracing::info!(restored = report.restored.len(), in_terminal = report.in_terminal.len(), failed = report.failed.len(), "acp: conversations restored");
+            }
 
             // Text your agents: starts only if the person turned Telegram on before.
             channels::start(app.handle().clone(), app.state::<AppState>().registry.clone());

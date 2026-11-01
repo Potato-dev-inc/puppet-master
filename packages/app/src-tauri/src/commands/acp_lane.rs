@@ -18,7 +18,9 @@ fn view() -> Value {
                 "id": cfg.id,
                 "label": cfg.label,
                 "lane": lane.as_str(),
-                "effective_lane": effective_lane(lane, labs, true).as_str(),
+                "effective_lane": effective_lane(lane, labs, !cfg.disabled).as_str(),
+                "disabled": cfg.disabled,
+                "disabled_note": cfg.disabled_note,
             })
         })
         .collect();
@@ -36,8 +38,12 @@ pub fn agent_lane_get() -> Value {
 #[tauri::command]
 pub fn agent_lane_set(id: String, lane: String) -> Result<Value, String> {
     let lane = RunLane::parse(&lane).ok_or_else(|| format!("INVALID_ARGUMENT: unknown lane {lane}"))?;
-    if lane == RunLane::Acp && config::find_builtin(&id).is_none() {
-        return Err(format!("INVALID_ARGUMENT: {id} has no chat (ACP) definition"));
+    if lane == RunLane::Acp {
+        match config::find_builtin(&id) {
+            None => return Err(format!("INVALID_ARGUMENT: {id} has no chat (ACP) definition")),
+            Some(cfg) if cfg.disabled => return Err(format!("INVALID_ARGUMENT: chat for {id} is off: {}", cfg.disabled_note)),
+            Some(_) => {}
+        }
     }
     LaneStore::in_app_data().set(&id, lane)?;
     Ok(view())

@@ -722,6 +722,13 @@ impl TuiProfile for DeclarativeProfile {
         self.def.pane_mcp.clone()
     }
 
+    fn acp_table(&self) -> Option<crate::acp::config::AgentConfig> {
+        let mut table = self.def.acp.clone()?;
+        table.id = self.def.agent.id.clone();
+        table.label = self.def.agent.label.clone();
+        Some(table)
+    }
+
     fn session_chat(&self) -> Option<&'static dyn crate::session_chat::SessionSource> {
         self.chat_source.map(|source| source as &'static dyn crate::session_chat::SessionSource)
     }
