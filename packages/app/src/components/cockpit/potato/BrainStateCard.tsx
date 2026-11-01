@@ -12,11 +12,11 @@ export interface BrainStateCardProps {
   limitCents: number;
   onStart: () => Promise<void>;
   onInstallNode: () => Promise<void>;
-  /** Opens Settings on a tab or row id (the cockpit's settings opener). */
-  onOpenSettings?: (tab: string) => void;
+  /** Kept for callers; the buttons open Settings through the opener the cockpit registered (see openSettingsAt). */
+  onOpenSettings?: () => void;
 }
 
-export function BrainStateCard({ name, state, lastError, limitCents, onStart, onInstallNode, onOpenSettings }: BrainStateCardProps) {
+export function BrainStateCard({ name, state, lastError, limitCents, onStart, onInstallNode }: BrainStateCardProps) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -38,7 +38,7 @@ export function BrainStateCard({ name, state, lastError, limitCents, onStart, on
   switch (state) {
     case 'needs_key':
       text = COPY.noKey(name);
-      action = { label: 'Add key', run: () => openSettingsAt('potato', 'potato-key', { open: onOpenSettings, focusField: true }) };
+      action = { label: 'Add key', run: () => openSettingsAt('potato', 'potato-key', { focusField: true }) };
       break;
     case 'needs_node':
       text = COPY.needsNode;
@@ -46,7 +46,7 @@ export function BrainStateCard({ name, state, lastError, limitCents, onStart, on
       break;
     case 'daily_limit':
       text = COPY.limit(name, limitCents);
-      action = { label: 'Raise limit', run: () => openSettingsAt('potato', 'potato-limit', { open: onOpenSettings }) };
+      action = { label: 'Raise limit', run: () => openSettingsAt('potato', 'potato-limit') };
       break;
     case 'stopped':
       text = COPY.stopped(name);
@@ -55,7 +55,7 @@ export function BrainStateCard({ name, state, lastError, limitCents, onStart, on
     case 'missing_program':
       text = COPY.missingProgram;
       // No repair row exists yet; the sandbox and brain rows live in the Potato section.
-      action = { label: 'Repair install', run: () => openSettingsAt('potato', undefined, { open: onOpenSettings }) };
+      action = { label: 'Repair install', run: () => openSettingsAt('potato') };
       break;
     case 'ready':
     case 'idle':

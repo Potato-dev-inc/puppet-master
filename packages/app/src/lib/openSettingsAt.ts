@@ -9,8 +9,15 @@ export const SETTINGS_GLOW_MS = 2000;
 const GLOW_ATTR = 'data-glow';
 const FIND_TIMEOUT_MS = 1500;
 
+let registered: ((tab: string) => void) | null = null;
+
+/** The cockpit registers how to open Settings on a tab or row id (its settings opener). Pass null to unregister. */
+export function registerSettingsOpener(open: ((tab: string) => void) | null): void {
+  registered = open;
+}
+
 export interface OpenSettingsOptions {
-  /** Opens Settings on a tab or row id. Defaults to dispatching `pm:open-settings`. */
+  /** Opens Settings on a tab or row id. Defaults to the registered opener, else dispatching `pm:open-settings`. */
   open?: (tab: string) => void;
   /** Put the cursor in the row's first text field once it is shown. */
   focusField?: boolean;
@@ -19,7 +26,8 @@ export interface OpenSettingsOptions {
 /** Open Settings on `section`, or on `rowId` inside it when given. */
 export function openSettingsAt(section: SectionId, rowId?: string, options: OpenSettingsOptions = {}): void {
   const tab = rowId ?? section;
-  if (options.open) options.open(tab);
+  const open = options.open ?? registered;
+  if (open) open(tab);
   else if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pm:open-settings', { detail: { tab } }));
   if (rowId) glowRow(rowId, options.focusField === true);
 }
