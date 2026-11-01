@@ -43,6 +43,8 @@ export interface AcpChatState {
   usage: { used: number; size: number } | null;
   permissions: AcpPermission[];
   closed: boolean;
+  /** Why the adapter is not running (phase `exited`): `closed` | `crashed` | `hung` | `write_stalled` | `start_failed`. */
+  exit?: { kind: string; code: number | null; reason: string | null } | null;
   /** The agent refused the last message until the person signs in (the sign-in card shows). */
   signIn?: { needed: boolean; hint: string };
   /** The saved conversation's id (== the pane id) when the chat is a saved conversation, else null. */
@@ -87,18 +89,32 @@ export interface AcpCommand {
 /** The lane an agent runs in. */
 export type AcpLane = 'terminal' | 'acp';
 
+/** Every saved "How to run" value (`agent_lane_get`/`agent_lane_set`): the two above plus Chat (terminal). */
+export type RunLaneWord = AcpLane | 'terminal_chat';
+
 /** One agent that has an enabled ACP definition (`agent_lane_get`). */
 export interface AcpLaneAgent {
   id: string;
   label: string;
   /** The saved choice. */
-  lane: AcpLane;
+  lane: RunLaneWord;
   /** What a new session really uses (the choice, unless something stops it). */
-  effective_lane: AcpLane;
+  effective_lane: RunLaneWord;
   disabled: boolean;
   disabled_note: string | null;
   /** The chat comes from the person's own add-on (`acp_overlay_set`), so it can be removed. */
   overlay?: boolean;
+  /** The chat add-on files this agent has on disk (the Remove sheet offers to delete them). Absent: none. */
+  addon?: { installed: boolean; size_mb: number };
+}
+
+/** What `acp_chat_remove` did (it comes with the lane view as `removal`). */
+export interface AcpRemoval {
+  chats_stopped: number;
+  conversations: number;
+  overlay_removed: boolean;
+  addon_deleted: boolean | null;
+  addon_error: string | null;
 }
 
 /** An agent that has no chat yet and could get one (`reason`: why it cannot, then the button is off). */
@@ -108,9 +124,31 @@ export interface AcpAddable {
   reason?: string;
 }
 
+/** An agent that can run as "Chat (terminal)": a normal terminal pane whose Chat tab reads its session file (`agent_lane_get`). */
+export interface TerminalChatAgent {
+  id: string;
+  label: string;
+  reads_file: boolean;
+  can_resume: boolean;
+  /** The profile has a prompt parser, so a question can be answered from the chat. */
+  can_answer_prompts: boolean;
+  note: string;
+  /** The saved "How to run" is Chat (terminal). */
+  chosen: boolean;
+}
+
+/** `PaneInfo.lane` of a Chat (terminal) pane. */
+export const TERMINAL_CHAT_LANE = 'terminal_chat';
+/** The name of this way to run, in the switch and the "How to run" popup. Never the agent's product name, never "ACP". */
+export const TERMINAL_CHAT_WORD = 'Chat (terminal)';
+/** The grey badge on a Chat (terminal) pane's header. */
+export const TERMINAL_CHAT_BADGE = 'Chat (terminal)';
+
 export interface AcpLaneView {
   labs_enabled: boolean;
   agents: AcpLaneAgent[];
+  /** Agents that can run as Chat (terminal). An older backend sends none. */
+  terminal_chat?: TerminalChatAgent[];
   /** Agents with no chat yet. An older backend sends none. */
   can_add_chat?: AcpAddable[];
 }
@@ -148,7 +186,7 @@ export interface BridgeInfo {
 /** One way to give an agent a chat (`acp_overlay_resolve`), best first. */
 export interface OverlayOption {
   /** `native`: the program you have already starts chat; `registry`: a download from the official ACP registry; `bridge`: the built-in bridge. */
-  kind: 'native' | 'registry' | 'bridge';
+  kind: 'native' | 'registry' | 'terminal_chat' | 'bridge';
   label: string;
   summary: string;
   command_line?: string;
@@ -157,6 +195,8 @@ export interface OverlayOption {
   registry?: RegistryInfo;
   /** `bridge`: what the made-by-Puppet-Master chat will be like. */
   bridge?: BridgeInfo;
+  /** `terminal_chat`: what Chat (terminal) gives this agent. */
+  terminal_chat?: { reads_file: boolean; can_resume: boolean; can_answer_prompts: boolean; note: string };
   available: boolean;
   /** Why it is not available. */
   reason?: string;
@@ -168,7 +208,7 @@ export interface OverlayResolve {
 }
 
 /** What the person confirmed for a download. `id` and `version` are what the screen showed; the app refuses if the registry moved. */
-export type OverlayInstallOption = { kind: 'registry'; id?: string; version?: string } | { kind: 'bridge' };
+export type OverlayInstallOption = { kind: 'registry'; id?: string; version?: string } | { kind: 'bridge' } | { kind: 'terminal_chat' };
 
 /** The confirm text for the built-in bridge. */
 export function bridgeSentence(label: string, hasMemory: boolean): string {
@@ -191,7 +231,7 @@ export function firstAvailable(options: readonly OverlayOption[] | null | undefi
 export function normalizeOptions(raw: OverlayResolve | null | undefined): OverlayOption[] {
   const list = Array.isArray(raw?.options) ? raw!.options : [];
   return list
-    .filter((o) => o && (o.kind === 'native' || o.kind === 'registry' || o.kind === 'bridge'))
+    .filter((o) => o && (o.kind === 'native' || o.kind === 'registry' || o.kind === 'terminal_chat' || o.kind === 'bridge'))
     .map((o) => ({ ...o, label: String(o.label ?? ''), summary: String(o.summary ?? ''), available: o.available === true }));
 }
 
@@ -222,7 +262,8 @@ export interface OverlayAcp {
 export function normalizeLaneView(raw: AcpLaneView | null | undefined): AcpLaneView {
   const agents = Array.isArray(raw?.agents) ? raw!.agents : [];
   const addable = Array.isArray(raw?.can_add_chat) ? raw!.can_add_chat.filter((a) => a && typeof a.id === 'string') : [];
-  return { labs_enabled: raw?.labs_enabled === true, agents, can_add_chat: addable };
+  const terminalChat = Array.isArray(raw?.terminal_chat) ? raw!.terminal_chat.filter((a) => a && typeof a.id === 'string') : [];
+  return { labs_enabled: raw?.labs_enabled === true, agents, can_add_chat: addable, terminal_chat: terminalChat };
 }
 
 /** The agents that could get a chat (Labs on), in the backend's order. */
@@ -275,7 +316,7 @@ export interface AcpChatApi {
   /** Fires after every hand-over (no payload). */
   watchConversations: (cb: () => void) => Promise<UnlistenFn>;
   laneGet: () => Promise<AcpLaneView>;
-  laneSet: (agentId: string, lane: AcpLane) => Promise<AcpLaneView>;
+  laneSet: (agentId: string, lane: RunLaneWord) => Promise<AcpLaneView>;
   /** Start a chat session. `explicit`: the person picked Chat for this session, so the saved choice is not needed. */
   start: (agentId: string, folder: string, explicit?: boolean) => Promise<AcpStarted>;
   /** Read the agent's help text for how it starts as a chat. Runs nothing but help. */
@@ -290,6 +331,10 @@ export interface AcpChatApi {
   overlaySet?: (agent: string, acp: OverlayAcp, confirmed: boolean) => Promise<AcpLaneAgent>;
   /** Take the added chat away again. */
   overlayRemove?: (agent: string) => Promise<void>;
+  /** Remove Chat for any agent: stops its chats, back to Terminal, drops an added chat, and with `removeAddon` deletes the add-on files. */
+  chatRemove?: (agent: string, opts: { removeAddon: boolean }) => Promise<AcpLaneView & { removal?: AcpRemoval }>;
+  /** "Restart chat": brings the adapter of a stopped chat back. */
+  restart?: (paneId: string) => Promise<AcpChatState>;
 }
 
 const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -345,6 +390,11 @@ export const tauriAcpChatApi: AcpChatApi = {
   overlayRemove: async (agent) => {
     await call<unknown>('acp_overlay_remove', { agent });
   },
+  chatRemove: async (agent, opts) => {
+    const view = await call<AcpLaneView & { removal?: AcpRemoval }>('acp_chat_remove', { agent, opts: { remove_addon: opts.removeAddon } });
+    return { ...normalizeLaneView(view), removal: view.removal };
+  },
+  restart: (paneId) => call<AcpChatState>('acp_chat_restart', { paneId }),
 };
 
 /** The permission cards that belong to `paneId`, oldest first. */
@@ -361,6 +411,25 @@ export function runStrip(state: AcpChatState | null, asked = false): { text: str
   if (state.stopping || asked) return { text: 'Stopping…', stopping: true };
   if (state.phase === 'needs_input') return { text: 'Waiting for your answer', stopping: false };
   return { text: 'Working…', stopping: false };
+}
+
+const STOPPED_WHY: Record<string, string> = {
+  crashed: 'the agent stopped unexpectedly',
+  hung: 'the agent stopped answering',
+  write_stalled: 'the agent stopped reading messages',
+  start_failed: 'the agent could not start',
+};
+
+/**
+ * The line shown when the adapter is gone for a reason that is not the person's doing: "The chat stopped: <why>" with a
+ * Restart button. `null` while it runs, was closed on purpose, or is only napping. No spinner goes with it.
+ */
+export function stoppedStrip(state: AcpChatState | null): { text: string } | null {
+  if (!state || state.closed || state.phase !== 'exited' || !state.exit) return null;
+  const why = STOPPED_WHY[state.exit.kind];
+  if (!why) return null;
+  const detail = state.exit.kind === 'start_failed' && state.exit.reason ? `: ${state.exit.reason.replace(/\s+/g, ' ').trim().slice(0, 160)}` : state.exit.kind === 'crashed' && state.exit.code != null ? ` (exit code ${state.exit.code})` : '';
+  return { text: `The chat stopped: ${why}${detail}` };
 }
 
 // ---- Settings chips (model, mode, effort) -------------------------------------------------------------------------
@@ -487,4 +556,19 @@ export function laneChoiceFor(agent: Pick<AcpLaneAgent, 'effective_lane' | 'lane
 /** The agents the person can choose Chat for: Labs on, and not disabled. */
 export function chatCapable(view: AcpLaneView | null): AcpLaneAgent[] {
   return view && view.labs_enabled ? view.agents.filter((a) => !a.disabled) : [];
+}
+
+/** Is this pane a Chat (terminal) pane? Takes the raw `PaneInfo.lane` (its type only knows the ACP lane). */
+export function isTerminalChatLane(lane: string | null | undefined): boolean {
+  return lane === TERMINAL_CHAT_LANE;
+}
+
+/** The agents that can run as Chat (terminal): Labs on. An older backend sends none. */
+export function terminalChatCapable(view: AcpLaneView | null): TerminalChatAgent[] {
+  return view && view.labs_enabled && Array.isArray(view.terminal_chat) ? view.terminal_chat : [];
+}
+
+/** Start an agent as Chat (terminal) (`terminal_chat_start`): a normal terminal pane. Resolves to the new pane id. */
+export function startTerminalChat(agentId: string, cwd?: string): Promise<string> {
+  return call<string>('terminal_chat_start', { agent: agentId, cwd: cwd ?? null });
 }

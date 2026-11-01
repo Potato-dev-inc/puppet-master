@@ -276,6 +276,30 @@ impl Conversations {
         Ok(())
     }
 
+    /// The person removed Chat for `agent`: each of its live conversations stops (adapter gone, no restore) and keeps a
+    /// notice. The record stays, so the conversation is still listed and can be opened in a terminal. A conversation
+    /// that a terminal pane holds is left alone. Returns the ids. Idempotent: a closed conversation is skipped.
+    pub fn chat_removed(&self, agent: &str) -> Vec<String> {
+        let live: Vec<String> = self
+            .0
+            .records
+            .lock()
+            .iter()
+            .filter(|r| r.agent.eq_ignore_ascii_case(agent) && r.last_known_state == LastState::Live)
+            .map(|r| r.id.clone())
+            .collect();
+        for id in &live {
+            self.0.supervisor.remove(id);
+            self.0.writers.forget(id);
+            self.update(id, |r| {
+                r.last_known_state = LastState::Closed;
+                r.terminal_pane = None;
+                r.push_notice(NoticeKind::ChatRemoved, "Chat removed. Open this conversation in a terminal, or add Chat again.", now_ms());
+            });
+        }
+        live
+    }
+
     /// The person has seen the notices of a conversation.
     pub fn mark_notices_seen(&self, id: &str) {
         self.update(id, |r| r.notices.iter_mut().for_each(|n| n.seen = true));

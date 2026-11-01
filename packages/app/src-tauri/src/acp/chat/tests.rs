@@ -202,6 +202,8 @@ fn an_adapter_that_will_not_start_leaves_nothing_behind_and_offers_the_terminal(
     let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }), conversations: None };
     let error = start(&deps, cfg, StartRequest { agent_id: "fake".into(), folder: dir, explicit: true }).err().expect("it cannot start");
     assert_eq!(error.code, "ACP_START_FAILED");
+    assert!(error.message.starts_with("The chat program for Fake agent was not found"), "{}", error.message);
+    assert!(!error.message.contains("no-such-adapter"), "no path in the sentence");
     assert!(error.fallback, "the terminal can run this agent instead");
     assert!(registry.lock().list().is_empty(), "no pane was made");
 }
@@ -477,7 +479,7 @@ fn turning_the_switch_off_closes_every_chat_and_takes_its_cards_down() {
     // What `close_all` does for every chat (a test must not close the chats of the tests running beside it).
     super::close_these(vec![a.chat.clone(), b.chat.clone()]);
     assert!(a.chat.is_closed() && b.chat.is_closed());
-    assert_eq!(questions::store().get(&card.id, now_ms()).unwrap().state, QuestionState::Cancelled);
+    assert_eq!(questions::store().get(&card.id, now_ms()).unwrap().state, QuestionState::TimedOut);
     assert_eq!(a.chat.send("hi"), Err(SendError::Gone));
     // The panes stay listed, idle, so the person still sees the conversation.
     assert!(a.registry.lock().get(&a.id()).is_some());
@@ -512,7 +514,7 @@ fn closing_the_chat_takes_down_an_open_card_without_answering_it_yes() {
     on_pane_closed(&rig.id());
     assert!(rig.chat.is_closed());
     assert!(rig.cards().is_empty());
-    assert_eq!(questions::store().get(&card.id, now_ms()).unwrap().state, QuestionState::Cancelled);
+    assert_eq!(questions::store().get(&card.id, now_ms()).unwrap().state, QuestionState::TimedOut, "closed as expired: nobody is waiting any more");
     assert!(get(&rig.id()).is_none());
     assert!(crate::session_chat::pushed::lookup(&rig.id()).is_none());
 }
@@ -800,4 +802,167 @@ fn a_login_that_runs_out_shows_the_sign_in_card_and_try_again_sends_the_same_mes
     assert_eq!(rig.chat.state()["signIn"]["needed"], false);
     // Nothing is held now.
     assert!(matches!(rig.chat.retry_after_sign_in(), Err(SendError::Refused(_))));
+}
+
+// ---- robustness (R17) --------------------------------------------------------------------------------------------
+
+fn turn_ended(rig: &Rig, n: u64) -> bool {
+    rig.items().iter().any(|i| i["kind"] == "turnEnd" && i["id"] == format!("end:{n}"))
+}
+
+#[test]
+fn a_second_message_while_the_adapter_starts_is_busy_and_does_not_take_the_firsts_text() {
+    // The adapter takes ~1.2 s to start: the first message is still bringing it up when the second arrives.
+    let rig = Rig::new("deaf_ms=1200");
+    assert!(rig.chat.session().sleep().unwrap(), "the adapter naps; the next message starts it again");
+    let first = {
+        let chat = rig.chat.clone();
+        std::thread::spawn(move || chat.send("echo first"))
+    };
+    std::thread::sleep(Duration::from_millis(400));
+    assert_eq!(rig.chat.send("echo second"), Err(SendError::Busy), "a message while one is starting is refused at once");
+    assert_eq!(first.join().unwrap(), Ok(Sent::Started));
+    assert!(wait_until(30, || rig.items().iter().any(|i| i["kind"] == "turnEnd")), "{:#?}", rig.kinds());
+    let users: Vec<String> = rig.items().iter().filter(|i| i["kind"] == "user").map(|i| i["text"].as_str().unwrap().to_string()).collect();
+    assert_eq!(users, ["echo first"], "the chat shows the message that went, once");
+    assert_eq!(rig.items().iter().find(|i| i["kind"] == "assistant").unwrap()["text"], "echo: echo first");
+}
+
+#[test]
+fn a_permission_card_left_open_when_the_adapter_dies_expires_and_never_answers() {
+    let rig = Rig::new("");
+    rig.chat.send("permcrash").unwrap();
+    let card = rig.wait_card();
+    assert!(wait_until(30, || rig.cards().is_empty()), "the card goes when the adapter dies");
+    let after = questions::store().get(&card.id, now_ms()).expect("the card is still readable for a while");
+    assert_eq!(after.state, QuestionState::TimedOut, "closed as expired, not cancelled and not answered");
+    assert!(after.answer.is_none(), "nothing was chosen on the person's behalf");
+    assert!(wait_until(30, || rig.items().iter().any(|i| i["kind"] == "turnEnd")), "{:#?}", rig.kinds());
+    assert_eq!(rig.chat.state()["turnInFlight"], false);
+    assert_eq!(rig.chat.state()["permissions"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn closing_a_chat_expires_its_open_card() {
+    let rig = Rig::new("");
+    rig.chat.send("perm").unwrap();
+    let card = rig.wait_card();
+    rig.chat.close();
+    assert_eq!(questions::store().get(&card.id, now_ms()).unwrap().state, QuestionState::TimedOut);
+}
+
+#[test]
+fn restart_chat_brings_a_stopped_adapter_back_in_the_same_chat() {
+    let rig = Rig::new("");
+    rig.chat.send("crash").unwrap();
+    assert!(wait_until(30, || rig.chat.state()["phase"] == "exited"), "{:?}", rig.chat.state()["phase"]);
+    let state = rig.chat.state();
+    assert_eq!(state["exit"]["kind"], "crashed");
+    assert_eq!(state["turnInFlight"], false, "no spinner after a crash");
+    rig.chat.restart().expect("the adapter starts again");
+    assert_ne!(rig.chat.state()["phase"], "exited");
+    rig.say("stream 1");
+    assert_eq!(rig.items().iter().filter(|i| i["kind"] == "user").count(), 2, "{:#?}", rig.kinds());
+}
+
+#[test]
+fn a_closed_chat_cannot_be_restarted() {
+    let rig = Rig::new("");
+    rig.chat.close();
+    assert!(rig.chat.restart().is_err());
+}
+
+#[test]
+fn stop_during_a_tool_call_ends_the_tool_and_the_turn_with_nothing_left_spinning() {
+    let rig = Rig::new("");
+    rig.chat.send("toolhang").unwrap();
+    assert!(wait_until(10, || rig.kinds().iter().any(|k| k == "toolCall")), "{:#?}", rig.kinds());
+    assert!(rig.chat.cancel().unwrap());
+    assert!(wait_until(30, || turn_ended(&rig, 1)), "{:#?}", rig.kinds());
+    let kinds = rig.kinds();
+    assert_eq!(kinds.iter().filter(|k| *k == "toolCall").count(), kinds.iter().filter(|k| *k == "toolResult").count(), "the open tool is settled: {kinds:?}");
+    assert_eq!(rig.items().iter().find(|i| i["kind"] == "turnEnd").unwrap()["outcome"], "interrupted");
+    rig.wait_phase(Phase::Idle);
+    assert_eq!(rig.chat.state()["stopping"], false);
+    assert_eq!(rig.chat.send("stream 1"), Ok(Sent::Started), "the chat takes the next message");
+}
+
+#[test]
+fn bytes_that_are_not_text_and_broken_lines_are_skipped_and_the_turn_goes_on() {
+    let rig = Rig::new("");
+    rig.say("garbage");
+    let items = rig.items();
+    assert_eq!(items.iter().find(|i| i["kind"] == "assistant").unwrap()["text"], "before after");
+    assert_eq!(items.iter().find(|i| i["kind"] == "turnEnd").unwrap()["outcome"], "completed");
+    assert_eq!(rig.chat.state()["phase"], "idle");
+}
+
+#[test]
+fn an_edit_that_touches_very_many_files_still_shows_its_diff_bounded() {
+    let rig = Rig::new("");
+    rig.say("bigdiff 60");
+    let call = rig.items().into_iter().find(|i| i["kind"] == "toolCall").expect("a tool call");
+    let edits = call["input"]["edits"].as_array().expect("the diff is kept, not dropped");
+    assert_eq!(edits.len(), crate::acp::chat::mapper::MAX_SHOWN_DIFFS);
+    assert_eq!(call["input"]["omitted_edits"], 60 - crate::acp::chat::mapper::MAX_SHOWN_DIFFS as u64);
+    assert!(call.to_string().len() < 40_000, "the item stays small: {} bytes", call.to_string().len());
+    assert_eq!(rig.chat.state()["phase"], "idle");
+}
+
+#[test]
+fn two_chats_for_the_same_agent_do_not_share_cards_or_stops() {
+    let a = Rig::new("");
+    let b = Rig::new("");
+    assert_ne!(a.id(), b.id());
+    a.chat.send("perm").unwrap();
+    let card = a.wait_card();
+    assert!(b.cards().is_empty(), "a card belongs to the chat that asked");
+    b.say("stream 2");
+    assert_eq!(a.chat.state()["permissions"].as_array().unwrap().len(), 1, "the other chat's turn did not touch it");
+    assert!(!b.chat.cancel().unwrap(), "stopping the idle chat does nothing to the other");
+    assert_eq!(questions::store().get(&card.id, now_ms()).unwrap().state, QuestionState::Pending);
+    // Closing one leaves the other running.
+    let pid_b = b.chat.session().connection().unwrap().pid();
+    a.chat.close();
+    assert!(crate::proc_util::pid_alive(pid_b));
+    assert_eq!(b.chat.readiness(), Readiness::Ready);
+}
+
+#[test]
+fn removing_chat_for_an_agent_stops_its_open_chats_and_their_adapters() {
+    // Their own agent id, so this does not stop the chats of tests that run beside it.
+    let id = format!("fake-rm-{}", uuid::Uuid::new_v4().simple());
+    let a = Rig::with("", |cfg| cfg.id = id.clone());
+    let b = Rig::with("", |cfg| cfg.id = id.clone());
+    a.say("stream 1");
+    b.say("stream 1");
+    let pids = [a.chat.session().connection().unwrap().pid(), b.chat.session().connection().unwrap().pid()];
+    a.chat.send("perm").unwrap();
+    let card = a.wait_card();
+    assert!(crate::acp::chat::close_agent(&id.to_uppercase()) == 2);
+    assert!(a.chat.is_closed() && b.chat.is_closed());
+    for pid in pids {
+        assert!(wait_until(10, || !crate::proc_util::pid_alive(pid)), "no adapter is left running");
+    }
+    assert_eq!(questions::store().get(&card.id, now_ms()).unwrap().state, QuestionState::TimedOut);
+    assert_eq!(crate::acp::chat::close_agent(&id), 0, "again: nothing left to stop");
+    assert_eq!(a.chat.send("hi"), Err(SendError::Gone));
+}
+
+#[test]
+fn an_adapter_that_never_answers_the_start_fails_in_time_and_leaves_no_process() {
+    let dir = std::env::temp_dir().join(format!("pm-acp-chat-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // initialize is answered, then the agent sleeps: session/new gets no answer inside the limit.
+    let mut cfg = fake_agent::agent_config("deaf_ms=60000", &dir.join("store"));
+    cfg.timeouts.request_secs = 2;
+    cfg.timeouts.new_session_secs = 2;
+    let registry = Arc::new(Mutex::new(PaneRegistry::new()));
+    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }), conversations: None };
+    let started = Instant::now();
+    let error = start(&deps, cfg, StartRequest { agent_id: "fake".into(), folder: dir.clone(), explicit: true }).err().expect("the start fails");
+    assert!(started.elapsed() < Duration::from_secs(20), "{:?}", started.elapsed());
+    assert_eq!(error.code, "ACP_START_FAILED");
+    assert!(error.fallback, "the terminal can run the agent instead");
+    assert!(registry.lock().list().is_empty(), "no pane is left behind");
 }

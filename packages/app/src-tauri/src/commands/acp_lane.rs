@@ -9,7 +9,18 @@ use crate::acp::{self, config};
 use serde_json::{json, Value};
 
 pub(crate) fn view() -> Value {
-    lane_view(&LaneStore::in_app_data(), &OverlayStore::in_app_data(), acp::chat_enabled())
+    let overlay = OverlayStore::in_app_data();
+    let mut view = lane_view(&LaneStore::in_app_data(), &overlay, acp::chat_enabled());
+    // Each row says whether it has an add-on on disk and its size (the Remove sheet offers to delete it).
+    if let Some(rows) = view["agents"].as_array_mut() {
+        for row in rows {
+            let id = row["id"].as_str().unwrap_or_default().to_string();
+            if let Some(addon) = super::acp_remove::addon_info(&config::RealHost, &overlay, &id) {
+                row["addon"] = addon;
+            }
+        }
+    }
+    view
 }
 
 fn row(cfg: &config::AgentConfig, chosen: &std::collections::BTreeMap<String, RunLane>, labs: bool, overlay: bool) -> Value {
@@ -45,10 +56,21 @@ pub(crate) fn lane_view(store: &LaneStore, overlay: &OverlayStore, labs: bool) -
             v
         })
         .collect();
-    json!({ "labs_enabled": labs, "agents": agents, "can_add_chat": can_add })
+    // Agents that can run as a terminal chat (no ACP needed), each with whether the person chose it.
+    let terminal_chat: Vec<Value> = crate::terminal_chat::lane::eligible_rows()
+        .into_iter()
+        .map(|mut row| {
+            let chosen_here = row["id"].as_str().is_some_and(|id| chosen.get(id) == Some(&RunLane::TerminalChat));
+            row["chosen"] = json!(chosen_here);
+            row
+        })
+        .collect();
+    json!({ "labs_enabled": labs, "agents": agents, "can_add_chat": can_add, "terminal_chat": terminal_chat })
 }
 
-/// `{labs_enabled, agents: [{id, label, lane, effective_lane, disabled, disabled_note, overlay?}], can_add_chat: [{id, label, reason?}]}`.
+/// `{labs_enabled, agents: [{id, label, lane, effective_lane, disabled, disabled_note, overlay?}], can_add_chat: [{id, label, reason?}],
+/// terminal_chat: [{id, label, reads_file, can_resume, can_answer_prompts, note, chosen}]}`. `terminal_chat` lists every agent that
+/// can run as a chat over its own terminal (`crate::terminal_chat`); `chosen` = its saved lane is `terminal_chat`.
 /// `agents` lists every agent that has chat: its own ACP definition, or the person's overlay (`overlay: true`).
 /// `lane` is the saved choice, `effective_lane` what a new session would use (Chat needs the Labs switch).
 #[tauri::command]
@@ -56,7 +78,7 @@ pub fn agent_lane_get() -> Value {
     view()
 }
 
-/// Saves one agent's choice (`terminal` | `acp`). Returns the new view.
+/// Saves one agent's choice (`terminal` | `acp` | `terminal_chat`). Returns the new view.
 #[tauri::command]
 pub fn agent_lane_set(id: String, lane: String) -> Result<Value, String> {
     let lane = RunLane::parse(&lane).ok_or_else(|| format!("INVALID_ARGUMENT: unknown lane {lane}"))?;
@@ -66,6 +88,9 @@ pub fn agent_lane_set(id: String, lane: String) -> Result<Value, String> {
             Some(cfg) if cfg.disabled => return Err(format!("INVALID_ARGUMENT: chat for {id} is off: {}", cfg.disabled_note)),
             Some(_) => {}
         }
+    }
+    if lane == RunLane::TerminalChat {
+        crate::terminal_chat::available_for(&id).map_err(|reason| format!("INVALID_ARGUMENT: {reason}"))?;
     }
     LaneStore::in_app_data().set(&id, lane)?;
     Ok(view())
@@ -124,6 +149,24 @@ mod tests {
             overlay.remove(&h).unwrap();
             assert!(ids(&lane_view(&lanes, &overlay, true), "can_add_chat").contains(&h));
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_view_lists_terminal_chat_agents_and_the_choice() {
+        let (lanes, overlay, dir) = temp();
+        let before = lane_view(&lanes, &overlay, false);
+        let rows = before["terminal_chat"].as_array().expect("a terminal_chat list");
+        let claude = rows.iter().find(|r| r["id"] == json!("claude")).expect("an agent with a reader");
+        for field in ["label", "reads_file", "can_resume", "can_answer_prompts", "note", "chosen"] {
+            assert!(claude.get(field).is_some(), "{field}");
+        }
+        assert_eq!(claude["chosen"], json!(false));
+        assert!(rows.iter().all(|r| !crate::tui::is_shell(r["id"].as_str().unwrap())), "no shell is offered");
+        lanes.set("claude", RunLane::TerminalChat).unwrap();
+        let after = lane_view(&lanes, &overlay, false);
+        let claude = after["terminal_chat"].as_array().unwrap().iter().find(|r| r["id"] == json!("claude")).unwrap().clone();
+        assert_eq!(claude["chosen"], json!(true));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

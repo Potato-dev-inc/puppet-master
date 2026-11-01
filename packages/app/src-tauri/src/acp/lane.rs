@@ -23,6 +23,9 @@ pub enum RunLane {
     Terminal,
     /// Chat driven over the Agent Client Protocol.
     Acp,
+    /// A normal terminal pane that opens on its Chat tab: the chat reads the agent's session file and sends by typing
+    /// into the terminal (`crate::terminal_chat`). No adapter, no conversation record.
+    TerminalChat,
 }
 
 impl RunLane {
@@ -30,6 +33,7 @@ impl RunLane {
         match self {
             RunLane::Terminal => "terminal",
             RunLane::Acp => "acp",
+            RunLane::TerminalChat => "terminal_chat",
         }
     }
 
@@ -37,6 +41,7 @@ impl RunLane {
         match text.trim() {
             "terminal" => Some(RunLane::Terminal),
             "acp" => Some(RunLane::Acp),
+            "terminal_chat" => Some(RunLane::TerminalChat),
             _ => None,
         }
     }
@@ -46,7 +51,7 @@ impl RunLane {
 #[serde(default)]
 struct StoreFile {
     version: u32,
-    /// Agent id (lower case) -> `terminal` | `acp`. Text, so one value this build does not know never
+    /// Agent id (lower case) -> `terminal` | `acp` | `terminal_chat`. Text, so one value this build does not know never
     /// discards the others.
     agents: BTreeMap<String, String>,
 }
@@ -106,10 +111,12 @@ impl LaneStore {
 /// The lane a new session of `agent` would use. Chat over ACP needs the Labs switch on, the person's
 /// choice, and an ACP definition for the agent; anything else is the terminal (the automatic fallback).
 pub fn effective_lane(chosen: RunLane, labs_on: bool, has_acp_definition: bool) -> RunLane {
-    if chosen == RunLane::Acp && labs_on && has_acp_definition {
-        RunLane::Acp
-    } else {
-        RunLane::Terminal
+    match chosen {
+        RunLane::Acp if labs_on && has_acp_definition => RunLane::Acp,
+        // Eligibility (a session reader) is checked where the pane starts (`terminal_chat::available_for`); it needs
+        // no Labs switch and no ACP definition.
+        RunLane::TerminalChat => RunLane::TerminalChat,
+        _ => RunLane::Terminal,
     }
 }
 
@@ -166,11 +173,23 @@ mod tests {
         assert_eq!(effective_lane(RunLane::Acp, false, true), RunLane::Terminal);
         assert_eq!(effective_lane(RunLane::Acp, true, false), RunLane::Terminal);
         assert_eq!(effective_lane(RunLane::Terminal, true, true), RunLane::Terminal);
+        assert_eq!(effective_lane(RunLane::TerminalChat, false, false), RunLane::TerminalChat);
+    }
+
+    #[test]
+    fn the_terminal_chat_word_is_the_serde_value() {
+        assert_eq!(serde_json::to_string(&RunLane::TerminalChat).unwrap(), "\"terminal_chat\"");
+        let (store, dir) = temp_store();
+        store.set("kilo", RunLane::TerminalChat).unwrap();
+        assert_eq!(store.lane_for("KILO"), RunLane::TerminalChat);
+        store.set("kilo", RunLane::Terminal).unwrap();
+        assert!(store.all().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn lane_words_round_trip() {
-        for lane in [RunLane::Terminal, RunLane::Acp] {
+        for lane in [RunLane::Terminal, RunLane::Acp, RunLane::TerminalChat] {
             assert_eq!(RunLane::parse(lane.as_str()), Some(lane));
         }
         assert_eq!(RunLane::parse("visible"), None);

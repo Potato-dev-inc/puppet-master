@@ -8,7 +8,10 @@
 // here, from the person's own history. It starts nothing: only a press on its Start button does.
 import { useEffect, useState } from 'react';
 import { accountsFor, needsAccountStep, tauriAccountsApi, type Account, type AccountsApi } from '../../lib/accounts';
-import { laneChoiceFor, startFailure, type AcpAddable, type AcpLane, type AcpLaneAgent } from '../../lib/acpChat';
+import { laneChoiceFor, startFailure, TERMINAL_CHAT_WORD, type AcpAddable, type AcpLaneAgent, type TerminalChatAgent } from '../../lib/acpChat';
+
+/** The three ways a row can start: Terminal, Chat (ACP), Chat (terminal). */
+type MenuLane = 'terminal' | 'acp' | 'terminal_chat';
 import { shipApi, type GitInitPlan, type GitState, type RecentProject, type ShipApi } from '../../lib/ship-api';
 import { realRecents, stateHint, supportsCopies } from '../../lib/ship-model';
 import { EARLY_TITLE, FOOTER, isEarly, pickHint, startable, startLabel, type PickApi, type PickResult, type PickState } from '../../lib/pick-for-me';
@@ -60,6 +63,10 @@ interface Props {
   chat?: {
     agents: readonly AcpLaneAgent[];
     onStart: (agentId: string) => Promise<void>;
+    /** Agents that can run as Chat (terminal): a third value on their switch. */
+    terminalChat?: readonly TerminalChatAgent[];
+    /** Starts the agent as Chat (terminal) and opens its Chat tab. Rejects with the backend's error. */
+    onStartTerminal?: (agentId: string) => Promise<void>;
     /** Agents with no chat yet (Labs on): each gets a quiet "Set up chat" next to its name. */
     canAdd?: readonly AcpAddable[];
     onSetUp?: (agent: AcpAddable) => void;
@@ -112,10 +119,15 @@ export function NewAgentMenu({
   const [answer, setAnswer] = useState<PickAnswer | null>(null);
   const projectPath = project?.path ?? null;
   // Chat sessions: the person's pick per agent for this menu (the agent's own setting until they pick), and a failed start.
-  const [lanePick, setLanePick] = useState<Record<string, AcpLane>>({});
+  const [lanePick, setLanePick] = useState<Record<string, MenuLane>>({});
   const [chatFail, setChatFail] = useState<{ agentId: string; sentence: string; terminalFallback: boolean } | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
-  const laneOf = (agentId: string): AcpLane => lanePick[agentId] ?? laneChoiceFor(chat?.agents.find((a) => a.id === agentId));
+  const laneOf = (agentId: string): MenuLane => {
+    if (lanePick[agentId]) return lanePick[agentId];
+    const acpAgent = chat?.agents.find((a) => a.id === agentId);
+    if (acpAgent && laneChoiceFor(acpAgent) === 'acp') return 'acp';
+    return chat?.terminalChat?.find((a) => a.id === agentId)?.chosen ? 'terminal_chat' : 'terminal';
+  };
 
   useEffect(() => {
     let alive = true;
@@ -166,15 +178,18 @@ export function NewAgentMenu({
     onStart(agentId, accountId);
   };
 
-  const startChat = async (agentId: string) => {
+  const startChat = async (agentId: string, how: 'acp' | 'terminal_chat') => {
     if (!chat || chatBusy) return;
     setChatBusy(true);
     setChatFail(null);
     try {
-      await chat.onStart(agentId);
+      if (how === 'acp') await chat.onStart(agentId);
+      else await chat.onStartTerminal?.(agentId);
       onClose();
     } catch (err) {
-      setChatFail({ agentId, ...startFailure(err) });
+      // A Chat (terminal) pane is a terminal already, so there is no "Start in terminal" fallback to offer.
+      const failure = startFailure(err);
+      setChatFail({ agentId, ...failure, terminalFallback: how === 'acp' && failure.terminalFallback });
     } finally {
       setChatBusy(false);
     }
@@ -438,7 +453,8 @@ export function NewAgentMenu({
       )}
       {entries.map((e) => {
         const chatAgent = chat?.agents.find((a) => a.id === e.type);
-        const lane = chatAgent ? laneOf(e.type) : 'terminal';
+        const terminalChatAgent = chat?.terminalChat?.find((a) => a.id === e.type);
+        const lane: MenuLane = chatAgent || terminalChatAgent ? laneOf(e.type) : 'terminal';
         // An agent that will start as a chat skips the login step: a chat session has no login choice.
         const hasAccounts = lane === 'terminal' && needsAccountStep(accounts, e.type);
         const row = (
@@ -447,9 +463,13 @@ export function NewAgentMenu({
             type="button"
             role="menuitem"
             className="ck-menu-item"
-            disabled={e.disabled || (lane === 'acp' && chatBusy)}
+            disabled={e.disabled || (lane !== 'terminal' && chatBusy)}
             title={e.disabledReason}
-            onClick={() => (lane === 'acp' ? void startChat(e.type) : hasAccounts ? setPicking(e) : start(e.type))}
+            onClick={() => {
+              if (lane === 'acp' || lane === 'terminal_chat') void startChat(e.type, lane);
+              else if (hasAccounts) setPicking(e);
+              else start(e.type);
+            }}
           >
             <span>{e.label}</span>
             {!e.disabled && hasAccounts && <span className="ck-menu-hint">{accountsFor(accounts, e.type).length + 1} logins ›</span>}
@@ -457,7 +477,7 @@ export function NewAgentMenu({
             {e.disabled && <span className="ck-menu-hint ck-menu-hint--long">only for tasks from other agents</span>}
           </button>
         );
-        const addable = chat?.onSetUp && !chatAgent && !e.disabled ? chat.canAdd?.find((a) => a.id === e.type) : undefined;
+        const addable = chat?.onSetUp && !chatAgent && !terminalChatAgent && !e.disabled ? chat.canAdd?.find((a) => a.id === e.type) : undefined;
         if (addable) {
           return (
             <div key={e.type} className="ck-menu-lane" data-testid={`setup-row-${e.type}`}>
@@ -475,23 +495,26 @@ export function NewAgentMenu({
             </div>
           );
         }
-        if (!chatAgent || e.disabled) return row;
+        if ((!chatAgent && !terminalChatAgent) || e.disabled) return row;
+        const options: { value: MenuLane; text: string }[] = [{ value: 'terminal', text: 'Terminal' }];
+        if (chatAgent) options.push({ value: 'acp', text: 'Chat' });
+        if (terminalChatAgent) options.push({ value: 'terminal_chat', text: TERMINAL_CHAT_WORD });
         return (
           <div key={e.type} className="ck-menu-lane" data-testid={`lane-row-${e.type}`}>
             {row}
             <div role="group" aria-label={`How ${e.label} runs`} className="ck-lane-seg">
-              {(['terminal', 'acp'] as const).map((value) => (
+              {options.map((option) => (
                 <button
-                  key={value}
+                  key={option.value}
                   type="button"
                   className="ck-lane-seg-btn"
-                  aria-pressed={lane === value}
+                  aria-pressed={lane === option.value}
                   onClick={() => {
                     setChatFail(null);
-                    setLanePick((cur) => ({ ...cur, [e.type]: value }));
+                    setLanePick((cur) => ({ ...cur, [e.type]: option.value }));
                   }}
                 >
-                  {value === 'terminal' ? 'Terminal' : 'Chat'}
+                  {option.text}
                 </button>
               ))}
             </div>

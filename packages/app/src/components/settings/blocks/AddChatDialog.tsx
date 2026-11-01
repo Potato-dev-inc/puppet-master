@@ -172,6 +172,7 @@ export function AddChatDialog({
     if (busy) return;
     if (option?.kind === 'registry') return void install(option);
     if (option?.kind === 'bridge') return void addBridge();
+    if (option?.kind === 'terminal_chat') return void addTerminal();
     if (!shownValue) return;
     if (!api.overlaySet) {
       setError('This version of the app cannot add a chat.');
@@ -197,6 +198,23 @@ export function AddChatDialog({
     setError(null);
     try {
       const row = await api.overlayInstall(agent.id, { kind: 'bridge' }, true);
+      onAdded((row as AcpLaneAgent | null | undefined) ?? null);
+    } catch (e) {
+      setError(errorSentence(e));
+      setBusy(false);
+    }
+  };
+
+  // Chat (terminal): nothing to download; the click on "Add chat" is the confirm. Writes the lane only.
+  const addTerminal = async () => {
+    if (!api.overlayInstall) {
+      setError('This version of the app cannot add a chat.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const row = await api.overlayInstall(agent.id, { kind: 'terminal_chat' }, true);
       onAdded((row as AcpLaneAgent | null | undefined) ?? null);
     } catch (e) {
       setError(errorSentence(e));
@@ -256,8 +274,17 @@ export function AddChatDialog({
         <label key={`${o.kind}-${i}`} className="flex cursor-pointer items-start gap-2 text-sm" data-testid={`add-chat-option-${o.kind}`}>
           <input type="radio" name="add-chat-option" checked={sel === i} disabled={busy} onChange={() => setSel(i)} className="mt-1" />
           <span>
-            <span className="block">{o.kind === 'native' ? 'Use the program already on this computer' : o.kind === 'registry' ? 'Download a ready-made one from the official ACP registry' : 'Let Puppet Master make one (text only)'}</span>
-            <span className="block text-xs text-pm-muted">{o.kind === 'native' ? (o.command_line ?? o.summary) : o.label}</span>
+            <span className="block">
+              {o.kind === 'native' ? 'Use the program already on this computer' : o.kind === 'registry' ? 'Download a ready-made one from the official ACP registry' : o.kind === 'terminal_chat' ? o.label : 'Let Puppet Master make one (text only)'}
+            </span>
+            {o.kind === 'terminal_chat' ? (
+              <span className="block text-xs text-pm-muted">
+                {o.summary}
+                <span className="block">Nothing to download.</span>
+              </span>
+            ) : (
+              <span className="block text-xs text-pm-muted">{o.kind === 'native' ? (o.command_line ?? o.summary) : o.label}</span>
+            )}
           </span>
         </label>
       ))}
@@ -281,6 +308,13 @@ export function AddChatDialog({
           <p className="mt-3 text-xs text-pm-muted">
             It is installed in the app&apos;s own folder, checked before every start, and cannot read your other environment variables except the ones you allow.
           </p>
+        </div>
+      ) : option?.kind === 'terminal_chat' ? (
+        <div className={radios ? 'mt-3' : ''}>
+          <p className="text-sm" data-testid="add-chat-summary">
+            {option.summary}
+          </p>
+          <p className="mt-2 text-xs text-pm-muted">Nothing to download.</p>
         </div>
       ) : option?.kind === 'bridge' ? (
         <div className={radios ? 'mt-3' : ''}>

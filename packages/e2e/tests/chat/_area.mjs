@@ -40,7 +40,7 @@ function nimbusFixture() {
  * definition asks for, reloads the definitions and approves it. Safe to call again (it does nothing the second time).
  * `extra` is appended to the definition (TOML tables such as `[session_chat]`).
  */
-export async function installAgent(t, { id, idleMs = 1500, extra = '' }) {
+export async function installAgent(t, { id, idleMs = 1500, extra = '', withAcp = true }) {
   const app = t.app;
   const file = `${id}.toml`;
   const target = path.join(app.dataDir, 'agents', file);
@@ -50,6 +50,8 @@ export async function installAgent(t, { id, idleMs = 1500, extra = '' }) {
     .replace('label = "Nimbus"', `label = "${id}"`)
     .replace('names = ["nimbus"]', `names = ["${id}"]`)
     .replace('idle_after_ms = 1500', `idle_after_ms = ${idleMs}`);
+  // `withAcp: false` drops the [acp] table, so the agent has no Chat (ACP) and Add chat offers it the other ways.
+  if (!withAcp && text.includes('# Nimbus as a chat over')) text = text.slice(0, text.indexOf('# Nimbus as a chat over'));
   text += `\n${extra}\n`;
   fs.writeFileSync(target, text);
   copyFakeTui(path.join(app.dirs.bin, `${id}.exe`));

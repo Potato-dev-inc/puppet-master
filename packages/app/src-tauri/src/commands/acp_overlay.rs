@@ -7,13 +7,16 @@
 //! 1. native: the installed program's own help shows an ACP command (`acp_overlay_detect`, then `acp_overlay_set`);
 //! 2. registry: the official ACP registry (`acp::registry`) lists a ready-made adapter or ACP-speaking build, which the
 //!    app downloads and pins after the person confirms (`acp_overlay_install`, progress as `acp-addon-changed` events);
-//! 3. bridge: the built-in bridge (`acp::bridge`), the last resort for an agent with a non-interactive mode: no
+//! 3. terminal chat (`crate::terminal_chat`): the agent keeps running in a terminal pane and the chat reads its session
+//!    file; `acp_overlay_install` with `{kind: "terminal_chat"}` only saves the agent's lane (no overlay entry, no adapter);
+//! 4. bridge: the built-in bridge (`acp::bridge`), the last resort for an agent with a non-interactive mode: no
 //!    download, `acp_overlay_install` with `{kind: "bridge"}` just writes `{source: "bridge"}`.
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
 use crate::acp::install::{self, AddonState, AddonStatus, InstallError, RealRunner};
+use crate::acp::lane::{LaneStore, RunLane};
 use crate::acp::overlay::{self, BridgeEntry, OverlayEntry, OverlayItem, OverlayStore};
 use crate::acp::registry::{self, Choice, RegistryAgent};
 use crate::acp::{self, config};
@@ -88,6 +91,24 @@ pub(crate) fn bridge_option_from(info: Result<acp::bridge::BridgeInfo, String>) 
             "reason": registry::display_text(&reason, 240),
         }),
     }
+}
+
+/// The terminal-chat route as an option (`None` when the agent has no session reader: that agent keeps the bridge).
+/// The UI calls it "Chat (terminal)", never "ACP".
+pub(crate) fn terminal_chat_option_from(info: Result<crate::terminal_chat::TerminalChatInfo, String>) -> Option<Value> {
+    let info = info.ok()?;
+    let mut summary = crate::terminal_chat::lane::summary_sentence(&info);
+    if !info.can_answer_prompts {
+        // Without a prompt parser the questions stay in the terminal; say so instead of promising a card.
+        summary = summary.replace("and you can answer its questions here.", "and you answer its questions in the terminal.");
+    }
+    Some(json!({
+        "kind": "terminal_chat",
+        "label": "Chat (terminal)",
+        "summary": registry::display_text(&summary, 400),
+        "terminal_chat": { "reads_file": info.reads_file, "can_resume": info.can_resume, "can_answer_prompts": info.can_answer_prompts, "note": registry::display_text(&info.note, 300) },
+        "available": true,
+    }))
 }
 
 fn bridge_option(agent: &str) -> Value {
@@ -166,8 +187,9 @@ fn registry_option(agent: &RegistryAgent, choice: &Choice, origin: registry::Ori
     option
 }
 
-/// The options, best first: native with high confidence, the registry, the other native guesses, the bridge.
-pub(crate) fn options_from(program: &str, native: Result<Value, String>, registry_hit: Option<(&RegistryAgent, &Choice, registry::Origin)>, bridge: Value) -> Vec<Value> {
+/// The options, best first: native with high confidence, the registry, the other native guesses, terminal chat (when the
+/// agent has a session reader), the bridge.
+pub(crate) fn options_from(program: &str, native: Result<Value, String>, registry_hit: Option<(&RegistryAgent, &Choice, registry::Origin)>, terminal_chat: Option<Value>, bridge: Value) -> Vec<Value> {
     let native = native_option(program, native);
     let high = native["available"] == json!(true) && native["confidence"] == json!("high");
     let mut out: Vec<Value> = Vec::new();
@@ -180,6 +202,7 @@ pub(crate) fn options_from(program: &str, native: Result<Value, String>, registr
     if !high {
         out.push(native);
     }
+    out.extend(terminal_chat);
     out.push(bridge);
     // Available options first; each group keeps its order (the sort is stable).
     out.sort_by_key(|o| o["available"] != json!(true));
@@ -191,13 +214,13 @@ fn resolve_in(wizard: &crate::tui::declarative::wizard::Wizard, id: &str, label:
     let (reg, origin) = registry::load_default();
     let platform = registry::platform_key();
     let hit = registry::resolve(&reg, program, id, label, &platform);
-    let options = options_from(program, native, hit.as_ref().map(|(a, c)| (*a, c, origin)), bridge_option(id));
+    let options = options_from(program, native, hit.as_ref().map(|(a, c)| (*a, c, origin)), terminal_chat_option_from(crate::terminal_chat::available_for(id)), bridge_option(id));
     json!({ "ok": true, "options": options })
 }
 
-/// Every way this agent can get a chat, best first: `{ok, options: [{kind: native|registry|bridge, label, summary,
+/// Every way this agent can get a chat, best first: `{ok, options: [{kind: native|registry|terminal_chat|bridge, label, summary,
 /// command_line?, acp?, registry?: {id, name, version, authors, license, repository, distribution, size_hint?}, available,
-/// reason?}]}`. Runs only the program's help (like `acp_overlay_detect`) and reads the registry (live, cache or the
+/// reason?, terminal_chat?: {reads_file, can_resume, can_answer_prompts, note}}]}`. Runs only the program's help (like `acp_overlay_detect`) and reads the registry (live, cache or the
 /// snapshot in the app); nothing is installed or saved.
 #[tauri::command]
 pub async fn acp_overlay_resolve(agent: String) -> Result<Value, String> {
@@ -235,8 +258,14 @@ pub(crate) fn install_bridge_in(store: &OverlayStore, id: &str, label: &str) -> 
     store.put_item(id, &OverlayItem::Bridge(BridgeEntry { raw: json!({ "source": "bridge" }) }))
 }
 
+/// Saves terminal chat as the agent's lane. No overlay entry, no adapter: the agent keeps its own terminal pane.
+pub(crate) fn install_terminal_chat_in(lanes: &LaneStore, id: &str) -> Result<(), String> {
+    crate::terminal_chat::available_for(id).map_err(|e| format!("NOT_AVAILABLE: {}", registry::display_text(&e, 240)))?;
+    lanes.set(id, RunLane::TerminalChat)
+}
+
 /// Writes the overlay of the built-in bridge, or downloads and installs what the registry lists for `agent` and then
-/// writes the overlay. `confirmed` must be true. `option` = `{kind: "bridge"}` or `{kind: "registry", id?, version?}` (`id` and `version` are what the screen showed). Runs to the end
+/// writes the overlay. `confirmed` must be true. `option` = `{kind: "bridge"}`, `{kind: "terminal_chat"}` (saves the lane only) or `{kind: "registry", id?, version?}` (`id` and `version` are what the screen showed). Runs to the end
 /// (minutes for a large package): progress comes as `acp-addon-changed` events `{agent, status}` (the add-on
 /// installer's shape; `status.state`: installing | installed | failed, `status.lines`). Returns the lane view.
 #[tauri::command]
@@ -247,13 +276,18 @@ pub async fn acp_overlay_install(app: AppHandle, agent: String, option: Value, c
     }
     match option.get("kind").and_then(Value::as_str) {
         Some("registry") => {}
+        Some("terminal_chat") => {
+            let id = check_target(&agent)?;
+            install_terminal_chat_in(&LaneStore::in_app_data(), &id)?;
+            return Ok(super::acp_lane::view());
+        }
         Some("bridge") => {
             let id = check_target(&agent)?;
             let label = crate::tui::descriptor_for(&id).map(|d| d.label).unwrap_or_else(|| id.clone());
             install_bridge_in(&OverlayStore::in_app_data(), &id, &label)?;
             return Ok(super::acp_lane::view());
         }
-        _ => return Err("INVALID_ARGUMENT: option.kind must be \"registry\" or \"bridge\" (a program you already have is saved with acp_overlay_set)".into()),
+        _ => return Err("INVALID_ARGUMENT: option.kind must be \"registry\", \"terminal_chat\" or \"bridge\" (a program you already have is saved with acp_overlay_set)".into()),
     }
     let id = check_target(&agent)?;
     let program = overlay::program_of(&id).ok_or_else(|| format!("INVALID_ARGUMENT: unknown agent {agent}"))?;
@@ -314,6 +348,16 @@ pub fn acp_overlay_set(agent: String, acp: Value, confirmed: bool) -> Result<Val
     Ok(super::acp_lane::view())
 }
 
+/// Removes the overlay entry and, when the agent's lane was terminal chat, puts the lane back to Terminal.
+/// `acp_chat_remove` (commands/acp_remove.rs) does its overlay + terminal-chat step through this function. Says whether an entry was there.
+pub(crate) fn remove_in(overlay: &OverlayStore, lanes: &LaneStore, agent: &str) -> Result<bool, String> {
+    let had = overlay.remove(agent)?;
+    if lanes.lane_for(agent) == RunLane::TerminalChat {
+        lanes.set(agent, RunLane::Terminal)?;
+    }
+    Ok(had)
+}
+
 /// Removes the chat setup. Existing conversations stay as records (they say the agent is not available). Returns the view.
 #[tauri::command]
 pub fn acp_overlay_remove(agent: String) -> Result<Value, String> {
@@ -321,7 +365,7 @@ pub fn acp_overlay_remove(agent: String) -> Result<Value, String> {
     if agent.trim().is_empty() {
         return Err("INVALID_ARGUMENT: agent is required".into());
     }
-    OverlayStore::in_app_data().remove(&agent)?;
+    remove_in(&OverlayStore::in_app_data(), &LaneStore::in_app_data(), &agent)?;
     Ok(super::acp_lane::view())
 }
 
@@ -390,7 +434,7 @@ mod tests {
         let reg = registry::snapshot();
         // native with high confidence beats the registry
         let h = hit(&reg, "cline", "cline");
-        let options = options_from("cline", Ok(native("high")), h.as_ref().map(|(a, c, o)| (*a, c, *o)), bridge_option_from(bridge_info(true)));
+        let options = options_from("cline", Ok(native("high")), h.as_ref().map(|(a, c, o)| (*a, c, *o)), None, bridge_option_from(bridge_info(true)));
         let kinds: Vec<&str> = options.iter().map(|o| o["kind"].as_str().unwrap()).collect();
         assert_eq!(kinds, ["native", "registry", "bridge"]);
         assert_eq!(options[0]["command_line"], "tool acp");
@@ -399,18 +443,18 @@ mod tests {
         assert_eq!(options[1]["available"], true);
         assert_eq!(options[2]["available"], true, "the bridge is a real option, last");
         // a medium guess comes after the registry
-        let options = options_from("cline", Ok(native("medium")), h.as_ref().map(|(a, c, o)| (*a, c, *o)), bridge_option_from(bridge_info(true)));
+        let options = options_from("cline", Ok(native("medium")), h.as_ref().map(|(a, c, o)| (*a, c, *o)), None, bridge_option_from(bridge_info(true)));
         let kinds: Vec<&str> = options.iter().map(|o| o["kind"].as_str().unwrap()).collect();
         assert_eq!(kinds, ["registry", "native", "bridge"]);
         // no help, no registry entry: nothing available, reasons given
-        let options = options_from("zzz", Err("WIZARD_NOT_FOUND: zzz was not found".into()), None, bridge_option_from(Err("Z has no non-interactive mode, so a chat adapter cannot be made".into())));
+        let options = options_from("zzz", Err("WIZARD_NOT_FOUND: zzz was not found".into()), None, None, bridge_option_from(Err("Z has no non-interactive mode, so a chat adapter cannot be made".into())));
         assert!(options.iter().all(|o| o["available"] == false));
         assert!(options[0]["reason"].as_str().unwrap().contains("Could not read"));
         let bridge = options.iter().find(|o| o["kind"] == "bridge").unwrap();
         assert_eq!(bridge["reason"], "Z has no non-interactive mode, so a chat adapter cannot be made");
         // a registry entry this build cannot install is listed as unavailable with the reason
         let h = hit(&reg, "no-such-program", "fast-agent");
-        let options = options_from("no-such-program", Err("x".into()), h.as_ref().map(|(a, c, o)| (*a, c, *o)), bridge_option_from(bridge_info(true)));
+        let options = options_from("no-such-program", Err("x".into()), h.as_ref().map(|(a, c, o)| (*a, c, *o)), None, bridge_option_from(bridge_info(true)));
         let r = options.iter().find(|o| o["kind"] == "registry").unwrap();
         assert_eq!((r["available"].clone(), r["registry"]["distribution"].clone()), (json!(false), json!("uvx")));
         assert!(r["reason"].as_str().unwrap().contains("uvx"));
@@ -456,6 +500,72 @@ mod tests {
             assert!(install_bridge_in(&store, &none, "N").unwrap_err().starts_with("NOT_AVAILABLE"));
             assert!(store.get_item(&none).is_none());
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn tc_info(resume: bool, answer: bool) -> Result<crate::terminal_chat::TerminalChatInfo, String> {
+        Ok(crate::terminal_chat::TerminalChatInfo { label: "Xagent".into(), reads_file: true, can_resume: resume, can_answer_prompts: answer, note: "n".into() })
+    }
+
+    #[test]
+    fn terminal_chat_ranks_between_the_registry_and_the_bridge() {
+        let reg = registry::snapshot();
+        let h = hit(&reg, "cline", "cline");
+        let tc = terminal_chat_option_from(tc_info(true, true));
+        let options = options_from("cline", Ok(native("high")), h.as_ref().map(|(a, c, o)| (*a, c, *o)), tc.clone(), bridge_option_from(bridge_info(true)));
+        let kinds: Vec<&str> = options.iter().map(|o| o["kind"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["native", "registry", "terminal_chat", "bridge"]);
+        let options = options_from("cline", Ok(native("medium")), h.as_ref().map(|(a, c, o)| (*a, c, *o)), tc.clone(), bridge_option_from(bridge_info(true)));
+        let kinds: Vec<&str> = options.iter().map(|o| o["kind"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["registry", "native", "terminal_chat", "bridge"]);
+        // nothing else works: terminal chat is still ahead of the bridge
+        let options = options_from("zzz", Err("x".into()), None, tc, bridge_option_from(bridge_info(true)));
+        let kinds: Vec<&str> = options.iter().map(|o| o["kind"].as_str().unwrap()).collect();
+        let pos = |k: &str| kinds.iter().position(|x| *x == k).unwrap();
+        assert!(pos("terminal_chat") < pos("bridge"));
+        // an agent with no session reader gets no terminal-chat row at all
+        assert!(terminal_chat_option_from(Err("no file".into())).is_none());
+        let options = options_from("zzz", Err("x".into()), None, None, bridge_option_from(bridge_info(true)));
+        assert!(options.iter().all(|o| o["kind"] != "terminal_chat"));
+    }
+
+    #[test]
+    fn the_terminal_chat_option_uses_the_exact_sentence_and_never_says_acp() {
+        let full = terminal_chat_option_from(tc_info(true, true)).unwrap();
+        assert_eq!(full["label"], "Chat (terminal)");
+        assert_eq!(
+            full["summary"],
+            "Puppet Master runs Xagent in a terminal and shows it as a chat. You get its tool cards and history, and you can answer its questions here. It can continue the conversation later."
+        );
+        let no_resume = terminal_chat_option_from(tc_info(false, true)).unwrap();
+        assert!(no_resume["summary"].as_str().unwrap().ends_with("It cannot resume old sessions."));
+        let read_only = terminal_chat_option_from(tc_info(true, false)).unwrap();
+        assert!(read_only["summary"].as_str().unwrap().contains("you answer its questions in the terminal"));
+        for o in [&full, &no_resume, &read_only] {
+            assert!(!o.to_string().to_lowercase().contains("acp"), "{o}");
+            assert_eq!(o["available"], true);
+        }
+        assert_eq!(full["terminal_chat"]["can_answer_prompts"], true);
+    }
+
+    #[test]
+    fn installing_terminal_chat_writes_the_lane_only_and_remove_resets_it() {
+        let (overlay, dir) = temp();
+        let lanes = LaneStore::at(dir.join("agent_lane.json"));
+        install_terminal_chat_in(&lanes, "claude").unwrap();
+        assert_eq!(lanes.lane_for("claude"), RunLane::TerminalChat);
+        assert!(overlay.get_item("claude").is_none(), "no overlay entry");
+        assert!(!dir.join("acp_overlay.json").exists(), "the overlay file is untouched");
+        remove_in(&overlay, &lanes, "claude").unwrap();
+        assert_eq!(lanes.lane_for("claude"), RunLane::Terminal);
+        // an agent with no reader is refused and nothing is saved
+        let none = crate::tui::registry::snapshot().iter().find(|p| p.session_chat().is_none()).map(|p| p.id().to_string()).expect("an agent without a reader");
+        assert!(install_terminal_chat_in(&lanes, &none).unwrap_err().starts_with("NOT_AVAILABLE"));
+        assert_eq!(lanes.lane_for(&none), RunLane::Terminal);
+        // removing the chat of an agent on another lane leaves that lane alone
+        lanes.set("codex", RunLane::Acp).unwrap();
+        remove_in(&overlay, &lanes, "codex").unwrap();
+        assert_eq!(lanes.lane_for("codex"), RunLane::Acp);
         let _ = std::fs::remove_dir_all(dir);
     }
 

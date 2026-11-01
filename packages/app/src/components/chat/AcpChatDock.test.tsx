@@ -89,6 +89,42 @@ const buttons = () => [...host.querySelectorAll<HTMLButtonElement>('button')];
 const button = (text: string) => buttons().find((b) => b.textContent === text);
 
 describe('AcpChatDock', () => {
+  it('a chat whose adapter crashed says why, shows no spinner, and Restart chat brings it back', async () => {
+    const { c } = cockpit([]);
+    const restart = vi.fn(async () => state({ phase: 'idle', status: 'idle', turnInFlight: false }));
+    const { api } = fakeApi(state({ phase: 'exited', status: 'error', turnInFlight: false, exit: { kind: 'crashed', code: 3, reason: null } }), { restart });
+    await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+    await flush();
+    expect(host.querySelector('[data-testid="acp-strip"]')).toBeNull();
+    expect(host.querySelector('[data-testid="acp-stopped"]')?.textContent).toContain('The chat stopped: the agent stopped unexpectedly (exit code 3)');
+    await act(async () => button('Restart chat')!.click());
+    expect(restart).toHaveBeenCalledWith('p1');
+  });
+
+  it('a restart that fails keeps the line and says why', async () => {
+    const { c } = cockpit([]);
+    const restart = vi.fn(async () => {
+      throw new Error('ACP_START_FAILED: The chat could not restart: the adapter closed the connection');
+    });
+    const { api } = fakeApi(state({ phase: 'exited', turnInFlight: false, exit: { kind: 'start_failed', code: null, reason: 'no such file' } }), { restart });
+    await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+    await flush();
+    await act(async () => button('Restart chat')!.click());
+    await flush();
+    const line = host.querySelector('[data-testid="acp-stopped"]')?.textContent ?? '';
+    expect(line).toContain('The chat stopped: the agent could not start: no such file');
+    expect(line).toContain('the adapter closed the connection');
+    expect(button('Restart chat')?.disabled).toBe(false);
+  });
+
+  it('a chat that was closed on purpose shows no stopped line', async () => {
+    const { c } = cockpit([]);
+    const { api } = fakeApi(state({ phase: 'exited', turnInFlight: false, exit: { kind: 'closed', code: null, reason: null } }));
+    await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+    await flush();
+    expect(host.querySelector('[data-testid="acp-dock"]')).toBeNull();
+  });
+
   it('shows nothing while the session is idle and nothing is asked', async () => {
     const { c } = cockpit([]);
     const { api } = fakeApi(state({ turnInFlight: false, phase: 'idle', status: 'idle' }));

@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { useAcpChatState } from '../../hooks/useAcpChatState';
-import { permissionCards, runStrip, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
+import { errorSentence, permissionCards, runStrip, stoppedStrip, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
 import { QuestionCard } from '../cockpit/QuestionCard';
 import { AgentAnsweringSwitch } from './AgentAnsweringSwitch';
 import { SignInCard } from '../acp/SignInCard';
@@ -21,10 +21,30 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
   }, [running]);
   useEffect(() => setAsked(false), [paneId]);
 
+  // The adapter stopped by itself: one line with the reason and one button. Restart is the person's call.
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
+  const stopped = stoppedStrip(state);
+  useEffect(() => {
+    if (!stopped) {
+      setRestarting(false);
+      setRestartError(null);
+    }
+  }, [stopped]);
+  const restart = () => {
+    if (!api.restart || restarting) return;
+    setRestarting(true);
+    setRestartError(null);
+    api
+      .restart(paneId)
+      .catch((e) => setRestartError(errorSentence(e)))
+      .finally(() => setRestarting(false));
+  };
+
   const cards = permissionCards(c.asked.questions, paneId);
   const strip = runStrip(state, asked);
   const signIn = state && !state.closed && state.signIn?.needed ? state : null;
-  if (cards.length === 0 && !strip && !signIn) return null;
+  if (cards.length === 0 && !strip && !signIn && !stopped) return null;
   const stop = () => {
     setAsked(true);
     api.cancel(paneId).catch(() => setAsked(false));
@@ -51,6 +71,18 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
           onOpen={() => c.newAgent(signIn.agent, undefined, false, c.registry.panes.get(paneId)?.info.cwd)}
           onRetry={() => api.retrySignIn?.(paneId)}
         />
+      )}
+      {stopped && !strip && (
+        <div className="ck-acp-strip" data-testid="acp-stopped">
+          <span className="ck-acp-strip-text" role="status">
+            {restartError ? `${stopped.text}. ${restartError}` : stopped.text}
+          </span>
+          {api.restart && (
+            <button type="button" className="ck-btn ck-btn--secondary ck-acp-stop" onClick={restart} disabled={restarting}>
+              {restarting ? 'Restarting…' : 'Restart chat'}
+            </button>
+          )}
+        </div>
       )}
       {strip && (
         <div className="ck-acp-strip" data-testid="acp-strip" data-stopping={strip.stopping ? '' : undefined}>
