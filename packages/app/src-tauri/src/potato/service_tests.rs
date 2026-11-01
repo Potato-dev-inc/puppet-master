@@ -822,3 +822,44 @@ fn the_go_brain_needs_no_key_and_gets_the_go_provider() {
     let spawned = rig.launcher.spawned.lock();
     assert_eq!((spawned[0].provider.as_str(), spawned[0].has_key), ("opencode", false));
 }
+
+fn limited_rig(name: &str) -> Rig {
+    let rig = Rig::new(name);
+    rig.svc.set_settings(Settings { brain: BrainKind::Deepseek, fallbacks: vec![BrainKind::Go], daily_limit_cents: 50, ..Settings::default() }).unwrap();
+    rig.svc.send("nimbus", "hello").unwrap();
+    rig.hello();
+    rig
+}
+
+#[test]
+fn a_provider_limit_while_paused_for_the_limit_is_refused_and_never_falls_back() {
+    let rig = limited_rig("nofallback");
+    let sent = rig.svc.send("nimbus", "a long question").unwrap();
+    let (items, _) = rig.inbox(0);
+    assert!(items.iter().any(|i| i["id"] == sent.id.as_str()), "{items:?}");
+    // the brain is over the limit: it is paused, and the message it has in hand fails with PROVIDER_LIMIT
+    rig.post(vec![usage(500_000)]);
+    assert_eq!(rig.state(), BrainState::DailyLimit);
+    rig.post(vec![json!({"v":1,"type":"error","code":"PROVIDER_LIMIT","conversationId":"app:dm:nimbus","inReplyTo":sent.id})]);
+    // no fallback brain is started for it, and the note is the daily-limit one
+    assert_eq!(rig.spawned(), 1, "no fallback brain runs past the cap");
+    assert!(!rig.notes().iter().any(|n| n.contains("fallback")), "{:?}", rig.notes());
+    assert_eq!(rig.notes().last().unwrap(), "Nimbus has used today's limit ($0.50). Raise it in Settings or wait until tomorrow.");
+}
+
+#[test]
+fn a_brain_started_while_paused_for_the_limit_gets_the_pause_before_any_message() {
+    let rig = limited_rig("pausefirst");
+    // a message the brain never fetched, then the limit is crossed, then the brain dies
+    rig.svc.send("nimbus", "waiting").unwrap();
+    rig.post(vec![usage(500_000)]);
+    rig.child(0).exit_with(1);
+    rig.advance(100);
+    rig.svc.tick();
+    rig.advance(1_000);
+    rig.svc.tick();
+    assert_eq!(rig.spawned(), 2);
+    let (items, _) = rig.inbox(0);
+    assert_eq!(items.first().map(|i| i["type"].clone()), Some(json!("pause")), "{items:?}");
+    assert!(items.iter().any(|i| i["type"] == "send" && i["text"] == "waiting"), "{items:?}");
+}
