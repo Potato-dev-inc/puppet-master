@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
+mod acp_conversations;
 mod agent_install;
 mod agent_store;
 mod agent_wizard;
@@ -76,6 +77,7 @@ mod what_broke_it;
 mod ci_fix;
 mod collision;
 
+pub use acp_conversations::*;
 pub use agent_install::*;
 pub use agent_store::*;
 pub use agent_wizard::*;

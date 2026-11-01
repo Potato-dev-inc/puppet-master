@@ -1,0 +1,56 @@
+# Codex as a chat over ACP: the official adapter, started by Puppet Master. This file is the `[acp]` table of
+# the Codex profile (the same table a declarative definition carries, docs/specs/agent-definitions).
+# Facts below are checked: adapter 1.1.4 + Codex CLI 0.162.1 on Windows 11, 2026-11-01 (see mcp_config).
+command = "node"
+args = ["{adapters}/codex/node_modules/@agentclientprotocol/codex-acp/dist/index.js"]
+
+# CODEX_HOME: the person's own login and sessions are used (that is what makes "Open in terminal" work),
+# so a custom home must reach the adapter too.
+env_allow = ["CODEX_HOME"]
+
+# Added to the normal terminal launch: `codex resume <session id>`.
+resume_command = ["resume", "{session}"]
+
+# The adapter answers a session it has never seen with an error; any agent error counts as that.
+unknown_session_patterns = []
+
+[env]
+# Start read-only: a write asks (session/request_permission) instead of happening.
+INITIAL_AGENT_MODE = "read-only"
+
+[env_which]
+CODEX_PATH = "codex"
+
+[quirks]
+cancel_reports_end_turn = true
+serial_prompts = true
+
+# The person's own Codex setup lists tool servers (about 25 processes for one user, our own MCP program
+# among them). A private CODEX_HOME would keep them out but has no login and separate sessions, so nothing
+# could be handed over to the terminal. Instead the adapter's CODEX_CONFIG variable (JSON merged into every
+# session start and resume) switches each listed server off by name, and the plugin system off (plugins
+# bring their own servers that cannot be named from outside). The listing is the agent's own command with
+# plugins off, so it names exactly the person's [mcp_servers] and the folder's .codex ones.
+# Evidence (2026-11-01, session/new only, hidden): 20 descendant processes by default, 8 with this setting,
+# none of them a tool server; a real turn and a session/load in a fresh adapter both worked on the normal login.
+[mcp_config]
+mode = "disable_listed"
+env = "CODEX_CONFIG"
+list_program = "codex"
+list_args = ["mcp", "list", "--json", "--disable", "plugins"]
+name_field = "name"
+disable_path = ["mcp_servers", "{name}"]
+disable_value = { enabled = false }
+base = { features = { plugins = false } }
+on_list_failure = "refuse"
+
+# Codex's own state database can be locked for a moment by a previous process that is still closing.
+[start_retry]
+patterns = ["failed to initialize sqlite state runtime"]
+delays_ms = [4000, 8000, 12000]
+
+[[pins]]
+package = "@agentclientprotocol/codex-acp"
+version = "1.1.4"
+entry = "{adapters}/codex/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
+sha256 = "7534a0ad3cc4c9affd0b2da5007fa53ea0f1d6fcd71b2c5ef202e2056a976a97"

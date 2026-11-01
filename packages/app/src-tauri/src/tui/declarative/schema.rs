@@ -74,6 +74,8 @@ pub struct Definition {
     pub session_chat: Option<crate::session_chat::SessionChatTable>,
     /// How this agent takes Puppet Master's own MCP server for one launch (`[pane_mcp]`); absent = it is not added.
     pub pane_mcp: Option<crate::tui::pane_mcp::PaneMcpTable>,
+    /// How this agent runs as a chat over the Agent Client Protocol (`[acp]`, `crate::acp::config`); absent = terminal only.
+    pub acp: Option<crate::acp::config::AgentConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

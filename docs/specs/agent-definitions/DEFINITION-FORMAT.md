@@ -429,6 +429,26 @@ deliver the task through `[headless.stdin]`; this is refused for project and ext
   `{config_file}` (`AGENT_DEF_PANE_MCP_INVALID` otherwise). The table is part of the fingerprint: changing it asks for
   approval again. Settings > Agents > "Puppet Master helpers inside agents" turns it off for every agent.
 
+- **Chat over ACP (`[acp]`).** Optional. Gives the agent a chat view driven through the Agent Client Protocol, next to
+  the terminal (which always stays available). The full field list is SPEC 7.1 `[acp]`; the parts you will touch:
+
+  ```toml
+  [acp]
+  command = "my-agent-acp"                  # the adapter; an interpreter such as node needs allow_interpreter
+  args = ["--stdio"]
+  env_allow = ["MYAGENT_HOME"]              # names passed on from the app (a base list always is)
+  resume_command = ["--resume", "{session}"]   # added to the normal terminal launch for "Open in terminal"
+  [acp.mcp_config]
+  mode = "agent_default"                    # or session_meta / disable_listed (SPEC 7.1): keeps your tool servers out
+  [[acp.pins]]
+  package = "my-agent-acp"
+  version = "1.0.0"
+  entry = "{adapters}/my-agent/index.js"
+  sha256 = "<64 hex characters>"            # the file that runs; a changed file is refused
+  ```
+
+  The table is part of the fingerprint: changing it asks for approval again.
+
 ## 9. Things that are refused (on purpose)
 
 - Shells and interpreters as the program (`bash`, `cmd`, `powershell`, `python`, `node`, ...) unless

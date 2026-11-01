@@ -585,6 +585,77 @@ Run-time limits (not settable): lines over 1 MiB skipped, 8 MiB read per poll, f
 | `mcp_host.key_path` | string | req | dotted, for example `mcpServers.puppet-master` |
 | `mcp_host.entry` | table | req | template with `{command}`, `{args}`, `{env}` |
 
+#### `[acp]` (optional; absent = the agent only runs in the terminal)
+
+How the agent runs as a **chat over the Agent Client Protocol** (`packages/app/src-tauri/src/acp/`). Everything that
+differs between agents lives here; the chat code never names an agent. The agent's `id` and `label` come from
+`[agent]` (setting them inside `[acp]` is an error). A built-in code profile keeps the same table in
+`src/tui/<agent>/acp.toml`. Behind the Labs switch `acp_chat_enabled` and the per-agent "How to run" choice; the terminal
+stays a full way to run the agent.
+
+| Table.field | Type | Default | Constraints |
+|---|---|---|---|
+| `acp.command` | string | req | the adapter program; an interpreter (`node`, ...) needs `agent.allow_interpreter` (VAL-4); at most 512 characters |
+| `acp.args` | array<string> | `[]` | <= 64; `{adapters}` is the folder the adapters are installed in |
+| `acp.env_allow` | array<string> | `[]` | names passed on from the app's environment (a fixed base list always is; everything else is dropped); VAL-5 applies |
+| `acp.env` / `acp.env_which` | table | `{}` | fixed variables / `NAME = "program"` set to where `program` is on PATH |
+| `acp.disabled` / `acp.disabled_note` | bool / string | `false` / `""` | listed but never started; the note says why |
+| `acp.resume_command` | array<string> | `[]` | arguments added to the agent's normal terminal launch to continue a session there ("Open in terminal"); must contain `{session}`; empty = no hand-over |
+| `acp.resume` | `prefer_resume` / `prefer_load` | `prefer_resume` | which restore call is tried first after the adapter restarts |
+| `acp.history_lost` | `continue_fresh` / `refuse` | `continue_fresh` | when the agent cannot find the session |
+| `acp.quirks.cancel_reports_end_turn` | bool | `true` | a stop the person asked for is reported as cancelled even if the adapter answers `end_turn` |
+| `acp.quirks.serial_prompts` | bool | `true` | reserved: only `true` is supported |
+| `acp.mcp_config.mode` | `agent_default` / `session_meta` / `private_home` / `disable_listed` | `agent_default` | how the person's own tool-server list is kept out of a chat session (below) |
+| `acp.session_meta` | table | none | merged into `_meta` of every session call (the `session_meta` mode uses it) |
+| `acp.private_home` | table | none | `env_var`, `config_file`, `config_text`: a folder only this lane uses (the `private_home` mode) |
+| `acp.pins` | array of tables | `[]` | `package`, `version`, `entry`, `sha256`: the adapter versions this build accepts and the SHA-256 of the file that runs; checked before every start |
+| `acp.pin_policy` | `enforce` / `warn` / `off` | `enforce` | with `enforce` at least one pin needs a `sha256` |
+| `acp.timeouts.*`, `acp.start_retry`, `acp.unknown_session_patterns`, `acp.mcp_servers` | | see `acp/config.rs` | |
+
+`mcp_config.mode`:
+
+- `agent_default`: nothing is done; the agent loads whatever it is set up with.
+- `session_meta`: the agent has a session switch for it, sent in `session_meta` (for example a strict-MCP-config flag).
+- `private_home`: a private home folder (`acp.private_home`). Keeps the list out, but the folder has no sign-in and its
+  sessions are separate, so a conversation cannot be handed over to the terminal. Avoid unless there is no other way.
+- `disable_listed`: the person's own config (login and sessions) is used, and every tool server it lists is switched
+  off through a JSON setting that the adapter merges into each session. Fields: `env` (the variable), `base`
+  (JSON merged first), `list_program` + `list_args` (the agent's own program, found on PATH, that prints its tool
+  servers as a JSON array), `name_field`, `disable_path` (where one server's switch goes; `{name}` is the server's
+  name) and `disable_value`, `on_list_failure` (`refuse`, the default, does not start the chat; `continue` starts with
+  the agent's own list). The listing runs hidden, with the adapter's cleared environment, in the session folder.
+
+Example (the Codex table, `src/tui/codex/acp.toml`, shortened):
+
+```toml
+command = "node"
+args = ["{adapters}/codex/node_modules/@agentclientprotocol/codex-acp/dist/index.js"]
+env_allow = ["CODEX_HOME"]
+resume_command = ["resume", "{session}"]
+
+[env]
+INITIAL_AGENT_MODE = "read-only"
+[env_which]
+CODEX_PATH = "codex"
+[mcp_config]
+mode = "disable_listed"
+env = "CODEX_CONFIG"
+list_program = "codex"
+list_args = ["mcp", "list", "--json", "--disable", "plugins"]
+name_field = "name"
+disable_path = ["mcp_servers", "{name}"]
+disable_value = { enabled = false }
+base = { features = { plugins = false } }
+[[pins]]
+package = "@agentclientprotocol/codex-acp"
+version = "1.1.4"
+entry = "{adapters}/codex/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
+sha256 = "..."
+```
+
+The table is part of the fingerprint (it starts a program with the person's login behind it): changing it asks for
+approval again. Invalid tables are refused with `AGENT_DEF_ACP_INVALID` (the path names the field).
+
 ### 7.2 Complete example 1: Kilo Code (the proof agent)
 
 This is `packages/app/src-tauri/tests/agent-definitions/kilo.toml` verbatim. Headless flags verified with `kilo`
@@ -843,6 +914,7 @@ Loader codes (shown in the definitions list and `agent_definitions_changed.error
 | `AGENT_DEF_SESSION_CHAT_BAD_DIR` | `session_chat.dir` is not under `{home}`/`{cwd}`/`{env:NAME}`, has `..`, an unknown placeholder or unbalanced braces |
 | `AGENT_DEF_SESSION_CHAT_BAD_GLOB` | `session_chat.file_glob` is not a plain file name pattern |
 | `AGENT_DEF_SESSION_CHAT_BAD_POINTER` | a `session_chat.map` pointer is missing (required keys), not RFC 6901, too long or too deep; the path names the key (`session_chat.map.text.1` for the second pointer of a list) |
+| `AGENT_DEF_ACP_INVALID` | an `[acp]` table field is out of range or inconsistent (the path names it, for example `acp.mcp_config.disable_path`); also `AGENT_DEF_SHELL_INTERPRETER` at `acp.command` and `AGENT_DEF_DENIED_ENV` for `acp.env` |
 
 Run-time codes (bridge/MCP): `UNKNOWN_AGENT_TYPE` (400), `AGENT_NOT_INSTALLED` (carries `install_hint`),
 `AGENT_REPORTED_ERROR`, `AGENT_OUTPUT_UNPARSEABLE` (exit 0 but no result selector matched; the run fails

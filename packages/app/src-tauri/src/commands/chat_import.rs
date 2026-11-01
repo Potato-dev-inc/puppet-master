@@ -186,6 +186,11 @@ pub async fn chat_import_open(app: AppHandle, agent: String, session: String) ->
 #[tauri::command]
 pub async fn chat_import_resume_plan(app: AppHandle, agent: String, session: String) -> Result<ResumePlan, String> {
     blocking(move || {
+        // One live writer per conversation: a chat the Puppet Master chat (or one of its terminals) has open
+        // is continued there, with "Open in terminal", and not by a second pane started from the old-chats list.
+        if let Some((_, writer)) = crate::acp::conversations::global().writer_of_session(&agent, &session) {
+            return Err(format!("This conversation is already open in {}. Use Open in terminal or Back to chat there, so only one place writes to it.", writer.describe()));
+        }
         let importer = importer_in(&app).ok_or_else(|| NO_INDEX.to_string())?;
         importer.resume_plan(&HistoryEnv::from_process(), &agent, &session)
     })

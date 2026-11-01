@@ -30,8 +30,9 @@ fn read(name: &str) -> String {
 fn generic_code_names_no_agent() {
     let names = ["codex", "claude", "gemini", "cursor", "opencode", "kilo", "copilot", "nuphos", "openab"];
     let files = [
-        "conn.rs", "error.rs", "handshake.rs", "job.rs", "lane.rs", "mod.rs", "pin.rs", "ring.rs", "session.rs", "state.rs",
-        "supervisor.rs", "timers.rs", "types.rs", "wire.rs", "write_queue.rs",
+        "conn.rs", "conversations.rs", "error.rs", "handover.rs", "handshake.rs", "job.rs", "lane.rs", "mod.rs", "pin.rs",
+        "record.rs", "ring.rs", "session.rs", "state.rs", "supervisor.rs", "timers.rs", "types.rs", "wire.rs",
+        "write_queue.rs", "writers.rs",
     ];
     for file in files {
         let code = shipped(&read(file)).to_lowercase();
@@ -81,5 +82,27 @@ fn the_acp_crates_stay_out_of_the_dependency_list() {
     let manifest = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")).unwrap();
     for line in manifest.lines().filter(|l| !l.trim_start().starts_with('#')) {
         assert!(!line.contains("agent-client-protocol"), "an ACP crate was added to Cargo.toml: {line}");
+    }
+}
+
+/// The listing command that finds the person's tool servers runs hidden, with the same cleared environment as
+/// the adapter, and is only ever stopped through its own handle (never by image name).
+#[test]
+fn the_tool_server_listing_runs_hidden_with_a_cleared_environment() {
+    let code = shipped(&read("config.rs"));
+    let at = code.find("fn capture_stdout").expect("capture_stdout");
+    let body = &code[at..];
+    assert!(body.contains("proc_util::hidden_command") && body.contains(".env_clear()"));
+    assert!(!code.contains("taskkill") && !code.contains("/IM"), "never kill by image name");
+}
+
+/// Hand-over never touches the agent's session or credential files: it only passes the session id on.
+#[test]
+fn hand_over_reads_and_writes_no_agent_files() {
+    for file in ["handover.rs", "conversations.rs", "writers.rs"] {
+        let code = shipped(&read(file));
+        for word in ["std::fs", "File::", "auth.json", ".credentials", "read_to_string"] {
+            assert!(!code.contains(word), "{file} touches files ({word}); only record.rs keeps our own record");
+        }
     }
 }

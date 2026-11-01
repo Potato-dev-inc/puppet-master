@@ -522,6 +522,13 @@ pub trait TuiProfile: Send + Sync {
         }
     }
 
+    /// How this agent runs as a chat over the Agent Client Protocol (`crate::acp`): the `[acp]` table.
+    /// `None` (the default): the agent has no chat lane and always runs in the terminal. The id and label
+    /// in the table are this profile's.
+    fn acp_table(&self) -> Option<crate::acp::config::AgentConfig> {
+        None
+    }
+
     /// Where this agent writes the session file the chat view reads (`crate::session_chat`). `None` (the
     /// default): the agent has no file Puppet Master can read, and the chat view falls back to reading the
     /// screen (`screen_chat`).

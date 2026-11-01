@@ -1,0 +1,37 @@
+# Claude as a chat over ACP: the Agent SDK adapter, started by Puppet Master. This file is the `[acp]` table of
+# the Claude profile. Founder decision 2026-11-01: it uses the person's own subscription login, exactly as
+# their `claude` program has it (their normal ~/.claude, or CLAUDE_CONFIG_DIR); no key is asked for and no
+# credential file is copied, moved or read by this app. Shown to the person as "Claude" or "Claude Agent",
+# never "Claude Code" (Anthropic branding rule); the label below is the one the settings screen shows.
+
+command = "node"
+args = ["{adapters}/claude/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"]
+
+# CLAUDE_CONFIG_DIR: the person's own login and sessions are used (that is what makes "Open in terminal"
+# work), so a custom folder must reach the adapter too.
+env_allow = ["CLAUDE_CONFIG_DIR"]
+
+# Added to the normal terminal launch: `claude --resume <session id>`.
+resume_command = ["--resume", "{session}"]
+
+# Claude has a session switch for this: only the tool servers sent in session/new are started
+# (spike 2026-11-01: 4-5 processes instead of the person's whole list).
+[session_meta]
+claudeCode = { options = { strictMcpConfig = true } }
+
+[mcp_config]
+mode = "session_meta"
+
+[env_which]
+CLAUDE_CODE_EXECUTABLE = "claude"
+
+[quirks]
+cancel_reports_end_turn = true
+serial_prompts = true
+
+# The hash covers the entry file only: the adapter's other files are not covered until it is bundled (A5).
+[[pins]]
+package = "@agentclientprotocol/claude-agent-acp"
+version = "0.74.0"
+entry = "{adapters}/claude/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
+sha256 = "9d73d1f0f121fb96cc8badb28c22d5bff02d8582eb2e40360a81c189e1b9422a"

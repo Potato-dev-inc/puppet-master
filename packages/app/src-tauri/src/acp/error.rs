@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AcpError {
     /// The adapter process could not be started.
     #[error("could not start the adapter: {0}")]
@@ -41,6 +41,9 @@ pub enum AcpError {
     /// The earlier conversation could not be restored; a fresh session is ready (policy `Refuse`).
     #[error("the earlier conversation could not be restored; a fresh session is ready")]
     HistoryLost,
+    /// The conversation is open somewhere else that writes to it (the terminal): the adapter is not started.
+    #[error("the conversation is open in another place that can write to it ({0})")]
+    Held(String),
     #[error("no such permission request")]
     NoSuchAsk,
     #[error("option {0} was not offered by the agent")]

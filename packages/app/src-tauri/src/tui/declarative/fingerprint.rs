@@ -89,6 +89,11 @@ pub fn canonical_value(def: &Definition, source: Source, project: Option<&str>, 
     if let Some(table) = &def.pane_mcp {
         value["pane_mcp"] = serde_json::to_value(table).unwrap_or(Value::Null);
     }
+    // It starts a program (the adapter) with the person's login behind it, so it is approved with the
+    // definition. Added only when present, like the tables above.
+    if let Some(table) = &def.acp {
+        value["acp"] = serde_json::to_value(table).unwrap_or(Value::Null);
+    }
     value
 }
 
