@@ -33,6 +33,14 @@ pub struct State {
     pub apply_lines: Vec<String>,
     pub apply_code: i32,
     pub install_code: i32,
+    /// The next N readiness reads fail with a transient wsl error.
+    pub readiness_errors: u32,
+    /// `wsl --install` never ends by itself; it ends when the call's cancel flag is set.
+    pub hang_install: bool,
+    /// The recipe run never ends by itself; it ends when the call's cancel flag is set.
+    pub hang_apply: bool,
+    /// The desktop start script never ends by itself; it ends when the call's cancel flag is set.
+    pub hang_desktop: bool,
     pub calls: Vec<Prepared>,
     pub holders: Vec<Arc<AtomicBool>>,
     pub elevated_seen: usize,
@@ -99,6 +107,10 @@ impl FakeGuest {
                 ],
                 apply_code: 0,
                 install_code: 0,
+                readiness_errors: 0,
+                hang_install: false,
+                hang_apply: false,
+                hang_desktop: false,
                 calls: Vec::new(),
                 holders: Vec::new(),
                 elevated_seen: 0,
@@ -166,6 +178,10 @@ impl FakeGuest {
         }
         let joined = argv.join(" ");
         match argv.as_slice() {
+            ["/bin/sh", "-s"] if st.readiness_errors > 0 => {
+                st.readiness_errors -= 1;
+                Err(WslError::Timeout)
+            }
             ["/bin/sh", "-s"] => ok(Self::readiness_text(st).into_bytes()),
             // the app's secrets: three files from stdin, owned by pm, mode 0400
             ["/bin/sh", "-c", script] if script.contains("vnc-view.pass") && script.contains("control.token") => {
@@ -210,8 +226,26 @@ impl FakeGuest {
 
 impl Runner for FakeGuest {
     fn run(&self, call: &Prepared, on_line: &mut dyn FnMut(&str)) -> Result<Output, WslError> {
+        let cancelled = || call.cancel.as_ref().is_some_and(|c| c.load(Ordering::SeqCst));
+        let hang = {
+            let mut st = self.st.lock();
+            st.calls.push(call.clone());
+            let joined = call.args.join(" ");
+            (st.hang_install && matches!(call.verb, Verb::Install(_)))
+                || (st.hang_apply && joined.contains("apply-recipe.py"))
+                || (st.hang_desktop && joined.contains("pm-sbx-start-desktop start"))
+        };
+        // Like the real runner: a cancel ends the call (the lock is not held while it waits).
+        if cancelled() {
+            return Err(WslError::Cancelled);
+        }
+        while hang {
+            if cancelled() {
+                return Err(WslError::Cancelled);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         let mut st = self.st.lock();
-        st.calls.push(call.clone());
         if call.elevated() {
             st.elevated_seen += 1;
         }

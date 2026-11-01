@@ -26,6 +26,10 @@ pub const WARN_PERCENT: u64 = 80;
 pub const DEFAULT_SANDBOX_ACTIONS: u32 = 500;
 pub const MIN_SANDBOX_ACTIONS: u32 = 10;
 pub const MAX_SANDBOX_ACTIONS: u32 = 5_000;
+/// How many brain-started turns (routines, not the person's messages) one bot may take in a day (spec 6.2).
+pub const DEFAULT_BRAIN_TURNS: u32 = 20;
+/// The estimate held for a send before any turn has finished: half a cent.
+pub const RESERVE_FLOOR_NANO: u64 = 5_000_000;
 
 /// Nano-dollars per token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +144,8 @@ pub struct BotDay {
     pub limit_hit: bool,
     /// Sandbox actions used today (a screen picture, a click, a typed text, a page snapshot, each counts one).
     pub sandbox_actions: u64,
+    /// Brain-started turns taken today (the person's own messages are not counted).
+    pub brain_turns: u64,
 }
 
 impl BotDay {
@@ -257,4 +263,19 @@ pub fn spend_sandbox_actions(root: &Path, day: &str, bot: &str, n: u32, cap: u32
     entry.sandbox_actions = next;
     save_month(root, day, &file)?;
     Ok(ActionsSpent { used: next, cap, allowed: true })
+}
+
+/// Counts one brain-started turn against the day's cap. A turn at the cap is refused and not counted.
+/// Returns whether the turn may run. Saved at once, so a restart does not give the day's turns back.
+pub fn take_brain_turn(root: &Path, day: &str, bot: &str, cap: u32) -> Result<bool, String> {
+    let _files = super::store::files_lock();
+    let mut file = load_month(root, day)?;
+    file.v = USAGE_VERSION;
+    let entry = file.days.entry(day.to_string()).or_default().entry(bot.to_string()).or_default();
+    if entry.brain_turns >= u64::from(cap) {
+        return Ok(false);
+    }
+    entry.brain_turns += 1;
+    save_month(root, day, &file)?;
+    Ok(true)
 }

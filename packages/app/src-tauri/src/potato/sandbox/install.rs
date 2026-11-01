@@ -32,6 +32,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::lifecycle::{Lifecycle, GUEST_SHARE};
@@ -649,7 +650,35 @@ pub fn run(
     env.files.check()?;
     let steps = plan(options);
     let mut created = false;
-    let outcome = run_steps(env, options, &steps, cancel, now_ms, progress, &mut created);
+    // The steps run through a Wsl whose calls die when `kill` turns true; a watcher turns it true as soon as the
+    // person cancels, so a running step (the download, the recipes) stops now, not at the next step. The clean-up
+    // below uses `env.wsl`, which nothing cancels, and touches only our own distro.
+    let kill = Arc::new(AtomicBool::new(false));
+    let step_wsl = env.wsl.with_cancel(kill.clone());
+    let step_env = InstallEnv { wsl: &step_wsl, layout: env.layout, files: env.files, lifecycle: env.lifecycle, records: env.records };
+    let finished = AtomicBool::new(false);
+    let mut outcome = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            while !finished.load(Ordering::SeqCst) {
+                if cancel.load(Ordering::SeqCst) {
+                    kill.store(true, Ordering::SeqCst);
+                    // A boot check in the middle of a start ends with the Stop (it shares the lifecycle's start lock).
+                    if matches!(env.lifecycle.phase(), super::lifecycle::Phase::Starting) {
+                        let _ = env.lifecycle.stop();
+                    }
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        });
+        let outcome = run_steps(&step_env, options, &steps, cancel, now_ms, progress, &mut created);
+        finished.store(true, Ordering::SeqCst);
+        outcome
+    });
+    if outcome.is_err() && kill.load(Ordering::SeqCst) {
+        // The step failed because we killed it: that is a cancel, not a failure.
+        outcome = Err(InstallError::Cancelled);
+    }
     if outcome.is_err() && created {
         // Ours, made a moment ago: take it away so a retry starts clean. A failure to do so is not shown over the first.
         // (A set up that was carried on keeps its distro: it is what the person can try to carry on again.)

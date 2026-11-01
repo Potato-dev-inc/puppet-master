@@ -108,6 +108,14 @@ pub fn stop_all(grace: Duration) {
     super::sandbox_host::stop_on_exit();
 }
 
+/// "Stop everything" (panic button): pauses every bot, holds every routine and puts Fish's computer to sleep.
+/// The hold is saved before anything is stopped, so a routine due in the meantime is recorded, not run.
+pub fn pause_all(grace: Duration) -> super::hold::Hold {
+    let asleep = super::sandbox_host::sleep();
+    let now = chrono::Utc::now().timestamp_millis();
+    super::hold::pause(&root(), service().as_deref(), asleep, grace, now)
+}
+
 pub fn root() -> PathBuf {
     crate::app_paths::app_data_dir().join("potato")
 }
@@ -280,6 +288,8 @@ pub fn start(app: Option<AppHandle>, registry: Option<Arc<Mutex<crate::pty::Pane
     }
     let hands = app.clone().zip(registry).map(|(app, registry)| Arc::new(LiveHands { app, registry }));
     let service = Service::new(root(), Arc::new(LiveHost { app }), Arc::new(RealLauncher::new()), auth::brains().clone());
+    // A run that was handed over before the last quit and never answered is written as missed (never run again).
+    super::routines::recover_pending(&service, chrono::Utc::now().timestamp_millis());
     if SERVICE.set(service.clone()).is_err() {
         return None;
     }
@@ -297,6 +307,7 @@ pub fn start(app: Option<AppHandle>, registry: Option<Arc<Mutex<crate::pty::Pane
     let routines = service.clone();
     let _ = std::thread::Builder::new().name("potato-routines".into()).spawn(move || loop {
         super::routines::run_due(&routines, chrono::Utc::now().timestamp_millis());
+        super::trash::maybe_purge(routines.root(), chrono::Utc::now().timestamp_millis());
         std::thread::sleep(Duration::from_secs(30));
     });
     Some(service)

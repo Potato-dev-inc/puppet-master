@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-// Memory of a bot: the notes newest first, the text of one note, Delete with a confirm step, the empty line, and the
-// sentences for a failed read or delete.
+// Memory of a bot: the notes newest first, the text of one note, Delete at once with an Undo line, the empty line, and
+// the sentences for a failed read or delete.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fakeMemoryTransport, type MemoryTransport } from '../../../lib/potato-memory';
+import { fakeTrashTransport, type FakeTrashTransport } from '../../../lib/potato-trash';
 import { MEMORY_COPY, MemoryList, NOTES_SHOWN_AT_FIRST, noteSize } from './MemoryList';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -26,8 +27,8 @@ const NOTES = [
   { path: 'journal/2026/10/2026-10-28.md', body: '# day\n- 10:00 went for a walk', modifiedMs: 1_700_000_200_000 },
 ];
 
-async function show(transport: MemoryTransport) {
-  await act(async () => root.render(<MemoryList botId="nimbus" transport={transport} />));
+async function show(transport: MemoryTransport, trash: FakeTrashTransport = fakeTrashTransport()) {
+  await act(async () => root.render(<MemoryList botId="nimbus" transport={transport} trash={trash} />));
   await act(async () => {});
 }
 
@@ -60,27 +61,27 @@ describe('Memory', () => {
     expect(host.querySelector('.ck-potato-note-text')).toBeNull();
   });
 
-  it('asks before it deletes, and Cancel keeps the note', async () => {
+  it('Delete removes the note at once and offers Undo', async () => {
     const transport = fakeMemoryTransport({ notes: NOTES });
     await show(transport);
     await act(async () => rowOpeners()[0].click());
     await act(async () => buttonNamed(MEMORY_COPY.delete)!.click());
-    expect(host.textContent).toContain(MEMORY_COPY.confirmQuestion);
-    expect(transport.calls.some((c) => c.method === 'remove')).toBe(false);
-    await act(async () => buttonNamed(MEMORY_COPY.cancel)!.click());
-    expect(host.textContent).not.toContain(MEMORY_COPY.confirmQuestion);
-    expect(titles()).toHaveLength(2);
-  });
-
-  it('deletes only after Confirm delete, and the list loses that note', async () => {
-    const transport = fakeMemoryTransport({ notes: NOTES });
-    await show(transport);
-    await act(async () => rowOpeners()[0].click());
-    await act(async () => buttonNamed(MEMORY_COPY.delete)!.click());
-    await act(async () => buttonNamed(MEMORY_COPY.confirm)!.click());
     expect(transport.calls.find((c) => c.method === 'remove')?.args).toEqual(['nimbus', 'nodes/people/sam.md']);
     expect(titles()).toEqual(['2026-10-28']);
     expect(host.querySelector('.ck-potato-note-text')).toBeNull();
+    expect(host.textContent).toContain(MEMORY_COPY.deleted);
+    expect(buttonNamed('Undo')).toBeDefined();
+  });
+
+  it('Undo brings the note back from Recently deleted', async () => {
+    const trash = fakeTrashTransport();
+    const transport = fakeMemoryTransport({ notes: NOTES });
+    await show(transport, trash);
+    await act(async () => rowOpeners()[0].click());
+    await act(async () => buttonNamed(MEMORY_COPY.delete)!.click());
+    await act(async () => buttonNamed('Undo')!.click());
+    expect(trash.calls).toEqual([{ method: 'restore', args: ['trash-nodes/people/sam.md'] }]);
+    expect(host.textContent).not.toContain(MEMORY_COPY.deleted);
   });
 
   it('shows a sentence when a note cannot be opened', async () => {
@@ -95,7 +96,6 @@ describe('Memory', () => {
     await show({ ...base, remove: () => Promise.reject(new Error(MEMORY_COPY.deleteFailed)) });
     await act(async () => rowOpeners()[0].click());
     await act(async () => buttonNamed(MEMORY_COPY.delete)!.click());
-    await act(async () => buttonNamed(MEMORY_COPY.confirm)!.click());
     expect(alertText()).toBe(MEMORY_COPY.deleteFailed);
     expect(titles()).toHaveLength(2);
   });

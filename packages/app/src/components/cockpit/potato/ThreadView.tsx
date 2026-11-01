@@ -88,7 +88,8 @@ export function ThreadView(props: ThreadViewProps) {
       onNotify(plainError(error, failed));
     }
   };
-  const pickFirst = (text: string) => {
+  // The same path a typed message takes: the thread follows to the bottom, then the bot gets the words.
+  const sendAsPerson = (text: string) => {
     setFollow((n) => n + 1);
     return run(() => transport.send(bot.id, text), 'Could not send that.');
   };
@@ -136,7 +137,7 @@ export function ThreadView(props: ThreadViewProps) {
       {panel && bannerDue(screenState, bot.id, panel.computerShown) && (
         <ComputerBanner botName={bot.name} reason={screenState?.reason ?? null} onOpen={panel.onOpenComputer} />
       )}
-      {showFirst && <FirstMessage name={bot.name} persona={bot.talkPersona} computerOn={computerOn} onPick={pickFirst} />}
+      {showFirst && <FirstMessage name={bot.name} persona={bot.talkPersona} computerOn={computerOn} onPick={sendAsPerson} />}
       <Transcript
         bot={bot}
         messages={messages}
@@ -149,6 +150,8 @@ export function ThreadView(props: ThreadViewProps) {
         hideEmpty={showFirst}
         now={now}
         voice={settings.voice}
+        onSendText={sendAsPerson}
+        onTakeControl={panel?.onOpenComputer}
       />
 
       <BrainStateCard

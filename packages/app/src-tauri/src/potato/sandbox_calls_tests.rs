@@ -429,13 +429,14 @@ fn anyone_may_use_the_sandbox_and_only_the_owner_may_start_a_helper() {
     }
     let others = tool_access(Trust::Others);
     assert!(!others.helpers, "an outside voice can never start a helper");
-    assert!(others.sandbox, "but may use the bot's own computer");
+    assert!(!others.sandbox, "and the computer is never offered to an outside voice (H6b-8)");
 
     let f = Fixture::new("others");
-    for trust in [Trust::OwnerPc, Trust::OwnerRemote, Trust::Others] {
+    for trust in [Trust::OwnerPc, Trust::OwnerRemote] {
         let mut ctx = f.ctx(&format!("bot-{trust:?}").to_lowercase());
         ctx.trust = trust;
         assert!(f.call_as(&ctx, "computer_observe", json!({})).is_ok(), "{trust:?}");
+        f.calls.end_bot(Some(&f.port), &ctx.bot);
     }
 }
 
@@ -508,13 +509,18 @@ fn a_lease_that_ran_out_is_lease_lost_once() {
 }
 
 #[test]
-fn a_newer_run_takes_the_screen_from_an_older_bot_run_but_never_from_the_person() {
+fn a_second_bot_run_waits_while_the_first_holds_the_screen_and_never_takes_it_from_the_person() {
     let f = Fixture::new("two");
     f.call_as(&f.ctx("nimbus"), "computer_observe", json!({})).unwrap();
-    f.call_as(&f.ctx("mochi"), "computer_observe", json!({})).unwrap();
-    assert!(f.calls.bot_is_using(&f.port, "mochi") && !f.calls.bot_is_using(&f.port, "nimbus"));
-    // the brain of the first bot going away ends only its own runs
+    let busy = f.call_as(&f.ctx("mochi"), "computer_observe", json!({})).unwrap_err();
+    assert_eq!(busy.code, "LEASE_BUSY_WITH_BOT");
+    assert!(busy.message.contains("busy with nimbus"), "{}", busy.message);
+    assert!(f.calls.bot_is_using(&f.port, "nimbus") && !f.calls.bot_is_using(&f.port, "mochi"));
+    // the first bot's lease is untouched: it goes on without LEASE_LOST
+    assert!(f.call_as(&f.ctx("nimbus"), "computer_observe", json!({})).is_ok());
+    // the brain of the first bot going away ends only its own runs; then the second takes the screen
     f.calls.end_bot(Some(&f.port), "nimbus");
+    f.call_as(&f.ctx("mochi"), "computer_observe", json!({})).unwrap();
     assert!(f.calls.bot_is_using(&f.port, "mochi"));
     f.calls.end_bot(Some(&f.port), "mochi");
     assert!(f.port.lease.lock().current(f.now()).is_none());
@@ -548,7 +554,8 @@ fn the_day_has_an_action_cap_and_a_call_that_would_pass_it_is_refused_whole() {
     f.call("computer_act", json!({ "actions": [{ "kind": "wait", "ms": 1 }, { "kind": "wait", "ms": 1 }, { "kind": "wait", "ms": 1 }] })).unwrap();
     assert_eq!(f.used_today("nimbus"), 10);
     assert_eq!(code(f.call("computer_observe", json!({}))), "SANDBOX_DAILY_CAP");
-    // the cap is per bot
+    // the cap is per bot (the first bot's hold ran out, so the second may use the screen)
+    f.advance(16 * MIN);
     assert!(f.call_as(&f.ctx("mochi"), "computer_observe", json!({})).is_ok());
     // and it starts again with the day
     f.advance(24 * 60 * MIN);
@@ -989,4 +996,27 @@ fn a_card_that_nobody_answers_ends_with_its_thirty_minutes() {
     f.port.lease.lock().tick(f.now());
     assert!(f.port.lease.lock().card(f.now()).is_none());
     assert!(f.port.lease.lock().current(f.now()).is_none());
+}
+
+#[test]
+fn an_others_turn_is_refused_its_computer_call_and_nothing_reaches_the_sandbox() {
+    let f = Fixture::new("others-refused");
+    let mut ctx = f.ctx("nimbus");
+    ctx.trust = Trust::Others;
+    let refused = f.call_as(&ctx, "computer_observe", json!({})).unwrap_err();
+    assert_eq!(refused.code, "TOOL_NOT_ALLOWED");
+    assert!(f.fake.calls().is_empty(), "the sandbox was never touched: {:?}", f.fake.calls());
+    assert!(f.call_as(&ctx, "computer_click", json!({"x": 1, "y": 1})).is_err());
+    assert!(f.fake.calls().is_empty(), "no click either");
+}
+
+#[test]
+fn an_owner_turn_still_reaches_the_sandbox() {
+    let f = Fixture::new("owner-allowed");
+    for trust in [Trust::OwnerPc, Trust::OwnerRemote] {
+        let mut ctx = f.ctx("nimbus");
+        ctx.trust = trust;
+        assert!(f.call_as(&ctx, "computer_observe", json!({})).is_ok(), "{trust:?}");
+    }
+    assert_eq!(f.fake.calls(), vec![Recorded::Observe, Recorded::Observe]);
 }

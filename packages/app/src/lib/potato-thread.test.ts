@@ -3,7 +3,7 @@
 // words), the activity title, and the quote text.
 import { describe, expect, it, vi } from 'vitest';
 import type { PotatoMessage } from './potato';
-import { POTATO_QUOTE_EVENT, activityTitle, clockLabel, dayLabel, emitQuote, firstUnreadId, isRawJson, previewLine, quoteExcerpt, sameDay, toolStep } from './potato-thread';
+import { POTATO_QUOTE_EVENT, activityTitle, clockLabel, dayLabel, emitQuote, failedStepOffer, firstUnreadId, isRawJson, previewLine, quoteExcerpt, sameDay, toolStep } from './potato-thread';
 
 const at = (y: number, mo: number, d: number, h = 12, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime();
 const m = (id: string, kind: 'you' | 'bot' | 'note' = 'bot', text = id): PotatoMessage => ({ id, at: 0, from: { kind }, kind: 'text', text });
@@ -136,5 +136,29 @@ describe('previewLine (the bot list)', () => {
   });
   it('leaves ordinary words alone', () => {
     expect(previewLine('See you tomorrow!')).toBe('See you tomorrow!');
+  });
+});
+
+describe('failedStepOffer', () => {
+  const s = (tool: string, ok = true) => toolStep({ id: tool + Math.random(), text: `Fish used ${tool}: ${ok ? 'ok' : 'failed LEASE_LOST'}` })!;
+  it('offers Try again with the plain verb when the last step failed', () => {
+    expect(failedStepOffer([s('browser_navigate', false)])).toEqual({ text: "Couldn't open the page", action: 'try-again' });
+    expect(failedStepOffer([s('computer_observe'), s('computer_act', false)])).toEqual({ text: "Couldn't use the mouse and keyboard", action: 'try-again' });
+  });
+  it('falls back for a tool with no plain verb', () => {
+    expect(failedStepOffer([s('some_new_tool', false)])?.text).toBe("Couldn't finish that step");
+  });
+  it('offers Take control when the same step failed twice in a row', () => {
+    expect(failedStepOffer([s('browser_navigate', false), s('browser_navigate', false)])?.action).toBe('take-control');
+    expect(failedStepOffer([s('browser_navigate', false)], s('browser_navigate', false))?.action).toBe('take-control');
+  });
+  it('stays Try again when the earlier failure was another step', () => {
+    expect(failedStepOffer([s('browser_navigate', false), s('browser_act', false)])?.action).toBe('try-again');
+    expect(failedStepOffer([s('browser_navigate', false)], s('browser_act', false))?.action).toBe('try-again');
+  });
+  it('says nothing when the last step worked, even if an earlier one failed', () => {
+    expect(failedStepOffer([s('browser_navigate', false), s('browser_navigate')])).toBeNull();
+    expect(failedStepOffer([s('computer_observe')])).toBeNull();
+    expect(failedStepOffer([])).toBeNull();
   });
 });

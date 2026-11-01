@@ -16,7 +16,7 @@
 //! The clock is passed in (`now_ms`), as in the brain keeper. Waiting is by counted polls, so tests run
 //! with `Timing::instant()`.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -26,6 +26,8 @@ use super::control::{ControlClient, DEFAULT_PORT};
 use super::secrets::{RunSecrets, ScreenSecrets};
 use super::wsl::{GuestUser, Holder, SandboxName, Wsl, WslError};
 
+/// Reads of the guest in a row that may fail before the boot wait gives up (each also uses one poll).
+pub const MAX_READ_ERRORS: u32 = 5;
 pub const DEFAULT_IDLE_MINUTES: u32 = 15;
 pub const MIN_IDLE_MINUTES: u32 = 1;
 pub const MAX_IDLE_MINUTES: u32 = 240;
@@ -181,6 +183,8 @@ pub enum LifecycleError {
     NotReady(String),
     /// A visible remote-desktop window appeared during the start.
     VisibleWindow,
+    /// A Stop ended the start before it finished.
+    Cancelled,
     Wsl(WslError),
 }
 
@@ -191,6 +195,7 @@ impl LifecycleError {
             LifecycleError::NotInstalled => "SANDBOX_NOT_INSTALLED",
             LifecycleError::NotReady(_) => "SANDBOX_NOT_READY",
             LifecycleError::VisibleWindow => "SANDBOX_VISIBLE_WINDOW",
+            LifecycleError::Cancelled => "SANDBOX_START_CANCELLED",
             LifecycleError::Wsl(_) => "SANDBOX_LINUX_CALL_FAILED",
         }
     }
@@ -201,6 +206,7 @@ impl LifecycleError {
             LifecycleError::NotInstalled => "The sandbox is not set up yet.".to_string(),
             LifecycleError::NotReady(why) => why.clone(),
             LifecycleError::VisibleWindow => "A window appeared on screen while the sandbox started, so it was stopped.".to_string(),
+            LifecycleError::Cancelled => "The sandbox was stopped before it finished starting.".to_string(),
             LifecycleError::Wsl(WslError::NotAvailable) => "Needs Windows' Linux feature (admin + restart).".to_string(),
             LifecycleError::Wsl(WslError::Timeout) => "The sandbox took too long to answer.".to_string(),
             LifecycleError::Wsl(_) => "A Linux call for the sandbox failed.".to_string(),
@@ -220,6 +226,7 @@ impl From<WslError> for LifecycleError {
     fn from(e: WslError) -> Self {
         match e {
             WslError::NotAvailable => LifecycleError::NotAvailable,
+            WslError::Cancelled => LifecycleError::Cancelled,
             other => LifecycleError::Wsl(other),
         }
     }
@@ -267,6 +274,12 @@ struct Inner {
 
 pub struct Lifecycle {
     wsl: Wsl,
+    /// The same Wsl, whose calls die when `cancel_start` turns true. Only a start uses it; a stop and the clean-up
+    /// after a failed or cancelled start use `wsl`, which nothing cancels.
+    start_wsl: Wsl,
+    /// True while a Stop is waiting for (or running behind) a start: the start's waits and calls end at once.
+    cancel_start: Arc<AtomicBool>,
+    stops_pending: AtomicU32,
     name: SandboxName,
     timing: Timing,
     control_port: u16,
@@ -291,7 +304,11 @@ impl Drop for UseGuard {
 
 impl Lifecycle {
     pub fn new(wsl: Wsl, name: SandboxName) -> Self {
+        let cancel_start = Arc::new(AtomicBool::new(false));
         Self {
+            start_wsl: wsl.with_cancel(cancel_start.clone()),
+            cancel_start,
+            stops_pending: AtomicU32::new(0),
             wsl,
             name,
             timing: Timing::default(),
@@ -386,13 +403,17 @@ impl Lifecycle {
 
     fn read_readiness(&self) -> Result<Readiness, WslError> {
         let script = readiness_script(self.view_port, self.control_port);
-        let out = self.wsl.exec(&self.name, GuestUser::Root, &["/bin/sh", "-s"], Some(script.into_bytes()), super::wsl::SHORT)?;
+        let out = self.start_wsl.exec(&self.name, GuestUser::Root, &["/bin/sh", "-s"], Some(script.into_bytes()), super::wsl::SHORT)?;
         Ok(parse_readiness(&out.stdout_text()))
     }
 
     /// The sandbox, started if it was not. Takes the start lock, so two callers start it once.
     pub fn ensure_ready(&self, now_ms: i64) -> Result<Ready, LifecycleError> {
         let _start = self.start_lock.lock();
+        if self.start_cancelled() {
+            // A Stop is queued behind us: it wins, nothing is started.
+            return Err(LifecycleError::Cancelled);
+        }
         if let Some(ready) = self.quick_ready(now_ms) {
             return Ok(ready);
         }
@@ -401,7 +422,7 @@ impl Lifecycle {
             Ok(ready) => Ok(ready),
             Err(error) => {
                 let _ = self.stop_inner();
-                self.inner.lock().phase = Phase::Failed(error.message());
+                self.inner.lock().phase = if error == LifecycleError::Cancelled { Phase::Stopped } else { Phase::Failed(error.message()) };
                 Err(error)
             }
         }
@@ -429,10 +450,36 @@ impl Lifecycle {
         }
     }
 
+    fn start_cancelled(&self) -> bool {
+        self.cancel_start.load(Ordering::SeqCst)
+    }
+
     fn poll(&self, polls: u32, mut done: impl FnMut(&Readiness) -> bool) -> Result<Readiness, LifecycleError> {
         let mut last = None;
+        let mut errors = 0u32;
         for attempt in 0..polls.max(1) {
-            let r = self.read_readiness()?;
+            if self.start_cancelled() {
+                return Err(LifecycleError::Cancelled);
+            }
+            let r = match self.read_readiness() {
+                Ok(r) => {
+                    errors = 0;
+                    r
+                }
+                // One slow or failed read (a first boot can be slow) does not end the wait: it counts as a poll.
+                // Only a cancel, a missing wsl, or too many reads in a row that failed end it.
+                Err(error @ (WslError::Cancelled | WslError::NotAvailable | WslError::Refused(_))) => return Err(error.into()),
+                Err(error) => {
+                    errors += 1;
+                    if errors >= MAX_READ_ERRORS {
+                        return Err(error.into());
+                    }
+                    if attempt + 1 < polls {
+                        std::thread::sleep(self.timing.poll);
+                    }
+                    continue;
+                }
+            };
             if let Some(fatal) = r.fatal() {
                 return Err(LifecycleError::NotReady(fatal.0));
             }
@@ -448,17 +495,17 @@ impl Lifecycle {
     }
 
     fn start_inner(&self, now_ms: i64) -> Result<Ready, LifecycleError> {
-        if !self.wsl.is_available() {
+        if !self.start_wsl.is_available() {
             return Err(LifecycleError::NotAvailable);
         }
-        if !self.wsl.is_installed(&self.name)? {
+        if !self.start_wsl.is_installed(&self.name)? {
             return Err(LifecycleError::NotInstalled);
         }
         // A clean start: a distro left running by an earlier app run has a service whose token we never saw.
-        if self.wsl.is_running(&self.name)? {
-            self.wsl.terminate(&self.name)?;
+        if self.start_wsl.is_running(&self.name)? {
+            self.start_wsl.terminate(&self.name)?;
         }
-        let holder = self.wsl.spawn_holder(&self.name)?;
+        let holder = self.start_wsl.spawn_holder(&self.name)?;
         self.inner.lock().holder = Some(holder);
 
         // 1. the boot hook: it cuts WSLg, sets the network walls and proves them, then writes boot.done (or
@@ -469,10 +516,10 @@ impl Lifecycle {
         //    is handed to a sandbox whose boot did not finish clean.
         let secrets = Arc::new(RunSecrets::generate());
         let (push, stdin) = secrets.push();
-        self.wsl.exec(&self.name, GuestUser::Root, &["/bin/sh", "-c", &push], Some(stdin), super::wsl::SHORT)?.ok()?;
+        self.start_wsl.exec(&self.name, GuestUser::Root, &["/bin/sh", "-c", &push], Some(stdin), super::wsl::SHORT)?.ok()?;
 
         // 3. the desktop, the VNC servers and the control service: ONE script, as the pm user. It uses the pushed files.
-        let desktop = self.wsl.exec(&self.name, GuestUser::Pm, &[START_DESKTOP, "start"], None, Duration::from_secs(120))?;
+        let desktop = self.start_wsl.exec(&self.name, GuestUser::Pm, &[START_DESKTOP, "start"], None, Duration::from_secs(120))?;
         if !desktop.success() {
             return Err(LifecycleError::NotReady("The sandbox screen did not start.".to_string()));
         }
@@ -495,10 +542,24 @@ impl Lifecycle {
 
     /// Stops our distro (and only ours). Safe when it is not running.
     pub fn stop(&self) -> Result<(), LifecycleError> {
-        let _start = self.start_lock.lock();
-        let result = self.stop_inner();
-        self.inner.lock().phase = Phase::Stopped;
+        // Say so first, without the lock: a start holding it ends within a poll, then this stop runs.
+        self.stops_pending.fetch_add(1, Ordering::SeqCst);
+        self.cancel_start.store(true, Ordering::SeqCst);
+        let result = {
+            let _start = self.start_lock.lock();
+            let result = self.stop_inner();
+            self.inner.lock().phase = Phase::Stopped;
+            result
+        };
+        if self.stops_pending.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.cancel_start.store(false, Ordering::SeqCst);
+        }
         result.map_err(LifecycleError::from)
+    }
+
+    /// True while a Stop is waiting for a start to end, or running ("Stopping...").
+    pub fn stopping(&self) -> bool {
+        self.stops_pending.load(Ordering::SeqCst) > 0
     }
 
     fn stop_inner(&self) -> Result<(), WslError> {

@@ -1,0 +1,90 @@
+/* The "New bot" starter picker (F-2): six cards in a grid. Grayscale only (cockpit.css tokens). */
+.cockpit .ck-potato-starters-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--fill-active);
+}
+
+.cockpit .ck-potato-starters {
+  width: min(760px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--label);
+}
+
+.cockpit .ck-potato-starters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cockpit .ck-potato-starters-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.cockpit .ck-potato-starters-intro {
+  margin: 4px 0 12px;
+}
+
+.cockpit .ck-potato-starters-error {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.cockpit .ck-potato-starters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.cockpit .ck-potato-starter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--fill-hover);
+}
+
+.cockpit .ck-potato-starter-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cockpit .ck-potato-starter-doing {
+  margin: 0;
+  font-size: 13px;
+  color: var(--label-2);
+}
+
+.cockpit .ck-potato-starter-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label-2);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cockpit .ck-potato-starter-make {
+  margin-top: auto;
+}
+
+.cockpit .ck-potato-starters-foot {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}

@@ -6,6 +6,7 @@ import CockpitApp from './CockpitApp';
 import { requestGoLive, type LiveStatus } from './lib/live-room';
 import { requestBringChats, requestImportedChat } from './lib/chatImport';
 import { runStoreCheck } from './lib/agentStoreCheck';
+import { BrainStateCard } from './components/cockpit/potato/BrainStateCard';
 
 // Mutable per-test input for the digest (away) path.
 const away = vi.hoisted(() => ({ digest: null as null | object }));
@@ -30,7 +31,10 @@ const imp = vi.hoisted(() => ({ spawnPane: (async () => 'p2') as (a: unknown) =>
 // The runner the Store page was given (the mocked StoreHost records it).
 const store = vi.hoisted(() => ({ runCheck: undefined as unknown }));
 // Rust's "show Settings in this window" event (cockpit://settings).
-const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
+const rust = vi.hoisted(() => ({
+  openSettings: null as null | ((e: { tab?: string | null }) => void),
+  openView: null as null | ((e: { view: string; bot?: string | null }) => void),
+}));
 
 // Potato Bot: what the (mocked) state hook reports. `null` is "no desktop backend", `enabled: false` is the Labs switch off.
 const potato = vi.hoisted(() => ({ state: null as null | { enabled: boolean; bots: { id: string; unread: number }[] } }));
@@ -79,6 +83,10 @@ vi.mock('./lib/cockpit-api', async (importOriginal) => {
       ...orig.cockpitApi,
       onSettingsOpen: (cb: (e: { tab?: string | null }) => void) => {
         rust.openSettings = cb;
+        return Promise.resolve(() => {});
+      },
+      onView: (cb: (e: { view: string; bot?: string | null }) => void) => {
+        rust.openView = cb;
         return Promise.resolve(() => {});
       },
     },
@@ -289,6 +297,7 @@ vi.mock('./components/cockpit/SettingsView', async () => {
         'div',
         null,
         'SETTINGS VIEW tab=' + initialTab + ';',
+        h('div', { 'data-row': 'potato-key' }, h('input', { type: 'password', 'aria-label': 'DeepSeek key' })),
         h('button', { type: 'button', onClick: onBack }, 'Settings back'),
         h('button', { type: 'button', onClick: () => onPageChange?.('keys') }, 'Go to Keys'),
         h('button', { type: 'button', onClick: onOpenStore }, 'Settings browse'),
@@ -357,6 +366,7 @@ beforeEach(async () => {
   live.stops = 0;
   localStorage.clear();
   rust.openSettings = null;
+  rust.openView = null;
   settingsMounts = 0;
   window.history.replaceState(null, '', '/');
   host = document.createElement('div');
@@ -581,6 +591,29 @@ describe('CockpitApp Agent Store wiring', () => {
 });
 
 describe('Settings in the cockpit', () => {
+  it('Add key on a bot card ends in Potato Bot with the key row glowing and its field focused', async () => {
+    rerender(); // the cockpit (and its settings opener) is up, as in the app
+    const cardHost = document.createElement('div');
+    document.body.appendChild(cardHost);
+    const cardRoot: Root = createRoot(cardHost);
+    await act(async () =>
+      cardRoot.render(
+        createElement(BrainStateCard, { name: 'Fish', state: 'needs_key', lastError: null, limitCents: 50, onStart: async () => {}, onInstallNode: async () => {} }),
+      ),
+    );
+    const addKey = [...cardHost.querySelectorAll('button')].find((b) => b.textContent === 'Add key');
+    expect(addKey).toBeTruthy();
+    act(() => addKey!.click());
+    // The row is found on the next tick, once the page has rendered.
+    await act(async () => new Promise((r) => setTimeout(r, 60)));
+    expect(/SETTINGS VIEW tab=([a-z]+);/.exec(host.textContent ?? '')?.[1]).toBe('potato');
+    const row = host.querySelector<HTMLElement>('[data-row="potato-key"]');
+    expect(row?.getAttribute('data-glow')).toBe('true');
+    expect(document.activeElement).toBe(row?.querySelector('input'));
+    act(() => cardRoot.unmount());
+    cardHost.remove();
+  });
+
   const rerender = () => act(() => root.render(createElement(CockpitApp)));
   const openSettingsMock = () => cockpit.openSettings as unknown as ReturnType<typeof vi.fn>;
   const settingsTab = () => /SETTINGS VIEW tab=([a-z]+);/.exec(mainText() ?? '')?.[1];
@@ -930,6 +963,17 @@ describe('CockpitApp Potato Bot wiring', () => {
     clickButton('Potato open bee');
     expect(localStorage.getItem('pm.potato.open')).toBe('bee');
     expect(mainText()).toContain('POTATO VIEW bee');
+  });
+
+  it('a tray cockpit://view event shows the Inbox, or the Potato page on the given bot', async () => {
+    await remount({ enabled: true, bots: [{ id: 'fish', unread: 0 }, { id: 'bee', unread: 0 }] });
+    clickButton('Potato Bot 0');
+    expect(mainText()).toContain('POTATO VIEW');
+    act(() => rust.openView!({ view: 'inbox' }));
+    expect(mainText()).toContain('INBOX VIEW');
+    act(() => rust.openView!({ view: 'potato', bot: 'bee' }));
+    expect(mainText()).toBe('POTATO VIEW beePotato open bee');
+    expect(localStorage.getItem('pm.potato.open')).toBe('bee');
   });
 
   it('Ctrl+K on the Potato page leaves the palette shut (the bot list searches), and elsewhere it opens', async () => {

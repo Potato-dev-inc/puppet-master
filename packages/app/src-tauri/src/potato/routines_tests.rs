@@ -329,3 +329,66 @@ fn nothing_runs_while_potato_bot_is_switched_off() {
     rig.brains.set_enabled(true);
     assert_eq!(run_due(&rig.svc, ms("2026-11-02 09:30:00")), 1, "the missed run is still owed, once");
 }
+
+// ---- H6b: a refused routine is recorded, a due-but-untaken run survives a restart, the sandbox follows trust ----
+
+fn h6b_morning() -> RoutineInput {
+    RoutineInput { title: "Morning sweep".into(), prompt: "Sweep the inbox.".into(), schedule: Schedule::Daily { time: "09:00".into() } }
+}
+
+#[test]
+fn h6b1_a_routine_refused_by_the_rate_limit_is_recorded_as_skipped_with_the_reason() {
+    let rig = Rig::ready("h6b1-rate");
+    let now = ms("2026-11-02 09:30:00");
+    rig.host.now.store(now, std::sync::atomic::Ordering::SeqCst);
+    for i in 0..20 {
+        rig.svc.send("nimbus", &format!("message {i}")).unwrap();
+    }
+    create(&rig.root, "nimbus", &h6b_morning(), ms("2026-11-02 08:00:00")).unwrap();
+    assert_eq!(run_due(&rig.svc, now), 1);
+    assert!(rig.notes().iter().any(|n| n == "Skipped: too many messages in a minute: Morning sweep"), "{:?}", rig.notes());
+}
+
+#[test]
+fn h6b1_a_routine_refused_by_the_daily_limit_says_skipped_daily_limit_reached() {
+    use super::service::Host;
+    let rig = Rig::ready("h6b1-limit");
+    let now = ms("2026-11-02 09:30:00");
+    store::save_settings(&rig.root, &store::Settings { daily_limit_cents: super::cost::MIN_LIMIT_CENTS, ..store::Settings::default() }).unwrap();
+    // Spend well past the smallest limit today, so the routine is refused at the cap.
+    let day = rig.host.local_day(now);
+    rig.host.now.store(now, std::sync::atomic::Ordering::SeqCst);
+    super::cost::charge(&rig.root, &day, "nimbus", "app", "deepseek-flash", super::cost::Tokens { prompt: 50_000_000, completion: 0, cache_hit: 0, cache_miss: 50_000_000 }, super::cost::MIN_LIMIT_CENTS).unwrap();
+    create(&rig.root, "nimbus", &h6b_morning(), ms("2026-11-02 08:00:00")).unwrap();
+    assert_eq!(run_due(&rig.svc, now), 1);
+    assert!(rig.notes().iter().any(|n| n == "Skipped: daily limit reached: Morning sweep"), "{:?}", rig.notes());
+}
+
+#[test]
+fn h6b2_a_run_handed_to_a_brain_that_never_took_it_is_recorded_as_missed_after_a_restart_and_is_not_run_twice() {
+    let rig = Rig::new("h6b2-restart");
+    create(&rig.root, "nimbus", &h6b_morning(), ms("2026-11-02 08:00:00")).unwrap();
+    assert_eq!(run_due(&rig.svc, ms("2026-11-02 09:30:00")), 1);
+    assert_eq!(pending_count(&rig.root), 1, "due and not yet taken by the brain: written to disk before the queue");
+
+    // The app quits and starts again. Nothing was answered, so the run is written as missed, once.
+    let again = super::service::Service::new(rig.root.clone(), rig.host.clone(), rig.launcher.clone(), rig.brains.clone());
+    recover_pending(&again, ms("2026-11-02 10:00:00"));
+    assert_eq!(pending_count(&rig.root), 0);
+    recover_pending(&again, ms("2026-11-02 10:00:00"));
+    let texts: Vec<String> = again.messages("nimbus", 100).unwrap().into_iter().map(|m| m.text).collect();
+    assert_eq!(texts.iter().filter(|t| t.contains("Missed while the app was closed: Morning sweep")).count(), 1, "{texts:?}");
+}
+
+#[test]
+fn h6b2_a_brain_reply_that_names_the_run_clears_it_so_nothing_is_recorded_as_missed() {
+    let rig = Rig::new("h6b2-ack");
+    create(&rig.root, "nimbus", &h6b_morning(), ms("2026-11-02 08:00:00")).unwrap();
+    assert_eq!(run_due(&rig.svc, ms("2026-11-02 09:30:00")), 1);
+    let id = pending_ids(&rig.root).remove(0);
+    clear_pending(&rig.root, &id);
+    assert_eq!(pending_count(&rig.root), 0);
+    let again = super::service::Service::new(rig.root.clone(), rig.host.clone(), rig.launcher.clone(), rig.brains.clone());
+    recover_pending(&again, ms("2026-11-02 10:00:00"));
+    assert!(again.messages("nimbus", 100).unwrap().iter().all(|m| !m.text.contains("Missed while the app was closed")));
+}

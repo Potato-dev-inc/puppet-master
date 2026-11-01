@@ -1,0 +1,46 @@
+/* Recently deleted (UX-2): the Undo line after a delete, and the Settings list. Grayscale only (cockpit.css tokens). */
+.cockpit .ck-potato-undo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.cockpit .ck-potato-undo-btn {
+  margin-left: auto;
+}
+
+.cockpit .ck-potato-trash-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cockpit .ck-potato-trash-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.cockpit .ck-potato-trash-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.cockpit .ck-potato-trash-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .cockpit .ck-potato-trash-row {
+    flex-wrap: wrap;
+  }
+}

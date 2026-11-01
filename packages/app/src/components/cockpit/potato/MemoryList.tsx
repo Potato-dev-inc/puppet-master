@@ -1,9 +1,12 @@
-// Memory of one bot: the notes it keeps (its journal, diary and notes), newest first. A row opens its text; Delete asks
-// first ("Confirm delete"). Read-only apart from Delete. The paths come from the list; the Rust side checks them again.
+// Memory of one bot: the notes it keeps (its journal, diary and notes), newest first. A row opens its text. Delete
+// removes the note at once and shows "Note deleted. Undo" for 10 s; the note waits in Recently deleted for 7 days.
+// The paths come from the list; the Rust side checks them again.
 import { useEffect, useState } from 'react';
 import { formatWhen, plainError } from '../../../lib/potato';
 import { noteTitle, tauriMemoryTransport, type MemoryNote, type MemoryTransport } from '../../../lib/potato-memory';
+import { tauriTrashTransport, type TrashTransport } from '../../../lib/potato-trash';
 import { PanelSection } from './ui/PanelSection';
+import { UndoToast } from './UndoToast';
 
 export const MEMORY_COPY = {
   title: 'Memory',
@@ -12,10 +15,9 @@ export const MEMORY_COPY = {
   loadFailed: 'Could not load the notes.',
   readFailed: 'Could not open this note.',
   deleteFailed: 'Could not delete this note.',
+  undoFailed: 'Could not bring the note back.',
   delete: 'Delete',
-  confirm: 'Confirm delete',
-  cancel: 'Cancel',
-  confirmQuestion: 'Delete this note? The bot will forget it.',
+  deleted: 'Note deleted.',
   showMore: (count: number) => `Show all ${count}`,
   kind: { journal: 'Journal', diary: 'Diary', nodes: 'Note' } as Record<string, string>,
 };
@@ -32,16 +34,17 @@ export function noteSize(bytes: number): string {
 export interface MemoryListProps {
   botId: string;
   transport?: MemoryTransport;
+  trash?: TrashTransport;
 }
 
-export function MemoryList({ botId, transport = tauriMemoryTransport }: MemoryListProps) {
+export function MemoryList({ botId, transport = tauriMemoryTransport, trash = tauriTrashTransport }: MemoryListProps) {
   const [notes, setNotes] = useState<MemoryNote[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openPath, setOpenPath] = useState<string | null>(null);
   const [text, setText] = useState<{ path: string; body: string } | null>(null);
-  const [asking, setAsking] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [undo, setUndo] = useState<{ trashId: string } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -49,8 +52,8 @@ export function MemoryList({ botId, transport = tauriMemoryTransport }: MemoryLi
     setError(null);
     setOpenPath(null);
     setText(null);
-    setAsking(null);
     setShowAll(false);
+    setUndo(null);
     transport
       .list(botId)
       .then((list) => live && setNotes(list))
@@ -66,7 +69,6 @@ export function MemoryList({ botId, transport = tauriMemoryTransport }: MemoryLi
       return;
     }
     setOpenPath(path);
-    setAsking(null);
     setError(null);
     setText(null);
     try {
@@ -81,15 +83,27 @@ export function MemoryList({ botId, transport = tauriMemoryTransport }: MemoryLi
     setBusy(true);
     setError(null);
     try {
-      await transport.remove(botId, path);
+      const trashId = await transport.remove(botId, path);
       setNotes((list) => (list ?? []).filter((n) => n.path !== path));
       setOpenPath(null);
       setText(null);
-      setAsking(null);
+      setUndo({ trashId });
     } catch (err) {
       setError(plainError(err, MEMORY_COPY.deleteFailed));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const undoRemove = async () => {
+    if (!undo) return;
+    const { trashId } = undo;
+    setUndo(null);
+    try {
+      await trash.restore(trashId);
+      setNotes(await transport.list(botId));
+    } catch (err) {
+      setError(plainError(err, MEMORY_COPY.undoFailed));
     }
   };
 
@@ -121,25 +135,11 @@ export function MemoryList({ botId, transport = tauriMemoryTransport }: MemoryLi
                 {expanded && (
                   <div className="ck-potato-note-body">
                     {text && text.path === note.path ? <pre className="ck-potato-note-text">{text.body}</pre> : <p className="ck-sub">{MEMORY_COPY.loading}</p>}
-                    {asking === note.path ? (
-                      <div className="ck-potato-note-ask">
-                        <p className="ck-sub">{MEMORY_COPY.confirmQuestion}</p>
-                        <div className="ck-potato-note-actions">
-                          <button type="button" className="ck-btn ck-btn--secondary ck-btn--sm" disabled={busy} onClick={() => void remove(note.path)}>
-                            {MEMORY_COPY.confirm}
-                          </button>
-                          <button type="button" className="ck-btn ck-btn--plain ck-btn--sm" onClick={() => setAsking(null)}>
-                            {MEMORY_COPY.cancel}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="ck-potato-note-actions">
-                        <button type="button" className="ck-btn ck-btn--plain ck-btn--sm" disabled={busy} onClick={() => setAsking(note.path)}>
-                          {MEMORY_COPY.delete}
-                        </button>
-                      </div>
-                    )}
+                    <div className="ck-potato-note-actions">
+                      <button type="button" className="ck-btn ck-btn--plain ck-btn--sm" disabled={busy} onClick={() => void remove(note.path)}>
+                        {MEMORY_COPY.delete}
+                      </button>
+                    </div>
                   </div>
                 )}
               </li>
@@ -152,6 +152,7 @@ export function MemoryList({ botId, transport = tauriMemoryTransport }: MemoryLi
           {MEMORY_COPY.showMore(all.length)}
         </button>
       )}
+      {undo && <UndoToast message={MEMORY_COPY.deleted} onUndo={() => void undoRemove()} onExpire={() => setUndo(null)} />}
       {error && (
         <p className="ck-sub ck-potato-psec-error" role="alert">
           {error}

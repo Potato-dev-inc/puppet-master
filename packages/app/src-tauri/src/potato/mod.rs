@@ -45,9 +45,11 @@ pub mod artifacts;
 pub mod auth;
 pub mod bot_settings;
 pub mod cost;
+pub mod reply_cost;
 pub mod env;
 pub mod fallback;
 pub mod helpers;
+pub mod trash;
 pub mod usage;
 pub mod keeper;
 pub mod live;
@@ -59,6 +61,7 @@ pub mod wire_names;
 pub mod protocol;
 pub mod resource_dirs;
 pub mod routines;
+pub mod hold;
 pub mod rules;
 pub mod sandbox;
 pub mod sandbox_calls;
@@ -79,6 +82,8 @@ mod auth_tests;
 mod bot_settings_tests;
 #[cfg(test)]
 mod cost_tests;
+#[cfg(test)]
+mod reply_cost_tests;
 #[cfg(test)]
 mod env_tests;
 #[cfg(test)]
@@ -104,6 +109,8 @@ mod resource_dirs_tests;
 #[cfg(test)]
 mod routines_tests;
 #[cfg(test)]
+mod hold_tests;
+#[cfg(test)]
 mod rules_tests;
 #[cfg(test)]
 mod sandbox_calls_tests;
@@ -117,5 +124,7 @@ mod service_tests;
 mod real_brain_tests;
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod trash_tests;
 #[cfg(test)]
 mod window_guard_tests;

@@ -2,19 +2,29 @@
 // always on a touch screen). Copy puts the message's text on the clipboard; Reply sends a quote to the composer.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { THREAD_COPY } from '../../../lib/potato-thread';
+import { NANO_PER_CENT } from '../../../lib/potato-usage';
 import '../../../styles/cockpit-potato-thread.css';
 
 /** How long the button says "Copied". */
 const COPIED_MS = 1500;
+
+/** A cost in nano-dollars as a short estimate: "about 2¢", or "under 1¢" below a cent. Costs are estimates, so always "about". */
+export function replyCostText(nano: number): string {
+  const cents = Math.max(0, nano) / NANO_PER_CENT;
+  if (cents < 1) return 'under 1¢';
+  return `about ${Math.round(cents)}¢`;
+}
 
 export interface HoverActionsProps {
   text: string;
   onReply: () => void;
   /** More buttons after Reply, in order (Speak, then Save as file). */
   children?: ReactNode;
+  /** A bot reply's estimated cost in nano-dollars. Absent: no cost is shown. */
+  costNano?: number;
 }
 
-export function HoverActions({ text, onReply, children }: HoverActionsProps) {
+export function HoverActions({ text, onReply, children, costNano }: HoverActionsProps) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -45,6 +55,7 @@ export function HoverActions({ text, onReply, children }: HoverActionsProps) {
         {THREAD_COPY.reply}
       </button>
       {children}
+      {costNano !== undefined && <span className="ck-sub ck-potato-cost">{replyCostText(costNano)}</span>}
     </div>
   );
 }

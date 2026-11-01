@@ -385,7 +385,7 @@ export function SettingsPanel({
                   {hits.map(({ section: hitSection, rows }) => (
                     <section key={hitSection.id} data-section={hitSection.id}>
                       <h2>{hitSection.title}</h2>
-                      <SectionRows rows={rows} envFor={envFor} chrome={chrome} />
+                      <SectionRows rows={rows} envFor={envFor} chrome={chrome} sectionTitle={hitSection.title} />
                     </section>
                   ))}
                 </div>

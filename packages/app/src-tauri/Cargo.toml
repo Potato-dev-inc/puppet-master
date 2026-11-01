@@ -4,7 +4,7 @@ version = "0.2.1"
 description = "Puppet Master desktop app"
 authors = ["you"]
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.91"
 default-run = "puppet_master_app"
 
 [lib]
@@ -31,7 +31,7 @@ serde_json = "1"
 arc-swap = "1"
 portable-pty = "0.8"
 vt100 = "0.16"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "fs", "process"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "fs", "process", "io-util", "time"] }
 parking_lot = "0.12"
 uuid = { version = "1", features = ["v4", "serde"] }
 regex = "1"
@@ -91,13 +91,20 @@ pm-relay-protocol = { path = "../../../relay/protocol" }
 # My computers (desk/): pure geometry and wire types ported from desktoplab (MIT). See crates/PORTED.md.
 desk-core = { path = "crates/desk-core" }
 desk-proto = { path = "crates/desk-proto" }
+# The shared PC link (`p2p/`, DL-5 / Spaces D-0): QUIC connections dialed by public key, hole punching, optional relay.
+# iroh is MIT OR Apache-2.0, pinned exactly; default features off (no metrics, no portmapper, no Apple fast path),
+# only the ring TLS provider (ring is already built for rustls). Relays are used only when a capability allows them.
+iroh = { version = "=1.4.1", default-features = false, features = ["tls-ring"] }
+async-trait = "0.1"
+bytes = "1"
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }
 # Point and Fix screenshots: WebView2 CapturePreview. Same versions wry uses, so the
 # `controller()` types match (`cargo tree -d` shows one webview2-com).
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell", "Win32_Graphics_Gdi", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+# (the last six features are for My computers, `desk/os/windows`: screens, cursor, keyboard hook)
 # Night Shift keep-awake (`night_shift/power.rs`): SetThreadExecutionState. 0.52 is already in Cargo.lock.
 windows-sys = { version = "0.52", features = ["Win32_System_Power", "Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 

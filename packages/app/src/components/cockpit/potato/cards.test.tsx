@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrainStateCard } from './BrainStateCard';
+import { registerSettingsOpener } from '../../../lib/openSettingsAt';
 import { HelperCard } from './HelperCard';
 import { buttonByText } from './test-helpers';
 
@@ -111,12 +112,32 @@ describe('BrainStateCard', () => {
     }
   });
 
-  it('asks for the DeepSeek key', () => {
-    const onOpenSettings = vi.fn();
-    show({ state: 'needs_key', onOpenSettings });
+  it('asks for the DeepSeek key, and Add key opens exactly that row', () => {
+    const opener = vi.fn();
+    registerSettingsOpener(opener);
+    show({ state: 'needs_key' });
     expect(host.textContent).toContain('Add your DeepSeek key in Settings to talk with Fish.');
-    act(() => buttonByText(host, 'Open Settings')!.click());
-    expect(onOpenSettings).toHaveBeenCalled();
+    act(() => buttonByText(host, 'Add key')!.click());
+    expect(opener).toHaveBeenCalledWith('potato-key');
+    registerSettingsOpener(null);
+  });
+
+  it('Raise limit opens the daily limit row', () => {
+    const opener = vi.fn();
+    registerSettingsOpener(opener);
+    show({ state: 'daily_limit' });
+    act(() => buttonByText(host, 'Raise limit')!.click());
+    expect(opener).toHaveBeenCalledWith('potato-limit');
+    registerSettingsOpener(null);
+  });
+
+  it('Repair install opens Settings > Agents on the Check my setup row', () => {
+    const opener = vi.fn();
+    registerSettingsOpener(opener);
+    show({ state: 'missing_program' });
+    act(() => buttonByText(host, 'Repair install')!.click());
+    expect(opener).toHaveBeenCalledWith('setup-check');
+    registerSettingsOpener(null);
   });
 
   it('asks for Node.js 20 and the Install Node.js button runs the install', async () => {

@@ -107,6 +107,9 @@ mod settings_store;
 mod settings_patch;
 mod shell_env;
 mod startup_timing;
+mod desk;
+mod p2p;
+mod pairing_commands;
 mod review_desk;
 mod tamper;
 pub mod shell_exec;
@@ -534,6 +537,16 @@ pub fn run() {
             commands::issue_intake_check_folder,
             commands::issue_intake_act,
             commands::issue_intake_poll_now,
+            desk::commands::desk_snapshot,
+            desk::commands::desk_command,
+            pairing_commands::pair_view,
+            pairing_commands::pair_host_start,
+            pairing_commands::pair_host_cancel,
+            pairing_commands::pair_join,
+            pairing_commands::pair_answer,
+            pairing_commands::pair_nearby,
+            pairing_commands::trust_set_permission,
+            pairing_commands::trust_remove,
             commands::review_desk_list,
             commands::review_desk_count,
             commands::review_desk_detail,
@@ -662,6 +675,9 @@ pub fn run() {
             commands::companion_feed,
             commands::companion_open_folder,
             commands::potato_state,
+            commands::potato_hold_state,
+            commands::potato_pause_all,
+            commands::potato_resume_all,
             commands::potato_messages,
             commands::potato_send,
             commands::potato_send_files,
@@ -728,6 +744,8 @@ pub fn run() {
             commands::potato_routine_update,
             commands::potato_routine_pause,
             commands::potato_routine_delete,
+            commands::potato_trash_list,
+            commands::potato_trash_restore,
             commands::potato_routine_run_now,
         ])
         .setup(|app| {
@@ -961,6 +979,9 @@ pub fn run() {
                     room.stop_all(live_room::publisher::StopReason::AppQuit);
                 }
                 standby::shutdown();
+                // The keyboard hook of My computers goes with the app.
+                desk::shutdown();
+                pairing_commands::shutdown();
                 // Potato Bot's brains leave with the app: asked first, then their whole tree is stopped.
                 potato::live::stop_all(std::time::Duration::from_secs(2));
                 // The computer may sleep again: a Night Shift hold must not outlive the app.

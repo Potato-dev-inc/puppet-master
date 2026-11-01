@@ -100,6 +100,8 @@ export interface PotatoMessage {
   project?: string;
   /** A helper result row: the pane the helper worked in, for its Open button. */
   paneId?: string;
+  /** A reply's estimated cost in nano-dollars (`potato/reply_cost.rs`). Absent when there is none. */
+  costNano?: number;
 }
 
 export interface PotatoBot {
