@@ -74,6 +74,19 @@ pub async fn acp_chat_cancel(pane_id: String) -> Result<bool, String> {
     session.cancel().map_err(|e| e.to_string())
 }
 
+/// "Restart chat": brings the adapter of a chat that stopped back. Resolves with the new state; fails with the reason
+/// the adapter could not start (the chat then still says it stopped).
+#[tauri::command]
+pub async fn acp_chat_restart(pane_id: String) -> Result<Value, String> {
+    let chat = chat::get(&pane_id).ok_or_else(|| format!("PANE_NOT_FOUND: {pane_id} is not a chat session"))?;
+    let worker = chat.clone();
+    tauri::async_runtime::spawn_blocking(move || worker.restart())
+        .await
+        .map_err(|e| format!("ACP_START_FAILED: {e}"))?
+        .map_err(|e| format!("ACP_START_FAILED: The chat could not restart: {e}"))?;
+    Ok(chat.state())
+}
+
 /// The session behind a chat pane: phase, stopping, what waits on the person, settings. `null` for a pane that is not
 /// a chat session.
 #[tauri::command]

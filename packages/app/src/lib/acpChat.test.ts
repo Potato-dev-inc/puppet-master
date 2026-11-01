@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { ACP_BADGE, ACP_PERMISSION_KIND, permissionCards, runStrip, type AcpChatState } from './acpChat';
+import { ACP_BADGE, ACP_PERMISSION_KIND, permissionCards, runStrip, stoppedStrip, type AcpChatState } from './acpChat';
 import type { Question } from './questions';
 
 const q = (id: string, over: Partial<Question> = {}): Question => ({
@@ -62,5 +62,20 @@ describe('the badge', () => {
   it('names the way to run, not an agent', () => {
     expect(ACP_BADGE).toBe('Chat (ACP)');
     expect(ACP_BADGE.toLowerCase()).not.toContain('claude');
+  });
+});
+
+describe('stoppedStrip', () => {
+  const base = { lane: 'acp', agent: 'codex', label: 'Codex', phase: 'exited', status: 'error', turnInFlight: false, stopping: false, canSteer: false, turn: 1, title: null, usage: null, permissions: [], closed: false } as AcpChatState;
+  it('says why the chat stopped, with the exit code when there is one', () => {
+    expect(stoppedStrip({ ...base, exit: { kind: 'crashed', code: 3, reason: null } })?.text).toBe('The chat stopped: the agent stopped unexpectedly (exit code 3)');
+    expect(stoppedStrip({ ...base, exit: { kind: 'hung', code: null, reason: null } })?.text).toBe('The chat stopped: the agent stopped answering');
+    expect(stoppedStrip({ ...base, exit: { kind: 'start_failed', code: null, reason: 'no such   file\nat x' } })?.text).toBe('The chat stopped: the agent could not start: no such file at x');
+  });
+  it('is absent while it runs, after a close on purpose, and for a closed pane', () => {
+    expect(stoppedStrip(null)).toBeNull();
+    expect(stoppedStrip({ ...base, phase: 'idle', exit: null })).toBeNull();
+    expect(stoppedStrip({ ...base, exit: { kind: 'closed', code: null, reason: null } })).toBeNull();
+    expect(stoppedStrip({ ...base, closed: true, exit: { kind: 'crashed', code: 1, reason: null } })).toBeNull();
   });
 });

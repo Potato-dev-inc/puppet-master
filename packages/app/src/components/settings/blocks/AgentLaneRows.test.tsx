@@ -104,6 +104,76 @@ describe('How to run', () => {
   });
 });
 
+describe('Remove chat', () => {
+  type Api = Parameters<typeof AgentLaneRows>[0]['api'];
+  const removeApi = (agents: AcpLaneAgent[]) => {
+    const view = { labs_enabled: true, agents };
+    const chatRemove = vi.fn(async (_id: string, _o: { removeAddon: boolean }) => ({ labs_enabled: true, agents: agents.slice(1) }));
+    const api = { laneGet: async () => view, laneSet: vi.fn(), chatRemove } as unknown as Api;
+    return { api, chatRemove };
+  };
+  const renderWith = async (api: Api) => {
+    await act(async () => root.render(<AgentLaneRows api={api} />));
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+  const dialog = () => document.body.querySelector('[data-testid="remove-chat-dialog"]');
+  const dbtn = (text: string) => [...document.body.querySelectorAll<HTMLButtonElement>('[data-testid="remove-chat-dialog"] button')].find((b) => b.textContent === text);
+
+  it('every agent with a chat has Remove chat, and nothing is removed before the sheet is confirmed', async () => {
+    const { api, chatRemove } = removeApi([agent(), agent({ id: 'kilo', label: 'Kilo', overlay: true })]);
+    await renderWith(api);
+    expect([...host.querySelectorAll('button')].filter((b) => b.textContent === 'Remove chat').length).toBe(2);
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Remove chat for Codex"]')!.click());
+    expect(dialog()?.textContent).toContain('Remove chat for Codex?');
+    expect(dialog()?.textContent).toContain('New sessions will start in a terminal. Your saved chats stay.');
+    expect(dialog()?.textContent).not.toContain('add-on');
+    await act(async () => dbtn('Cancel')!.click());
+    expect(dialog()).toBeNull();
+    expect(chatRemove).not.toHaveBeenCalled();
+  });
+
+  it("offers to delete the add-on with its size, and sends the person's choice", async () => {
+    const { api, chatRemove } = removeApi([agent({ addon: { installed: true, size_mb: 38 } }), agent({ id: 'kilo', label: 'Kilo' })]);
+    await renderWith(api);
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Remove chat for Codex"]')!.click());
+    expect(dialog()?.textContent).toContain('Also delete the chat add-on (38 MB)');
+    const box = document.body.querySelector<HTMLInputElement>('[data-testid="remove-chat-dialog"] input[type="checkbox"]')!;
+    expect(box.checked).toBe(false);
+    await act(async () => box.click());
+    await act(async () => dbtn('Remove')!.click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(chatRemove).toHaveBeenCalledWith('codex', { removeAddon: true });
+    expect(dialog()).toBeNull();
+    expect(host.textContent).toContain('Chat removed for Codex.');
+    expect(host.querySelector('[aria-label="Remove chat for Codex"]')).toBeNull();
+  });
+
+  it('removing without the box ticked keeps the add-on', async () => {
+    const { api, chatRemove } = removeApi([agent({ addon: { installed: true, size_mb: 2 } })]);
+    await renderWith(api);
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Remove chat for Codex"]')!.click());
+    await act(async () => dbtn('Remove')!.click());
+    expect(chatRemove).toHaveBeenCalledWith('codex', { removeAddon: false });
+  });
+
+  it('a failure stays in the sheet in plain words', async () => {
+    const { api, chatRemove } = removeApi([agent()]);
+    chatRemove.mockRejectedValueOnce(new Error('FEATURE_OFF: chat is switched off in Labs'));
+    await renderWith(api);
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Remove chat for Codex"]')!.click());
+    await act(async () => dbtn('Remove')!.click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.body.querySelector('[data-testid="remove-chat-error"]')?.textContent).toBe('chat is switched off in Labs');
+    expect(dbtn('Remove')?.disabled).toBe(false);
+  });
+});
+
 describe('the settings rows', () => {
   const ids = (settings: { acp_chat_enabled?: boolean } | null) =>
     visibleSections(SECTIONS, settings).flatMap((s) => s.rows.map((r) => r.id));

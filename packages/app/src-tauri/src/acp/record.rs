@@ -45,6 +45,8 @@ pub enum NoticeKind {
     TerminalEnded,
     /// The conversation could not be brought back after a restart (the agent is no longer available).
     RestoreFailed,
+    /// The person removed Chat for this agent. The conversation stays; it opens in a terminal, or after Chat is added again.
+    ChatRemoved,
 }
 
 /// A line the chat shows between messages. Plain words; no path and no chat text.

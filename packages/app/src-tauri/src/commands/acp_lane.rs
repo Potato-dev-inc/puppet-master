@@ -9,7 +9,18 @@ use crate::acp::{self, config};
 use serde_json::{json, Value};
 
 pub(crate) fn view() -> Value {
-    lane_view(&LaneStore::in_app_data(), &OverlayStore::in_app_data(), acp::chat_enabled())
+    let overlay = OverlayStore::in_app_data();
+    let mut view = lane_view(&LaneStore::in_app_data(), &overlay, acp::chat_enabled());
+    // Each row says whether it has an add-on on disk and its size (the Remove sheet offers to delete it).
+    if let Some(rows) = view["agents"].as_array_mut() {
+        for row in rows {
+            let id = row["id"].as_str().unwrap_or_default().to_string();
+            if let Some(addon) = super::acp_remove::addon_info(&config::RealHost, &overlay, &id) {
+                row["addon"] = addon;
+            }
+        }
+    }
+    view
 }
 
 fn row(cfg: &config::AgentConfig, chosen: &std::collections::BTreeMap<String, RunLane>, labs: bool, overlay: bool) -> Value {

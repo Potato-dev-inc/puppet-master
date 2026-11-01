@@ -2,20 +2,24 @@
 // session runs by default, "Terminal" (the default) or "Chat (ACP)". The terminal stays a full way to run every agent.
 // The whole block is hidden while the Labs switch is off. An agent that cannot run as a chat shows why instead.
 import { useCallback, useEffect, useState } from 'react';
-import { addableChat, errorSentence, normalizeLaneView, tauriAcpChatApi, type AcpAddable, type AcpChatApi, type AcpLane, type AcpLaneView } from '../../../lib/acpChat';
+import { addableChat, errorSentence, normalizeLaneView, tauriAcpChatApi, type AcpAddable, type AcpChatApi, type AcpLaneAgent, type AcpLane, type AcpLaneView } from '../../../lib/acpChat';
 import { Popup } from '../controls';
 import { Btn, SettingRow } from '../settings-ui';
 import { AddChatDialog } from './AddChatDialog';
+import { RemoveChatDialog } from './RemoveChatDialog';
 
 export const TERMINAL_LABEL = 'Terminal';
 export const CHAT_LABEL = 'Chat (ACP)';
 export const ADD_CHAT_LABEL = 'Add chat (ACP)';
 
-export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi, 'laneGet' | 'laneSet'> & Pick<AcpChatApi, 'overlayDetect' | 'overlaySet' | 'overlayRemove'> }) {
+export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi, 'laneGet' | 'laneSet'> & Pick<AcpChatApi, 'overlayDetect' | 'overlaySet' | 'overlayRemove' | 'chatRemove'> }) {
   const [view, setView] = useState<AcpLaneView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState<AcpAddable | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<AcpLaneAgent | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -49,20 +53,30 @@ export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi
     }
   }, [api]);
 
-  const remove = useCallback(
-    async (id: string, label: string) => {
-      setError(null);
-      setStatus(null);
+  // Remove chat: the sheet asks first. Every agent that has a chat can be removed; the backend stops its open chats,
+  // goes back to Terminal, drops an added chat and, if asked, deletes the add-on files.
+  const confirmRemove = useCallback(
+    async (agent: AcpLaneAgent, removeAddon: boolean) => {
+      setRemoveBusy(true);
+      setRemoveError(null);
       try {
-        if (!api.overlayRemove) throw new Error('This version of the app cannot remove a chat.');
-        await api.overlayRemove(id);
-        setStatus(`Chat removed for ${label}.`);
-        await refresh();
+        let next: AcpLaneView;
+        if (api.chatRemove) next = normalizeLaneView(await api.chatRemove(agent.id, { removeAddon }));
+        else if (api.overlayRemove && agent.overlay) {
+          await api.overlayRemove(agent.id);
+          next = normalizeLaneView(await api.laneGet());
+        } else throw new Error('This version of the app cannot remove a chat.');
+        setView(next);
+        const failed = (next as AcpLaneView & { removal?: { addon_error?: string | null } }).removal?.addon_error;
+        setStatus(failed ? `Chat removed for ${agent.label}. The add-on could not be deleted: ${failed}` : `Chat removed for ${agent.label}.`);
+        setRemoving(null);
       } catch (e) {
-        setError(errorSentence(e));
+        setRemoveError(errorSentence(e));
+      } finally {
+        setRemoveBusy(false);
       }
     },
-    [api, refresh],
+    [api],
   );
 
   const addable = addableChat(view);
@@ -75,11 +89,16 @@ export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi
           label={agent.label}
           description={agent.disabled ? <span data-testid="agent-lane-note">{agent.disabled_note ?? 'Chat is not available for this agent.'}</span> : 'New sessions start in a terminal unless you pick Chat.'}
         >
-          {agent.overlay && (
-            <Btn small aria-label={`Remove chat for ${agent.label}`} onClick={() => void remove(agent.id, agent.label)}>
-              Remove chat
-            </Btn>
-          )}
+          <Btn
+            small
+            aria-label={`Remove chat for ${agent.label}`}
+            onClick={() => {
+              setRemoveError(null);
+              setRemoving(agent);
+            }}
+          >
+            Remove chat
+          </Btn>
           {!agent.disabled && (
             <Popup aria-label={`How ${agent.label} runs`} value={agent.lane} onChange={(event) => void save(agent.id, event.target.value as AcpLane)}>
               <option value="terminal">{TERMINAL_LABEL}</option>
@@ -103,6 +122,15 @@ export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi
         <p role="status" className="text-xs text-pm-muted">
           {status}
         </p>
+      )}
+      {removing && (
+        <RemoveChatDialog
+          agent={removing}
+          busy={removeBusy}
+          error={removeError}
+          onCancel={() => setRemoving(null)}
+          onRemove={(removeAddon) => void confirmRemove(removing, removeAddon)}
+        />
       )}
       {adding && (
         <AddChatDialog

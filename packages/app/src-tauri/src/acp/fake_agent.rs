@@ -20,6 +20,10 @@
 //! | `fsreq` | stray response with an unknown id, then asks the client to read a file using the SAME id as the prompt |
 //! | `rich` | text, a file edit (diff, path), a plan, a usage update, a thought, a command, text; `end_turn` |
 //! | `crashtool` | a tool call that starts, then the process exits with code 3 (a tool left open) |
+//! | `toolhang` | a tool call that starts and stays in progress until cancelled; then `cancelled` |
+//! | `garbage` | a line of bytes that are not UTF-8, a line of plain text, broken JSON, then real chunks and `end_turn` |
+//! | `bigdiff N` | one edit call that carries N diffs of 20 KB each, then `end_turn` |
+//! | `permcrash` | a tool that needs permission, then the process exits (the question is left open) |
 //! | `empty` | `end_turn` with no output |
 //! | `weird` | an update of a kind nobody knows, then text |
 //! | anything else | echoes the text |
@@ -413,6 +417,54 @@ fn run_prompt_inner(shared: &Arc<Shared>, id: &Value, params: &Value) {
             std::thread::sleep(Duration::from_millis(50));
             eprintln!("fake agent: boom (pretending to crash)");
             std::process::exit(3);
+        }
+        "toolhang" => {
+            shared.update(&session_id, json!({"sessionUpdate": "tool_call", "toolCallId": "h1", "title": "Run build", "kind": "execute", "status": "in_progress"}));
+            shared.chunk(&session_id, "building ");
+            loop {
+                if shared.cancel.load(Ordering::SeqCst) {
+                    return done("cancelled");
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        "garbage" => {
+            shared.chunk(&session_id, "before ");
+            {
+                let mut out = shared.out.lock();
+                let _ = out.write_all(&[0xff, 0xfe, 0xfa, b'\n']);
+                let _ = out.write_all(b"warning: this is a log line, not JSON-RPC\n");
+                let _ = out.write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\n");
+                let _ = out.flush();
+            }
+            shared.chunk(&session_id, "after");
+            done("end_turn");
+        }
+        "bigdiff" => {
+            let diffs: Vec<Value> = (0..count).map(|n| json!({"type": "diff", "path": format!("C:\\work\\file{n}.txt"), "oldText": "o".repeat(10_000), "newText": "n".repeat(10_000)})).collect();
+            shared.update(&session_id, json!({"sessionUpdate": "tool_call", "toolCallId": "big1", "title": "Apply patch", "kind": "edit", "status": "in_progress", "content": diffs}));
+            shared.update(&session_id, json!({"sessionUpdate": "tool_call_update", "toolCallId": "big1", "status": "completed"}));
+            shared.chunk(&session_id, "patched");
+            done("end_turn");
+        }
+        "permcrash" => {
+            shared.update(&session_id, json!({"sessionUpdate": "tool_call", "toolCallId": "w1", "title": "Write notes.txt", "kind": "edit", "status": "pending"}));
+            let ask_id = shared.next_request.fetch_add(1, Ordering::SeqCst);
+            let _rx = shared.ask(
+                ask_id,
+                "session/request_permission",
+                json!({
+                    "sessionId": session_id,
+                    "toolCall": {"toolCallId": "w1", "kind": "edit", "status": "pending", "title": "Write notes.txt"},
+                    "options": [
+                        {"optionId": "allow_once", "name": "Allow Once", "kind": "allow_once"},
+                        {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}
+                    ]
+                }),
+            );
+            std::thread::sleep(Duration::from_millis(400));
+            eprintln!("fake agent: boom (crashing with a question open)");
+            std::process::exit(4);
         }
         "crash" => {
             shared.chunk(&session_id, "partial ");

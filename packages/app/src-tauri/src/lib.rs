@@ -623,6 +623,8 @@ pub fn run() {
             commands::acp_overlay_install,
             commands::acp_overlay_set,
             commands::acp_overlay_remove,
+            commands::acp_chat_remove,
+            commands::acp_chat_restart,
             commands::acp_conversations_list,
             commands::acp_conversations_restore,
             commands::acp_conversation_create,

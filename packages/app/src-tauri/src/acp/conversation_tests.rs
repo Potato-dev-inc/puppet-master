@@ -198,6 +198,34 @@ fn closed_conversations_are_not_brought_back() {
 }
 
 #[test]
+fn removing_chat_stops_a_live_conversation_and_keeps_its_record_with_a_notice() {
+    let rig = Rig::new("");
+    let id = rig.new_started();
+    let other = rig.new_started();
+    let pid = rig.conversations.session(&id).unwrap().connection().expect("live").pid();
+    assert_eq!(rig.conversations.chat_removed("FAKE").len(), 2);
+    assert!(rig.conversations.session(&id).is_none() && rig.conversations.session(&other).is_none());
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while crate::proc_util::pid_alive(pid) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!crate::proc_util::pid_alive(pid), "the adapter process is gone");
+    let record = rig.conversations.record(&id).expect("the record stays");
+    assert_eq!(record.last_known_state, LastState::Closed);
+    assert!(record.session_id.is_some(), "the agent's session id stays, so the conversation can open in a terminal");
+    assert!(record.notices.iter().any(|n| n.kind == NoticeKind::ChatRemoved && n.text.contains("terminal")));
+    // Again: nothing to do, no second notice. After a restart it is not brought back.
+    assert!(rig.conversations.chat_removed("fake").is_empty());
+    assert_eq!(rig.conversations.record(&id).unwrap().notices.iter().filter(|n| n.kind == NoticeKind::ChatRemoved).count(), 1);
+    let report = rig.restarted().restore_lazily(&rig.panes);
+    assert!(report.restored.is_empty());
+    // Another agent's conversations are left alone.
+    let third = rig.new_started();
+    assert!(rig.conversations.chat_removed("someone-else").is_empty());
+    assert!(rig.conversations.session(&third).is_some());
+}
+
+#[test]
 fn history_lost_becomes_a_notice_and_the_record_follows_the_new_session() {
     let rig = Rig::new("");
     let id = rig.new_started();
