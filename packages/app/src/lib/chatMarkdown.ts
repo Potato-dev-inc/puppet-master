@@ -14,6 +14,8 @@ export type Inline =
   | { kind: 'link'; url: string; children: Inline[] };
 
 export interface ListItem {
+  /** A task-list item (`[x] ` or `[ ] ` at the start): done or not. Absent for a plain item. */
+  checked?: boolean;
   children: Inline[];
   /** One nested level, under this item. */
   sub: ListBlock | null;
@@ -290,10 +292,16 @@ function parseList(lines: string[], start: number): { block: ListBlock; next: nu
   };
 }
 
+const TASK_MARK = /^\[([ xX])\]\s+/;
+
 function toItem(raw: RawItem): ListItem {
   const first = raw.kids[0];
+  const head = raw.lines[0] ?? '';
+  const task = TASK_MARK.exec(head);
+  const lines = task ? [head.slice(task[0].length), ...raw.lines.slice(1)] : raw.lines;
   return {
-    children: parseInline(raw.lines.join('\n')),
+    ...(task ? { checked: task[1] !== ' ' } : {}),
+    children: parseInline(lines.join('\n')),
     sub: first
       ? { kind: 'list', ordered: first.ordered, start: first.num, items: raw.kids.map(toItem) }
       : null,
