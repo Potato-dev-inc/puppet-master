@@ -93,7 +93,7 @@ export const run = guarded(async (t) => {
   await t.expect.eventually(async () => (await t.page.count('css=.ck-potato-computer')) === 0, { message: 'the Computer panel is hidden' });
   await say(t, 'computer: browser_snapshot');
   // (the first answer is still in the chat: wait for a second one)
-  await t.expect.eventually(async () => (await t.page.eval("document.body.innerText.split('Fish has no computer.').length - 1")) === 2, {
+  await t.expect.eventually(async () => (await t.page.eval("[...document.querySelectorAll('.ck-potato-bubble--bot')].filter((e) => e.innerText.trim() === 'Fish has no computer.').length")) === 2, {
     timeout: 30000,
     message: 'the bot says again that it has no computer',
   });
