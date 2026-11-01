@@ -96,6 +96,15 @@ impl Transport for IrohTransport {
     async fn close(&self) {
         self.endpoint.close().await;
     }
+
+    fn local_addrs(&self) -> Vec<std::net::SocketAddr> {
+        // Where iroh says it can be reached; before it has found out, the sockets it bound (never "any" addresses).
+        let mut v: Vec<std::net::SocketAddr> = self.endpoint.addr().ip_addrs().copied().collect();
+        if v.is_empty() {
+            v = self.endpoint.bound_sockets().into_iter().filter(|a| !a.ip().is_unspecified()).collect();
+        }
+        v
+    }
 }
 
 struct IrohLink {

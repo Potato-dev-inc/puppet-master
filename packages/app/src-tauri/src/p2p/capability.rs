@@ -14,6 +14,11 @@ pub const DESK_INPUT: &str = "desk/input";
 pub const DESK_CLIPBOARD: &str = "desk/clipboard";
 pub const FILES: &str = "files";
 pub const SPACES: &str = "spaces";
+/// Pairing is not a permission anyone is given: it is open to strangers only while the person shows a code.
+pub const PAIR: &str = "pair";
+
+/// What the person may turn on per computer, in the order the page shows them. Everything starts off.
+pub const PERMISSIONABLE: [&str; 3] = [DESK_INPUT, DESK_CLIPBOARD, FILES];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelayPolicy {

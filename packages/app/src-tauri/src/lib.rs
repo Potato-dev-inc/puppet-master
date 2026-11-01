@@ -109,6 +109,7 @@ mod shell_env;
 mod startup_timing;
 mod desk;
 mod p2p;
+mod pairing_commands;
 mod review_desk;
 mod tamper;
 pub mod shell_exec;
@@ -535,6 +536,14 @@ pub fn run() {
             commands::issue_intake_poll_now,
             desk::commands::desk_snapshot,
             desk::commands::desk_command,
+            pairing_commands::pair_view,
+            pairing_commands::pair_host_start,
+            pairing_commands::pair_host_cancel,
+            pairing_commands::pair_join,
+            pairing_commands::pair_answer,
+            pairing_commands::pair_nearby,
+            pairing_commands::trust_set_permission,
+            pairing_commands::trust_remove,
             commands::review_desk_list,
             commands::review_desk_count,
             commands::review_desk_detail,
@@ -966,6 +975,7 @@ pub fn run() {
                 standby::shutdown();
                 // The keyboard hook of My computers goes with the app.
                 desk::shutdown();
+                pairing_commands::shutdown();
                 // Potato Bot's brains leave with the app: asked first, then their whole tree is stopped.
                 potato::live::stop_all(std::time::Duration::from_secs(2));
                 // The computer may sleep again: a Night Shift hold must not outlive the app.

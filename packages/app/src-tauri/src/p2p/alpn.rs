@@ -32,3 +32,6 @@ pub fn is_valid(alpn: &[u8]) -> bool {
 pub fn relay_possible(alpn: &[u8]) -> bool {
     !alpn.starts_with(b"pm/desk")
 }
+
+/// Pairing two computers. Open only while a code is on screen; direct-only by capability policy (LAN).
+pub const PAIR: &[u8] = b"pm/pair/1";
