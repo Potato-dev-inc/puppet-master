@@ -1,12 +1,16 @@
-// The message list of a bot's thread: the rows, the typing row, and the scrolling. It follows the bottom while the
-// person is at the bottom; reading further up is left alone. `followToken` goes up when the person sends, which
-// pulls the view to the bottom again.
-import { useEffect, useLayoutEffect, useRef } from 'react';
+// The message list of a bot's thread: the rows, the lines between them (day, time, "New"), the typing row, and the
+// scrolling. It follows the bottom while the person is at the bottom; reading further up is left alone, and a round
+// "Jump to latest" button shows then. `followToken` goes up when the person sends, which pulls the view to the bottom
+// again and takes the "New" line away.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PotatoBotView, PotatoMessage, PotatoTransport } from '../../../lib/potato';
-import { THREAD_COPY } from '../../../lib/potato-thread';
+import { THREAD_COPY, firstUnreadId } from '../../../lib/potato-thread';
 import { MessageRow } from './MessageRow';
+import { DaySeparator, TimeSeparator, UnreadDivider } from './Separators';
+import { ThreadIcon } from './ThreadIcons';
+import { ToolActivity } from './ToolActivity';
 import { TypingRow } from './TypingRow';
-import { threadRows } from './model';
+import { threadItems } from './model';
 import '../../../styles/cockpit-potato-thread.css';
 
 /** Closer than this to the bottom, a new line keeps the thread pinned to it. */
@@ -22,46 +26,103 @@ export interface TranscriptProps {
   paneExists?: (paneId: string) => boolean;
   followToken?: number;
   now: number;
+  /** Opens a link from the bot's text. Default: the system browser. */
+  openLink?: (url: string) => void;
 }
 
-export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, now }: TranscriptProps) {
+export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, now, openLink }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
+  const [away, setAway] = useState(false);
+
+  // How many replies were unread when the thread was opened (opening reads them, so `bot.unread` drops to 0 at once).
+  // The "New" line stays above the first of them until the person sends something or opens another bot.
+  const [seen, setSeen] = useState<{ botId: string; unread: number }>({ botId: bot.id, unread: bot.unread });
+  const unread = seen.botId === bot.id ? seen.unread : bot.unread;
+  useEffect(() => {
+    setSeen((was) => (was.botId === bot.id ? was : { botId: bot.id, unread: bot.unread }));
+  }, [bot.id, bot.unread]);
+  // A reply that arrives while the person reads further up counts too.
+  useEffect(() => {
+    if (bot.unread > 0 && !pinned.current) setSeen((was) => (was.botId === bot.id ? { botId: bot.id, unread: Math.max(was.unread, bot.unread) } : was));
+  }, [bot.id, bot.unread]);
+  useEffect(() => {
+    if (followToken > 0) setSeen({ botId: bot.id, unread: 0 });
+  }, [followToken, bot.id]);
+
+  const unreadId = useMemo(() => firstUnreadId(messages, unread), [messages, unread]);
+  const items = useMemo(() => threadItems(messages, { now, unreadId }), [messages, now, unreadId]);
 
   useEffect(() => {
     pinned.current = true;
+    setAway(false);
   }, [bot.id, followToken]);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
   }, [messages, bot.typing, followToken]);
 
+  const toBottom = () => {
+    const el = scroller.current;
+    if (!el) return;
+    pinned.current = true;
+    setAway(false);
+    const smooth = typeof el.scrollTo === 'function' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    else el.scrollTop = el.scrollHeight;
+  };
+
   return (
-    <div
-      className="ck-scroll ck-potato-body"
-      ref={scroller}
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
-      }}
-    >
-      <ol className="ck-potato-rows" aria-label={THREAD_COPY.messages}>
-        {threadRows(messages).map((row) => (
-          <MessageRow
-            key={row.message.id}
-            row={row}
-            botId={bot.id}
-            botName={bot.name}
-            agentLabel={agentLabel}
-            transport={transport}
-            onChanged={onChanged}
-            onOpenPane={onOpenPane}
-            paneExists={paneExists}
-            now={now}
-          />
-        ))}
-      </ol>
-      {bot.typing && <TypingRow name={bot.name} />}
+    <div className="ck-potato-body-wrap">
+      <div
+        className="ck-scroll ck-potato-body"
+        ref={scroller}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const near = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
+          pinned.current = near;
+          setAway(!near);
+        }}
+      >
+        <ol className="ck-potato-rows" aria-label={THREAD_COPY.messages}>
+          {items.map((item) => {
+            switch (item.type) {
+              case 'day':
+                return <DaySeparator key={item.key} label={item.label} />;
+              case 'time':
+                return <TimeSeparator key={item.key} label={item.label} />;
+              case 'unread':
+                return <UnreadDivider key={item.key} />;
+              case 'activity':
+                return <ToolActivity key={item.key} steps={item.steps} />;
+              default:
+                return (
+                  <MessageRow
+                    key={item.message.id}
+                    row={item}
+                    botId={bot.id}
+                    botName={bot.name}
+                    agentLabel={agentLabel}
+                    transport={transport}
+                    onChanged={onChanged}
+                    onOpenPane={onOpenPane}
+                    paneExists={paneExists}
+                    now={now}
+                    openLink={openLink}
+                  />
+                );
+            }
+          })}
+        </ol>
+        {bot.typing && <TypingRow name={bot.name} />}
+        {messages.length === 0 && !bot.typing && <p className="ck-sub ck-potato-empty">{THREAD_COPY.empty(bot.name)}</p>}
+      </div>
+      {away && (
+        <button type="button" className="ck-potato-jump" onClick={toBottom}>
+          <ThreadIcon name="arrow-down" size={13} />
+          <span>{THREAD_COPY.jump}</span>
+        </button>
+      )}
     </div>
   );
 }

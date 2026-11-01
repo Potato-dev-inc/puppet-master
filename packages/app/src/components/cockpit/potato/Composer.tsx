@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { COPY, plainError, type PotatoBotView, type PotatoTransport } from '../../../lib/potato';
 import { MAX_MESSAGE } from '../../../lib/potato-composer';
 import { canWrite } from './model';
+import { useQuoteInto } from './useQuoteInto';
 import '../../../styles/cockpit-potato-composer.css';
 
 export interface ComposerProps {
@@ -21,6 +22,8 @@ export function Composer({ bot, transport, onChanged, onNotify, onSent }: Compos
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
+  // "Reply" on a message puts a quote in the box.
+  useQuoteInto(bot.id, setDraft, field);
 
   // The box grows with the text, up to about six lines.
   useLayoutEffect(() => {
