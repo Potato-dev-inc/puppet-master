@@ -36,6 +36,7 @@ use super::hold;
 use super::keeper::{Action, Keeper, Phase};
 use super::log::{self, LogRing};
 use super::protocol::{self, ErrorCode, Event, HelperStatus, PauseReason, Trust};
+use super::reply_cost;
 use super::rules::{self, Caps, Channel, Decision, Facts, Sender};
 use super::sandbox_calls::{self, Calls, Gates, Port};
 use super::sidecar::{Child, Launcher, LineSink, NodeState, SpawnSpec};
@@ -276,6 +277,8 @@ struct BotRt {
     /// The day on which the bot was paused for its limit.
     paused_for_limit: Option<String>,
     last_surface: String,
+    /// The newest reply's last segment: the turn's usage (it comes after the reply) is recorded on it.
+    last_reply_id: Option<String>,
     /// Where the run is in its brain chain (`fallback.rs`): 0 is the talk brain. Reset when a new run starts.
     chain_step: usize,
 }
@@ -296,6 +299,7 @@ impl BotRt {
             turn_trust: HashMap::new(),
             paused_for_limit: None,
             last_surface: "app".into(),
+            last_reply_id: None,
             chain_step: 0,
         }
     }
@@ -428,7 +432,12 @@ impl Service {
 
     pub fn messages(&self, bot: &str, limit: usize) -> Result<Vec<Message>> {
         self.require_bot(bot)?;
-        store::read_messages(&self.root, &store::app_conversation(bot), limit.clamp(1, 500), self.home_of(bot).as_deref())
+        let mut messages = store::read_messages(&self.root, &store::app_conversation(bot), limit.clamp(1, 500), self.home_of(bot).as_deref())?;
+        let costs = reply_cost::load(&self.root);
+        for m in &mut messages {
+            m.cost_nano = costs.get(&m.id).copied();
+        }
+        Ok(messages)
     }
 
     // ---- the person's side ---------------------------------------------------------------------
@@ -1378,6 +1387,7 @@ impl Service {
                 };
                 let said = crate::companion::view::scrub(&segments.join(" "), None);
                 let last = segments.len().saturating_sub(1);
+                let mut last_id = None;
                 for (i, mut segment) in segments.into_iter().enumerate() {
                     if i == last {
                         if let Some(face) = kaomoji.as_deref().filter(|k| !k.trim().is_empty()) {
@@ -1389,9 +1399,14 @@ impl Service {
                     if i == last {
                         message.mood = mood.clone();
                     }
-                    if let Err(e) = self.save(bot, &conversation_id, message) {
-                        tracing::debug!(%e, "could not save a reply");
+                    match self.save(bot, &conversation_id, message) {
+                        Ok(saved) if i == last => last_id = Some(saved.id),
+                        Ok(_) => {}
+                        Err(e) => tracing::debug!(%e, "could not save a reply"),
                     }
+                }
+                if let Some(rt) = self.inner.lock().bots.get_mut(bot) {
+                    rt.last_reply_id = last_id;
                 }
                 self.host.reply_pushed(bot, &name, &said, super::notify::pushes_replies(&self.root, bot));
                 true
@@ -1461,6 +1476,13 @@ impl Service {
                 return;
             }
         };
+        // The turn's reply (saved just before this usage) carries the turn's cost: an estimate, shown as "about".
+        let reply = self.inner.lock().bots.get_mut(bot).and_then(|rt| rt.last_reply_id.take());
+        if let Some(id) = reply {
+            if let Err(e) = reply_cost::record(&self.root, &id, charged.cost_nano) {
+                tracing::debug!(%e, "could not save a reply's cost");
+            }
+        }
         let name = self.name_of(bot);
         let limit = cost::dollars(settings.daily_limit_cents);
         if charged.limit_now {

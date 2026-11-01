@@ -2,6 +2,7 @@
 // limit, stopped, or the last error. A bot that can answer has no card.
 import { useState } from 'react';
 import { COPY, errorSentence, plainError, type BrainState } from '../../../lib/potato';
+import { openSettingsAt } from '../../../lib/openSettingsAt';
 import '../../../styles/cockpit-potato-cards.css';
 
 export interface BrainStateCardProps {
@@ -11,10 +12,11 @@ export interface BrainStateCardProps {
   limitCents: number;
   onStart: () => Promise<void>;
   onInstallNode: () => Promise<void>;
-  onOpenSettings: () => void;
+  /** Kept for callers; the buttons open Settings through the opener the cockpit registered (see openSettingsAt). */
+  onOpenSettings?: () => void;
 }
 
-export function BrainStateCard({ name, state, lastError, limitCents, onStart, onInstallNode, onOpenSettings }: BrainStateCardProps) {
+export function BrainStateCard({ name, state, lastError, limitCents, onStart, onInstallNode }: BrainStateCardProps) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -36,7 +38,7 @@ export function BrainStateCard({ name, state, lastError, limitCents, onStart, on
   switch (state) {
     case 'needs_key':
       text = COPY.noKey(name);
-      action = { label: 'Open Settings', run: onOpenSettings };
+      action = { label: 'Add key', run: () => openSettingsAt('potato', 'potato-key', { focusField: true }) };
       break;
     case 'needs_node':
       text = COPY.needsNode;
@@ -44,7 +46,7 @@ export function BrainStateCard({ name, state, lastError, limitCents, onStart, on
       break;
     case 'daily_limit':
       text = COPY.limit(name, limitCents);
-      action = { label: 'Open Settings', run: onOpenSettings };
+      action = { label: 'Raise limit', run: () => openSettingsAt('potato', 'potato-limit') };
       break;
     case 'stopped':
       text = COPY.stopped(name);
@@ -52,6 +54,8 @@ export function BrainStateCard({ name, state, lastError, limitCents, onStart, on
       break;
     case 'missing_program':
       text = COPY.missingProgram;
+      // No repair row exists yet; the sandbox and brain rows live in the Potato section.
+      action = { label: 'Repair install', run: () => openSettingsAt('potato') };
       break;
     case 'ready':
     case 'idle':

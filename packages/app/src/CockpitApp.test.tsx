@@ -6,6 +6,7 @@ import CockpitApp from './CockpitApp';
 import { requestGoLive, type LiveStatus } from './lib/live-room';
 import { requestBringChats, requestImportedChat } from './lib/chatImport';
 import { runStoreCheck } from './lib/agentStoreCheck';
+import { BrainStateCard } from './components/cockpit/potato/BrainStateCard';
 
 // Mutable per-test input for the digest (away) path.
 const away = vi.hoisted(() => ({ digest: null as null | object }));
@@ -289,6 +290,7 @@ vi.mock('./components/cockpit/SettingsView', async () => {
         'div',
         null,
         'SETTINGS VIEW tab=' + initialTab + ';',
+        h('div', { 'data-row': 'potato-key' }, h('input', { type: 'password', 'aria-label': 'DeepSeek key' })),
         h('button', { type: 'button', onClick: onBack }, 'Settings back'),
         h('button', { type: 'button', onClick: () => onPageChange?.('keys') }, 'Go to Keys'),
         h('button', { type: 'button', onClick: onOpenStore }, 'Settings browse'),
@@ -581,6 +583,29 @@ describe('CockpitApp Agent Store wiring', () => {
 });
 
 describe('Settings in the cockpit', () => {
+  it('Add key on a bot card ends in Potato Bot with the key row glowing and its field focused', async () => {
+    rerender(); // the cockpit (and its settings opener) is up, as in the app
+    const cardHost = document.createElement('div');
+    document.body.appendChild(cardHost);
+    const cardRoot: Root = createRoot(cardHost);
+    await act(async () =>
+      cardRoot.render(
+        createElement(BrainStateCard, { name: 'Fish', state: 'needs_key', lastError: null, limitCents: 50, onStart: async () => {}, onInstallNode: async () => {} }),
+      ),
+    );
+    const addKey = [...cardHost.querySelectorAll('button')].find((b) => b.textContent === 'Add key');
+    expect(addKey).toBeTruthy();
+    act(() => addKey!.click());
+    // The row is found on the next tick, once the page has rendered.
+    await act(async () => new Promise((r) => setTimeout(r, 60)));
+    expect(/SETTINGS VIEW tab=([a-z]+);/.exec(host.textContent ?? '')?.[1]).toBe('potato');
+    const row = host.querySelector<HTMLElement>('[data-row="potato-key"]');
+    expect(row?.getAttribute('data-glow')).toBe('true');
+    expect(document.activeElement).toBe(row?.querySelector('input'));
+    act(() => cardRoot.unmount());
+    cardHost.remove();
+  });
+
   const rerender = () => act(() => root.render(createElement(CockpitApp)));
   const openSettingsMock = () => cockpit.openSettings as unknown as ReturnType<typeof vi.fn>;
   const settingsTab = () => /SETTINGS VIEW tab=([a-z]+);/.exec(mainText() ?? '')?.[1];

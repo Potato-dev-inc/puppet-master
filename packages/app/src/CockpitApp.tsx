@@ -67,6 +67,7 @@ import { useLiveStopToast } from './components/cockpit/live/stopToast';
 import { GO_LIVE_EVENT } from './lib/live-room';
 import './styles/cockpit.css';
 import './styles/night.css';
+import { registerSettingsOpener } from './lib/openSettingsAt';
 import './styles/night-morning.css';
 import './styles/night-chip.css';
 
@@ -189,6 +190,11 @@ export default function CockpitApp() {
       off?.();
     };
   }, []);
+  // Cards and buttons that say "Open Settings" on a row (openSettingsAt) open it through here: a row id is a valid tab.
+  useEffect(() => {
+    registerSettingsOpener((tab) => void settings.open(tab));
+    return () => registerSettingsOpener(null);
+  }, [settings.open]);
   // Any selection (a pane, the inbox), even of the already-selected pane, leaves the
   // "Set up agents" and "Project memory" views.
   const nav: typeof c = {
@@ -577,7 +583,7 @@ export default function CockpitApp() {
           onClose={() => setGoLive(null)}
           onOpenSettings={() => {
             setGoLive(null);
-            void nav.openSettings('general');
+            void nav.openSettings('live-room');
           }}
         />
       )}

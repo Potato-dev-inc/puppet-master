@@ -1,0 +1,23 @@
+/* A row that Open Settings (or a card's button) just brought you to: a grey glow for 2 s. Grayscale only; no motion
+   under reduced motion, where the tint simply appears and goes. */
+.settings .st-rowwrap[data-glow='true'] {
+  animation: st-row-glow 2s ease-out;
+}
+@keyframes st-row-glow {
+  0%, 30% { background: var(--fill); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings .st-rowwrap[data-glow='true'] {
+    animation: none;
+    background: var(--fill);
+  }
+}
+
+/* Search results: "Row name · Section" above each row, quiet like a caption. */
+.settings .st-where {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: 12px;
+  color: var(--label-3);
+}

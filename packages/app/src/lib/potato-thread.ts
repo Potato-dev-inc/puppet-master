@@ -242,3 +242,46 @@ export function quoteExcerpt(text: string): string {
 export function emitQuote(botId: string, text: string, target: Pick<Window, 'dispatchEvent'> = window): void {
   target.dispatchEvent(new CustomEvent<PotatoQuoteDetail>(POTATO_QUOTE_EVENT, { detail: { botId, text: quoteExcerpt(text) } }));
 }
+
+// ---- a failed step: Try again or Take control ------------------------------------------------------
+
+/** What "Try again" sends, as the person. The same words the composer would send. */
+export const TRY_AGAIN_TEXT = 'Please try that again.';
+export const TRY_AGAIN_LABEL = 'Try again';
+export const TAKE_CONTROL_LABEL = 'Take control';
+export const FAILED_STEP_FALLBACK = "Couldn't finish that step";
+
+/** The plain verb of each tool, as the folded line says it: "Couldn't open the page". */
+const PLAIN_VERBS: Record<string, string> = {
+  computer_observe: 'look at the screen',
+  computer_act: 'use the mouse and keyboard',
+  browser_navigate: 'open the page',
+  browser_snapshot: 'read the page',
+  browser_act: 'click on the page',
+  ask_person_for_screen: 'ask you for the screen',
+  ask_helper: 'ask a helper',
+  memory_search: 'search its memory',
+  memory_open: 'open a memory',
+  memory_timeline: 'read its memory',
+  memory_diary: 'read its diary',
+};
+
+export interface FailedStepOffer {
+  /** "Couldn't open the page". */
+  text: string;
+  /** "Try again" sends the retry words; "Take control" opens the computer (the same step failed twice in a row). */
+  action: 'try-again' | 'take-control';
+}
+
+/**
+ * The offer for a run of steps whose LAST step failed. Null when the last step worked, or when an earlier step failed
+ * (that one stays as it is). `before` is the step just before this run, so a retry that failed again still counts.
+ */
+export function failedStepOffer(steps: readonly ToolStep[], before: ToolStep | null = null): FailedStepOffer | null {
+  const last = steps[steps.length - 1];
+  if (!last || last.ok) return null;
+  const previous = steps.length >= 2 ? steps[steps.length - 2] : before;
+  const twice = previous !== null && !previous.ok && previous.tool === last.tool;
+  const verb = PLAIN_VERBS[last.tool];
+  return { text: verb ? `Couldn't ${verb}` : FAILED_STEP_FALLBACK, action: twice ? 'take-control' : 'try-again' };
+}
