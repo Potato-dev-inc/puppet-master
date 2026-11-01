@@ -13,8 +13,8 @@
   max-width: calc(100vw - 32px);
   padding: 20px;
   border-radius: 14px;
-  background: #1c1c1e;
-  color: #f5f5f7;
+  background: #2c2a28;
+  color: #f4f2ef;
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
 }
@@ -26,7 +26,7 @@
 .pm-close-sheet p {
   margin: 0;
   font-size: 13px;
-  color: rgba(245, 245, 247, 0.64);
+  color: rgba(244, 242, 239, 0.68);
 }
 .pm-close-actions {
   display: flex;
@@ -50,11 +50,11 @@
 }
 .pm-close-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(245, 245, 247, 0.28);
+  box-shadow: 0 0 0 3px rgba(242, 154, 60, 0.4);
 }
 .pm-close-btn--primary {
-  background: #f5f5f7;
-  color: #0a0a0b;
+  background: #f4f2ef;
+  color: #1b1a19;
   border-color: transparent;
 }
 .pm-close-btn--primary:hover {

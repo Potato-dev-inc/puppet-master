@@ -80,7 +80,7 @@ must deviate, update this file in the same change and say so in your report.
 - ⌘K / Ctrl+K palette: switch to a pane, new agent (warm-ready labelled), interrupt, open settings, switch mode,
   toggle theme.
 - Spawn view: a 5×5 `DotSpinner` with a log driven by `pane://spawn-stage` events (no fake lines).
-- Styling: monochrome tokens from STYLE.md, scoped to the cockpit stylesheet; Inter, JetBrains Mono and Doto,
+- Styling: charcoal and Potato-orange tokens (`docs/design/theme.md`; grayscale rules of STYLE.md otherwise), scoped to the cockpit stylesheet; Inter, JetBrains Mono and Doto,
   self-hosted. Doto only for the inbox count.
 
 ## Implementation notes (Rust, as built)

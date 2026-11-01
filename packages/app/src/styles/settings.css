@@ -2,38 +2,44 @@
    Everything is scoped under .settings. Grayscale only: no hue, no badges, no gradients. */
 
 .settings {
-  --window: #0a0a0b;
-  --bg-side: #111112;
-  --list: #18181a;
-  --fill: rgba(255, 255, 255, 0.05);
-  --fill-hover: rgba(255, 255, 255, 0.08);
-  --fill-active: rgba(255, 255, 255, 0.12);
-  --sep: rgba(255, 255, 255, 0.08);
-  --label: #f5f5f7;
-  --label-2: rgba(245, 245, 247, 0.64);
-  --label-3: rgba(245, 245, 247, 0.52);
-  --label-4: rgba(245, 245, 247, 0.22);
-  --primary-bg: #f5f5f7;
-  --primary-fg: #0a0a0b;
-  --focus: 0 0 0 3px rgba(245, 245, 247, 0.28);
-  --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --float-bg: rgba(28, 28, 30, 0.82);
+  --window: #1b1a19;
+  --bg-side: #211f1e;
+  --list: #292725;
+  --fill: rgba(255, 248, 240, 0.055);
+  --fill-hover: rgba(255, 248, 240, 0.09);
+  --fill-active: rgba(255, 248, 240, 0.14);
+  --sep: rgba(255, 248, 240, 0.1);
+  --label: #f4f2ef;
+  --label-2: rgba(244, 242, 239, 0.68);
+  --label-3: rgba(244, 242, 239, 0.58);
+  --label-4: rgba(244, 242, 239, 0.26);
+  --primary-bg: #f4f2ef;
+  --primary-fg: #1b1a19;
+  --focus: 0 0 0 3px rgba(242, 154, 60, 0.4);
+  --accent: #f29a3c;
+  --accent-hover: #f7ad5c;
+  --accent-press: #d9852b;
+  --accent-soft: rgba(242, 154, 60, 0.14);
+  --accent-line: #f29a3c;
+  --accent-fg: #1b1409;
+  --raise-hi: inset 0 1px 0 rgba(255, 248, 240, 0.06);
+  --float-bg: rgba(52, 50, 47, 0.88);
   --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI Variable Text', system-ui, sans-serif;
   --font-mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
   /* The older Tailwind blocks inside rows (agent definitions, toolbelt, pairing) read these. */
-  --pm-bg: 10 10 11;
-  --pm-panel: 30 30 32;
-  --pm-raised: 36 36 38;
-  --pm-border: 52 52 56;
-  --pm-accent: 245 245 247;
-  --pm-text: 245 245 247;
-  --pm-muted: 150 150 156;
+  --pm-bg: 27 26 25;
+  --pm-panel: 33 31 30;
+  --pm-raised: 41 39 37;
+  --pm-border: 62 59 56;
+  --pm-accent: 242 154 60;
+  --pm-text: 244 242 239;
+  --pm-muted: 154 150 145;
   --pm-ok: 214 214 214;
   --pm-warn: 180 180 180;
-  --pm-err: 245 245 247;
+  --pm-err: 244 242 239;
 }
 
 [data-theme='light'] .settings {
@@ -50,7 +56,13 @@
   --label-4: rgba(29, 29, 31, 0.28);
   --primary-bg: #1d1d1f;
   --primary-fg: #ffffff;
-  --focus: 0 0 0 3px rgba(0, 0, 0, 0.18);
+  --focus: 0 0 0 3px rgba(212, 105, 11, 0.35);
+  --accent: #a84f05;
+  --accent-hover: #8f4204;
+  --accent-press: #763603;
+  --accent-soft: rgba(168, 79, 5, 0.1);
+  --accent-line: #d4690b;
+  --accent-fg: #ffffff;
   --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.8);
   --float-bg: rgba(250, 250, 252, 0.86);
   --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.14);

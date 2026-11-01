@@ -2,13 +2,13 @@
 
 :root {
   color-scheme: dark;
-  --pm-bg: 10 10 10;
-  --pm-panel: 18 18 18;
-  --pm-raised: 25 25 25;
-  --pm-border: 45 45 45;
-  --pm-accent: 245 245 245;
-  --pm-text: 232 232 232;
-  --pm-muted: 150 150 150;
+  --pm-bg: 27 26 25;
+  --pm-panel: 33 31 30;
+  --pm-raised: 41 39 37;
+  --pm-border: 62 59 56;
+  --pm-accent: 242 154 60;
+  --pm-text: 244 242 239;
+  --pm-muted: 154 150 145;
   --pm-ok: 214 214 214;
   --pm-warn: 180 180 180;
   --pm-err: 255 255 255;
@@ -20,7 +20,7 @@
   --pm-panel: 242 242 242;
   --pm-raised: 255 255 255;
   --pm-border: 212 212 212;
-  --pm-accent: 12 12 12;
+  --pm-accent: 168 79 5;
   --pm-text: 18 18 18;
   --pm-muted: 96 96 96;
   --pm-ok: 56 56 56;
