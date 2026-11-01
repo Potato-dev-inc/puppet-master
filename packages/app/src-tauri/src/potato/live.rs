@@ -37,6 +37,14 @@ pub fn service() -> Option<Arc<Service>> {
     SERVICE.get().cloned()
 }
 
+/// The address of the bridge on this computer (`http://127.0.0.1:<port>`), once it is listening.
+pub fn bridge_base() -> Option<String> {
+    match BRIDGE_PORT.load(Ordering::SeqCst) {
+        0 => None,
+        port => Some(format!("http://127.0.0.1:{port}")),
+    }
+}
+
 pub fn set_bridge_port(port: u16) {
     BRIDGE_PORT.store(port, Ordering::SeqCst);
 }
@@ -48,6 +56,8 @@ pub fn labs_on(public: &Value) -> bool {
 
 /// Called with the public settings whenever they change (and once at startup, from the saved file).
 pub fn apply_settings(public: &Value) {
+    // The Computer (the sandbox screen) follows both switches.
+    super::sandbox::screen_live::apply_settings(public);
     let on = labs_on(public);
     match service() {
         Some(service) => service.set_enabled(on),

@@ -81,3 +81,19 @@ The brain: `packages/potato-brain/`.
 
 Tests: `cargo test --lib potato`; `npx vitest run src/components/cockpit/potato src/components/settings`; e2e
 `potato.dm-reply` and `potato.dm-reply-and-helper` (`npm run e2e -- --only "potato.*" --no-video --headless`).
+
+
+## The Computer panel (Preview, needs the sandbox)
+
+With both Labs switches on (`potato_bot_enabled` and `potato_sandbox_enabled`) a bot's chat has a **Computer** bar under its header. With
+either switch off the bar is not drawn and every screen route answers 404.
+
+- The words say who has the screen: `Fish is using it`, `You have control`, `Needs you`, or `Not in use`.
+- **Show** opens the bot's screen (view only). **Take over** gives you the mouse and keyboard; **Hand back** gives the screen back;
+  **Skip** turns a `Needs you` card down. **Retry** appears when the screen could not connect.
+- A link to the screen lasts one hour, dies when the sandbox restarts, and a control link closes the second you lose the screen.
+- The screen password never shows on the page. It travels only in the address of the frame, after a `#`, which no server or log sees.
+- A paired phone can watch (view). Control from a phone needs your yes on this PC first; that yes is not built yet, so a phone gets
+  `PHONE_NEEDS_DESKTOP_YES`.
+
+Code: `potato/sandbox/screen.rs`, `bridge/routes/potato_screen.rs`, `components/cockpit/potato/ComputerPanel.tsx`.

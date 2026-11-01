@@ -637,6 +637,12 @@ pub fn run() {
             commands::potato_helper_decline,
             commands::potato_check_key,
             commands::potato_install_node,
+            commands::potato_screen_state,
+            commands::potato_screen_link,
+            commands::potato_screen_take_over,
+            commands::potato_screen_hand_back,
+            commands::potato_screen_skip,
+            commands::potato_screen_keep,
         ])
         .setup(|app| {
             // Before the first window: an older version's desktop service worker would serve its UI.
@@ -810,6 +816,8 @@ pub fn run() {
             companion::live::start(app.handle().clone(), registry_for_panes.clone());
             // Potato Bot: the engine and its supervisor thread. No brain starts here; one starts on its first message.
             potato::live::start(Some(app.handle().clone()), Some(registry_for_panes.clone()));
+            // The Computer panel: the screen hub, its 1 s keeper and the `potato://screen` event.
+            potato::sandbox::screen_live::start(Some(app.handle().clone()));
             // A room a crash left on the relay is ended now (its own thread: it may wait for the network).
             live_room::service::cleanup_at_boot(app_paths::app_data_dir());
             app.handle().listen("pty://panes-changed", move |_event| {
