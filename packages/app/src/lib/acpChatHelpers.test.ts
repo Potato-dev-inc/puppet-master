@@ -186,3 +186,12 @@ describe('the lane of a new session', () => {
     expect(chatCapable({ labs_enabled: true, agents: [agent(), agent({ id: 'b', disabled: true })] }).map((a) => a.id)).toEqual(['a']);
   });
 });
+
+describe('startFailure for a missing add-on', () => {
+  it('points at Settings and still offers the terminal', () => {
+    const r = startFailure('ACP_ADDON_MISSING: Chat needs a small add-on for Claude (about 40 MB). Install it first.');
+    expect(r.sentence).toContain('Install it first.');
+    expect(r.sentence).toContain('Settings, under Agents › Chat');
+    expect(r.terminalFallback).toBe(true);
+  });
+});

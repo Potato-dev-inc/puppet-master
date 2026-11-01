@@ -1,0 +1,220 @@
+/* Settings > Potato Bot sub-pages: Models and fallbacks, and Usage. Monochrome: only the settings window's grey tokens
+   (--label, --label-2, --label-3, --fill, --sep, --float-bg, --float-shadow), no hue. Everything sits inside `.settings`. */
+
+/* ---------- the layer and the sheet ---------- */
+.settings .pot-sub-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  animation: st-fade 200ms var(--ease);
+}
+.settings .pot-sub {
+  display: flex;
+  flex-direction: column;
+  width: 640px;
+  max-width: 100%;
+  max-height: 88vh;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--float-bg);
+  border: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  animation: st-pop 280ms var(--ease-sheet);
+  outline: none;
+}
+.settings .pot-sub-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--sep);
+}
+.settings .pot-sub-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings .pot-sub-body {
+  overflow: auto;
+  padding: 16px 18px 20px;
+  display: grid;
+  gap: 20px;
+}
+.settings .pot-sub-section {
+  display: grid;
+  gap: 10px;
+}
+.settings .pot-sub-section h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings .pot-sub-section p {
+  margin: 0;
+  color: var(--label-2);
+}
+.settings .pot-sub-note,
+.settings .pot-sub-empty,
+.settings .pot-sub-loading {
+  color: var(--label-3);
+  font-size: 12px;
+}
+.settings .pot-sub-loading {
+  display: block;
+}
+
+/* ---------- bars (plain divs, no chart library) ---------- */
+.settings .pot-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.settings .pot-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--label-2);
+  transition: width 200ms var(--ease);
+}
+.settings .pot-meter {
+  display: grid;
+  gap: 5px;
+}
+.settings .pot-meter-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.settings .pot-meter-text span:last-child {
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+}
+.settings .pot-meter-hint {
+  color: var(--label-3);
+  font-size: 11px;
+}
+.settings .pot-today-bot {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+
+/* ---------- Usage ---------- */
+.settings .pot-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.settings .pot-stat {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.settings .pot-stat small {
+  color: var(--label-3);
+  font-size: 11px;
+}
+.settings .pot-stat b {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.settings .pot-bot-row {
+  display: grid;
+  gap: 6px;
+}
+.settings .pot-bot-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+}
+.settings .pot-bot-figures {
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+}
+.settings .pot-day-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.settings .pot-day {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.settings .pot-day-date {
+  color: var(--label-2);
+}
+.settings .pot-day-figures {
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- Models and fallbacks ---------- */
+.settings .pot-models {
+  display: grid;
+  gap: 4px;
+}
+.settings .pot-fb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.settings .pot-fb-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.settings .pot-fb-index {
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.settings .pot-fb-actions {
+  display: flex;
+  gap: 6px;
+}
+.settings .pot-fb-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ---------- narrow windows ---------- */
+@media (max-width: 560px) {
+  .settings .pot-stats {
+    grid-template-columns: 1fr;
+  }
+  .settings .pot-day {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+  .settings .pot-day-figures {
+    grid-column: 2;
+  }
+}

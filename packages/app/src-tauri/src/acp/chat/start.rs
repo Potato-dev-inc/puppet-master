@@ -108,6 +108,11 @@ pub fn start(deps: &StartDeps, cfg: AgentConfig, request: StartRequest) -> Resul
     if !Path::new(&folder).is_absolute() || !folder.is_dir() {
         return Err(StartError::new("INVALID_ARGUMENT", "The folder must be an existing folder (a full path).", false));
     }
+    // The add-on (the adapter) is not installed: say so, so the screen can offer to install it (A5).
+    if crate::acp::install::is_missing(&cfg, &*deps.env) {
+        let size = cfg.addon.size_mb.map(|mb| format!(" (about {mb} MB)")).unwrap_or_default();
+        return Err(StartError::new("ACP_ADDON_MISSING", format!("Chat needs a small add-on for {}{size}. Install it first.", cfg.label), true));
+    }
     let label = cfg.label.clone();
     let agent_id = cfg.id.clone();
     let (session, pane_id) = match &deps.conversations {

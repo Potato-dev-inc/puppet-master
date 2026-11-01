@@ -63,7 +63,8 @@ export interface CockpitApi {
   notify: (text: string, action?: Toast['action']) => void;
   setMode: (mode: UiMode) => Promise<void>;
   toggleTheme: () => Promise<void>;
-  newAgent: (agentId: string, accountId?: string, isolated?: boolean, projectPath?: string) => Promise<void>;
+  /** Opens a new agent pane. Resolves to its pane id, or null when it could not start (the starting view says why). */
+  newAgent: (agentId: string, accountId?: string, isolated?: boolean, projectPath?: string) => Promise<string | null>;
   /** A person's answer to a pane prompt; `gesture` is their click (`lib/user-gesture.ts`). */
   answer: (paneId: string, promptId: string, choiceId: string, label: string, gesture: UserGesture) => Promise<void>;
   interrupt: (paneId: string) => Promise<void>;
@@ -348,8 +349,10 @@ export function useCockpit(): CockpitApi {
         setSpawn((s) => (s && s.agentId === agentId ? { ...s, paneId } : s));
         // The pane may already be attached (ready event raced the command): select it once listed.
         if (spawnRef.current === null) setSelectedId(paneId);
+        return paneId;
       } catch (err) {
         setSpawn((s) => (s && s.agentId === agentId ? { ...s, failed: errText(err) } : s));
+        return null;
       }
     },
     [],

@@ -61,6 +61,13 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     ],
   },
   {
+    id: 'new-agent',
+    group: 'Navigate',
+    label: 'New agent: open the page to start one',
+    keys: ['Ctrl+N'],
+    handlers: [{ file: 'src/CockpitApp.tsx', text: "e.key.toLowerCase() !== 'n'" }],
+  },
+  {
     id: 'close',
     group: 'Navigate',
     label: 'Close the box, sheet or menu that is open',
@@ -217,6 +224,16 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     label: 'Potato Bot page: show or hide the bot panel (Computer, Routines, Advanced)',
     keys: ['Ctrl+Shift+B'],
     handlers: [{ file: 'src/components/cockpit/potato/potato-keys.ts', text: 'isPanelShortcut' }],
+  },
+  {
+    id: 'potato-search',
+    group: 'Panes',
+    label: 'Search bots (Potato Bot page)',
+    keys: ['Ctrl+K'],
+    handlers: [
+      { file: 'src/components/cockpit/potato/BotList.tsx', text: 'isSearchShortcut(e)' },
+      { file: 'src/CockpitApp.tsx', text: 'if (potatoShown) return;' },
+    ],
   },
   {
     id: 'interrupt',

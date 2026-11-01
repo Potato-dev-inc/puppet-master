@@ -8,6 +8,7 @@ import { useAcpChatState } from '../../hooks/useAcpChatState';
 import { permissionCards, runStrip, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
 import { QuestionCard } from '../cockpit/QuestionCard';
 import { AgentAnsweringSwitch } from './AgentAnsweringSwitch';
+import { SignInCard } from '../acp/SignInCard';
 import '../../styles/cockpit-acp.css';
 
 export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c: CockpitApi; paneId: string; paneName: string; api?: AcpChatApi }) {
@@ -22,7 +23,8 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
 
   const cards = permissionCards(c.asked.questions, paneId);
   const strip = runStrip(state, asked);
-  if (cards.length === 0 && !strip) return null;
+  const signIn = state && !state.closed && state.signIn?.needed ? state : null;
+  if (cards.length === 0 && !strip && !signIn) return null;
   const stop = () => {
     setAsked(true);
     api.cancel(paneId).catch(() => setAsked(false));
@@ -41,6 +43,15 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
         </div>
       ))}
       {cards.length > 0 && <AgentAnsweringSwitch paneId={paneId} state={state} api={api} />}
+      {signIn && (
+        <SignInCard
+          label={signIn.label}
+          hint={signIn.signIn?.hint ?? ''}
+          // The agent's own terminal, in a normal pane (the same sign-in the terminal uses).
+          onOpen={() => c.newAgent(signIn.agent, undefined, false, c.registry.panes.get(paneId)?.info.cwd)}
+          onRetry={() => api.retrySignIn?.(paneId)}
+        />
+      )}
       {strip && (
         <div className="ck-acp-strip" data-testid="acp-strip" data-stopping={strip.stopping ? '' : undefined}>
           <span className="ck-acp-strip-text" role="status">

@@ -119,6 +119,19 @@ pub struct AgentConfig {
     /// Arguments added to the agent's normal terminal launch to continue this session there ("Open in
     /// terminal"). `{session}` is the agent's own session id. Empty = the agent cannot be handed over.
     pub resume_command: Vec<String>,
+    /// What the install and sign-in screens say about this agent's chat add-on (A5).
+    pub addon: AddonInfo,
+}
+
+/// `[acp.addon]`: plain words for the install prompt and the sign-in card. Data, so the screens never ask
+/// which agent they are showing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AddonInfo {
+    /// Roughly how big the install is, for "about N MB". Absent: no size is claimed.
+    pub size_mb: Option<u32>,
+    /// One sentence for the sign-in card: what to do in the terminal that opens. Empty: a general sentence.
+    pub signin_hint: String,
 }
 
 /// How an adapter differs from the protocol's happy path. Data, so the session code never asks which
@@ -647,6 +660,9 @@ pub fn problems(cfg: &AgentConfig) -> Vec<(String, String)> {
     }
     if cfg.unknown_session_patterns.len() > 16 || !cfg.unknown_session_patterns.iter().all(|p| plain_text(p)) {
         add("unknown_session_patterns", "at most 16 short patterns".into());
+    }
+    if cfg.addon.size_mb.is_some_and(|mb| mb == 0 || mb > 4096) || cfg.addon.signin_hint.chars().count() > 300 || cfg.addon.signin_hint.chars().any(char::is_control) {
+        add("addon", "size_mb is 1 to 4096; signin_hint is at most 300 characters on one line".into());
     }
     if cfg.disabled_note.chars().count() > 300 {
         add("disabled_note", "at most 300 characters".into());

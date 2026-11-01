@@ -5,6 +5,7 @@
 //! The brain is a separate Node program (`packages/potato-brain`). Puppet Master starts it, hands it
 //! messages and takes its answers over the local bridge. It cannot do anything else:
 //!
+//! - `attachments`: files attached to a message (saved in the bot's folder, sent to the brain as text)
 //! - `protocol`: the channel protocol v1 (inbox items, events, their size limits)
 //! - `auth`: who may call `/potato/brain/*` (a new caller on the bridge) and what a brain can never do
 //! - `rules`: `decide`, the one pure function that says what happens to a message
@@ -12,7 +13,15 @@
 //! - `keeper`: the pure state machine of one brain process (lazy start, idle stop, crash backoff)
 //! - `sidecar`: the IO of the process (finding Node, starting hidden, stopping the whole tree)
 //! - `store`: the files in `<app data>/potato/` (bots, settings, conversations, persona seeding)
+//! - `open_work`, `memory_notes`, `notify`: the bot panel's Advanced tab (the bot's open work list, what it remembers,
+//!   "notify me" per bot); commands in `commands/potato_panel.rs`
+//! - `bot_settings`: a bot's own talk brain, instructions with their history, tool switches, delete and export
+//!   (one file per bot; the Advanced tab's commands are in `commands/potato_bot_settings.rs`)
+//! - `routines`: prompts a bot runs on a schedule (`routines.json`), the 30 s tick that sends the due ones
+//! - `artifacts`: the files a bot made or received (versions by name, previews, "Save as file", download, delete)
 //! - `cost`: pricing the tokens the brain reports and judging them against the daily limit
+//! - `fallback`: the brains to try after the talk brain when its model is out of balance or down (the switch is in `service`)
+//! - `usage`: the Usage page's numbers (30 days, per bot and in total), read only
 //! - `log`: the 200-line log ring, every line cleaned
 //! - `helpers`: Start / Change folder / Not now, the caps, and watching a helper until it ends
 //! - `service`: the engine that ties them together; `live`: the app's one instance and its thread
@@ -31,16 +40,25 @@
 //! Keys and tokens live only in the OS credential store and in the brain's environment. Nothing here
 //! names an agent or a chat app: a chat app's code would live only in `potato/surfaces/<app>/`.
 
+pub mod attachments;
+pub mod artifacts;
 pub mod auth;
+pub mod bot_settings;
 pub mod cost;
 pub mod env;
+pub mod fallback;
 pub mod helpers;
+pub mod usage;
 pub mod keeper;
 pub mod live;
 pub mod log;
+pub mod memory_notes;
+pub mod notify;
+pub mod open_work;
 pub mod wire_names;
 pub mod protocol;
 pub mod resource_dirs;
+pub mod routines;
 pub mod rules;
 pub mod sandbox;
 pub mod sandbox_calls;
@@ -48,14 +66,23 @@ pub mod sandbox_host;
 pub mod service;
 pub mod sidecar;
 pub mod store;
+pub mod voice;
 pub mod window_guard;
 
 #[cfg(test)]
+mod attachments_tests;
+mod artifacts_tests;
+mod voice_tests;
+#[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod bot_settings_tests;
 #[cfg(test)]
 mod cost_tests;
 #[cfg(test)]
 mod env_tests;
+#[cfg(test)]
+mod fallback_tests;
 #[cfg(test)]
 mod guard_tests;
 #[cfg(test)]
@@ -63,13 +90,23 @@ mod helpers_tests;
 #[cfg(test)]
 mod keeper_tests;
 #[cfg(test)]
+mod memory_notes_tests;
+#[cfg(test)]
+mod notify_tests;
+#[cfg(test)]
+mod open_work_tests;
+#[cfg(test)]
 mod protocol_tests;
 #[cfg(test)]
 mod resource_dirs_tests;
 #[cfg(test)]
+mod routines_tests;
+#[cfg(test)]
 mod rules_tests;
 #[cfg(test)]
 mod sandbox_calls_tests;
+#[cfg(test)]
+mod usage_tests;
 #[cfg(test)]
 mod sandbox_host_tests;
 #[cfg(test)]

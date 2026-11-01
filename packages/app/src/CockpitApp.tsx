@@ -44,11 +44,13 @@ import { tauriCompanionTransport } from './lib/companion';
 import { usePotatoState, readOpenBot, writeOpenBot } from './hooks/usePotato';
 import { tauriPotatoTransport } from './lib/potato';
 import { tauriScreenTransport } from './lib/potatoScreen';
+import { tauriSandboxTransport } from './lib/potato-sandbox';
 import { PotatoPage } from './components/cockpit/potato/PotatoPage';
 import { totalUnread } from './components/cockpit/potato/model';
 import { CompanionPage } from './components/cockpit/companion/CompanionPage';
 import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './components/cockpit/companion/model';
 import { CompanionSetupSheet } from './components/cockpit/companion/CompanionSetupSheet';
+import { NewAgentHost } from './components/cockpit/newagent/NewAgentHost';
 import { StartCrewSheet } from './components/cockpit/crews/StartCrewSheet';
 import { ShortcutsSheet } from './components/cockpit/ShortcutsSheet';
 import { ImportHost } from './components/history/ImportHost';
@@ -134,6 +136,8 @@ export default function CockpitApp() {
     writeOpenBot(id);
   };
   const openPotato = () => setView('potato');
+  // The page on screen: its bot list owns Ctrl/Cmd+K (search), so the palette stays shut here.
+  const potatoShown = view === 'potato' && potatoOn;
   // "Start crew…" (crews): pick a saved team and a folder.
   const [crewOpen, setCrewOpen] = useState(false);
   // The keyboard shortcuts sheet: `?`, Ctrl+/, or "Keyboard shortcuts" in the palette.
@@ -245,6 +249,8 @@ export default function CockpitApp() {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const key = e.key.toLowerCase();
       if (!e.shiftKey && key === 'k') {
+        // On the Potato page Ctrl/Cmd+K belongs to the bot list (it focuses the search box).
+        if (potatoShown) return;
         e.preventDefault();
         setPaletteMode('commands');
         setPaletteOpen((v) => !v);
@@ -256,7 +262,7 @@ export default function CockpitApp() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, []);
+  }, [potatoShown]);
 
   // `?` (not while typing in a box or a terminal) or Ctrl+/ opens the keyboard shortcuts sheet.
   useEffect(() => {
@@ -271,6 +277,18 @@ export default function CockpitApp() {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
+
+  // Ctrl+N (Cmd+N on a Mac) opens the New agent page. In a terminal the key belongs to the program running there.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.altKey || e.shiftKey || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'n') return;
+      if (inTerminal(e.target) || c.mode === 'individual') return;
+      e.preventDefault();
+      setView('newagent');
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [c.mode]);
 
   // Ctrl+\ (see toggleSplit). Re-listens each render so it always sees the current selection and split.
   useEffect(() => {
@@ -371,6 +389,8 @@ export default function CockpitApp() {
         openCompanionId={view === 'companion' ? companionId : null}
         onOpenCompanion={openCompanion}
         onNewCompanion={() => setSetupOpen(true)}
+        onOpenNewAgent={() => setView('newagent')}
+        newAgentOpen={view === 'newagent'}
         potato={potato.state ? { enabled: potatoOn, unread: totalUnread(potato.state.bots) } : null}
         potatoOpen={view === 'potato' && potatoOn}
         onOpenPotato={openPotato}
@@ -435,6 +455,8 @@ export default function CockpitApp() {
           />
         ) : view === 'settings' ? (
           <SettingsView key={settings.viewKey} {...settings.viewProps} onOpenStore={openStore} />
+        ) : view === 'newagent' ? (
+          <NewAgentHost c={nav} onSetUp={() => setView('doctor')} />
         ) : view === 'spawn' && c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
         ) : view === 'companion' && companion ? (
@@ -468,6 +490,7 @@ export default function CockpitApp() {
             onOpenPane={(paneId) => nav.select(paneId)}
             paneExists={(paneId) => c.registry.panes.has(paneId)}
             screenTransport={tauriScreenTransport}
+            sandboxTransport={tauriSandboxTransport}
           />
         ) : view === 'pane' && c.selectedId && splitOn && split ? (
           <SplitView c={nav} leftId={c.selectedId} rightId={split} focus={side} ratio={ratio} onFocus={setSide} onRatio={setRatio} onClose={toggleSplit} />

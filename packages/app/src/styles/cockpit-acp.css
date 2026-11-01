@@ -225,3 +225,49 @@
   padding: 4px 8px 0;
   border-top: 0;
 }
+
+/* The add-on prompt and the sign-in card: one quiet row, text left, actions right. */
+.cockpit .ck-acp-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 12px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  color: var(--label-2);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.cockpit .ck-acp-card-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cockpit .ck-acp-card-title {
+  margin: 0;
+  color: var(--label);
+  font-weight: 500;
+}
+
+.cockpit .ck-acp-card-line {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cockpit .ck-acp-card-line.is-error {
+  color: var(--label);
+}
+
+.cockpit .ck-acp-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: none;
+}

@@ -49,7 +49,7 @@ const companion = (over: Partial<CompanionView> = {}): CompanionView => ({
 });
 
 /** The page the way CockpitApp drives it: the state hook feeds the page. */
-function Harness({ transport, companions, onOpenBot }: { transport: FakePotatoTransport; companions: CompanionView[]; onOpenBot?: (id: string) => void }) {
+function Harness({ transport, companions, onOpenBot, onChanged: onChangedSpy }: { transport: FakePotatoTransport; companions: CompanionView[]; onOpenBot?: (id: string) => void; onChanged?: () => void }) {
   const potato = usePotatoState(transport);
   const [openId, setOpenId] = useState<string | null>(null);
   if (!potato.state) return null;
@@ -65,7 +65,10 @@ function Harness({ transport, companions, onOpenBot }: { transport: FakePotatoTr
         setOpenId(id);
         onOpenBot?.(id);
       }}
-      onChanged={potato.refresh}
+      onChanged={() => {
+        onChangedSpy?.();
+        potato.refresh();
+      }}
       onCompanionsChanged={() => {}}
       onNotify={() => {}}
       onOpenSettings={() => {}}
@@ -73,8 +76,8 @@ function Harness({ transport, companions, onOpenBot }: { transport: FakePotatoTr
   );
 }
 
-async function mount(transport: FakePotatoTransport, companions: CompanionView[] = [companion()], onOpenBot?: (id: string) => void) {
-  await act(async () => root.render(<Harness transport={transport} companions={companions} onOpenBot={onOpenBot} />));
+async function mount(transport: FakePotatoTransport, companions: CompanionView[] = [companion()], onOpenBot?: (id: string) => void, onChanged?: () => void) {
+  await act(async () => root.render(<Harness transport={transport} companions={companions} onOpenBot={onOpenBot} onChanged={onChanged} />));
   await act(async () => {});
 }
 
@@ -136,6 +139,42 @@ describe('PotatoPage', () => {
     expect(transport.calls.find((c) => c.method === 'addBot')?.args).toEqual(['fish']);
     expect(onOpenBot).toHaveBeenCalledWith('fish');
     expect(host.querySelector('h1')?.textContent).toBe('Fish');
+  });
+
+  it('the row menu runs Pause, Resume and Mark read on the transport, and reads the state again after each', async () => {
+    // Fish is the open bot (its thread marks itself read); the menu is used on Bee, which is not open.
+    const transport = fakePotatoTransport({ bots: [bot(), bot({ id: 'bee', name: 'Bee', unread: 2 })] });
+    const onChanged = vi.fn();
+    await mount(transport, [companion()], undefined, onChanged);
+    const openMenu = async () => {
+      const row = [...host.querySelectorAll<HTMLButtonElement>('button.ck-potato-conv')].find((b) => b.textContent?.includes('Bee'));
+      expect(row, 'Bee row').toBeDefined();
+      await act(async () => {
+        row!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 50 }));
+      });
+    };
+    const pick = async (label: string) => {
+      const item = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === label);
+      expect(item, label).toBeDefined();
+      await act(async () => item!.click());
+      await act(async () => {});
+    };
+    const calls = (method: string) => transport.calls.filter((c) => c.method === method).map((c) => c.args);
+
+    await openMenu();
+    await pick('Pause');
+    expect(calls('stopBot')).toEqual([['bee']]);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+
+    await openMenu();
+    await pick('Resume');
+    expect(calls('startBot')).toEqual([['bee']]);
+    expect(onChanged).toHaveBeenCalledTimes(2);
+
+    await openMenu();
+    await pick('Mark read');
+    expect(calls('markRead')).toEqual([['bee']]);
+    expect(onChanged).toHaveBeenCalledTimes(3);
   });
 
   it('New bot opens the companion sheet', async () => {

@@ -5,6 +5,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { Question } from './questions';
+import { blockOf } from './acpAddon';
 
 /** `PaneInfo.lane` of a chat session. */
 export const ACP_LANE = 'acp';
@@ -42,6 +43,8 @@ export interface AcpChatState {
   usage: { used: number; size: number } | null;
   permissions: AcpPermission[];
   closed: boolean;
+  /** The agent refused the last message until the person signs in (the sign-in card shows). */
+  signIn?: { needed: boolean; hint: string };
   /** The saved conversation's id (== the pane id) when the chat is a saved conversation, else null. */
   conversation?: string | null;
   /** The conversation was handed to a terminal pane: this chat is paused. `paneId` is that terminal, when known. */
@@ -130,6 +133,8 @@ export interface TerminalConversation {
 export interface AcpChatApi {
   state: (paneId: string) => Promise<AcpChatState | null>;
   cancel: (paneId: string) => Promise<boolean>;
+  /** "I'm signed in — try again": sends the message that was waiting. Rejects with the agent's reason. */
+  retrySignIn?: (paneId: string) => Promise<void>;
   watch: (cb: (paneId: string, state: AcpChatState) => void) => Promise<UnlistenFn>;
   /** Change one of the agent's settings (model, mode, effort). Refused with `BUSY…` while a turn runs. */
   setConfig: (paneId: string, optionId: string, value: string) => Promise<AcpChatState>;
@@ -163,6 +168,10 @@ export const tauriAcpChatApi: AcpChatApi = {
     return (await invoke<AcpChatState | null>('acp_chat_state', { paneId })) ?? null;
   },
   cancel: (paneId) => call<boolean>('acp_chat_cancel', { paneId }),
+  retrySignIn: async (paneId) => {
+    if (!isTauri()) throw new Error('Desktop shell required: acp_chat_retry_sign_in');
+    await invoke<void>('acp_chat_retry_sign_in', { paneId });
+  },
   watch: async (cb) => {
     if (!isTauri()) return noopUnlisten;
     return listen<{ paneId: string; state: AcpChatState }>('acp-chat-state', (e) => cb(e.payload.paneId, e.payload.state));
@@ -297,6 +306,8 @@ const TERMINAL_FALLBACK = 'The terminal can run this agent instead.';
 /** A failed start: its sentence, and whether the terminal can run the agent instead (then offer "Start in terminal"). */
 export function startFailure(error: unknown): { sentence: string; terminalFallback: boolean } {
   const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
+  // The chat add-on is not installed: say where to install it, and the terminal still runs the agent.
+  if (blockOf(raw) === 'addon') return { sentence: `${errorSentence(error)} You can install it in Settings, under Agents › Chat.`, terminalFallback: true };
   return { sentence: errorSentence(error), terminalFallback: /^ACP_/.test(raw.trim()) && raw.includes(TERMINAL_FALLBACK) };
 }
 

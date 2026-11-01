@@ -126,6 +126,10 @@ export const SettingsSchema = z.object({
   acp_chat_enabled: z.boolean().optional(),
   /** Simple mode: the cockpit with fewer buttons and plain words, for people who do not write code. Off unless chosen. */
   simple_mode: z.boolean().optional(),
+  /** How the New agent page greets you ("What's up next, <name>?"). Empty or absent: no name. Never derived from the computer. */
+  display_name: z.string().max(60).optional(),
+  /** The cards pinned on the New agent page, in order. Absent: none. */
+  home_cards: z.array(z.object({ id: z.string().max(40), kind: z.enum(['recent', 'running', 'needs', 'prompt']), text: z.string().max(2000).optional() })).max(12).optional(),
   /** First-run welcome: absent = never decided (shown once on a fresh profile), true = finished or skipped, false = show it again. Rust reads it (first_run). */
   onboarding_done: z.boolean().optional(),
   /** First-run welcome: the step the person was on, so a restart resumes there. */

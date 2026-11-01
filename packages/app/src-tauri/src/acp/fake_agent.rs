@@ -85,6 +85,10 @@ impl Opts {
     fn flag(&self, name: &str, default: bool) -> bool {
         self.values.get(name).map(|v| v == "1").unwrap_or(default)
     }
+    /// The sign-in is gone while the file named by `auth_file` exists (a test creates it to expire the login).
+    fn signed_out(&self) -> bool {
+        self.flag("auth", false) || self.values.get("auth_file").is_some_and(|p| std::path::Path::new(p).exists())
+    }
     fn number(&self, name: &str) -> u64 {
         self.values.get(name).and_then(|v| v.parse().ok()).unwrap_or(0)
     }
@@ -230,7 +234,7 @@ fn handle_request(shared: &Arc<Shared>, method: &str, id: &Value, params: Value)
             }
         }
         "session/new" => {
-            if shared.opts.flag("auth", false) {
+            if shared.opts.signed_out() {
                 shared.fail(id, -32000, "Authentication required");
                 return;
             }
@@ -251,6 +255,10 @@ fn handle_request(shared: &Arc<Shared>, method: &str, id: &Value, params: Value)
         }
         "session/load" | "session/resume" => {
             let session_id = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_string();
+            if shared.opts.signed_out() {
+                shared.fail(id, -32000, "Authentication required");
+                return;
+            }
             if shared.opts.flag("lose", false) || !shared.knows(&session_id) {
                 shared.fail(id, -32002, &format!("Session not found: {session_id}"));
                 return;

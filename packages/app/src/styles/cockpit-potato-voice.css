@@ -1,0 +1,19 @@
+/* Voice in Potato Bot: the Speak button in a bot reply's hover toolbar, and the Read replies aloud section of the Advanced tab.
+   Grayscale tokens only. */
+
+.cockpit .ck-potato-speak.is-on {
+  color: var(--label);
+  font-weight: 600;
+}
+/* While a reply is being read, its toolbar stays on screen so Stop can be reached. */
+.cockpit .ck-potato-actions:has(.ck-potato-speak.is-on) {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.cockpit .ck-potato-readaloud-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--label-2);
+}

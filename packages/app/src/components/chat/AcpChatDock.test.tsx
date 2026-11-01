@@ -209,4 +209,29 @@ describe('AcpChatDock', () => {
       expect(host.querySelector('[data-testid="agent-answering"] [role="alert"]')?.textContent).toBe('This chat is closed.');
     });
   });
+
+  it('a chat that needs a sign-in shows the card; Open sign-in opens the agent terminal in the pane folder, then try again', async () => {
+    const newAgent = vi.fn(async () => 'term-1');
+    const c = { now: 5, asked: { questions: [], answerQuestion: vi.fn(), dismissQuestion: vi.fn() }, newAgent, registry: { panes: new Map([['p1', { info: { cwd: '/work/app' } }]]) } } as unknown as CockpitApi;
+    const retrySignIn = vi.fn(async () => undefined);
+    const { api, emit } = fakeApi(state({ turnInFlight: false, phase: 'idle', status: 'idle', agent: 'claude', label: 'Claude' }));
+    api.retrySignIn = retrySignIn;
+    await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Claude" api={api} />));
+    await flush();
+    expect(host.querySelector('[data-testid="signin-card"]')).toBeNull();
+
+    await emit(state({ turnInFlight: false, phase: 'idle', status: 'idle', agent: 'claude', label: 'Claude', signIn: { needed: true, hint: 'Type /login in the terminal.' } }));
+    const card = host.querySelector('[data-testid="signin-card"]')!;
+    expect(card.textContent).toContain('Sign in to Claude to use Chat');
+    expect(card.textContent).toContain('Type /login in the terminal.');
+
+    await act(async () => button('Open sign-in')!.click());
+    expect(newAgent).toHaveBeenCalledWith('claude', undefined, false, '/work/app');
+    await act(async () => buttons().find((b) => /signed in — try again/.test(b.textContent ?? ''))!.click());
+    expect(retrySignIn).toHaveBeenCalledWith('p1');
+
+    // The backend clears the flag once the message went: the card goes.
+    await emit(state({ turnInFlight: true, agent: 'claude', label: 'Claude', signIn: { needed: false, hint: '' } }));
+    expect(host.querySelector('[data-testid="signin-card"]')).toBeNull();
+  });
 });

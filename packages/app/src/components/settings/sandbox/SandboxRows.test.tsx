@@ -232,10 +232,11 @@ describe('where the rows show', () => {
     const rowIds = (settings: { potato_bot_enabled?: boolean; potato_sandbox_enabled?: boolean } | null) =>
       (visibleSections(SECTIONS, settings).find((s) => s.id === 'potato')?.rows ?? []).map((r) => r.id);
     expect(rowIds(null)).toEqual([]);
-    expect(rowIds({ potato_bot_enabled: true })).toEqual(['potato-bot', 'potato-brain', 'potato-key', 'potato-persona', 'potato-limit']);
+    const base = ['potato-bot', 'potato-models', 'potato-key', 'potato-persona', 'potato-limit', 'potato-usage', 'potato-voice', 'potato-voice-rate', 'potato-voice-test'];
+    expect(rowIds({ potato_bot_enabled: true })).toEqual(base);
     expect(rowIds({ potato_bot_enabled: true, potato_sandbox_enabled: false })).not.toContain('potato-sandbox');
     expect(rowIds({ potato_bot_enabled: true, potato_sandbox_enabled: true })).toEqual([
-      'potato-bot', 'potato-brain', 'potato-key', 'potato-persona', 'potato-limit', 'potato-sandbox', 'potato-sandbox-idle',
+      ...base, 'potato-sandbox', 'potato-sandbox-idle',
     ]);
     // the sandbox switch alone does not show a section that is off
     expect(rowIds({ potato_sandbox_enabled: true })).toEqual([]);

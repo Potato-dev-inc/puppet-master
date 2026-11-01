@@ -35,3 +35,10 @@ package = "@agentclientprotocol/claude-agent-acp"
 version = "0.74.0"
 entry = "{adapters}/claude/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
 sha256 = "9d73d1f0f121fb96cc8badb28c22d5bff02d8582eb2e40360a81c189e1b9422a"
+
+# Words for the install prompt and the sign-in card. The size is the measured folder (a real install, 2026-11-01), without the agent's own
+# program (the person's own installed program is used, see env_which). Sign-in is the agent's normal one, in a
+# terminal pane: this app never reads or copies a credential file.
+[addon]
+size_mb = 59
+signin_hint = "In the terminal that opens, follow the sign-in steps (type /login if it does not ask). Chat uses the same sign-in as the terminal."

@@ -4,6 +4,7 @@ import { AccountsGroup } from '../accounts/AccountsGroup';
 import { AgentDefinitions } from '../blocks/AgentDefinitions';
 import { AgentLaneRows } from '../blocks/AgentLaneRows';
 import { AgentVersions } from '../blocks/AgentVersions';
+import { CHAT_ADDONS_LABEL, ChatAddonRows } from '../blocks/ChatAddonRows';
 import { COLLISION_LABEL, CollisionSettings } from '../blocks/CollisionSettings';
 import { PreloadSettings } from '../blocks/PreloadSettings';
 import { useEffect, useState } from 'react';
@@ -104,21 +105,30 @@ export const agentsRows: RowDef[] = [
     ),
   },
   {
-    id: 'agent-lane',
-    label: 'How to run',
-    hint: 'Run an agent in a terminal (the default) or as a chat. The terminal stays available for every agent.',
-    keywords: 'chat acp terminal lane run mode conversation session how to run',
-    group: 'How to run',
-    labsFlag: 'acp_chat_enabled',
-    render: () => <AgentLaneRows />,
-  },
-  {
     id: 'versions',
     label: 'Agent versions',
     hint: 'Check that an agent still starts the way Puppet Master expects after it updates.',
     keywords: 'version update tested untested check canary strict unknown screens recognise capture folder fixture',
     group: 'Updates',
     render: () => <AgentVersions />,
+  },
+  {
+    id: 'agent-lane',
+    label: 'How to run',
+    hint: 'Run an agent in a terminal (the default) or as a chat. The terminal stays available for every agent.',
+    keywords: 'chat acp terminal lane run mode conversation session how to run',
+    group: 'Chat',
+    labsFlag: 'acp_chat_enabled',
+    render: () => <AgentLaneRows />,
+  },
+  {
+    id: 'chat-addons',
+    label: CHAT_ADDONS_LABEL,
+    hint: 'The small helper each agent needs to run as a chat. Install or remove it here.',
+    keywords: 'chat acp add-on addon adapter install remove helper download sign in claude codex',
+    group: 'Chat',
+    labsFlag: 'acp_chat_enabled',
+    render: () => <ChatAddonRows />,
   },
   {
     id: 'live-updates',
