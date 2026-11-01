@@ -83,6 +83,8 @@ describe('AnswerableQuestionCard', () => {
     readPrompt.mockResolvedValue({ ...TRUST, options: [...TRUST.options, { id: 'c', name: 'Third' }, { id: 'd', name: 'Fourth' }] });
     await act(async () => root.render(<AnswerableQuestionCard paneId="p1" agent="Codex" />));
     await flush();
+    // Focus inside the card: the keys answer only when the person is in this card or its pane.
+    buttons()[0].focus();
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: '2' }));
     });
@@ -143,5 +145,40 @@ describe('AnswerableQuestionCard', () => {
     await flush();
     expect(host.querySelector('[data-answerable-question]')).not.toBeNull();
     expect(host.textContent).not.toContain('ACP');
+  });
+
+  it('split view: a key answers only the pane that has focus; body focus answers nothing', async () => {
+    readPrompt.mockResolvedValue(TRUST);
+    const extra = document.createElement('button');
+    extra.textContent = 'pane A control';
+    await act(async () => {
+      root.render(
+        <>
+          <div data-pane-id="pA">
+            <AnswerableQuestionCard paneId="pA" agent="Codex" />
+          </div>
+          <div data-pane-id="pB">
+            <AnswerableQuestionCard paneId="pB" agent="Claude" />
+          </div>
+        </>,
+      );
+    });
+    await flush();
+    host.querySelector('[data-pane-id="pA"]')!.appendChild(extra);
+    extra.focus();
+    expect(document.activeElement).toBe(extra);
+    await act(async () => {
+      extra.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
+    });
+    expect(answer).toHaveBeenCalledTimes(1);
+    expect(answer.mock.calls[0][0]).toBe('pA');
+
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement === document.body || document.activeElement === null).toBe(true);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: '1' }));
+    });
+    expect(answer).toHaveBeenCalledTimes(1);
+    extra.remove();
   });
 });

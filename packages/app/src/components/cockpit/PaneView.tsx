@@ -487,7 +487,7 @@ export function PaneView({
             </div>
           )}
           {tab === 'chat' && chatAllowed && (
-            <div className="ck-scroll ck-fade-in" key="chat">
+            <div className="ck-scroll ck-fade-in" key="chat" data-pane-id={paneId}>
               <SessionChatPanel
                 paneId={paneId}
                 dock={chatDock}

@@ -78,6 +78,14 @@ export function AnswerableQuestionCard({
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      // Only the pane the person is in answers: focus must sit inside this card or inside its pane's chat.
+      // Focus on the body (no pane focused) answers nothing; the person clicks instead.
+      const focused = document.activeElement;
+      if (!focused || focused === document.body) return;
+      const paneRoot = rootRef.current?.closest('[data-pane-id]');
+      const inCard = !!rootRef.current?.contains(focused);
+      const inPane = !!paneRoot && paneRoot.contains(focused) && paneRoot.getAttribute('data-pane-id') === paneId;
+      if (!inCard && !inPane) return;
       const index = Number(event.key) - 1;
       if (!Number.isInteger(index) || index < 0 || index >= Math.min(KEY_OPTIONS, prompt.options.length)) return;
       const button = rootRef.current?.querySelector<HTMLButtonElement>(`[data-option="${index}"]`);
