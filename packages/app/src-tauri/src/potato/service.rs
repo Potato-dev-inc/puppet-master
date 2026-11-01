@@ -1152,6 +1152,10 @@ impl Service {
             Ok(child) => {
                 self.brains.set_pid(bot, child.pid());
                 let mut inbox = Inbox::default();
+                // Paused for the daily limit: the new brain hears about it before any message it is given.
+                if rt.paused_for_limit.is_some() {
+                    inbox.push(protocol::pause_item(PauseReason::DailyLimit));
+                }
                 let mut session = Session {
                     child,
                     inbox: Inbox::default(),
@@ -1404,7 +1408,13 @@ impl Service {
                     return true;
                 }
                 let name = self.name_of(bot);
+                // Paused for the daily limit: the message is refused with the same note the pause gave.
+                let paused = self.inner.lock().bots.get(bot).is_some_and(|rt| rt.paused_for_limit.is_some());
                 let line = match code {
+                    ErrorCode::ProviderLimit if paused => {
+                        let limit = store::load_settings(&self.root).map(|s| cost::dollars(s.daily_limit_cents)).unwrap_or_default();
+                        format!("{name} has used today's limit ({limit}). Raise it in Settings or wait until tomorrow.")
+                    }
                     ErrorCode::ProviderAuth => format!("{name} could not use the model key. Check it in Settings."),
                     ErrorCode::ProviderLimit => "The model is out of balance or too busy. Try again later.".to_string(),
                     ErrorCode::ProviderDown => "The model is not answering right now. Try again in a minute.".to_string(),
@@ -1468,6 +1478,10 @@ impl Service {
         let chain = fallback::chain(settings.brain, &settings.fallbacks, self.has_key());
         let mut g = self.inner.lock();
         let Some(rt) = g.bots.get_mut(bot) else { return false };
+        // Paused for the daily limit: a fallback brain would answer past the cap, so the message is refused instead.
+        if rt.paused_for_limit.is_some() && code == ErrorCode::ProviderLimit {
+            return false;
+        }
         let step = rt.chain_step.min(chain.len() - 1);
         let Some(next) = fallback::next_step(chain.len(), step, code) else { return false };
         let Some(session) = rt.session.as_mut() else { return false };

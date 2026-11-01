@@ -38,6 +38,9 @@ import type { SandboxReply, SandboxToolName } from "../core/sandbox-tools.ts";
 
 export const PROTOCOL_VERSION = 1;
 
+/** Events the app does without when the queue is full. */
+const DROPPABLE = new Set<string>(["typing", "progress"]);
+
 /** Size limits of the wire format. */
 export const LIMITS = {
   sendText: 4000,
@@ -315,8 +318,11 @@ export class PotatoChannel {
 
   private emit(event: Json): void {
     if (this.queue.length >= LIMITS.queuedEvents) {
-      const at = this.queue.findIndex((e) => e["type"] === "typing");
-      this.queue.splice(at === -1 ? 0 : at, 1);
+      // Only what the app can do without (typing, progress) is dropped. A reply, usage or error is never dropped:
+      // with no droppable event queued, a droppable new event is skipped and any other one is kept past the cap.
+      const at = this.queue.findIndex((e) => DROPPABLE.has(String(e["type"])));
+      if (at !== -1) this.queue.splice(at, 1);
+      else if (DROPPABLE.has(String(event["type"]))) return;
     }
     this.queue.push({ v: PROTOCOL_VERSION, ...event });
     this.kick();

@@ -637,3 +637,39 @@ test("message text never reaches the log, and the channel has no console of its 
     await r.done();
   }
 });
+
+test("a full queue drops typing, never a usage or reply event", async () => {
+  const ch = new PotatoChannel({
+    url: "http://127.0.0.1:9",
+    token: "t",
+    agentFor: () => {
+      throw new Error("not used");
+    },
+    info: { version: "t", provider: "t", packs: [], surfaces: ["app"] },
+    fetch: () => new Promise<Response>(() => {}),
+  });
+  const q = ch as unknown as { queue: Array<Record<string, unknown>>; emit(e: Record<string, unknown>): void };
+  for (let i = 0; i < 500; i++) q.emit({ type: "typing", conversationId: "c", on: true });
+  q.emit({ type: "usage", model: "m", promptTokens: 1, completionTokens: 1, cacheHitTokens: 0, cacheMissTokens: 1 });
+  assert.equal(q.queue.length, 500);
+  assert.ok(q.queue.some((e) => e["type"] === "usage"), "usage kept");
+});
+
+test("a full queue of replies and usage keeps the oldest of them", async () => {
+  const ch = new PotatoChannel({
+    url: "http://127.0.0.1:9",
+    token: "t",
+    agentFor: () => {
+      throw new Error("not used");
+    },
+    info: { version: "t", provider: "t", packs: [], surfaces: ["app"] },
+    fetch: () => new Promise<Response>(() => {}),
+  });
+  const q = ch as unknown as { queue: Array<Record<string, unknown>>; emit(e: Record<string, unknown>): void };
+  q.emit({ type: "reply", conversationId: "c", inReplyTo: "first", segments: ["first"] });
+  for (let i = 1; i < 500; i++) q.emit({ type: "usage", model: "m", promptTokens: i, completionTokens: 1, cacheHitTokens: 0, cacheMissTokens: 1 });
+  q.emit({ type: "reply", conversationId: "c", inReplyTo: "last", segments: ["last"] });
+  assert.equal(q.queue[0]?.["inReplyTo"], "first", "the oldest reply is still queued");
+  assert.equal(q.queue.at(-1)?.["inReplyTo"], "last", "the newest reply is queued");
+  assert.equal(q.queue.filter((e) => e["type"] === "usage").length, 499);
+});
