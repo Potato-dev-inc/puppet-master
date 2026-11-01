@@ -21,6 +21,9 @@ import { Btn, SettingRow } from '../settings-ui';
 import { AddChatDialog } from './AddChatDialog';
 import { RemoveChatDialog } from './RemoveChatDialog';
 
+/** What Remove chat needs of a row: an ACP agent, or an agent that only has Chat (terminal). */
+type RemovableAgent = Pick<AcpLaneAgent, 'id' | 'label' | 'addon'> & { overlay?: boolean };
+
 export const TERMINAL_LABEL = 'Terminal';
 export const CHAT_LABEL = 'Chat (ACP)';
 export const ADD_CHAT_LABEL = 'Add chat (ACP)';
@@ -30,7 +33,7 @@ export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState<AcpAddable | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [removing, setRemoving] = useState<AcpLaneAgent | null>(null);
+  const [removing, setRemoving] = useState<RemovableAgent | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
@@ -69,7 +72,7 @@ export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi
   // Remove chat: the sheet asks first. Every agent that has a chat can be removed; the backend stops its open chats,
   // goes back to Terminal, drops an added chat and, if asked, deletes the add-on files.
   const confirmRemove = useCallback(
-    async (agent: AcpLaneAgent, removeAddon: boolean) => {
+    async (agent: RemovableAgent, removeAddon: boolean) => {
       setRemoveBusy(true);
       setRemoveError(null);
       try {
@@ -142,6 +145,18 @@ export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi
             label={t.label}
             description={<>New sessions start in a terminal unless you pick {TERMINAL_CHAT_WORD}.{terminalChatNote(t.id)}</>}
           >
+            {t.chosen && (
+              <Btn
+                small
+                aria-label={`Remove chat for ${t.label}`}
+                onClick={() => {
+                  setRemoveError(null);
+                  setRemoving({ id: t.id, label: t.label });
+                }}
+              >
+                Remove chat
+              </Btn>
+            )}
             <Popup aria-label={`How ${t.label} runs`} value={t.chosen ? TERMINAL_CHAT_LANE : 'terminal'} onChange={(event) => void save(t.id, event.target.value as RunLaneWord)}>
               <option value="terminal">{TERMINAL_LABEL}</option>
               <option value={TERMINAL_CHAT_LANE}>{TERMINAL_CHAT_WORD}</option>

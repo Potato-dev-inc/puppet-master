@@ -44,7 +44,6 @@ mod mobile_pairing;
 mod mobile_tunnel;
 pub mod night_shift;
 mod tunnel_config;
-mod terminal_chat;
 mod one_brain;
 mod companion;
 mod potato;

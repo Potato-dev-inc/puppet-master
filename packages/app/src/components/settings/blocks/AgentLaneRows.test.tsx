@@ -142,6 +142,22 @@ describe('Remove chat', () => {
     expect(chatRemove).not.toHaveBeenCalled();
   });
 
+  it('an agent that only has Chat (terminal) gets Remove chat too, and it resets the lane', async () => {
+    const tc = { id: 'tchat', label: 'Tchat', reads_file: true, can_resume: false, can_answer_prompts: true, note: 'n', chosen: true };
+    const chatRemove = vi.fn(async () => ({ labs_enabled: true, agents: [], terminal_chat: [{ ...tc, chosen: false }] }));
+    const api = { laneGet: async () => ({ labs_enabled: true, agents: [], terminal_chat: [tc] }), laneSet: vi.fn(), chatRemove } as unknown as Api;
+    await renderWith(api);
+    expect(host.querySelector('[aria-label="Remove chat for Tchat"]')).not.toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Remove chat for Tchat"]')!.click());
+    await act(async () => dbtn('Remove')!.click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(chatRemove).toHaveBeenCalledWith('tchat', { removeAddon: false });
+    expect(host.textContent).toContain('Chat removed for Tchat.');
+    expect(host.querySelector('[aria-label="Remove chat for Tchat"]')).toBeNull();
+  });
+
   it("offers to delete the add-on with its size, and sends the person's choice", async () => {
     const { api, chatRemove } = removeApi([agent({ addon: { installed: true, size_mb: 38 } }), agent({ id: 'kilo', label: 'Kilo' })]);
     await renderWith(api);
