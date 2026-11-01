@@ -51,7 +51,7 @@ describe('agentRegistry', () => {
     expect(listing.source).toBe('fallback');
     expect(listing.agents.map((agent) => agent.id)).toEqual(NINE);
     expect(listing.dispatchable_ids).toEqual(['claude', 'codex', 'opencode', 'opencode_native', 'cursor_agent']);
-    expect(listing.agents.find((agent) => agent.id === 'claude')?.label).toBe('Claude Code');
+    expect(listing.agents.find((agent) => agent.id === 'claude')?.label).toBe('Claude');
   });
 
   it('returns the compiled nine when the command rejects', async () => {

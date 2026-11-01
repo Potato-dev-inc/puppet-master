@@ -101,7 +101,7 @@ fn inspect_claude_status(cwd: &Path, source: mcp_install::McpLaunchSource) -> Mc
         && mcp_install::claude_mcp_uses_npm_public(cwd);
     McpBackendStatus {
         backend: "claude_cli".into(),
-        label: "Claude Code (project)".into(),
+        label: "Claude (project)".into(),
         installed,
         uses_npm,
         config_path: crate::app_paths::path_for_host_config(&config_path),

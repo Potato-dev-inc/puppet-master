@@ -20,7 +20,7 @@ pub struct PaneName {
 }
 
 /// The heading every surface shows for each pane: the person's title (or the auto title), else
-/// the agent's label numbered when several panes run the same agent ("Claude Code 2"), oldest first.
+/// the agent's label numbered when several panes run the same agent ("Claude 2"), oldest first.
 /// This is `tabLabels` / `paneHeading` of the front end.
 pub fn headings(panes: &[PaneName], label_of: impl Fn(&str) -> String) -> HashMap<String, String> {
     let mut ordered: Vec<&PaneName> = panes.iter().collect();
@@ -98,7 +98,7 @@ mod tests {
 
     fn label(agent: &str) -> String {
         match agent {
-            "claude" => "Claude Code".into(),
+            "claude" => "Claude".into(),
             other => other.to_string(),
         }
     }
@@ -112,8 +112,8 @@ mod tests {
             pane("d", "claude", 30, Some("  auth refactor ")),
         ];
         let h = headings(&panes, label);
-        assert_eq!(h["a"], "Claude Code 1");
-        assert_eq!(h["b"], "Claude Code 2");
+        assert_eq!(h["a"], "Claude 1");
+        assert_eq!(h["b"], "Claude 2");
         assert_eq!(h["c"], "codex", "a lone agent is not numbered");
         assert_eq!(h["d"], "auth refactor");
     }

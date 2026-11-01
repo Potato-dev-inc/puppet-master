@@ -33,9 +33,9 @@ const usage = (inputTokens: number, outputTokens: number, contextWindow: number 
 
 describe('WhereCard', () => {
   it('shows agent, model, version, folder, branch and account', () => {
-    show(<WhereCard agentName="Claude Code" model="opus-x" cliVersion="2.1.0" folder="/work/shop/app" branch="main" accountLabel="Work" />);
+    show(<WhereCard agentName="Claude" model="opus-x" cliVersion="2.1.0" folder="/work/shop/app" branch="main" accountLabel="Work" />);
     const text = host.textContent ?? '';
-    expect(text).toContain('Claude Code v2.1.0');
+    expect(text).toContain('Claude v2.1.0');
     expect(text).toContain('opus-x');
     expect(text).toContain('shop/app');
     expect(text).toContain('main');
@@ -121,7 +121,7 @@ describe('HelpersCard', () => {
       <HelpersCard
         helpers={[
           { id: 'h1', title: 'Check tests', agent: 'Codex', status: 'running' },
-          { id: 'h2', title: 'Claude Code', agent: null, status: 'idle' },
+          { id: 'h2', title: 'Claude', agent: null, status: 'idle' },
         ]}
         onOpen={open}
       />,

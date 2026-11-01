@@ -18,7 +18,7 @@ export const BRANCH_BRIEF = [
 
 const base: BranchView = {
   id: 'bf-0123456789ab',
-  fromLabel: 'Claude Code',
+  fromLabel: 'Claude',
   toLabel: 'Codex',
   fromPaneId: PANE_CLAUDE,
   toPaneId: PANE_CODEX,
@@ -33,7 +33,7 @@ const base: BranchView = {
   failedFiles: 0,
 };
 
-/** The new pane: "Branched from Claude Code · after turn 5 · 14:02 · Show brief · Open original". */
+/** The new pane: "Branched from Claude · after turn 5 · 14:02 · Show brief · Open original". */
 export const NEW_LINEAGE: Record<string, BranchLineage> = {
   [PANE_CODEX]: { from: base, children: [] },
 };

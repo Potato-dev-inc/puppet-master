@@ -452,7 +452,7 @@ mod tests {
         assert_eq!(find_match(&registry, "cline", "x", "X").unwrap().id, "cline");
         assert_eq!(find_match(&registry, "auggie", "x", "X").unwrap().id, "auggie");
         // (b) normalised id: `<name>-acp` is the adapter of `<name>`
-        assert_eq!(find_match(&registry, "no-such-program", "claude", "Claude Code").unwrap().id, "claude-acp");
+        assert_eq!(find_match(&registry, "no-such-program", "claude", "Claude").unwrap().id, "claude-acp");
         assert_eq!(find_match(&registry, "no-such-program", "codex", "Codex").unwrap().id, "codex-acp");
         // nothing
         assert!(find_match(&registry, "no-such-program", "unknown-thing", "Unknown Thing").is_none());

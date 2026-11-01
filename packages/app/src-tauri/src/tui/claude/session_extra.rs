@@ -1,7 +1,7 @@
-//! The parts of Claude Code's session file beyond messages: the task list, `system` lines (turn length, compaction,
+//! The parts of Claude's session file beyond messages: the task list, `system` lines (turn length, compaction,
 //! API errors), session notes (pull request link, title), the context window and what a tool call touches.
 //!
-//! Shapes were captured from Claude Code 2.1.311 runs (`claude -p`): `TodoWrite`, `TaskCreate`, `TaskUpdate`, `Write`,
+//! Shapes were captured from Claude 2.1.311 runs (`claude -p`): `TodoWrite`, `TaskCreate`, `TaskUpdate`, `Write`,
 //! `Edit` and `Agent` calls and their results. Lines marked "shape from docs/guess" could not be produced in a short
 //! run (they only appear in long interactive sessions) and are read defensively: a field that is not there gives
 //! nothing, never a panic.
@@ -175,7 +175,7 @@ pub(super) fn system_line(value: &Value, out: &mut Line) {
 
 /// The lines that are session notes, not messages: a pull request link and the session title.
 /// All three are shape from docs/guess: `pr-link {prNumber, prUrl, prRepository}`, `custom-title {customTitle}`,
-/// `ai-title {aiTitle}`. Claude Code writes the title lines again from time to time; a view keeps the newest.
+/// `ai-title {aiTitle}`. Claude writes the title lines again from time to time; a view keeps the newest.
 pub(super) fn note_line(kind: &str, value: &Value, out: &mut Line) {
     let text_of = |key: &str| value.get(key).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
     match kind {

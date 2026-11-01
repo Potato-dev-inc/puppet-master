@@ -224,7 +224,7 @@ pub fn card(kind: Kind, title: &str) -> Item {
         state: State::Open,
         since_ms: Some(1),
         expires_at_ms: None,
-        pane: Some(PaneRef { id: "pane-x".into(), heading: "auth refactor".into(), agent: Some("Claude Code".into()), project: Some("shop".into()) }),
+        pane: Some(PaneRef { id: "pane-x".into(), heading: "auth refactor".into(), agent: Some("Claude".into()), project: Some("shop".into()) }),
         title: title.into(),
         sentence: None,
         risk: None,

@@ -18,7 +18,7 @@ import {
 } from './model';
 
 const repo: ProjectPick = { path: 'D:/code/shop', name: 'shop', state: 'repo' };
-const claude = { id: 'claude', label: 'Claude Code' };
+const claude = { id: 'claude', label: 'Claude' };
 const run = (flow: Flow, ...actions: Action[]): Flow => actions.reduce(reduce, flow);
 
 describe('steps', () => {

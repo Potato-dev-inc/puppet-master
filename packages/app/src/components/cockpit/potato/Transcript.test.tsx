@@ -43,7 +43,7 @@ function show(messages: PotatoMessage[], over: Partial<TranscriptProps> = {}) {
   const props: TranscriptProps = {
     bot: bot(),
     messages,
-    agentLabel: 'Claude Code',
+    agentLabel: 'Claude',
     transport: fakePotatoTransport({ bots: [bot()] }),
     onChanged: () => {},
     now: NOW,

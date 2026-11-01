@@ -2,7 +2,7 @@
 // words, no raw ids. The risk words are the desktop card's (`LEVEL_WORD` in approval-risk.ts).
 import type { AttentionItem } from './attention';
 
-/** "Claude Code", or "The agent" for an item with no pane. */
+/** "Claude", or "The agent" for an item with no pane. */
 export function agentName(item: Pick<AttentionItem, 'pane'>): string {
   return item.pane?.agent?.trim() || 'The agent';
 }

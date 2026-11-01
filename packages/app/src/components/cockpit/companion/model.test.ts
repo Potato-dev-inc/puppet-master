@@ -114,9 +114,9 @@ describe('moving to another agent', () => {
 
   it('says where a moved companion came from, and when it goes back', () => {
     expect(movedNote({ previousAgentLabel: null, untilMs: null }, now)).toBeNull();
-    expect(movedNote({ previousAgentLabel: 'Claude Code', untilMs: null }, now)).toBe('Moved from Claude Code.');
-    expect(movedNote({ previousAgentLabel: 'Claude Code', untilMs: new Date(2026, 9, 28, 17, 0, 0).getTime() }, now)).toBe(
-      'Moved from Claude Code. Goes back at 17:00.',
+    expect(movedNote({ previousAgentLabel: 'Claude', untilMs: null }, now)).toBe('Moved from Claude.');
+    expect(movedNote({ previousAgentLabel: 'Claude', untilMs: new Date(2026, 9, 28, 17, 0, 0).getTime() }, now)).toBe(
+      'Moved from Claude. Goes back at 17:00.',
     );
   });
 });

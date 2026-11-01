@@ -2,7 +2,7 @@ import { PANE_CODEX } from '../fixtures';
 import { RUNNING_LINEAGE } from '../keep-going-fixtures';
 import type { HarnessScenario } from '../types';
 
-// The new pane: "Continued from Claude Code · 14 turns · Show brief" above the chat.
+// The new pane: "Continued from Claude · 14 turns · Show brief" above the chat.
 const s: HarnessScenario = {
   name: 'keep-going-banner-new',
   route: 'cockpit',

@@ -13,7 +13,7 @@ const PATCH =
   'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,4 @@\n one\n+two\n three\n-four\n+five\n';
 
 const AGENTS: ReviewerEntry[] = [
-  { id: 'claude', label: 'Claude Code', ready: false, same: true },
+  { id: 'claude', label: 'Claude', ready: false, same: true },
   { id: 'codex', label: 'Codex', ready: true, same: false },
   { id: 'gemini', label: 'Gemini', ready: false, same: false },
 ];
@@ -32,7 +32,7 @@ function startOf(source: DiffSource, sourceLabel: string): ReviewStart {
     files: 1,
     additions: 2,
     deletions: 1,
-    authorLabel: 'Claude Code',
+    authorLabel: 'Claude',
   };
 }
 
@@ -107,7 +107,7 @@ describe('SecondOpinion reviewer sheet', () => {
     expect(sheet()?.querySelector('h2')?.textContent).toBe('Who should review?');
     const names = Array.from(host.querySelectorAll('.ck-so-name')).map((n) => n.textContent);
     expect(names).toEqual(['Codex', 'Gemini']);
-    expect(sheetRow('Claude Code')).toBeNull();
+    expect(sheetRow('Claude')).toBeNull();
     expect(sheetRow('Codex')?.querySelector('.ck-so-tag')?.textContent).toBe('ready');
     const radios = Array.from(host.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
     expect(radios.find((r) => r.value === 'codex')?.checked).toBe(true);
@@ -118,10 +118,10 @@ describe('SecondOpinion reviewer sheet', () => {
     await click(button('Second opinion'));
 
     const allow = host.querySelector('.ck-so-same');
-    expect(allow?.textContent).toContain('Also allow Claude Code, the agent that wrote this');
+    expect(allow?.textContent).toContain('Also allow Claude, the agent that wrote this');
     await clickNative(allow?.querySelector('input[type="checkbox"]') ?? null);
 
-    expect(sheetRow('Claude Code')?.querySelector('.ck-so-tag')?.textContent).toBe('wrote this');
+    expect(sheetRow('Claude')?.querySelector('.ck-so-tag')?.textContent).toBe('wrote this');
     expect(sheetRow('Codex')).not.toBeNull();
   });
 
@@ -208,13 +208,13 @@ describe('SecondOpinion finished review', () => {
     expect(host.querySelector('pre[aria-label="Diff of src/a.ts"]')).not.toBeNull();
   });
 
-  it('Send to Claude Code sends the note to the author with its file and line, then reads Sent', async () => {
+  it('Send to Claude sends the note to the author with its file and line, then reads Sent', async () => {
     const api = fakeApi();
     await finishReview(api);
     await mount(api);
 
     const send = host.querySelector('.ck-find-send');
-    expect(send?.textContent).toBe('Send to Claude Code');
+    expect(send?.textContent).toBe('Send to Claude');
     await click(send);
 
     expect(api.send).toHaveBeenCalledWith('p1', 'src/a.ts', 2, 'Guard the empty case');
@@ -234,7 +234,7 @@ describe('SecondOpinion finished review', () => {
     expect(host.querySelector('pre[aria-label="Diff of src/a.ts"]')).toBeNull();
 
     const send = item?.querySelector('button') ?? null;
-    expect(send?.textContent).toBe('Send to Claude Code');
+    expect(send?.textContent).toBe('Send to Claude');
     await click(send);
     expect(api.send).toHaveBeenCalledWith('p1', 'src/a.ts', 99, 'Check the range');
   });

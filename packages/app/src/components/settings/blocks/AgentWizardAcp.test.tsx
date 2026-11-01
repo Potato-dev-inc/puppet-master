@@ -96,7 +96,7 @@ function mockApi(over: Record<string, unknown> = {}): MockApi {
     acpFinish: vi.fn(async () => finishOk()),
     cancel: vi.fn(async () => ({ ok: true })),
     ask: vi.fn(async () => `${F}toml\n${GOOD}${F}`),
-    drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude Code' }]),
+    drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude' }]),
     visibletest: vi.fn(async () => {
       throw new Error('no visible test here');
     }),

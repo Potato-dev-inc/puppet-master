@@ -9,7 +9,7 @@ const s: HarnessScenario = {
     await dom.click('button[aria-label="New agent"]');
     await dom.sleep(400);
     await dom.click('[role="switch"]');
-    await dom.clickText('[role="menuitem"]', 'Claude Code');
+    await dom.clickText('[role="menuitem"]', 'Claude');
     await dom.sleep(400);
     await emit('pane://spawn-stage', { agent_id: 'claude', pane_id: null, stage: 'claiming', warm: false });
     await dom.sleep(200);

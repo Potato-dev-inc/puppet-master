@@ -31,13 +31,13 @@ afterEach(() => {
 });
 
 // The words the backend puts on a card that offers Codex (handoff/card_tests.rs).
-const OFFER_TEXT = 'Codex gets a short brief and works in the same folder. Claude Code in this pane is stopped first.';
+const OFFER_TEXT = 'Codex gets a short brief and works in the same folder. Claude in this pane is stopped first.';
 
 const usage: Question = {
   id: 'l1',
-  agent: 'Claude Code',
+  agent: 'Claude',
   pane_id: 'p-claude',
-  question: 'Claude Code ran out of usage. It can continue at 14:05.',
+  question: 'Claude ran out of usage. It can continue at 14:05.',
   context: OFFER_TEXT,
   choices: [
     { id: 'continue:codex', label: 'Continue on Codex' },
@@ -49,7 +49,7 @@ const usage: Question = {
   created_at_ms: 0,
   expires_at_ms: 43_200_000,
   state: 'pending',
-  limit: { kind: 'usage_limit', agent_label: 'Claude Code', window: 'session limit', reset_at_ms: 1, has_run: true },
+  limit: { kind: 'usage_limit', agent_label: 'Claude', window: 'session limit', reset_at_ms: 1, has_run: true },
 };
 
 function render(q: Question, extra: { paneName?: string; onOpenPane?: () => void } = {}) {
@@ -71,7 +71,7 @@ const sheetButton = (text: string) => [...document.querySelectorAll('.ck-sheet b
 describe('LimitCard', () => {
   it('says what happened, offers Continue on Codex first, then its two choices, and Other agent…', () => {
     render(usage);
-    expect(host.querySelector('.ib-title')?.textContent).toBe('Claude Code ran out of usage. It can continue at 14:05.');
+    expect(host.querySelector('.ib-title')?.textContent).toBe('Claude ran out of usage. It can continue at 14:05.');
     // the one age format, no "ran out" prefix
     expect(host.querySelector('.ib-age')?.textContent).toBe('2m');
     expect(buttons()).toEqual(['Continue on Codex', 'Remind me at 14:05', 'Stop here', 'Other agent…']);
@@ -88,7 +88,7 @@ describe('LimitCard', () => {
   });
 
   it('never suggests another login of the same vendor', () => {
-    render(usage, { paneName: 'Claude Code 1', onOpenPane: () => {} });
+    render(usage, { paneName: 'Claude 1', onOpenPane: () => {} });
     expect(host.textContent ?? '').not.toMatch(/login|account|personal|use your|switch to/i);
   });
 
@@ -102,21 +102,21 @@ describe('LimitCard', () => {
 
   it('names the pane and can open its terminal', () => {
     const open = vi.fn();
-    render(usage, { paneName: 'Claude Code 1', onOpenPane: open });
-    expect(host.querySelector('.ib-meta')?.textContent).toBe('Claude Code 1');
+    render(usage, { paneName: 'Claude 1', onOpenPane: open });
+    expect(host.querySelector('.ib-meta')?.textContent).toBe('Claude 1');
     act(() => button('Open terminal')!.click());
     expect(open).toHaveBeenCalledOnce();
   });
 
   it('with its own wait on, the backend says so and the card shows it', () => {
-    render({ ...usage, context: `Claude Code is set to continue on its own. Continuing on Codex stops that. ${OFFER_TEXT}` });
+    render({ ...usage, context: `Claude is set to continue on its own. Continuing on Codex stops that. ${OFFER_TEXT}` });
     expect(host.querySelector('.ib-reason')?.textContent).toContain('set to continue on its own');
   });
 
   it('a limit with no printed reset says so and offers a reminder in an hour', () => {
     render({
       ...usage,
-      question: "Claude Code ran out of usage. It didn't say when it can continue.",
+      question: "Claude ran out of usage. It didn't say when it can continue.",
       choices: [
         { id: 'continue:codex', label: 'Continue on Codex' },
         { id: 'remind', label: 'Remind me in 1 hour' },
@@ -135,9 +135,9 @@ describe('LimitCard', () => {
     const onAnswer = render({
       ...usage,
       id: 'r1',
-      question: "Claude Code's usage limit should have reset by now.",
+      question: "Claude's usage limit should have reset by now.",
       choices: [{ id: 'ok', label: 'Got it' }],
-      limit: { kind: 'reset_reminder', agent_label: 'Claude Code' },
+      limit: { kind: 'reset_reminder', agent_label: 'Claude' },
     });
     expect(buttons()).toEqual(['Got it']);
     expect(host.querySelector('.ib-age')?.textContent).toBe('2m');
@@ -199,7 +199,7 @@ describe('a limit card on a companion\'s pane', () => {
     avatar: 'mochi',
     persona: 'calm',
     agentType: 'claude',
-    agentLabel: 'Claude Code',
+    agentLabel: 'Claude',
     folderName: 'mochi',
     state: 'needs_you',
     stateLine: 'Needs you',
@@ -211,7 +211,7 @@ describe('a limit card on a companion\'s pane', () => {
     autoStart: true,
   };
   const agents = [
-    { id: 'claude', label: 'Claude Code', ok: true, reason: null },
+    { id: 'claude', label: 'Claude', ok: true, reason: null },
     { id: 'codex', label: 'Codex', ok: true, reason: null },
   ];
 
@@ -238,7 +238,7 @@ describe('a limit card on a companion\'s pane', () => {
   });
 
   it('adds nothing to the reminder card', () => {
-    renderCompanion({ ...companionCard, choices: [{ id: 'ok', label: 'Got it' }], limit: { kind: 'reset_reminder', agent_label: 'Claude Code' } });
+    renderCompanion({ ...companionCard, choices: [{ id: 'ok', label: 'Got it' }], limit: { kind: 'reset_reminder', agent_label: 'Claude' } });
     expect(buttons()).toEqual(['Got it']);
   });
 

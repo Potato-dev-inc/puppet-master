@@ -50,7 +50,7 @@ const AGENT_META: Record<
 > = {
   claude: {
     type: 'claude',
-    label: 'Claude Code',
+    label: 'Claude',
     isTui: true,
     icon: 'CC',
   },
@@ -113,7 +113,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<BuiltinAgentType, AgentCo
     claude: {
       command: 'claude',
       baseArgs: [],
-      description: 'Anthropic Claude Code CLI',
+      description: 'Anthropic Claude CLI',
     },
     codex: {
       command: 'codex',
@@ -156,7 +156,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<BuiltinAgentType, AgentCo
     claude: {
       command: 'claude',
       baseArgs: [],
-      description: 'Anthropic Claude Code CLI',
+      description: 'Anthropic Claude CLI',
     },
     codex: {
       command: 'codex',
@@ -199,7 +199,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<BuiltinAgentType, AgentCo
     claude: {
       command: 'claude',
       baseArgs: [],
-      description: 'Anthropic Claude Code CLI',
+      description: 'Anthropic Claude CLI',
     },
     codex: {
       command: 'codex',

@@ -364,7 +364,7 @@ fn the_label_is_the_definition_name_or_the_vendor_name() {
 fn a_built_in_card_is_titled_with_its_tui_profile_label() {
     let _serial = crate::tui::registry::test_serial();
     let expected = [
-        ("claude", "Claude Code"),
+        ("claude", "Claude"),
         ("codex", "Codex CLI"),
         ("opencode", "OpenCode"),
         ("cursor_agent", "Cursor Agent CLI"),
@@ -426,10 +426,10 @@ fn the_add_and_remove_record_helpers_keep_an_install_record() {
 #[test]
 fn the_recorded_method_and_package_come_from_the_plan_step() {
     let tools = everything_here();
-    let winget = plan_install("claude", "Claude Code", Some(&spec(Some("Anthropic.ClaudeCode"), None, None, None, None)), &tools);
+    let winget = plan_install("claude", "Claude", Some(&spec(Some("Anthropic.ClaudeCode"), None, None, None, None)), &tools);
     assert_eq!(step_record(&winget, 0).unwrap(), ("winget", "Anthropic.ClaudeCode".to_string()));
 
-    let npm = plan_install("claude", "Claude Code", Some(&spec(None, Some("@anthropic-ai/claude-code"), None, None, None)), &tools);
+    let npm = plan_install("claude", "Claude", Some(&spec(None, Some("@anthropic-ai/claude-code"), None, None, None)), &tools);
     assert_eq!(step_record(&npm, 0).unwrap(), ("npm", "@anthropic-ai/claude-code".to_string()));
 
     let uv = plan_install("aider", "Aider", Some(&spec(None, None, Some("aider-chat"), Some("3.12"), None)), &tools);
@@ -444,7 +444,7 @@ fn the_recorded_method_and_package_come_from_the_plan_step() {
 #[test]
 fn a_prerequisite_step_is_never_recorded_as_the_agent() {
     let tools = Tools { winget: Some("winget".into()), present: ["git".to_string()].into_iter().collect() };
-    let plan = plan_install("claude", "Claude Code", Some(&spec(None, Some("@anthropic-ai/claude-code"), None, None, None)), &tools);
+    let plan = plan_install("claude", "Claude", Some(&spec(None, Some("@anthropic-ai/claude-code"), None, None, None)), &tools);
     assert!(plan.steps.first().is_some_and(|step| step.tool.is_some()), "node comes first: {:?}", plan.steps);
     let refused = step_record(&plan, 0).unwrap_err();
     assert!(refused.starts_with("STORE_NOT_AGENT_STEP"), "{refused}");

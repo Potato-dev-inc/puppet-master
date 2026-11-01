@@ -119,7 +119,7 @@ function mockApi(opts: { drafters?: Array<{ id: string; label: string }>; classi
       }
       return `Here.\n${F}toml\n${GOOD}${F}`;
     }),
-    drafters: vi.fn(async () => opts.drafters ?? [{ id: 'codex', label: 'Codex' }, { id: 'claude', label: 'Claude Code' }]),
+    drafters: vi.fn(async () => opts.drafters ?? [{ id: 'codex', label: 'Codex' }, { id: 'claude', label: 'Claude' }]),
     get looksTaken() {
       return looks;
     },
@@ -214,12 +214,12 @@ describe('the "Finish without me" switch', () => {
 });
 
 describe('a run with the switch on', () => {
-  it('stops with a plain message when neither Claude Code nor Codex is installed', async () => {
+  it('stops with a plain message when neither Claude nor Codex is installed', async () => {
     const api = mockApi({ drafters: [{ id: 'opencode', label: 'OpenCode' }] });
     await render(api);
     await typeCommand('nimbus');
     await click(button('Find it'));
-    await until(() => text().includes('needs Claude Code or Codex'), 'the message');
+    await until(() => text().includes('needs Claude or Codex'), 'the message');
     expect(api.captureStart).not.toHaveBeenCalled();
     expect(api.cancel).toHaveBeenCalledWith('wz_1');
     expect(host.querySelector('#wizard-command')).toBeTruthy();
@@ -233,7 +233,7 @@ describe('a run with the switch on', () => {
     await click(button('Find it'));
     await until(() => onApprove.mock.calls.length === 1, 'the approval');
     expect(api.start).toHaveBeenCalledWith('nimbus', true, true);
-    // Claude Code was picked without a question, the capture was started with the plan it read
+    // Claude was picked without a question, the capture was started with the plan it read
     expect(api.ask.mock.calls.every((c) => c[1] === 'claude')).toBe(true);
     expect(api.captureStart).toHaveBeenCalledWith('wz_1', [], 'cap-A');
     expect(api.verdict).toHaveBeenCalledWith('wz_1', 'ready_for_input');
@@ -246,7 +246,7 @@ describe('a run with the switch on', () => {
     expect(onApprove.mock.calls[0][0].approval).toMatchObject({ approved: true, approved_by: 'wizard', count: 9 });
     // the decisions are on screen in plain short English, the exact command too
     const list = host.querySelector('[data-testid="auto-decisions"]')?.textContent ?? '';
-    expect(list).toContain('Picked Claude Code to write the profile');
+    expect(list).toContain('Picked Claude to write the profile');
     expect(list).toContain('Will run (visible test): nimbus');
     expect(list).toContain('Decided the agent is ready (AI look)');
     expect(list).toContain('Approved after 9 checks passed');

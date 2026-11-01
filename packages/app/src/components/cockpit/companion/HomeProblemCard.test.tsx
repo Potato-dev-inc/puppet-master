@@ -27,7 +27,7 @@ const view: CompanionView = {
   avatar: 'mochi',
   persona: 'calm',
   agentType: 'claude',
-  agentLabel: 'Claude Code',
+  agentLabel: 'Claude',
   folderName: 'Desktop',
   state: 'idle',
   stateLine: 'Here.',

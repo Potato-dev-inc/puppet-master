@@ -41,7 +41,7 @@ const ITEM_B: ReviewItem = {
   source: 'issue',
   fingerprint: 'fp-b1',
   title: '#41 Fix login redirect',
-  agentLabel: 'Claude Code',
+  agentLabel: 'Claude',
   whereLabel: 'Issue #41',
   paneId: 'pane-claude-2',
   finishedAtMs: 1_800_000_000_000,

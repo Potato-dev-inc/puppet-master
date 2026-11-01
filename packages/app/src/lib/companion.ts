@@ -366,7 +366,7 @@ export interface FakeCompanionTransport extends CompanionTransport {
 export function fakeCompanionTransport(seed: FakeCompanionSeed = {}): FakeCompanionTransport {
   const companions = new Map<string, CompanionView>((seed.companions ?? []).map((c) => [c.id, { ...c }]));
   const feed = [...(seed.feed ?? [])];
-  const agents = seed.agents ?? [{ id: 'claude', label: 'Claude Code', ok: true, reason: null }];
+  const agents = seed.agents ?? [{ id: 'claude', label: 'Claude', ok: true, reason: null }];
   let memory: MemoryView = {
     soul: '',
     user: '',

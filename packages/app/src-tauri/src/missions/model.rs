@@ -456,7 +456,7 @@ impl Mission {
     }
 }
 
-/// The name a person reads for an agent type ("Claude Code"); never the raw id when a label exists.
+/// The name a person reads for an agent type ("Claude"); never the raw id when a label exists.
 /// Labels are looked up once a minute at most: the timeline and the ledger ask for them per row.
 pub fn agent_label(agent_type: &str) -> String {
     use once_cell::sync::Lazy;

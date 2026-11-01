@@ -164,7 +164,7 @@ fn spawn(cx: &Ctx) -> RouteResult {
         .and_then(|v| v.get("placement").and_then(|p| p.as_str().map(str::to_string)));
     // A phone spawning a pane (`viewer`) holds its size from the start: claimed before the pane
     // window opens, so the window's own fit is remembered instead of resizing the new agent once
-    // (each resize makes Claude Code reprint).
+    // (each resize makes Claude reprint).
     let viewer = extra
         .as_ref()
         .and_then(|v| v.get("viewer").and_then(|p| p.as_str().map(str::to_string)));

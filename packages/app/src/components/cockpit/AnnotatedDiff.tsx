@@ -7,7 +7,7 @@ export interface AnnotatedDiffProps {
   file: string;
   lines: string[]; // diff body lines for this file (splitPatch output)
   findings: ReviewFinding[]; // already anchored to this file
-  agentLabel: string | null; // original agent's name, e.g. "Claude Code"; null = cannot send
+  agentLabel: string | null; // original agent's name, e.g. "Claude"; null = cannot send
   onSend?: (file: string, line: number | null, text: string) => Promise<void>; // send a finding or a free comment to the original agent
   emptyText?: string;
 }

@@ -60,11 +60,11 @@ fn claude_reads_ready_on_the_fresh_screen_and_after_every_turn() {
 
 #[test]
 fn claude_follow_up_screen_has_no_banner_and_is_still_ready() {
-    // The old standby rule needed "Claude Code" on screen; after a turn scrolls the banner away a
+    // The old standby rule needed "Claude" on screen; after a turn scrolls the banner away a
     // follow-up never read ready (why Claude was left on the legacy readiness in round 7). The
     // rule glued in front of the prompt row (a soft wrap) still counts as the box's top rule.
     let follow_up = "\u{25cf} The first line of output is /d/pm-demo.\n\u{273b} Cooked for 3s \u{b7} done 11:21\n\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{276f}\n\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\n\u{23f8} manual mode on \u{b7} ? for shortcuts \u{b7} \u{2190} for agents";
-    assert!(!follow_up.contains("Claude Code"));
+    assert!(!follow_up.contains("Claude"));
     assert_eq!(readiness_of("claude", follow_up), Readiness::Ready);
 }
 

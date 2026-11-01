@@ -16,8 +16,8 @@ describe('mobile agent tabs with pane titles', () => {
     const panes = [pane('a', 'claude', 10, 'auth refactor'), pane('b', 'claude', 20), pane('c', 'claude', 30, null)];
     const labels = tabLabels(panes);
     expect(labels.get('a')).toBe('auth refactor');
-    expect(labels.get('b')).toBe('Claude Code 2');
-    expect(labels.get('c')).toBe('Claude Code 3');
+    expect(labels.get('b')).toBe('Claude 2');
+    expect(labels.get('c')).toBe('Claude 3');
   });
 
   it('uses the plain agent id for an untitled pane that runs alone and has no known label', () => {
@@ -26,8 +26,8 @@ describe('mobile agent tabs with pane titles', () => {
 
   it('ignores whitespace-only titles', () => {
     const labels = tabLabels([pane('a', 'claude', 10, '   '), pane('b', 'claude', 20, '\t')]);
-    expect(labels.get('a')).toBe('Claude Code 1');
-    expect(labels.get('b')).toBe('Claude Code 2');
+    expect(labels.get('a')).toBe('Claude 1');
+    expect(labels.get('b')).toBe('Claude 2');
   });
 
   it('a pane title beats the display name, even when the display name is numbered', () => {

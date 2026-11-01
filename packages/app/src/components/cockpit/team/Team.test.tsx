@@ -89,11 +89,11 @@ function renderCard(card: Card, api = fakeApi()) {
 
 describe('copy', () => {
   it('names the person and their agent, the branch and the size', () => {
-    expect(cardTitle(MAYA_PUSH)).toBe("Maya's Claude Code pushed feat/auth");
+    expect(cardTitle(MAYA_PUSH)).toBe("Maya's Claude pushed feat/auth");
     expect(cardMeta(MAYA_PUSH)).toBe('billing-service · feat/auth · 3 files +84 −12');
     expect(cardTitle(SAM_PR)).toBe("Sam's Codex opened #142");
     expect(cardTitle({ ...MAYA_PUSH, actor: { ...MAYA_PUSH.actor, agent: undefined } })).toBe('Maya pushed feat/auth');
-    expect(cardTitle({ ...MAYA_PUSH, subject: { ...MAYA_PUSH.subject, forced: true } })).toBe("Maya's Claude Code force-pushed feat/auth");
+    expect(cardTitle({ ...MAYA_PUSH, subject: { ...MAYA_PUSH.subject, forced: true } })).toBe("Maya's Claude force-pushed feat/auth");
     expect(tellLabel(['Leo'])).toBe('Tell Leo');
     expect(tellLabel(['Leo', 'Sam'])).toBe('Tell Leo and Sam');
     expect(tellLabel([])).toBe('Tell the team');
@@ -169,7 +169,7 @@ describe('TeamCard states', () => {
     expect(host.querySelector('img')).toBeNull();
     expect(host.querySelector('b')).toBeNull();
     expect(host.textContent).toContain('“<img src=x onerror="alert(1)"> **bold**”');
-    expect(host.textContent).toContain("<b>Mallory</b>'s Claude Code pushed feat/auth");
+    expect(host.textContent).toContain("<b>Mallory</b>'s Claude pushed feat/auth");
   });
 
   it('runs nothing until clicked, and Queue goes through the sheet', async () => {
@@ -177,7 +177,7 @@ describe('TeamCard states', () => {
     expect(api.calls).toEqual([]);
     act(() => button('Queue my agent')!.click());
     expect(host.textContent).toContain('Bring feat/auth into feat/billing');
-    expect(host.textContent).toContain('After Claude Code finishes its current turn');
+    expect(host.textContent).toContain('After Claude finishes its current turn');
     expect(api.calls).toEqual([]);
     await act(async () => button('Queue it')!.click());
     expect(api.calls).toEqual([`queue("${card.id}","pane-claude-1","idle")`.replace('pane-claude-1', card.panes[0].paneId)]);
@@ -251,7 +251,7 @@ describe('TeamJobCard states', () => {
 
   it('waiting: says when it starts; only Discard', () => {
     render(WAITING_JOB);
-    expect(host.textContent).toContain('Starts when Claude Code finishes its current turn.');
+    expect(host.textContent).toContain('Starts when Claude finishes its current turn.');
     expect(buttons()).toEqual(['Discard']);
   });
 
@@ -268,7 +268,7 @@ describe('TeamJobCard states', () => {
 
   it('working: no buttons while the agent is in the copy', () => {
     render({ ...READY_JOB, state: 'working', message: null, stats: null });
-    expect(host.textContent).toContain('Claude Code is merging feat/auth');
+    expect(host.textContent).toContain('Claude is merging feat/auth');
     expect(host.textContent).toContain('Resolving 2 conflicts in a separate copy.');
     expect(buttons()).toEqual([]);
   });
@@ -317,10 +317,10 @@ describe('Tell the team?', () => {
   it('sends nothing until Tell is clicked, then sends with the note', async () => {
     const api = fakeApi();
     act(() => root.render(<TellTeamPrompt draft={MY_DRAFT} members={['Maya', 'Sam']} api={api} variant="toast" />));
-    expect(host.textContent).toContain('Claude Code pushed feat/billing · 4 files +120 −9');
+    expect(host.textContent).toContain('Claude pushed feat/billing · 4 files +120 −9');
     expect(buttons()).toEqual(['Tell Maya and Sam', 'Not now', 'Preview']);
     act(() => button('Preview')!.click());
-    expect(host.textContent).toContain("Leo's Claude Code pushed feat/billing");
+    expect(host.textContent).toContain("Leo's Claude pushed feat/billing");
     expect(host.textContent).toContain('No code is shared.');
     const input = host.querySelector('input') as HTMLInputElement;
     act(() => {
@@ -337,8 +337,8 @@ describe('Tell the team?', () => {
     const api = fakeApi();
     act(() => root.render(<TellTeamPrompt draft={AGENT_DRAFT} members={['Maya']} api={api} variant="row" />));
     // The text is on show without opening Preview, and nothing has been sent.
-    expect(host.textContent).toContain('Drafted by Claude Code. Nothing is sent until you click.');
-    expect(host.textContent).toContain("Leo's Claude Code asks for a review of #143");
+    expect(host.textContent).toContain('Drafted by Claude. Nothing is sent until you click.');
+    expect(host.textContent).toContain("Leo's Claude asks for a review of #143");
     expect(host.textContent).toContain('“Please look at the rounding first”');
     expect((host.querySelector('input') as HTMLInputElement).value).toBe('Please look at the rounding first');
     expect(api.calls).toEqual([]);

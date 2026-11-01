@@ -47,7 +47,7 @@ function LiveUpdates({ env }: { env: SettingsEnv }) {
     <>
       <SettingRow
         label="Live updates"
-        description="Claude Code and Codex tell Puppet Master when they start, ask and finish. For now it is only recorded; Puppet Master never acts on it."
+        description="Claude and Codex tell Puppet Master when they start, ask and finish. For now it is only recorded; Puppet Master never acts on it."
       >
         <Popup
           aria-label="Live updates"
@@ -98,7 +98,7 @@ export const agentsRows: RowDef[] = [
     render: (env) => (
       <SettingToggle
         label="Puppet Master helpers inside agents"
-        description="Claude Code, Codex and OpenCode panes started here get Puppet Master's helper tools ready, so you can say: use Puppet Master helpers. Your own agent settings files are never changed. Applies to panes you open after switching."
+        description="Claude, Codex and OpenCode panes started here get Puppet Master's helper tools ready, so you can say: use Puppet Master helpers. Your own agent settings files are never changed. Applies to panes you open after switching."
         checked={env.settings.pane_mcp_enabled ?? true}
         onChange={(value) => void env.patch({ pane_mcp_enabled: value })}
       />
@@ -133,10 +133,10 @@ export const agentsRows: RowDef[] = [
   {
     id: 'live-updates',
     label: 'Live updates',
-    hint: 'Claude Code and Codex tell Puppet Master when they start, ask and finish.',
+    hint: 'Claude and Codex tell Puppet Master when they start, ask and finish.',
     keywords: 'hooks hook lane live updates claude codex watch report trust',
     group: 'Live updates',
-    labs: { name: 'Live updates', about: 'Claude Code and Codex report when they start, ask and finish.' },
+    labs: { name: 'Live updates', about: 'Claude and Codex report when they start, ask and finish.' },
     render: (env) => <LiveUpdates env={env} />,
   },
   {

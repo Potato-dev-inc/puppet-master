@@ -8,7 +8,7 @@ import { securityRows, whenText } from './bridge/Security';
 const mocks = vi.hoisted(() => ({
   state: { ask_before_agent_control: true, agents_may_merge: false },
   entries: [
-    { seq: 2, ts_ms: Date.now() - 120_000, kind: 'consent', who: 'desktop', summary: 'You allowed Claude Code to control Codex, once' },
+    { seq: 2, ts_ms: Date.now() - 120_000, kind: 'consent', who: 'desktop', summary: 'You allowed Claude to control Codex, once' },
     { seq: 1, ts_ms: Date.now() - 3_600_000, kind: 'approval', who: 'device', summary: 'A phone answered from its lock screen: Allowed once' },
   ],
   verify: { ok: true, entries: 2, broken: null as null | { file: string; line: number; reason: string } },
@@ -81,7 +81,7 @@ describe('Security rows', () => {
     await settle(5);
     const rows = [...m.host.querySelectorAll('.st-audit-row')];
     expect(rows.map((r) => r.querySelector('.st-audit-what')?.textContent)).toEqual([
-      'You allowed Claude Code to control Codex, once',
+      'You allowed Claude to control Codex, once',
       'A phone answered from its lock screen: Allowed once',
     ]);
     expect(rows.map((r) => r.querySelector('.st-audit-who')?.textContent)).toEqual(['You', 'A paired phone']);

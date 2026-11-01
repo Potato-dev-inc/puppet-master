@@ -44,7 +44,7 @@ const ACTIVITY_TAIL_MS: u32 = 1_000;
 pub struct PlanInput {
     /// From `Plans::issue`, one per plan.
     pub token: String,
-    /// The agent's display label, for example "Claude Code".
+    /// The agent's display label, for example "Claude".
     pub agent_label: String,
     /// The chat items of the pane.
     pub items: Vec<ChatItem>,
@@ -242,7 +242,7 @@ mod tests {
     fn summary(start: u64, end: u64) -> TurnSummary {
         TurnSummary {
             pane_id: "pane-1".into(),
-            agent: "Claude Code".into(),
+            agent: "Claude".into(),
             agent_id: None,
             account: None,
             turn: 1,
@@ -260,7 +260,7 @@ mod tests {
     fn input(items: Vec<ChatItem>, summaries: Vec<TurnSummary>, ring: Option<Arc<Ring>>) -> PlanInput {
         PlanInput {
             token: "tok-1".into(),
-            agent_label: "Claude Code".into(),
+            agent_label: "Claude".into(),
             items,
             user_item_id: None,
             summaries,
@@ -311,7 +311,7 @@ mod tests {
         assert!(plan.hidden >= 1);
         assert!(plan.request.contains("[REDACTED]"));
         assert_eq!(plan.token, "tok-1");
-        assert_eq!(plan.agent, "Claude Code");
+        assert_eq!(plan.agent, "Claude");
         assert_eq!(plan.outcome, "completed");
         assert_eq!(plan.turn_ms, 3_000);
     }

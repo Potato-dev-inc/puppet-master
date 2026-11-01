@@ -7,7 +7,7 @@ const ago = (minutes: number) => Date.now() - minutes * MINUTES;
 
 export const CLAUDE_TESTED: CanaryAgent = {
   agent: 'claude',
-  label: 'Claude Code',
+  label: 'Claude',
   installed: true,
   version: '2.1.299',
   tested: '>=2.1.299, <2.2',
@@ -15,12 +15,12 @@ export const CLAUDE_TESTED: CanaryAgent = {
   strict: false,
   strict_reason: null,
   chip: null,
-  plain: 'Claude Code 2.1.299 is a version Puppet Master has been tested with.',
+  plain: 'Claude 2.1.299 is a version Puppet Master has been tested with.',
   checking: false,
   last: {
     outcome: 'ready',
     passed: true,
-    summary: 'Claude Code started and reached its input box. Nothing was sent to it.',
+    summary: 'Claude started and reached its input box. Nothing was sent to it.',
     at_ms: ago(12),
     version: '2.1.299',
     screens: [],
@@ -90,24 +90,24 @@ export const CODEX_CHANGED_NOTICE: CanaryNotice = {
   kind: 'changed',
 };
 
-/** Claude Code updated from 2.3.0 to 2.4.0 (outside the tested range) and a check passed on this computer. */
+/** Claude updated from 2.3.0 to 2.4.0 (outside the tested range) and a check passed on this computer. */
 export const CLAUDE_UPDATED_GOOD: CanaryAgent = {
   ...CLAUDE_TESTED,
   version: '2.4.0',
   standing: 'untested',
   verified: true,
-  plain: 'Claude Code 2.4.0 was checked on this computer. Its screens read fine.',
+  plain: 'Claude 2.4.0 was checked on this computer. Its screens read fine.',
   change: {
     from: '2.3.0',
     to: '2.4.0',
     at_ms: ago(30),
     verdict: 'good',
-    text: 'Claude Code 2.3.0 \u2192 2.4.0: checked, all good.',
+    text: 'Claude 2.3.0 \u2192 2.4.0: checked, all good.',
   },
   last: {
     outcome: 'ready',
     passed: true,
-    summary: 'Claude Code started and reached its input box. Nothing was sent to it.',
+    summary: 'Claude started and reached its input box. Nothing was sent to it.',
     at_ms: ago(29),
     version: '2.4.0',
     screens: [],
@@ -117,7 +117,7 @@ export const CLAUDE_UPDATED_GOOD: CanaryAgent = {
 export const CLAUDE_UPDATED_NOTICE: CanaryNotice = {
   id: 'canary:claude:2.4.0:ok',
   agent: 'claude',
-  text: 'Claude Code 2.3.0 \u2192 2.4.0: checked, all good.',
+  text: 'Claude 2.3.0 \u2192 2.4.0: checked, all good.',
   at_ms: ago(29),
   dismissed: false,
   kind: 'good',
@@ -150,7 +150,7 @@ export const CLAUDE_UNTESTED_STATUS: CanaryStatus = {
       strict_reason: 'untested_version',
       chip: 'Untested version',
       plain:
-        'Puppet Master has not been tested with Claude Code 2.4.0 yet. It will ask you before closing a start-up notice, and it will not keep one ready in advance.',
+        'Puppet Master has not been tested with Claude 2.4.0 yet. It will ask you before closing a start-up notice, and it will not keep one ready in advance.',
     },
   ],
   auto_check: true,

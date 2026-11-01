@@ -215,7 +215,7 @@ describe('sheets', () => {
     const host = mount(
       <NewAgentSheet
         entries={[
-          { type: 'claude', label: 'Claude Code', icon: null },
+          { type: 'claude', label: 'Claude', icon: null },
           { type: 'cursor_agent', label: 'Cursor Agent', icon: null, disabled: true, disabledReason: 'Not installed' },
         ]}
         onClose={() => {}}

@@ -129,7 +129,7 @@ pub fn notice_text(label: &str, version: Option<&str>) -> String {
     }
 }
 
-/// "Claude Code 2.3.0 -> 2.4.0", or "Claude Code 2.4.0" when the old version is not known.
+/// "Claude 2.3.0 -> 2.4.0", or "Claude 2.4.0" when the old version is not known.
 fn named(label: &str, from: Option<&str>, to: Option<&str>) -> String {
     match (from, to) {
         (Some(from), Some(to)) => format!("{label} {from} \u{2192} {to}"),
@@ -138,7 +138,7 @@ fn named(label: &str, from: Option<&str>, to: Option<&str>) -> String {
     }
 }
 
-/// The short result sentence for an update: "Claude Code 2.3.0 -> 2.4.0: checked, all good."
+/// The short result sentence for an update: "Claude 2.3.0 -> 2.4.0: checked, all good."
 pub fn change_text(label: &str, from: Option<&str>, to: Option<&str>, verdict: Verdict) -> String {
     match verdict {
         Verdict::Good => format!("{}: checked, all good.", named(label, from, to)),
@@ -574,10 +574,10 @@ mod tests {
 
     #[test]
     fn the_update_sentences_are_short_and_say_both_versions() {
-        assert_eq!(change_text("Claude Code", Some("2.3.0"), Some("2.4.0"), Verdict::Good), "Claude Code 2.3.0 \u{2192} 2.4.0: checked, all good.");
+        assert_eq!(change_text("Claude", Some("2.3.0"), Some("2.4.0"), Verdict::Good), "Claude 2.3.0 \u{2192} 2.4.0: checked, all good.");
         assert_eq!(
-            change_text("Claude Code", Some("2.3.0"), Some("2.4.0"), Verdict::Changed),
-            "Claude Code 2.3.0 \u{2192} 2.4.0: screens changed. Puppet Master will ask you before acting."
+            change_text("Claude", Some("2.3.0"), Some("2.4.0"), Verdict::Changed),
+            "Claude 2.3.0 \u{2192} 2.4.0: screens changed. Puppet Master will ask you before acting."
         );
         assert_eq!(change_text("Codex", None, Some("0.162.1"), Verdict::Good), "Codex 0.162.1: checked, all good.");
         assert_eq!(change_text("Codex", Some("0.1.0"), Some("0.2.0"), Verdict::Unchecked), "Codex 0.1.0 \u{2192} 0.2.0: not checked yet.");

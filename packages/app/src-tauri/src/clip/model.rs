@@ -29,7 +29,7 @@ pub const PLAN_TTL: Duration = Duration::from_secs(30 * 60);
 pub struct ClipPlan {
     /// From `Plans::issue`, one per plan, valid for `PLAN_TTL`.
     pub token: String,
-    /// Display label of the agent (for example "Claude Code"), strict-redacted.
+    /// Display label of the agent (for example "Claude"), strict-redacted.
     pub agent: String,
     /// The person's message, one line, at most 140 characters.
     pub request: String,
@@ -224,7 +224,7 @@ mod tests {
     fn clip_plan_uses_the_wire_names() {
         let plan = ClipPlan {
             token: "t1".into(),
-            agent: "Claude Code".into(),
+            agent: "Claude".into(),
             request: "Fix it".into(),
             turn_ms: 5000,
             outcome: "completed".into(),
@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(
             to_json(&plan),
             json!({
-                "token": "t1", "agent": "Claude Code", "request": "Fix it", "turnMs": 5000,
+                "token": "t1", "agent": "Claude", "request": "Fix it", "turnMs": 5000,
                 "outcome": "completed", "replay": {"kind": "none"}, "steps": [],
                 "result": {"files": null, "checks": null, "sentence": "Done."},
                 "notes": ["Nothing to show."], "hidden": 3

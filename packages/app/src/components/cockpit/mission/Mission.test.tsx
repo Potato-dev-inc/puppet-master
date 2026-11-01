@@ -227,7 +227,7 @@ describe('the Inbox section', () => {
 
 describe('the start sheet', () => {
   const entries = [
-    { type: 'claude', label: 'Claude Code' },
+    { type: 'claude', label: 'Claude' },
     { type: 'codex', label: 'Codex' },
   ];
 

@@ -2,7 +2,7 @@ import { EXAMPLE_CHECK, EXAMPLE_PLACES } from '../wsl-fixtures';
 import type { HarnessScenario } from '../types';
 
 // Settings > Agents > Run agents in Linux with WSL ready: a WSL 2 distro (default), a WSL 1 one (no Check),
-// Claude Code set to Linux and not checked yet. "Check Ubuntu-Test" runs, then the found line shows.
+// Claude set to Linux and not checked yet. "Check Ubuntu-Test" runs, then the found line shows.
 const s: HarnessScenario = {
   name: 'linux-rows-ready',
   route: 'settings',

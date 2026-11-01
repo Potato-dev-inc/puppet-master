@@ -160,7 +160,7 @@ describe('ScreenQuestionCard', () => {
     readSnapshot.mockResolvedValue('');
     await show();
     expect(host.querySelector('[data-screen-question]')).toBeNull();
-    await show({ fallbackText: 'Claude Code needs you to sign in' });
-    expect(host.textContent).toContain('Claude Code needs you to sign in');
+    await show({ fallbackText: 'Claude needs you to sign in' });
+    expect(host.textContent).toContain('Claude needs you to sign in');
   });
 });

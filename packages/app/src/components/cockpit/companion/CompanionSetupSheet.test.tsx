@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 const AGENTS: CompanionAgentOption[] = [
-  { id: 'claude', label: 'Claude Code', ok: true, reason: null },
+  { id: 'claude', label: 'Claude', ok: true, reason: null },
   { id: 'codex', label: 'Codex', ok: false, reason: "Chat can't send messages to this agent yet." },
 ];
 
@@ -53,7 +53,7 @@ describe('CompanionSetupSheet', () => {
     await render();
     expect(button('Codex').disabled).toBe(true);
     expect(host.textContent).toContain("Chat can't send messages to this agent yet.");
-    expect(button('Claude Code').getAttribute('aria-checked')).toBe('true');
+    expect(button('Claude').getAttribute('aria-checked')).toBe('true');
   });
 
   it('names the face by default, and keeps the typed name when the face changes', async () => {
@@ -90,7 +90,7 @@ describe('CompanionSetupSheet', () => {
 
   it('does not list plain shells, but keeps other unusable agents greyed with their reason', async () => {
     await render([
-      { id: 'claude', label: 'Claude Code', ok: true, reason: null },
+      { id: 'claude', label: 'Claude', ok: true, reason: null },
       { id: 'codex', label: 'Codex', ok: false, reason: "Chat can't send messages to this agent yet." },
       { id: 'powershell', label: 'PowerShell', ok: false, reason: "Chat can't send messages to this agent yet." },
       { id: 'bash', label: 'Bash', ok: false, reason: "Chat can't send messages to this agent yet." },

@@ -12,7 +12,7 @@ export const OVERVIEW: Overview = {
   suggestions: [{ name: 'test', command_text: 'npm test', source: 'package.json' }],
   points: [
     { checkpointId: '31', label: 'Codex · turn 7 · 14:10', atMs: Date.now() - 40 * 60_000 },
-    { checkpointId: '28', label: 'Claude Code · turn 5 · 13:42', atMs: Date.now() - 70 * 60_000 },
+    { checkpointId: '28', label: 'Claude · turn 5 · 13:42', atMs: Date.now() - 70 * 60_000 },
     { checkpointId: '19', label: 'An agent · turn 2 · 12:05', atMs: Date.now() - 140 * 60_000 },
   ],
   limits: { max_runs: 16, max_minutes: 20 },

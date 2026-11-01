@@ -35,7 +35,7 @@ export type OrchestratorBackend = z.infer<typeof OrchestratorBackendSchema>;
 
 export const ORCHESTRATOR_BACKEND_LABELS: Record<OrchestratorBackend, string> = {
   api: 'LLM API (direct)',
-  claude_cli: 'Claude Code CLI',
+  claude_cli: 'Claude CLI',
   codex_cli: 'Codex CLI',
   opencode_cli: 'OpenCode CLI',
 };
@@ -108,7 +108,7 @@ export const SettingsSchema = z.object({
   budget_default_turns: z.number().int().min(0).max(10000).default(0),
   /** Same, in wall-clock minutes; 0 = no limit. */
   budget_default_minutes: z.number().int().min(0).max(10080).default(0),
-  /** Live updates from agents (Claude Code, Codex): off, or watch only for now. Owned by Rust (settings_store). */
+  /** Live updates from agents (Claude, Codex): off, or watch only for now. Owned by Rust (settings_store). */
   agent_hooks_mode: z.enum(['off', 'shadow', 'evidence']).optional(),
   /** Per-agent override of agent_hooks_mode, keyed by agent id. */
   agent_hooks_agents: z.record(z.string(), z.enum(['off', 'shadow', 'evidence'])).optional(),

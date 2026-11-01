@@ -1,4 +1,4 @@
-// The generic screen reader on the first screen of a brand-new Claude Code (a real capture, v2.1.312) and on the idle
+// The generic screen reader on the first screen of a brand-new Claude (a real capture, v2.1.312) and on the idle
 // input boxes of several agents. The same captures are fixtures of the Rust tests.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

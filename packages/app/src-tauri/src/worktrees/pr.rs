@@ -205,7 +205,7 @@ pub fn status(worktree: &WorktreeRef, env: &ToolEnv) -> PrStatus {
 pub struct PrFacts {
     /// The task the agent was given.
     pub task: Option<String>,
-    /// The plain sentence of the last turn ("Claude Code changed 4 files and ran 2 commands").
+    /// The plain sentence of the last turn ("Claude changed 4 files and ran 2 commands").
     pub summary: Option<String>,
     /// Display name of the agent.
     pub agent: Option<String>,

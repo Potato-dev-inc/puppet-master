@@ -137,6 +137,6 @@ export function ownStrings(): string[] {
     }
   };
   walk(T);
-  out.push(T.stepOf(2, 7), T.agentsReady(1), T.agentsReady(3), T.gitFiles(1), T.gitFiles(12), T.taskWorking('Claude Code'), T.taskAsking('Codex'), T.packFound(['Claude Code', 'Codex']), T.packFound([]));
+  out.push(T.stepOf(2, 7), T.agentsReady(1), T.agentsReady(3), T.gitFiles(1), T.gitFiles(12), T.taskWorking('Claude'), T.taskAsking('Codex'), T.packFound(['Claude', 'Codex']), T.packFound([]));
   return out;
 }

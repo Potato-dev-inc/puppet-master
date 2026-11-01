@@ -302,7 +302,7 @@ pub fn is_apple_endpoint(endpoint: &str) -> bool {
 
 /// The words of a notification. `label` is the agent name from its profile or definition;
 /// `heading` is what the sidebar calls the pane: the person's title for it ("auth refactor"), else
-/// the agent label numbered when several panes run the same agent ("Claude Code 2").
+/// the agent label numbered when several panes run the same agent ("Claude 2").
 ///
 /// Titles are `<heading> · Needs you`; the agent label moves into the body. An approval body is
 /// the risk line (first line, at most `MAX_FIRST_LINE_CHARS`), then the command for a calm
@@ -484,9 +484,9 @@ mod tests {
     #[test]
     fn copy_uses_the_parsed_prompt_or_a_plain_fallback() {
         let prompt = PromptInfo { prompt_id: "a".into(), text: "Run command: npm test (in /repo)".into(), actionable: true, risk: None };
-        let c = copy_for(Kind::WaitingInput, "Claude Code", None, Some(&prompt));
-        assert_eq!(c.title, "Claude Code · Needs you");
-        assert_eq!(c.body, "Run command: npm test (in /repo)\nClaude Code", "no risk read: the text, then who");
+        let c = copy_for(Kind::WaitingInput, "Claude", None, Some(&prompt));
+        assert_eq!(c.title, "Claude · Needs you");
+        assert_eq!(c.body, "Run command: npm test (in /repo)\nClaude", "no risk read: the text, then who");
         assert_eq!(copy_for(Kind::WaitingInput, "Kilo", None, None).body, "Kilo is waiting for you");
         let long = PromptInfo { prompt_id: "b".into(), text: "z".repeat(500), actionable: false, risk: None };
         let first = copy_for(Kind::WaitingInput, "X", None, Some(&long)).body;
@@ -588,9 +588,9 @@ mod tests {
     fn the_body_leads_with_the_risk_sentence_then_the_command() {
         let risk = json!({"level": "high", "headline": "Delete a folder outside this project"});
         let info = PromptInfo::from_detected(&command_with_risk(Some(risk))).unwrap();
-        let words = copy_for(Kind::WaitingInput, "Claude Code", None, Some(&info));
+        let words = copy_for(Kind::WaitingInput, "Claude", None, Some(&info));
         // A risky prompt's command never reaches a lock screen: the risk line and who, nothing else.
-        assert_eq!(words.body, "High risk · Delete a folder outside this project\nClaude Code");
+        assert_eq!(words.body, "High risk · Delete a folder outside this project\nClaude");
         let low = json!({"level": "low", "headline": "Read files"});
         let info = PromptInfo::from_detected(&command_with_risk(Some(low))).unwrap();
         assert_eq!(
@@ -626,9 +626,9 @@ mod tests {
 
     #[test]
     fn the_pane_title_leads_the_notification_title() {
-        let words = copy_for(Kind::WaitingInput, "Claude Code", Some("auth refactor"), None);
+        let words = copy_for(Kind::WaitingInput, "Claude", Some("auth refactor"), None);
         assert_eq!(words.title, "auth refactor · Needs you");
-        assert_eq!(words.body, "Claude Code is waiting for you", "the agent label moved into the body");
+        assert_eq!(words.body, "Claude is waiting for you", "the agent label moved into the body");
         assert_eq!(copy_for(Kind::Error, "Codex", Some("  "), None).title, "Codex · Needs you", "a blank heading is ignored");
         let long = copy_for(Kind::WaitingInput, "X", Some(&"t".repeat(100)), None);
         assert!(long.title.chars().count() <= MAX_TITLE_CHARS + " · Needs you".chars().count());

@@ -24,7 +24,7 @@ export function PaneApprovalCard({
   autoFocus?: boolean;
   /** The "Open terminal" button. Absent in the pane itself, where the terminal is already open. */
   onOpen?: () => void;
-  /** A helper's question shown in its parent's Chat: "Claude Code helper asks" leads the title. */
+  /** A helper's question shown in its parent's Chat: "Claude helper asks" leads the title. */
   asks?: string;
   /** The open button's words (default "Open terminal"). */
   openLabel?: string;

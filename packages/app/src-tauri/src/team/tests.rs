@@ -138,7 +138,7 @@ fn push_event(id_ms: u64) -> TeamEvent {
             member: "maya-id".into(),
             device: "maya-laptop".into(),
             display: "Maya".into(),
-            agent: Some(AgentTag { label: "Claude Code".into(), role: None }),
+            agent: Some(AgentTag { label: "Claude".into(), role: None }),
         },
         kind: TeamEventKind::Pushed,
         at_ms: id_ms,
@@ -161,7 +161,7 @@ fn schema_round_trips_and_uses_the_planned_wire_names() {
     assert_eq!(json["kind"], "pushed");
     assert_eq!(json["tierHint"], "ambient");
     assert_eq!(json["atMs"], NOW);
-    assert_eq!(json["actor"]["agent"]["label"], "Claude Code");
+    assert_eq!(json["actor"]["agent"]["label"], "Claude");
     assert_eq!(json["subject"]["stats"]["files"], 3);
     assert!(json.get("to").is_none(), "empty `to` (everyone) is left out");
     let back: TeamEvent = serde_json::from_value(json).unwrap();
@@ -320,7 +320,7 @@ fn agent_pane(cwd: &Path, status: &str, ended: Option<u64>) -> PaneFacts {
     PaneFacts {
         cwd: cwd.to_string_lossy().into_owned(),
         status: status.into(),
-        label: "Claude Code".into(),
+        label: "Claude".into(),
         is_agent: true,
         last_turn_end_ms: ended,
     }
@@ -379,7 +379,7 @@ fn a_push_is_credited_to_the_agent_working_in_that_repo() {
     // Running agent in the repo (a subfolder counts).
     std::fs::create_dir_all(t.maya.join("src")).unwrap();
     let running = agent_pane(&t.maya.join("src"), "running", None);
-    assert_eq!(git_refs::attribute(&t.maya, now, &[running]).unwrap().label, "Claude Code");
+    assert_eq!(git_refs::attribute(&t.maya, now, &[running]).unwrap().label, "Claude");
     // Turn ended 30 s ago: still the agent's. 2 min ago: the person's.
     assert!(git_refs::attribute(&t.maya, now, &[agent_pane(&t.maya, "idle", Some(now - 30_000))]).is_some());
     assert!(git_refs::attribute(&t.maya, now, &[agent_pane(&t.maya, "idle", Some(now - 120_000))]).is_none());
@@ -419,7 +419,7 @@ fn job_for(t: &Team, branch: &str, commit: &str, into: &str) -> Job {
         project: t.leo.to_string_lossy().into_owned(),
         pane_id: None,
         agent_type: "claude".into(),
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         who: "Maya".into(),
         their_branch: branch.into(),
         commit: commit.into(),

@@ -11,7 +11,7 @@ const now = Date.now();
 const questions: Question[] = [
   {
     id: 'q-migration',
-    agent: 'Claude Code',
+    agent: 'Claude',
     pane_id: PANE_CLAUDE,
     question: 'The migration drops the legacy users table. Run it against staging now?',
     context: 'Staging was last backed up 2 hours ago. 14 rows reference the table.',
@@ -28,8 +28,8 @@ const questions: Question[] = [
   },
   {
     id: 'consent-take-over',
-    agent: 'Claude Code',
-    question: 'Allow Claude Code to control Codex?',
+    agent: 'Claude',
+    question: 'Allow Claude to control Codex?',
     context: 'It would type into Codex and answer its questions. It did not start this pane.',
     choices: [
       { id: 'allow_once', label: 'Allow once' },
@@ -41,13 +41,13 @@ const questions: Question[] = [
     created_at_ms: now - 40_000,
     expires_at_ms: now + 560_000,
     state: 'pending',
-    consent: { action: 'take_over', requester: 'Claude Code', target: 'Codex', pane_id: PANE_CODEX },
+    consent: { action: 'take_over', requester: 'Claude', target: 'Codex', pane_id: PANE_CODEX },
   },
   {
     id: 'budget-1',
-    agent: 'Claude Code',
+    agent: 'Claude',
     pane_id: PANE_CLAUDE,
-    question: 'Claude Code used its 20 turns.',
+    question: 'Claude used its 20 turns.',
     context: "20 of 20 turns. It's paused after its last turn. Nothing was lost.",
     choices: [
       { id: 'add_turns', label: 'Add 10 turns' },
@@ -66,7 +66,7 @@ const questions: Question[] = [
 const s: HarnessScenario = {
   name: 'inbox-mixed',
   route: 'cockpit',
-  // Claude Code waits at a low-risk prompt, Codex at a high-risk one, PowerShell hit an error.
+  // Claude waits at a low-risk prompt, Codex at a high-risk one, PowerShell hit an error.
   panes: EXAMPLE_PANES.map((p) => (p.id === PANE_CODEX ? { ...p, status: 'waiting_input' as const } : p)),
   questions,
   canary: CHANGED_SCREENS_STATUS,

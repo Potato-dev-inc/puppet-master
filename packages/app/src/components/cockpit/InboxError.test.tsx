@@ -21,7 +21,7 @@ const c = { newAgent, select } as unknown as CockpitApi;
 
 async function mount() {
   await act(async () => {
-    root.render(createElement(PaneErrorCard, { c, paneId: 'p1', agentType: 'claude', name: 'Claude Code', project: 'shop', age: 125_000, onOpenDoctor: openDoctor }));
+    root.render(createElement(PaneErrorCard, { c, paneId: 'p1', agentType: 'claude', name: 'Claude', project: 'shop', age: 125_000, onOpenDoctor: openDoctor }));
   });
 }
 const button = (label: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === label);
@@ -44,7 +44,7 @@ describe('Inbox error card', () => {
   it('says what happened, what is safe and one next step, in the shared card shape', async () => {
     api.info = { handle: 'h', status: 'failed', receipt: null, error: { code: 'AGENT_EXITED' } };
     await mount();
-    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude Code stopped');
+    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude stopped');
     expect(host.querySelector('.ib-glyph [role="img"]')!.getAttribute('aria-label')).toBe('Error');
     expect(host.querySelector('.ib-meta')!.textContent).toBe('shop');
     expect(host.querySelector('.ib-age')!.textContent).toBe('2m');
@@ -56,7 +56,7 @@ describe('Inbox error card', () => {
   it('a declined folder is the person\'s own choice: it says so, offers Start again, and is not drawn as an error', async () => {
     api.info = { handle: 'h', status: 'failed', receipt: null, error: { code: 'WORKSPACE_TRUST_DECLINED' } };
     await mount();
-    expect(host.querySelector('.ib-title')!.textContent).toBe("Claude Code didn't start");
+    expect(host.querySelector('.ib-title')!.textContent).toBe("Claude didn't start");
     const text = host.querySelector('.ib-reason')!;
     expect(text.textContent).toBe("You chose not to trust this folder, so the task wasn't sent. Start again to be asked once more.");
     // the code goes in a tooltip, never in the text
@@ -87,7 +87,7 @@ describe('Inbox error card', () => {
   it('without a known code it says so plainly and keeps Open', async () => {
     api.info = null;
     await mount();
-    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude Code stopped');
+    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude stopped');
     expect(host.querySelector('.ib-reason')!.textContent).toBe('Your files are as it left them. Open it to see what happened.');
     await act(async () => button('Open')!.click());
     expect(select).toHaveBeenCalledWith('p1');

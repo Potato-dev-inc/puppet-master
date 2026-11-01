@@ -97,8 +97,8 @@ describe('Settings > Bridge & MCP', () => {
     );
     const text = visible(host);
     expect(text).not.toMatch(SNAKE_CASE);
-    expect(text).toContain('Claude Code · this project');
-    expect(text).toContain('Claude Code · all projects');
+    expect(text).toContain('Claude · this project');
+    expect(text).toContain('Claude · all projects');
     expect(text).toContain('Codex · all projects');
     expect(text).toContain('OpenCode · this project');
     await act(async () => root.unmount());

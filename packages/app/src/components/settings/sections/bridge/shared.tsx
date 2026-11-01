@@ -92,7 +92,7 @@ export function ResultLines({ results, note }: { results: EnsureMcpResult[]; not
  * (this project, all projects or the home folder). An id nobody mapped yet is still read as words.
  */
 export function backendName(id: string): string {
-  const agents: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+  const agents: Record<string, string> = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
   const [first = '', ...rest] = id.split('_').filter(Boolean);
   const agent = agents[first] ?? first.charAt(0).toUpperCase() + first.slice(1);
   const words = rest.filter((word) => word !== 'cli');

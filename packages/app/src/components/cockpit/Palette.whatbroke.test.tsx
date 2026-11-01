@@ -24,7 +24,7 @@ const c = {
   registry: { paneList: [], panes: new Map([['p1', {}]]) },
   launchEntries: [],
   readyAgents: new Set(),
-  names: new Map([['p1', 'Claude Code']]),
+  names: new Map([['p1', 'Claude']]),
   selectedId: 'p1',
   mode: 'orchestration',
   theme: 'dark',

@@ -1,4 +1,4 @@
-//! Claude Code's first-run screens: what a brand-new install asks before the input box shows.
+//! Claude's first-run screens: what a brand-new install asks before the input box shows.
 //!
 //! Real captures of v2.1.312 (a fresh config folder, a hidden terminal; `fixtures/first_run_*_2_1_312.txt`):
 //!
@@ -22,7 +22,7 @@
 //! the buttons, and the pointer moved with arrow keys (the route adds the Enter). The sign-in menu of a first run has
 //! no title and no footer; `login.rs` reads it as it is (see the fixture test).
 //!
-//! Only text that was really seen is matched. The "Login successful. Press Enter to continue" and "Use Claude Code's
+//! Only text that was really seen is matched. The "Login successful. Press Enter to continue" and "Use Claude's
 //! terminal setup?" screens were not reachable without signing in, so they are not named here; the first is still caught by
 //! its footer, the second by the generic Chat card.
 
@@ -147,7 +147,7 @@ fn theme_picker(agent_type: &str, all: &[String]) -> Option<Value> {
         return None;
     }
     let text = all[anchor..start + menu.used].join("\n");
-    let words = Words { summary: "Claude Code: pick a text style", note: "Pick how Claude Code looks in the terminal. You can change it later with /theme.", name: "theme" };
+    let words = Words { summary: "Claude: pick a text style", note: "Pick how Claude looks in the terminal. You can change it later with /theme.", name: "theme" };
     Some(menu_card(agent_type, &text, &menu, &words, false))
 }
 
@@ -162,7 +162,7 @@ fn api_key_question(agent_type: &str, all: &[String]) -> Option<Value> {
     }
     // The key itself is not copied into the card.
     let text = format!("{}\n{}", all[anchor], menu.labels.join("\n"));
-    let words = Words { summary: "Claude Code found an API key in your environment", note: "Pick whether Claude Code uses the key it found.", name: "api_key" };
+    let words = Words { summary: "Claude found an API key in your environment", note: "Pick whether Claude uses the key it found.", name: "api_key" };
     Some(menu_card(agent_type, &text, &menu, &words, true))
 }
 
@@ -187,11 +187,11 @@ fn press_enter(agent_type: &str, all: &[String]) -> Option<Value> {
     let text = all[heading.unwrap_or(all.len().saturating_sub(6))..].join("\n");
     let lower = text.to_lowercase();
     let (summary, name) = if lower.contains("security notes") {
-        ("Claude Code shows its security notes", "security_notes")
+        ("Claude shows its security notes", "security_notes")
     } else if lower.contains("login successful") || lower.contains("logged in") {
-        ("Claude Code signed you in", "signed_in")
+        ("Claude signed you in", "signed_in")
     } else {
-        ("Claude Code waits for you to continue", "continue")
+        ("Claude waits for you to continue", "continue")
     };
     let menu = Menu { labels: vec!["Continue".into()], selected: 1, used: 1 };
     let words = Words { summary, note: "Read the screen, then continue.", name };

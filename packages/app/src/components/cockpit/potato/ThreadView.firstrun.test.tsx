@@ -41,7 +41,7 @@ function setup(over: Partial<ThreadViewProps> = {}, botOver: Partial<PotatoBotVi
     messages: [],
     settings: SETTINGS,
     avatar: 'mochi',
-    agentLabel: 'Claude Code',
+    agentLabel: 'Claude',
     transport,
     onOpenSettings: () => {},
     onNotify: () => {},

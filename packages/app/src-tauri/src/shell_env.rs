@@ -26,7 +26,7 @@ pub fn apply_to_process() {
     scrub_host_session_env();
 }
 
-/// Variables a launching Claude Code session exports to its children. A pane or headless `claude`
+/// Variables a launching Claude session exports to its children. A pane or headless `claude`
 /// that inherits them believes it is a nested child session: it turns transcript saving off, shows
 /// a warning row instead of its input hint and repaints the prompt box, which breaks screen-based
 /// prompt delivery and completion capture. Auth and config variables are deliberately not listed.

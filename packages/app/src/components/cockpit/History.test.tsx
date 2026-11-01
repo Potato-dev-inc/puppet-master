@@ -332,16 +332,16 @@ describe('History polish', () => {
     expect(api.checkpointRestore).toHaveBeenCalledWith('p1', '8');
   });
 
-  it('a prompt checkpoint names who asked: Before Claude Code\'s question', async () => {
+  it('a prompt checkpoint names who asked: Before Claude\'s question', async () => {
     const api = mockApi({
       state: 'ok',
       message: '',
       items: [cp('6', 'Before answering a prompt (turn 3)', 90_000, { kind: 'answer', turn: 3 })],
     });
     await act(async () => {
-      root.render(<History paneId="p1" status="idle" now={NOW} notify={vi.fn()} api={api} agentName="Claude Code" />);
+      root.render(<History paneId="p1" status="idle" now={NOW} notify={vi.fn()} api={api} agentName="Claude" />);
     });
-    expect(host.querySelector('.ck-hist-title')!.textContent).toBe("Before Claude Code's question (turn 3)");
+    expect(host.querySelector('.ck-hist-title')!.textContent).toBe("Before Claude's question (turn 3)");
     expect(host.textContent).not.toContain('a prompt');
   });
 

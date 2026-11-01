@@ -60,12 +60,12 @@ describe('multiLoginAgents and paneSubline', () => {
 
   it('puts the agent first on a titled row and adds the login only when several are in use', () => {
     const multi = new Set(['claude']);
-    expect(paneSubline(work, 'Claude Code', 'Editing src/app.ts', multi)).toBe('Claude Code · Editing src/app.ts · Work');
-    expect(paneSubline(work, 'Claude Code', 'Editing src/app.ts', new Set())).toBe('Claude Code · Editing src/app.ts');
+    expect(paneSubline(work, 'Claude', 'Editing src/app.ts', multi)).toBe('Claude · Editing src/app.ts · Work');
+    expect(paneSubline(work, 'Claude', 'Editing src/app.ts', new Set())).toBe('Claude · Editing src/app.ts');
   });
 
   it('leads with the detail on an untitled row, whose first line is already the agent', () => {
-    expect(paneSubline(own, 'Claude Code', 'proj', new Set(['claude']))).toBe('proj');
-    expect(paneSubline({ ...own, account_label: 'Work' }, 'Claude Code', 'proj', new Set(['claude']))).toBe('proj · Work');
+    expect(paneSubline(own, 'Claude', 'proj', new Set(['claude']))).toBe('proj');
+    expect(paneSubline({ ...own, account_label: 'Work' }, 'Claude', 'proj', new Set(['claude']))).toBe('proj · Work');
   });
 });

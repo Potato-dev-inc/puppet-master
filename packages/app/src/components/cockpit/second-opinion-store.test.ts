@@ -17,7 +17,7 @@ const START: ReviewStart = {
   files: 1,
   additions: 2,
   deletions: 1,
-  authorLabel: 'Claude Code',
+  authorLabel: 'Claude',
 };
 
 const REVIEW: ParsedReview = {

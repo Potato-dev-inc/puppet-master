@@ -101,7 +101,7 @@ describe('agent id schema', () => {
 describe('presetFor', () => {
   it('returns the built-in preset for a known id', () => {
     expect(presetFor('codex', 'windows')).toEqual(getPreset('codex', 'windows'));
-    expect(presetFor('claude', 'windows').label).toBe('Claude Code');
+    expect(presetFor('claude', 'windows').label).toBe('Claude');
   });
 
   it('falls back to a neutral preset for an unknown id', () => {

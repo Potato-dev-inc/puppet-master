@@ -75,7 +75,7 @@ fn start_line(m: &Mission) -> String {
 
 pub fn first(m: &Mission) -> String {
     // Compact on purpose: a long multi-line prompt is harder for a TUI to take in one paste (live:
-    // a 12-line first prompt was not taken by Claude Code's input box; the 6-line brief was).
+    // a 12-line first prompt was not taken by Claude's input box; the 6-line brief was).
     let checks: Vec<String> = m.checks.iter().map(|c| format!("{} `{}`", c.name, c.display())).collect();
     format!(
         "Mission: {}\nChecks (Puppet Master runs them after every turn): {}. {}\n{}\n{}",

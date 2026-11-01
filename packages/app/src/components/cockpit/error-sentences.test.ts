@@ -17,8 +17,8 @@ describe('explainError', () => {
   });
 
   it('says what happened, what is safe and one next step', () => {
-    expect(explainError('WORKSPACE_TRUST_DECLINED', 'Claude Code')).toEqual({
-      title: "Claude Code didn't start",
+    expect(explainError('WORKSPACE_TRUST_DECLINED', 'Claude')).toEqual({
+      title: "Claude didn't start",
       sentence: "You chose not to trust this folder, so the task wasn't sent. Start again to be asked once more.",
       fix: 'start_again',
       fixLabel: 'Start again',
@@ -27,7 +27,7 @@ describe('explainError', () => {
     });
     expect(explainError('AGENT_EXITED', 'Codex')).toMatchObject({ title: 'Codex stopped', glyph: 'error' });
     expect(explainError('AGENT_EXITED', 'Codex')?.sentence).toContain('Your files are as it left them.');
-    expect(explainError('AGENT_NOT_INSTALLED', 'Claude Code')?.fixLabel).toBe('Install');
+    expect(explainError('AGENT_NOT_INSTALLED', 'Claude')?.fixLabel).toBe('Install');
     expect(explainError('PANE_NOT_READY', 'Codex')?.fixLabel).toBe('Open');
   });
 

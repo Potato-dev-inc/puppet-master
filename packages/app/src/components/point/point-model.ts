@@ -18,7 +18,7 @@ export function sourceLine(p: PickView): string | null {
 
 /**
  * The "To:" name of a pane: the agent label, then the pane title after a dot. The title is left out when it
- * says the same thing as the label (e.g. "Claude Code · Claude Code" shows as "Claude Code").
+ * says the same thing as the label (e.g. "Claude · Claude" shows as "Claude").
  * The comparison ignores case and the spaces at the ends.
  */
 export function targetLabel(t: Pick<Target, 'agentLabel' | 'title'>): string {

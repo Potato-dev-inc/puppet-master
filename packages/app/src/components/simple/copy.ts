@@ -4,7 +4,7 @@
 //
 // Rules for new strings:
 //  - one idea per sentence, 15 words or fewer, 3 sentences at most per card;
-//  - present tense, the agent as the subject: "Claude Code wants to ...";
+//  - present tense, the agent as the subject: "Claude wants to ...";
 //  - say if her work is safe in every stop and every problem;
 //  - buttons: one verb, or a verb and an object, 3 words at most;
 //  - no word from the "never" list; add a new word to `word-list.ts` only when it is simple.
@@ -42,9 +42,9 @@ export const T = {
   throwAway: 'Throw away',
   stop: 'Stop',
   keepTitle: 'Keep these changes?',
-  keepWorking: 'Claude Code is still working. Wait, or press Stop.',
+  keepWorking: 'Claude is still working. Wait, or press Stop.',
   keepNothing: 'Nothing changed yet.',
-  keepWaiting: 'Claude Code is waiting for your answer. Answer first.',
+  keepWaiting: 'Claude is waiting for your answer. Answer first.',
   throwFailed: 'Puppet Master could not throw the changes away. Your files are safe.',
   keepConfirm: 'Keep',
   keepDone: 'Kept. Your folder has the new files.',
@@ -54,24 +54,24 @@ export const T = {
   throwDone: 'Thrown away. Your own folder was not changed.',
   cancel: 'Cancel',
   keepFailed: 'Puppet Master could not keep the changes. Your work is safe. Nothing was lost.',
-  keepConflict: 'A file changed in your folder while Claude Code worked. Nothing was kept. Your files are safe.',
+  keepConflict: 'A file changed in your folder while Claude worked. Nothing was kept. Your files are safe.',
 
   // ---- composer
-  composerPlaceholder: 'Tell Claude Code what to change',
+  composerPlaceholder: 'Tell Claude what to change',
   composerSend: 'Send',
-  composerQueued: 'Your message will be sent when Claude Code finishes.',
+  composerQueued: 'Your message will be sent when Claude finishes.',
   composerSent: 'Sent.',
 
   // ---- details
   details: 'Details',
   agentScreen: "Agent's screen",
-  agentScreenNote: "This is what Claude Code shows. You don't need it.",
+  agentScreenNote: "This is what Claude shows. You don't need it.",
   hideScreen: 'Hide the screen',
   showScreen: 'Show the screen',
   cantReadHint: 'Show the screen to answer it.',
   closeProject: 'Close this project',
   more: 'More',
-  cantRead: 'Claude Code is asking something Puppet Master cannot read.',
+  cantRead: 'Claude is asking something Puppet Master cannot read.',
   showMe: 'Show me',
 
   // ---- preview
@@ -84,7 +84,7 @@ export const T = {
   // ---- conversation
   you: 'You',
   summary: 'Summary',
-  conversationEmpty: 'Nothing was said yet. Claude Code starts in a moment.',
+  conversationEmpty: 'Nothing was said yet. Claude starts in a moment.',
   conversationUnavailable: 'The conversation is not ready. Your work is safe.',
   thinking: 'Working',
 
@@ -102,8 +102,8 @@ export const T = {
   goBackHere: 'Go back to here',
   goBackConfirmBody: 'The newer changes are saved too. You can come back.',
   goBackConfirm: 'Go back',
-  goBackWorking: 'Claude Code is working. Press Stop first, then go back.',
-  goBackEmpty: 'No versions yet. Puppet Master saves one when Claude Code finishes a step.',
+  goBackWorking: 'Claude is working. Press Stop first, then go back.',
+  goBackEmpty: 'No versions yet. Puppet Master saves one when Claude finishes a step.',
   goBackOff: 'Go back is off. Your work is safe, but Puppet Master cannot save versions.',
   goBackNeedsHelper: 'Go back needs a small helper on this computer. It is not there yet.',
   goBackUnavailable: 'Puppet Master cannot show your versions. Your work is safe.',
@@ -119,8 +119,8 @@ export const T = {
   blockedWhy: 'Why did Puppet Master stop this?',
   blockedWhyBody: 'This could harm your computer or your files. Simple mode does not let it happen.',
   blockedOk: 'OK',
-  blockedTell: 'Tell Claude Code why',
-  blockedTold: "Told Claude Code to stay in this folder.",
+  blockedTell: 'Tell Claude why',
+  blockedTold: "Told Claude to stay in this folder.",
   blockedTellText: "Don't do that. Stay inside this folder.",
   checkFirst: 'Check first',
   blockedSafe: 'Your files are safe. Nothing was changed.',
@@ -138,7 +138,7 @@ export const T = {
   makeSeeLead: 'You can change the words.',
   makeRulesTitle: 'Puppet Master also asks it to',
   makeStarting: 'Starting',
-  makeNoAgent: 'No AI is ready on this computer. Add Claude Code or Codex first.',
+  makeNoAgent: 'No AI is ready on this computer. Add Claude or Codex first.',
   makeAddAgent: 'Set up an AI helper',
   makeFolder: 'Use a folder I already have',
   makeFolderChoose: 'Choose a folder',
@@ -153,7 +153,7 @@ export const T = {
   // ---- problems
   tryAgain: 'Start again',
   signInAgain: 'Sign in',
-  askFix: 'Ask Claude Code to fix it',
+  askFix: 'Ask Claude to fix it',
   goBackButton: 'Go back',
   copyReport: 'Copy report',
   reportCopied: 'Copied.',
@@ -213,21 +213,21 @@ export const F = {
 // ---- samples, so the language test can check what the functions make
 
 export const SAMPLES: string[] = [
-  F.agentWants('Claude Code', 'look at your files', 'It does not change them.'),
-  F.askingAgent('Claude Code'),
-  F.tellAgent('Claude Code'),
-  F.willSendWhenDone('Claude Code'),
-  F.agentMaking('Claude Code'),
-  F.agentScreenCaption('Claude Code'),
-  F.cantRead('Claude Code'),
-  F.stoppedAgent('Claude Code'),
-  F.blockedWanted('Claude Code', 'delete files outside your project'),
-  F.workingOnCopy('Claude Code'),
+  F.agentWants('Claude', 'look at your files', 'It does not change them.'),
+  F.askingAgent('Claude'),
+  F.tellAgent('Claude'),
+  F.willSendWhenDone('Claude'),
+  F.agentMaking('Claude'),
+  F.agentScreenCaption('Claude'),
+  F.cantRead('Claude'),
+  F.stoppedAgent('Claude'),
+  F.blockedWanted('Claude', 'delete files outside your project'),
+  F.workingOnCopy('Claude'),
   F.filesCount(1),
   F.filesCount(3),
-  F.changedSummary('Claude Code', 0),
-  F.changedSummary('Claude Code', 1),
-  F.changedSummary('Claude Code', 3),
+  F.changedSummary('Claude', 0),
+  F.changedSummary('Claude', 1),
+  F.changedSummary('Claude', 3),
   F.keepBody(1),
   F.keepBody(3),
   F.goBackConfirmTitle('14:05'),
@@ -244,17 +244,17 @@ export const SAMPLES: string[] = [
   F.stepChanged('quiz.html'),
   F.stepRan(),
   F.stepSearched(),
-  F.agentStopped('Claude Code'),
-  F.agentSignedOut('Claude Code'),
-  F.agentLoop('Claude Code'),
-  F.agentSlow('Claude Code'),
-  F.pageProblem('Claude Code'),
+  F.agentStopped('Claude'),
+  F.agentSignedOut('Claude'),
+  F.agentLoop('Claude'),
+  F.agentSlow('Claude'),
+  F.pageProblem('Claude'),
   F.stepOf(1),
   F.folderMade('Class quiz'),
-  F.madeChanges('Claude Code'),
-  F.agentMissing('Claude Code'),
-  F.messageLost('Claude Code'),
-  F.trustDeclined('Claude Code'),
+  F.madeChanges('Claude'),
+  F.agentMissing('Claude'),
+  F.messageLost('Claude'),
+  F.trustDeclined('Claude'),
 ];
 
 /** The strings in this file. The other Simple files export their own `STRINGS`; the language test

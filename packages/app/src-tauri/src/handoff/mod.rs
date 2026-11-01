@@ -10,7 +10,7 @@
 //!   against false matches (an agent quoting the limit text is not a limit).
 //! - `reset`: "resets 5pm" / "try again at 9:45 PM" read as a moment, in this machine's zone.
 //! - `watch`: the per-pane state machine (a limit must hold still before it counts).
-//! - `card`: the Inbox cards ("Claude Code ran out of usage. It can continue at 14:05.") and what
+//! - `card`: the Inbox cards ("Claude ran out of usage. It can continue at 14:05.") and what
 //!   answering them asks for: "Continue on ...", "Remind me at 14:05", "Stop here".
 //! - `keep_going`: the hand-over to another agent, the come-back check and the records behind them.
 //! - this file: the engine that ties them to live panes, runs and the questions store.

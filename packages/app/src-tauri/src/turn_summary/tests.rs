@@ -71,7 +71,7 @@ impl Env for FakeEnv {
     fn pane(&self, _pane_id: &str) -> Option<PaneInfo> {
         self.pane_exists.load(Ordering::SeqCst).then(|| PaneInfo {
             cwd: self.cwd.to_string_lossy().to_string(),
-            label: "Claude Code".into(),
+            label: "Claude".into(),
             agent_id: "fake-agent".into(),
             account: None,
             has_turns: self.has_turns.load(Ordering::SeqCst),
@@ -119,7 +119,7 @@ fn assembly_from_a_synthetic_checkpoint_diff_approvals_and_end_state() {
     assert_eq!((stats.count, stats.added, stats.deleted), (4, 86, 12));
     let summary = assemble(Facts {
         pane_id: "p1".into(),
-        agent: "Claude Code".into(),
+        agent: "Claude".into(),
         agent_id: None,
         account: None,
         turn: 2,
@@ -135,7 +135,7 @@ fn assembly_from_a_synthetic_checkpoint_diff_approvals_and_end_state() {
     assert_eq!(summary.end, EndState { kind: "waiting_input".into(), prompt: Some("allow `npm test`?".into()) });
     assert_eq!(
         summary.sentence,
-        "Claude Code edited 4 files (+86 \u{2212}12), you approved 1 command, now waiting: allow `npm test`?"
+        "Claude edited 4 files (+86 \u{2212}12), you approved 1 command, now waiting: allow `npm test`?"
     );
     assert_eq!(summary.files.as_ref().unwrap().paths.len(), 4);
 }
@@ -181,7 +181,7 @@ fn a_turn_across_an_approval_is_one_turn_and_the_last_summary_wins() {
     let ended = tracker.on_status("p1", "waiting_input").expect("rest point");
     assert!(ended.from_running);
     let first = tracker.finish(ended).unwrap();
-    assert_eq!(first.sentence, "Claude Code edited 4 files (+86 \u{2212}12), now waiting: allow `npm test`?");
+    assert_eq!(first.sentence, "Claude edited 4 files (+86 \u{2212}12), now waiting: allow `npm test`?");
 
     // The user approves; the agent resumes the same turn and stops on another prompt.
     tracker.record_approval("p1", approval("a1", "command", "allow"));
@@ -193,7 +193,7 @@ fn a_turn_across_an_approval_is_one_turn_and_the_last_summary_wins() {
     assert_eq!(second.started_at_ms, 1_000);
     assert_eq!(
         second.sentence,
-        "Claude Code edited 4 files (+86 \u{2212}12), you approved 1 command, now waiting: allow `npm test`?"
+        "Claude edited 4 files (+86 \u{2212}12), you approved 1 command, now waiting: allow `npm test`?"
     );
 
     // It finishes: the idle summary replaces the earlier ones of the same turn.
@@ -202,7 +202,7 @@ fn a_turn_across_an_approval_is_one_turn_and_the_last_summary_wins() {
     env.at(120_000);
     let ended = tracker.on_status("p1", "idle").unwrap();
     let last = tracker.finish(ended).unwrap();
-    assert_eq!(last.sentence, "Claude Code edited 4 files (+86 \u{2212}12), you approved 1 command, now idle.");
+    assert_eq!(last.sentence, "Claude edited 4 files (+86 \u{2212}12), you approved 1 command, now idle.");
     let all = tracker.summaries("p1");
     assert_eq!(all.len(), 1, "one entry per turn");
     assert_eq!(all[0], last);
@@ -309,7 +309,7 @@ fn answers_are_counted_once_and_only_inside_a_turn() {
     tracker.record_approval("p1", approval("a2", "command", "deny"));
     let s = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
     assert_eq!(s.approvals.len(), 2);
-    assert_eq!(s.sentence, "Claude Code worked for 0s, you approved 1 command, you declined 1 command, now idle.");
+    assert_eq!(s.sentence, "Claude worked for 0s, you approved 1 command, you declined 1 command, now idle.");
 }
 
 /// Regression: `an_approval_is_answered_from_the_card_path` failed on a CI runner with
@@ -342,7 +342,7 @@ fn an_answer_is_in_the_summary_of_a_turn_that_ends_before_the_answering_thread_r
     );
     let summary = tracker.finish(ended.expect("the turn ended")).unwrap();
     assert_eq!(summary.approvals.len(), 1, "{summary:?}");
-    assert_eq!(summary.sentence, "Claude Code worked for 11s, you approved 1 command, now idle.");
+    assert_eq!(summary.sentence, "Claude worked for 11s, you approved 1 command, now idle.");
     assert_eq!(tracker.summaries("p1").last().map(|s| s.approvals.len()), Some(1));
 }
 
@@ -377,7 +377,7 @@ fn end_states_and_receipt_facts_reach_the_sentence() {
     *env.files.lock() = Some(FileStats { count: 0, added: 0, deleted: 0, paths: vec![] });
     *env.receipt.lock() = Some(ReceiptFacts { checks: "3/3 passed".into(), outcome: "passed_checks".into() });
     let ok = finish_idle(&tracker, &env, 1_000, 61_000);
-    assert_eq!(ok.sentence, "Claude Code made no file changes, all checks passed (3/3), now idle.");
+    assert_eq!(ok.sentence, "Claude made no file changes, all checks passed (3/3), now idle.");
     assert_eq!(ok.duration_ms, 60_000);
 
     env.at(70_000);
@@ -385,7 +385,7 @@ fn end_states_and_receipt_facts_reach_the_sentence() {
     env.at(80_000);
     *env.receipt.lock() = Some(ReceiptFacts { checks: "1/3 passed".into(), outcome: "failed_checks".into() });
     let bad = tracker.finish(tracker.on_status("p1", "error").unwrap()).unwrap();
-    assert_eq!(bad.sentence, "Claude Code made no file changes, checks failed (1/3 passed), ended with an error.");
+    assert_eq!(bad.sentence, "Claude made no file changes, checks failed (1/3 passed), ended with an error.");
     assert_eq!(bad.end.kind, "error");
 }
 
@@ -401,7 +401,7 @@ fn a_pane_closed_after_its_turn_came_to_rest_still_gets_its_summary() {
     let ended = tracker.on_status("p1", "idle").unwrap();
     env.pane_exists.store(false, Ordering::SeqCst);
     let summary = tracker.finish(ended).expect("the summary does not need the pane");
-    assert_eq!((summary.pane_id.as_str(), summary.turn, summary.agent.as_str()), ("p1", 1, "Claude Code"));
+    assert_eq!((summary.pane_id.as_str(), summary.turn, summary.agent.as_str()), ("p1", 1, "Claude"));
     assert_eq!(summary.end.kind, "idle");
     assert!(ring_path(tmp.p()).is_file(), "kept in the project's ring file, found by the project folder captured earlier");
     assert_eq!(tracker.since(0).len(), 1, "the away digest lists it");
@@ -449,7 +449,7 @@ fn summaries_survive_a_restart_through_the_ring_file() {
 fn summary(pane: &str, turn: u32, ended: u64) -> TurnSummary {
     assemble(Facts {
         pane_id: pane.into(),
-        agent: "Claude Code".into(),
+        agent: "Claude".into(),
         agent_id: None,
         account: None,
         turn,
@@ -664,7 +664,7 @@ fn get_digest_returns_what_happened_since_and_remembers_the_device() {
     assert_eq!(status, 200);
     assert_eq!(body["agentsWorked"], 1);
     assert_eq!(body["lines"][0]["paneId"], "pb");
-    assert_eq!(body["lines"][0]["sentence"], "Claude Code worked for 0s, now idle.");
+    assert_eq!(body["lines"][0]["sentence"], "Claude worked for 0s, now idle.");
     assert_eq!(body["needsYou"][0]["prompt"], "allow `npm test`?");
     assert_eq!(body["empty"], false);
     assert_eq!(body["previousSeenMs"], json!(null));

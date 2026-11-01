@@ -182,11 +182,11 @@ describe('small helpers', () => {
     expect(splitError('plain failure')).toEqual({ code: '', message: 'plain failure' });
   });
 
-  it('defaults to Claude Code, then Codex, then anything', () => {
+  it('defaults to Claude, then Codex, then anything', () => {
     const all = [
       { id: 'kilo', label: 'Kilo' },
       { id: 'codex', label: 'Codex' },
-      { id: 'claude', label: 'Claude Code' },
+      { id: 'claude', label: 'Claude' },
     ];
     expect(chooseDefaultDrafter(all)?.id).toBe('claude');
     expect(chooseDefaultDrafter(all.slice(0, 2))?.id).toBe('codex');
@@ -196,8 +196,8 @@ describe('small helpers', () => {
   });
 
   it('records who wrote the draft without any key or path', () => {
-    expect(provenanceOf({ kind: 'local_agent', id: 'claude', label: 'Claude Code' }, 2)).toEqual({
-      drafter: 'Claude Code (local)',
+    expect(provenanceOf({ kind: 'local_agent', id: 'claude', label: 'Claude' }, 2)).toEqual({
+      drafter: 'Claude (local)',
       drafter_kind: 'local_agent',
       model: null,
       prompt_version: PROMPT_VERSION,

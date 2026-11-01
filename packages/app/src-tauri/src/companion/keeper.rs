@@ -354,7 +354,7 @@ mod tests {
     fn input<'a>() -> DeriveInput<'a> {
         DeriveInput {
             name: "Mochi",
-            agent_label: "Claude Code",
+            agent_label: "Claude",
             sleeping: false,
             stopped: false,
             pane: Some(Status::Idle),
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn row_sign_in_names_the_agent() {
         let i = DeriveInput { sign_in: true, pane: Some(Status::Idle), ..input() };
-        assert_eq!(derive(&i), (CompanionState::NeedsYou, "Sign in to Claude Code on the computer".into()));
+        assert_eq!(derive(&i), (CompanionState::NeedsYou, "Sign in to Claude on the computer".into()));
     }
 
     #[test]

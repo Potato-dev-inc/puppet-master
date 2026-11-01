@@ -149,7 +149,7 @@ fn declining_the_dialog_fails_the_run_with_a_clear_code() {
     // (agent_runs/headless/fallback.rs tests that this code never falls back to a headless run.)
 }
 
-/// Real Claude Code capture (this branch, 2026-10-14, folder never trusted): after "No, exit" Claude
+/// Real Claude capture (this branch, 2026-10-14, folder never trusted): after "No, exit" Claude
 /// quits, the dialog's text stays above, and the pane's host PowerShell prints its prompt on the
 /// last line. The pane stays alive and reads `idle`.
 const DECLINED_HOST_SHELL: &str = include_str!("../tui/claude/fixtures/trust_declined_host_shell.txt");

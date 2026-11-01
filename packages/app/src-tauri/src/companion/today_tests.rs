@@ -201,10 +201,10 @@ fn a_helper_line_starts_with_its_parent() {
     let (service, host, root) = setup();
     turn_on(&service);
     let mut helper = turn("pane-3", 1, start_ms() - HOUR, "Read the logs.");
-    helper.parent_label = Some("Claude Code".into());
+    helper.parent_label = Some("Claude".into());
     host.turns.lock().push(helper);
     tick(&service, &host, 3_000);
-    assert!(today_text(&root).unwrap().contains(" · ↳ Claude Code › Codex · my-app · Read the logs."));
+    assert!(today_text(&root).unwrap().contains(" · ↳ Claude › Codex · my-app · Read the logs."));
 }
 
 #[test]

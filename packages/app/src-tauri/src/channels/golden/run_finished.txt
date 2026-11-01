@@ -1,2 +1,2 @@
 auth refactor · Done
-Claude Code finished
+Claude finished

@@ -264,7 +264,7 @@ fn job_with(conflicts: &[&str], who: &str, note: Option<&str>) -> super::store::
         project: "D:/leo".into(),
         pane_id: None,
         agent_type: "claude".into(),
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         who: who.into(),
         their_branch: "feat/auth".into(),
         commit: "0123456789abcdef0123456789abcdef01234567".into(),

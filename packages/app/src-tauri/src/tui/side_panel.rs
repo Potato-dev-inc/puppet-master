@@ -1,4 +1,4 @@
-//! Side panels: some TUIs draw a second column beside the chat (Claude Code's diff panel is one).
+//! Side panels: some TUIs draw a second column beside the chat (Claude's diff panel is one).
 //! The panel is separated from the chat by a vertical box-drawing divider that sits in the same
 //! column on most rows. Read as plain text the panel's rows are interleaved with the chat's
 //! (and a row that fills the full width is glued to the next one by `vt100`'s `contents()`), so

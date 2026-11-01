@@ -64,8 +64,8 @@ const base: MissionView = {
   passed: 9,
   total: 12,
   budget: { turns_used: 7, turns: 30, minutes_used: 41, minutes: 120, text: '7 of 30 turns · 41 of 120 min' },
-  agents: ['Claude Code', 'Codex'],
-  agents_line: 'Claude Code → Codex',
+  agents: ['Claude', 'Codex'],
+  agents_line: 'Claude → Codex',
   current_agent: 'Codex',
   current_run: 'run-codex-1',
   current_pane: PANE_CODEX,
@@ -83,15 +83,15 @@ const base: MissionView = {
     turn(6, 'Codex', '7 of 12', '−2', "went back to turn 5's files", 6),
     event('v', "Tests got worse (9 of 12 → 7 of 12). Went back to turn 5's files.", 6.5),
     turn(5, 'Codex', '9 of 12', '+3', '', 12),
-    event('v', 'Handed to Codex · Claude Code made no progress', 18, 'show_brief'),
-    turn(4, 'Claude Code', '6 of 12', '0', '', 22),
-    turn(3, 'Claude Code', '6 of 12', '0', '', 27),
-    turn(2, 'Claude Code', '6 of 12', '+1', '', 31),
-    turn(1, 'Claude Code', '5 of 12', '0', '', 36),
+    event('v', 'Handed to Codex · Claude made no progress', 18, 'show_brief'),
+    turn(4, 'Claude', '6 of 12', '0', '', 22),
+    turn(3, 'Claude', '6 of 12', '0', '', 27),
+    turn(2, 'Claude', '6 of 12', '+1', '', 31),
+    turn(1, 'Claude', '5 of 12', '0', '', 36),
     event(':', 'Started · 5 of 12 pass at the start · separate copy from main at 3f2a1c0', 41),
   ],
   started_by: 'you',
-  work_text: '7 turns · Claude Code 4, Codex 3 · 1 hand-off · 1 time went back',
+  work_text: '7 turns · Claude 4, Codex 3 · 1 hand-off · 1 time went back',
   created_at_ms: now - 41 * min,
   updated_at_ms: now - min,
   rev: 40,
@@ -138,7 +138,7 @@ export const MISSION_DONE: MissionView = {
     { name: 'Type check', passed: true, text: 'npx tsc --noEmit' },
   ],
   current_run: undefined,
-  work_text: '9 turns · Claude Code 4, Codex 5 · 1 hand-off · 1 time went back',
+  work_text: '9 turns · Claude 4, Codex 5 · 1 hand-off · 1 time went back',
   budget: { turns_used: 9, turns: 30, minutes_used: 52, minutes: 120, text: '9 of 30 turns · 52 of 120 min' },
   timeline: [
     { ...turn(9, 'Codex', '12 of 12', '+3', '', 2), checks: [{ name: 'Tests', passed: true, text: '12 of 12 pass' }, { name: 'Type check', passed: true, text: 'passes' }] },
@@ -163,7 +163,7 @@ export const MISSION_STUCK: MissionView = {
   state_text: 'Needs you · No progress after turn 9',
   glyph: '+',
   current_pane: PANE_CLAUDE,
-  current_agent: 'Claude Code',
+  current_agent: 'Claude',
 };
 
 /** `handled: false` leaves the command to the normal mock. */
@@ -175,7 +175,7 @@ export function missionMock(s: MissionScenario | undefined, cmd: string, args: R
     case 'mission_list':
       return { handled: true, value: { missions: list } };
     case 'mission_get':
-      return { handled: true, value: { ...find(args.id), notes: '- (Claude Code, turn 2) Switched money to integer cents. Next: half-up rounding in total().\n- (Codex, turn 5) Rounding fixed; 3 tests left on discounts.' } };
+      return { handled: true, value: { ...find(args.id), notes: '- (Claude, turn 2) Switched money to integer cents. Next: half-up rounding in total().\n- (Codex, turn 5) Rounding fixed; 3 tests left on discounts.' } };
     case 'mission_detect':
       return { handled: true, value: { checks: s?.detect ?? DETECTED } };
     case 'mission_start':
