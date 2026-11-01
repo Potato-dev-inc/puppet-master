@@ -104,7 +104,7 @@ describe('the three regions', () => {
     expect(panel()).toBeNull();
   });
 
-  it('has the tabs Computer, Routines and Advanced, and the last two say "Coming soon"', async () => {
+  it('has the tabs Computer, Routines and Advanced: Routines says "Coming soon", Advanced has its three sections', async () => {
     await mount({ screen: fakeScreenTransport() });
     await click(toggle());
     expect(tabs()).toEqual(['Computer', 'Routines', 'Advanced']);
@@ -114,7 +114,8 @@ describe('the three regions', () => {
     expect(host.querySelector('[role="tabpanel"][aria-label="Routines"]')!.textContent).toContain('Coming soon');
     await click(tab('Advanced'));
     expect(visiblePanel()).toBe('Advanced');
-    expect(host.querySelector('[role="tabpanel"][aria-label="Advanced"]')!.textContent).toContain('Coming soon');
+    const advanced = host.querySelector('[role="tabpanel"][aria-label="Advanced"]')!;
+    expect([...advanced.querySelectorAll('.ck-potato-section-title')].map((t) => t.textContent)).toEqual(['Notifications', 'Open work', 'Memory']);
   });
 
   it("remembers each bot's tab while the page is open", async () => {

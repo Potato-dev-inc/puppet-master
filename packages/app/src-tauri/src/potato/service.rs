@@ -67,6 +67,8 @@ pub trait Host: Send + Sync {
     fn resources(&self) -> Option<PathBuf>;
     /// Something about this bot changed: tell the windows (`potato://changed`).
     fn changed(&self, bot: &str);
+    /// A reply went into a bot's thread. `on`: the bot's "When it replies" setting (the phones get a push).
+    fn reply_pushed(&self, _bot: &str, _name: &str, _text: &str, _on: bool) {}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1174,6 +1176,7 @@ impl Service {
                     }
                     rt.mood.as_ref().map(|m| m.mood.clone())
                 };
+                let said = crate::companion::view::scrub(&segments.join(" "), None);
                 let last = segments.len().saturating_sub(1);
                 for (i, mut segment) in segments.into_iter().enumerate() {
                     if i == last {
@@ -1190,6 +1193,7 @@ impl Service {
                         tracing::debug!(%e, "could not save a reply");
                     }
                 }
+                self.host.reply_pushed(bot, &name, &said, super::notify::pushes_replies(&self.root, bot));
                 true
             }
             Event::Mood { mood, intensity, energy, hunger } => {
