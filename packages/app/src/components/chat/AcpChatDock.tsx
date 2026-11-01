@@ -1,0 +1,53 @@
+// What a chat session over ACP adds under its conversation: the agent's permission questions as cards (the Inbox's own
+// question card, with the agent's real options and no default), and a strip that says what the session is doing with
+// a Stop button that reads "Stopping…" until the agent has ended the turn.
+import { useEffect, useState } from 'react';
+import type { CockpitApi } from '../../hooks/useCockpit';
+import { useAcpChatState } from '../../hooks/useAcpChatState';
+import { permissionCards, runStrip, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
+import { QuestionCard } from '../cockpit/QuestionCard';
+import '../../styles/cockpit-acp.css';
+
+export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c: CockpitApi; paneId: string; paneName: string; api?: AcpChatApi }) {
+  const state = useAcpChatState(paneId, true, api);
+  // The person pressed Stop: the strip reads "Stopping…" at once, before the backend's state event comes back.
+  const [asked, setAsked] = useState(false);
+  const running = !!state?.turnInFlight;
+  useEffect(() => {
+    if (!running) setAsked(false);
+  }, [running]);
+  useEffect(() => setAsked(false), [paneId]);
+
+  const cards = permissionCards(c.asked.questions, paneId);
+  const strip = runStrip(state, asked);
+  if (cards.length === 0 && !strip) return null;
+  const stop = () => {
+    setAsked(true);
+    api.cancel(paneId).catch(() => setAsked(false));
+  };
+  return (
+    <div className="ck-dock ck-acp-dock" data-testid="acp-dock">
+      {cards.map((q) => (
+        <div key={q.id} className="ib-dock" role="group" aria-label="Agent permission question">
+          <QuestionCard
+            q={q}
+            paneName={paneName}
+            now={c.now}
+            onAnswer={(answer) => void c.asked.answerQuestion(q.id, answer)}
+            onDismiss={() => void c.asked.dismissQuestion(q.id)}
+          />
+        </div>
+      ))}
+      {strip && (
+        <div className="ck-acp-strip" data-testid="acp-strip" data-stopping={strip.stopping ? '' : undefined}>
+          <span className="ck-acp-strip-text" role="status">
+            {strip.text}
+          </span>
+          <button type="button" className="ck-btn ck-btn--secondary ck-acp-stop" onClick={stop} disabled={strip.stopping}>
+            {strip.stopping ? 'Stopping…' : 'Stop'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

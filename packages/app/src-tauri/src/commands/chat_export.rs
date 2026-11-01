@@ -49,7 +49,7 @@ pub(crate) async fn read_items(
         let pane = registry.get(pane_id).ok_or_else(|| format!("unknown pane: {pane_id}"))?;
         (pane.info.agent_type.clone(), pane.info.cwd.clone())
     };
-    let opening = Opening::for_agent(&agent_type).ok_or_else(|| NO_SOURCE.to_string())?;
+    let opening = Opening::for_pane(pane_id, &agent_type).ok_or_else(|| NO_SOURCE.to_string())?;
     let watchers = chat.watchers(app, &state.registry);
     let owned_pane = pane_id.to_string();
     let items = tauri::async_runtime::spawn_blocking(move || {

@@ -125,7 +125,7 @@ pub fn check_panes(ids: &[String], agent_type_of: impl Fn(&str) -> Option<String
             return Err(COMPANION_PRIVATE.to_string());
         }
         let agent = agent_type_of(id).ok_or_else(|| PANE_GONE.to_string())?;
-        if crate::session_chat::Opening::for_agent(&agent).is_none() {
+        if crate::session_chat::Opening::for_pane(id, &agent).is_none() {
             return Err(NO_CHAT.to_string());
         }
     }

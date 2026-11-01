@@ -14,6 +14,7 @@
 //!
 //! Generic: nothing here names an agent; the profile of the pane decides what ready means.
 
+pub mod chat;
 mod confirm;
 mod draft_guard;
 mod host;
@@ -140,6 +141,15 @@ impl Outbox {
         if self.inner.host.run_controls(pane_id) {
             return Err(RUN_CONTROLS.into());
         }
+        // A chat session that takes text while it works (steering) gets the message now, unless messages already
+        // wait for their turn: those go first.
+        let nothing_waiting = self.inner.panes.lock().get(pane_id).map_or(true, |queue| !queue.entries.iter().any(|e| e.message.state.active()));
+        if nothing_waiting {
+            if let Some(steered) = self.inner.host.steer(pane_id, text) {
+                steered?;
+                return Ok(self.record_sent(pane_id, text));
+            }
+        }
         let (message, list, start_worker) = {
             let mut panes = self.inner.panes.lock();
             let queue = panes.entry(pane_id.to_string()).or_default();
@@ -166,6 +176,23 @@ impl Outbox {
             worker::spawn(self.inner.clone(), pane_id);
         }
         Ok(message)
+    }
+
+    /// A message that was handed to the agent at once (steering): listed as sent, like any message that finished.
+    fn record_sent(&self, pane_id: &str, text: &str) -> OutboxMessage {
+        let (message, list) = {
+            let mut panes = self.inner.panes.lock();
+            let queue = panes.entry(pane_id.to_string()).or_default();
+            worker::prune(queue, &self.inner.timing);
+            let id = format!("m{}-{:x}", self.inner.next_id.fetch_add(1, Ordering::SeqCst), now_ms());
+            let message = OutboxMessage { id, text: text.to_string(), created_at: now_ms(), state: State::Sent, waiting_for: None, error: None };
+            let mut entry = Entry { message: message.clone(), created: Instant::now(), finished: None };
+            entry.finish(State::Sent, None);
+            queue.entries.push(entry);
+            (message, worker::snapshot(queue))
+        };
+        self.inner.host.publish(pane_id, &list);
+        message
     }
 
     /// Cancels a message that has not started to be typed.

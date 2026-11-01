@@ -66,10 +66,11 @@ export function errorText(error: unknown): string {
 }
 
 /** Why the message box is switched off, or null when the person can write. Plain words. */
-export function composerBlock(pane: { status: string } | undefined, isShell: boolean): string | null {
+export function composerBlock(pane: { status: string } | undefined, isShell: boolean, isChatSession = false): string | null {
   if (isShell) return 'Chat replies need an agent pane.';
   if (!pane) return 'This pane is not open any more.';
-  if (pane.status === 'error') return 'The agent is not running. Open Terminal.';
+  // A chat session over ACP that stopped (a crash) starts its agent again with the next message.
+  if (pane.status === 'error' && !isChatSession) return 'The agent is not running. Open Terminal.';
   return null;
 }
 

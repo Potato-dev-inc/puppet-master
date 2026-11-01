@@ -12,6 +12,10 @@ pub fn write_input(
     opencode_model: Option<crate::opencode::OpenCodeModelRef>,
     origin: crate::pty::WriteOrigin<'_>,
 ) -> Result<(), String> {
+    // A chat session over ACP has no terminal: Ctrl+C / Esc stop its turn, a line of text is a message.
+    if let Some(result) = crate::acp::chat::terminal_input(pane_id, text, append_newline) {
+        return result;
+    }
     let reg = registry.lock();
     let pane = reg
         .panes

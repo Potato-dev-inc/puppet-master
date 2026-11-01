@@ -17,7 +17,7 @@ pub(super) fn get(cx: &Ctx, pane_id: &str) -> RouteResult {
         .map(|pane| pane.info.agent_type.clone())
         .ok_or_else(|| (404, json!({ "error": crate::pty::registry::unknown_pane_message(pane_id) })))?;
     let since = query_param(cx.query, "since").and_then(|value| value.parse::<u64>().ok());
-    let opening = Opening::for_agent(&agent_type);
+    let opening = Opening::for_pane(pane_id, &agent_type);
     let watchers = cx.app.state::<SessionChatState>().watchers(cx.app, cx.registry);
     Ok((200, phone::read(&watchers, pane_id, opening.as_ref(), since)))
 }

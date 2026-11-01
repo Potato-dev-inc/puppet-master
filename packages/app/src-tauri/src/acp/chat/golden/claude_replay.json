@@ -1,0 +1,104 @@
+[
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "cliVersion": "1.2.3",
+    "id": "session",
+    "kind": "session",
+    "model": null
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "id": "hu1",
+    "kind": "user",
+    "text": "reply with the word ok"
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "finalAnswer": false,
+    "id": "ha1.1",
+    "kind": "assistant",
+    "model": null,
+    "text": "ok"
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "id": "hu2",
+    "kind": "user",
+    "text": "Count slowly from 1 to 200, one number per line, with a short fun fact after each. Do not use any tools."
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "finalAnswer": false,
+    "id": "ha2.1",
+    "kind": "assistant",
+    "model": null,
+    "text": "1: Neither prime nor composite.\n2: The"
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "id": "hu3",
+    "kind": "user",
+    "text": "[Request interrupted by user]"
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "finalAnswer": false,
+    "id": "ha3.1",
+    "kind": "assistant",
+    "model": null,
+    "text": "No response requested."
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "id": "hu4",
+    "kind": "user",
+    "text": "Create a file named spike.txt in the current folder. Its content must be exactly the single word I asked you to reply with in my first message of this conversation. Use a file-writing tool."
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "callId": "toolu_01MoD8SXECMPsAAfsTc2UDpQ",
+    "id": "t:toolu_01MoD8SXECMPsAAfsTc2UDpQ",
+    "input": {
+      "file_path": "D:\\pm-hunt\\demo-a\\spike.txt",
+      "new_string": "ok",
+      "old_string": ""
+    },
+    "kind": "toolCall",
+    "name": "edit",
+    "paths": [
+      "D:\\pm-hunt\\demo-a\\spike.txt"
+    ],
+    "summary": "Write spike.txt",
+    "writes": true
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "callId": "toolu_01MoD8SXECMPsAAfsTc2UDpQ",
+    "id": "r:toolu_01MoD8SXECMPsAAfsTc2UDpQ",
+    "kind": "toolResult",
+    "ok": false,
+    "output": "User refused permission to run tool"
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "finalAnswer": false,
+    "id": "ha4.1",
+    "kind": "assistant",
+    "model": null,
+    "text": "I didn't create `spike.txt`. The write was refused, so no file exists. I can try again if you want."
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "id": "hu5",
+    "kind": "user",
+    "text": "Without using any tools: what was the exact word I asked you to reply with in my first message, and did I later ask you to create a file (name it)? Answer in one short line."
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
+    "finalAnswer": false,
+    "id": "ha5.1",
+    "kind": "assistant",
+    "model": null,
+    "text": "The word was \"ok\", and yes, you later asked me to create `spike.txt`, but the write was refused, so the file doesn't exist."
+  }
+]

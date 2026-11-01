@@ -16,6 +16,7 @@ use super::api::{ApiEndpoint, ApiFollower, ChatFrom, SessionApi};
 use super::claims::Claims;
 use super::items::read_lines;
 use super::model::ChatItem;
+use super::pushed::{PushedPos, PushedSource};
 use super::screen::{ScreenFollower, ScreenRead};
 use super::screen_first::ScreenFirstFollower;
 use super::source::{Located, PaneFacts, SessionSource};
@@ -70,6 +71,8 @@ pub struct Tuning {
     pub screen_poll: Duration,
     /// How often the agent's session API is asked (the whole conversation, so not as often as a file).
     pub api_poll: Duration,
+    /// How often a pushed chat (`pushed`) is asked what is new. Short: streamed text should not stutter.
+    pub pushed_poll: Duration,
     /// How often the pane's file is looked for again (to find it, and to follow a switch).
     pub relocate: Duration,
     pub max_items: usize,
@@ -77,7 +80,7 @@ pub struct Tuning {
 
 impl Default for Tuning {
     fn default() -> Self {
-        Tuning { poll: Duration::from_millis(400), screen_poll: Duration::from_millis(700), api_poll: Duration::from_secs(1), relocate: Duration::from_secs(1), max_items: MAX_ITEMS }
+        Tuning { poll: Duration::from_millis(400), screen_poll: Duration::from_millis(700), api_poll: Duration::from_secs(1), pushed_poll: Duration::from_millis(120), relocate: Duration::from_secs(1), max_items: MAX_ITEMS }
     }
 }
 
@@ -248,14 +251,42 @@ impl Follower {
     }
 }
 
+/// Follows a chat that is pushed (`pushed::Feed`): asks what changed since the last look. No threads, no sleeping.
+struct PushedFollower {
+    source: Arc<dyn PushedSource>,
+    pos: Option<PushedPos>,
+}
+
+impl PushedFollower {
+    fn new(source: Arc<dyn PushedSource>) -> Self {
+        PushedFollower { source, pos: None }
+    }
+
+    /// One look. `None` when the source is gone.
+    fn step(&mut self) -> Option<Change> {
+        let changes = self.source.changes(self.pos)?;
+        self.pos = Some(changes.pos);
+        Some(if changes.reset {
+            Change::Reset(changes.items)
+        } else if changes.items.is_empty() {
+            Change::Nothing
+        } else {
+            // Items sent again under their id replace the shown copy; new ones are added.
+            Change::Upsert(changes.items)
+        })
+    }
+}
+
 /// What a pane's chat is read from: its session file, its screen, or the agent's session API (the screen while the
-/// API does not answer).
+/// API does not answer), or a protocol that pushes it.
 enum Reader {
     File(Follower),
     Screen(ScreenFollower),
     Api(ApiFollower),
     /// The screen until the session file has something to show, then the file.
     ScreenFirst(ScreenFirstFollower),
+    /// The agent pushes the conversation (the ACP lane).
+    Pushed(PushedFollower),
 }
 
 impl Reader {
@@ -270,6 +301,7 @@ impl Reader {
             Reader::Screen(follower) => follower.step(panes, pane_id),
             Reader::Api(follower) => follower.step(panes, pane_id),
             Reader::ScreenFirst(follower) => follower.step(panes, pane_id, now, relocate),
+            Reader::Pushed(follower) => follower.step(),
         }
     }
 
@@ -278,11 +310,11 @@ impl Reader {
         match self {
             Reader::File(follower) => follower.file().map(PathBuf::from),
             Reader::ScreenFirst(follower) => follower.file_now().map(PathBuf::from),
-            Reader::Screen(_) | Reader::Api(_) => None,
+            Reader::Screen(_) | Reader::Api(_) | Reader::Pushed(_) => None,
         }
     }
 
-    /// Where the items come from now: `"file"`, `"screen"` or `"api"`.
+    /// Where the items come from now: `"file"`, `"screen"`, `"api"` or `"acp"`.
     fn source(&self) -> &'static str {
         match self {
             Reader::File(_) => "file",
@@ -290,6 +322,7 @@ impl Reader {
             Reader::Api(follower) => follower.from().name(),
             Reader::ScreenFirst(follower) if follower.on_file() => "file",
             Reader::ScreenFirst(_) => ChatFrom::Screen.name(),
+            Reader::Pushed(_) => "acp",
         }
     }
 
@@ -299,6 +332,7 @@ impl Reader {
             Reader::Screen(follower) => Some(follower.waiting()),
             Reader::Api(follower) => Some(follower.waiting()),
             Reader::ScreenFirst(follower) => follower.waiting(panes, pane_id),
+            Reader::Pushed(follower) => Some(follower.source.waiting()),
         }
     }
 
@@ -312,6 +346,7 @@ impl Reader {
             },
             Reader::ScreenFirst(follower) if follower.on_file() => tuning.poll,
             Reader::ScreenFirst(_) => tuning.screen_poll,
+            Reader::Pushed(_) => tuning.pushed_poll,
         }
     }
 }
@@ -425,6 +460,11 @@ impl Watchers {
     /// has something to show, and from the file after that.
     pub fn open_screen_first<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, source: &'static dyn SessionSource, agent_type: &str) -> Vec<ChatItem> {
         self.open_reader(pane_id, hold.into(), Reader::ScreenFirst(ScreenFirstFollower::new(Follower::claiming(source, pane_id, self.claims.clone()), agent_type)))
+    }
+
+    /// As `open`, for a chat the agent pushes (the ACP lane): nothing is read from a file or a screen.
+    pub fn open_pushed<'a>(&self, pane_id: &str, hold: impl Into<Hold<'a>>, source: Arc<dyn PushedSource>) -> Vec<ChatItem> {
+        self.open_reader(pane_id, hold.into(), Reader::Pushed(PushedFollower::new(source)))
     }
 
     /// As `open`, for an agent with no session file: the chat is read from the pane's screen.

@@ -1,0 +1,88 @@
+//! Tauri commands of the chat session over ACP (A2): start one (agent, folder), stop its turn, read its state.
+//! Answering a permission question needs no command of its own: it is a question card (`question_answer`).
+//! The same start/stop/state are on the bridge (`bridge/routes/acp_chat.rs`) for the phone.
+//!
+//! Errors are `"CODE: sentence"` like every command. A code that starts with `ACP_` and a message that says the
+//! terminal can run the agent instead mean: run it in the terminal (`StartError::fallback`).
+
+use super::*;
+use crate::acp::chat::{self, ChatHost, StartDeps, StartError, StartRequest};
+use crate::pty::status::PaneStatus;
+use serde_json::json;
+
+/// The chat host over the live app: Tauri events for the windows, the event log for the status.
+pub struct LiveChatHost {
+    app: AppHandle,
+}
+
+impl LiveChatHost {
+    pub fn new(app: AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl ChatHost for LiveChatHost {
+    fn status_changed(&self, pane_id: &str, status: PaneStatus) {
+        crate::event_log::append_system_event(crate::events::SystemEvent::PaneStatusChanged {
+            pane_id: crate::events::PaneId(pane_id.to_string()),
+            status: status.as_str().to_string(),
+        });
+        let _ = self.app.emit("pty://status", json!({ "pane_id": pane_id, "status": status.as_str() }));
+    }
+
+    fn state_changed(&self, pane_id: &str, state: &Value) {
+        let _ = self.app.emit("acp-chat-state", json!({ "paneId": pane_id, "state": state }));
+    }
+
+    fn questions_changed(&self, _raised: Option<&crate::questions::Question>) {
+        crate::questions::routes::publish_changed(&self.app);
+    }
+
+    fn panes_changed(&self) {
+        let _ = self.app.emit("pty://panes-changed", ());
+    }
+}
+
+/// What a start needs from the live app.
+pub fn live_deps(app: &AppHandle, registry: &Arc<Mutex<PaneRegistry>>) -> StartDeps {
+    StartDeps { registry: registry.clone(), host: Arc::new(LiveChatHost::new(app.clone())), env: Arc::new(crate::acp::config::RealHost) }
+}
+
+pub fn start_error_text(error: &StartError) -> String {
+    let tail = if error.fallback { " The terminal can run this agent instead." } else { "" };
+    format!("{}: {}{}", error.code, error.message, tail)
+}
+
+/// Starts a chat session: `{pane_id, agent, lane: "acp"}`. Needs the Labs switch, and the agent's choice to be Chat
+/// unless `explicit` is true. The adapter is started before the pane exists, so a failure leaves nothing behind.
+#[tauri::command]
+pub async fn acp_chat_start(app: AppHandle, state: State<'_, AppState>, agent_id: String, folder: String, explicit: Option<bool>) -> Result<Value, String> {
+    let deps = live_deps(&app, &state.registry);
+    let request = StartRequest { agent_id, folder: PathBuf::from(folder), explicit: explicit.unwrap_or(false) };
+    let started = tauri::async_runtime::spawn_blocking(move || chat::start_gated(&deps, request)).await.map_err(|e| format!("ACP_START_FAILED: {e}"))?;
+    match started {
+        Ok(session) => Ok(json!({ "pane_id": session.pane_id(), "agent": session.agent_id(), "lane": chat::LANE })),
+        Err(error) => Err(start_error_text(&error)),
+    }
+}
+
+/// Stops the turn of a chat session (`session/cancel`). True when a turn was running. The state says "stopping"
+/// until the agent ends the turn.
+#[tauri::command]
+pub async fn acp_chat_cancel(pane_id: String) -> Result<bool, String> {
+    let session = chat::get(&pane_id).ok_or_else(|| format!("PANE_NOT_FOUND: {pane_id} is not a chat session"))?;
+    session.cancel().map_err(|e| e.to_string())
+}
+
+/// The session behind a chat pane: phase, stopping, what waits on the person, settings. `null` for a pane that is not
+/// a chat session.
+#[tauri::command]
+pub async fn acp_chat_state(pane_id: String) -> Result<Value, String> {
+    Ok(match chat::get(&pane_id) {
+        Some(session) => {
+            session.reconcile_cards();
+            session.state()
+        }
+        None => Value::Null,
+    })
+}

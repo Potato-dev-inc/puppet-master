@@ -25,6 +25,8 @@ export type PaneInfo = {
   parent_pane_id?: string | null;
   /** Where a Linux (WSL) pane runs; absent for a Windows pane. Display only. */
   place?: PanePlace;
+  /** `acp`: a chat session over the Agent Client Protocol (no terminal behind the pane). Absent for a terminal pane. */
+  lane?: 'acp';
 };
 
 export type TerminalSnapshotEvent = { pane_id: string; snapshot: string };

@@ -238,7 +238,7 @@ pub async fn session_chat_open(
         .map(|pane| pane.info.agent_type.clone())
         .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
     // An agent with no session file Puppet Master can read is read off its screen, unless it is a plain shell.
-    let Some(opening) = Opening::for_agent(&agent_type) else {
+    let Some(opening) = Opening::for_pane(&pane_id, &agent_type) else {
         return Ok(SessionChatOpened { available: false, reason: Some(NO_SOURCE.into()), items: Vec::new(), waiting_for: None, source: None });
     };
     let watchers = chat.watchers(&app, &state.registry);

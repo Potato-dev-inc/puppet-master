@@ -263,6 +263,7 @@ fn a_declarative_agent_gets_the_rich_chat_from_its_own_transcript() {
         poll: Duration::from_millis(10),
         screen_poll: Duration::from_millis(10),
         api_poll: Duration::from_millis(10),
+        pushed_poll: Duration::from_millis(10),
         relocate: Duration::from_millis(10),
         max_items: 3000,
     };

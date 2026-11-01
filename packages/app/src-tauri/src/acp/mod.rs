@@ -56,9 +56,10 @@
 //! fail-closed permission relay) follow ideas studied in `D:\pm-research\NUPHOS-ACP-STUDY.md`. No Nuphos
 //! code is copied here.
 
-// The callers (chat items, consent cards, the launch path, the bridge) land in A2 to A5.
+// The chat (A2) is `chat/`; the callers that resume sessions, switch to the terminal and show config chips land in A3 to A5.
 #![allow(dead_code)]
 
+pub mod chat;
 pub mod config;
 pub mod conn;
 pub mod conversations;
@@ -108,6 +109,7 @@ pub fn apply_settings(public: &Value) {
     let on = labs_on(public);
     let was = ENABLED.swap(on, Ordering::SeqCst);
     if was && !on {
+        chat::close_all();
         supervisor::global().close_all();
     }
 }

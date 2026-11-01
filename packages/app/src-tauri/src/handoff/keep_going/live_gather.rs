@@ -41,7 +41,7 @@ fn chat_items(_pane_id: &str, _agent_id: &str) -> Vec<ChatItem> {
 fn chat_items(pane_id: &str, agent_id: &str) -> Vec<ChatItem> {
     use tauri::Manager;
     let (Some(app), Some(registry)) = (crate::bridge::live_app(), crate::bridge::live_registry()) else { return Vec::new() };
-    let Some(opening) = crate::session_chat::Opening::for_agent(agent_id) else { return Vec::new() };
+    let Some(opening) = crate::session_chat::Opening::for_pane(pane_id, agent_id) else { return Vec::new() };
     let Some(chat) = app.try_state::<crate::commands::SessionChatState>() else { return Vec::new() };
     let watchers = chat.watchers(&app, &registry);
     opening.open(&watchers, pane_id, crate::session_chat::Hold::lease(HOLDER, HOLD_FOR));
