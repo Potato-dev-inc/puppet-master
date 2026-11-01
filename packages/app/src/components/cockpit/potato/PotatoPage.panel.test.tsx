@@ -111,7 +111,7 @@ describe('the three regions', () => {
     expect(visiblePanel()).toBe('Computer');
     await click(tab('Routines'));
     expect(visiblePanel()).toBe('Routines');
-    expect(host.querySelector('[role="tabpanel"][aria-label="Routines"]')!.textContent).toContain('Coming soon');
+    expect(host.querySelector('[role="tabpanel"][aria-label="Routines"]')!.textContent).toContain('No routines yet.');
     await click(tab('Advanced'));
     expect(visiblePanel()).toBe('Advanced');
     expect(host.querySelector('[role="tabpanel"][aria-label="Advanced"]')!.textContent).toContain('Coming soon');

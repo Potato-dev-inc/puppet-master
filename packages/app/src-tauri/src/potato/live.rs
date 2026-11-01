@@ -279,5 +279,11 @@ pub fn start(app: Option<AppHandle>, registry: Option<Arc<Mutex<crate::pty::Pane
         std::thread::sleep(Duration::from_millis(500));
         ticker.tick();
     });
+    // The routines tick: every 30 s, the due routines go to their bots (a missed tick is caught up once).
+    let routines = service.clone();
+    let _ = std::thread::Builder::new().name("potato-routines".into()).spawn(move || loop {
+        super::routines::run_due(&routines, chrono::Utc::now().timestamp_millis());
+        std::thread::sleep(Duration::from_secs(30));
+    });
     Some(service)
 }

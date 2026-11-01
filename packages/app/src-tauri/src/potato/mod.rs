@@ -12,6 +12,7 @@
 //! - `keeper`: the pure state machine of one brain process (lazy start, idle stop, crash backoff)
 //! - `sidecar`: the IO of the process (finding Node, starting hidden, stopping the whole tree)
 //! - `store`: the files in `<app data>/potato/` (bots, settings, conversations, persona seeding)
+//! - `routines`: prompts a bot runs on a schedule (`routines.json`), the 30 s tick that sends the due ones
 //! - `cost`: pricing the tokens the brain reports and judging them against the daily limit
 //! - `log`: the 200-line log ring, every line cleaned
 //! - `helpers`: Start / Change folder / Not now, the caps, and watching a helper until it ends
@@ -41,6 +42,7 @@ pub mod log;
 pub mod wire_names;
 pub mod protocol;
 pub mod resource_dirs;
+pub mod routines;
 pub mod rules;
 pub mod sandbox;
 pub mod sandbox_calls;
@@ -66,6 +68,8 @@ mod keeper_tests;
 mod protocol_tests;
 #[cfg(test)]
 mod resource_dirs_tests;
+#[cfg(test)]
+mod routines_tests;
 #[cfg(test)]
 mod rules_tests;
 #[cfg(test)]
