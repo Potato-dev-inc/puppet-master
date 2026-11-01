@@ -1,0 +1,68 @@
+/* Shared little pieces of the Potato Bot page: state pills and floating icon buttons. Grayscale tokens only. */
+
+.cockpit .ck-potato-pill {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+/* Needs you, running: the one inverted fill on the page. */
+.cockpit .ck-potato-pill--strong {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+.cockpit .ck-potato-pill--quiet {
+  border: 1px solid var(--sep);
+  color: var(--label);
+}
+.cockpit .ck-potato-pill--dim {
+  border: 1px solid var(--sep);
+  color: var(--label-3);
+  font-weight: 500;
+}
+
+.cockpit .ck-potato-float {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--sep);
+  background: var(--bg-float);
+  box-shadow: var(--raise-hi);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  color: var(--label-2);
+  transition:
+    background-color 160ms var(--ease),
+    color 160ms var(--ease),
+    transform 160ms var(--ease);
+}
+.cockpit .ck-potato-float:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.cockpit .ck-potato-float:active {
+  transform: scale(0.96);
+}
+.cockpit .ck-potato-float[aria-pressed='true'] {
+  background: var(--fill-active);
+  color: var(--label);
+}
+.cockpit .ck-potato-float:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-potato-float {
+    transition: none;
+  }
+}
