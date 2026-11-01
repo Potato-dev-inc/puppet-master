@@ -110,12 +110,22 @@ export function SetupCheckPage({
 
   return (
     <div className="st-setupcheck" data-testid="setup-check">
+      <div className="st-setupcheck-head">
+        <Btn small disabled={rows === null} onClick={() => void copyReport()}>
+          Copy report
+        </Btn>
+        <Btn small disabled={rows === null} onClick={() => setTick((t) => t + 1)}>
+          Check again
+        </Btn>
+      </div>
       <div className="st-setupcheck-list" role="list">
         {rows === null && <p className="st-note">Checking…</p>}
         {rows?.map((r) => (
-          <div key={r.id} className="st-setupcheck-row" role="listitem" data-status={r.status}>
-            <span aria-hidden="true">{GLYPH[r.status]}</span>
-            <span className="st-setupcheck-text">{r.sentence}</span>
+          <div key={r.id} className="st-row st-setupcheck-row" role="listitem" data-status={r.status}>
+            <span className="st-setupcheck-glyph" aria-hidden="true">
+              {GLYPH[r.status]}
+            </span>
+            <span className="st-label">{r.sentence}</span>
             {r.fix && (
               <Btn small disabled={busy} onClick={() => void fix(r.fix as FixAction)}>
                 {r.fix.label}
@@ -123,14 +133,6 @@ export function SetupCheckPage({
             )}
           </div>
         ))}
-      </div>
-      <div className="st-setupcheck-actions">
-        <Btn small disabled={rows === null} onClick={() => void copyReport()}>
-          Copy report
-        </Btn>
-        <Btn small disabled={rows === null} onClick={() => setTick((t) => t + 1)}>
-          Check again
-        </Btn>
       </div>
       {message && <Note role={message.tone}>{message.text}</Note>}
     </div>
