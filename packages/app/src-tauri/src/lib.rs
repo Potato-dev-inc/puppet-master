@@ -108,6 +108,7 @@ mod settings_patch;
 mod shell_env;
 mod startup_timing;
 mod desk;
+mod p2p;
 mod review_desk;
 mod tamper;
 pub mod shell_exec;

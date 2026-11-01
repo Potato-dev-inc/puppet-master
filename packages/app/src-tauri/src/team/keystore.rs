@@ -95,6 +95,11 @@ impl KeyStore {
         self.get_or_make("device-sign", || new_signing_key().to_bytes()).map(|b| SigningKey::from_bytes(&b))
     }
 
+    /// This install's p2p node key (QUIC/TLS identity of the PC link, `p2p/`). Its own key, never the signing key.
+    pub fn p2p_node(&self) -> Result<SigningKey, String> {
+        self.get_or_make("p2p-node", || new_signing_key().to_bytes()).map(|b| SigningKey::from_bytes(&b))
+    }
+
     /// This install's HPKE key (made on first use).
     pub fn device_kem(&self) -> Result<KemSecret, String> {
         self.get_or_make("device-kem", || KemSecret::generate().to_bytes()).map(KemSecret::from_bytes)
