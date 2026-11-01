@@ -210,6 +210,25 @@ function UninstallRow({ env }: { env: SettingsEnv }) {
 export const generalRows: RowDef[] = [
   { id: 'project-folder', label: 'Default project folder', hint: 'Where new panes and orchestrator tools start.', keywords: 'workspace directory browse path', group: 'Project', render: (env) => <ProjectFolder env={env} /> },
   {
+    id: 'your-name',
+    label: 'Your name',
+    hint: 'Used in the greeting on the New agent page. Leave it empty for no name.',
+    keywords: 'name greeting hello welcome new agent page profile display',
+    group: 'Appearance',
+    render: (env) => (
+      <SettingRow label="Your name" description="Used in the greeting on the New agent page. Leave it empty for no name.">
+        <TextControl
+          aria-label="Your name"
+          value={env.settings.display_name ?? ''}
+          maxLength={60}
+          placeholder="Optional"
+          normalize={(text) => text.replace(/\s+/g, ' ').trim()}
+          onCommit={(next) => env.patch({ display_name: next || null })}
+        />
+      </SettingRow>
+    ),
+  },
+  {
     id: 'start-at-sign-in',
     label: START_AT_SIGN_IN_LABEL,
     hint: START_AT_SIGN_IN_HINT,
