@@ -692,6 +692,7 @@ pub fn run() {
             commands::potato_sandbox_menu,
             commands::potato_sandbox_detect,
             commands::potato_sandbox_install,
+            commands::potato_sandbox_continue_install,
             commands::potato_sandbox_cancel_install,
             commands::potato_sandbox_dismiss_install,
             commands::potato_sandbox_start,

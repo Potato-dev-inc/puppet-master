@@ -104,6 +104,46 @@ describe('the status', () => {
   });
 });
 
+describe("Setup didn't finish", () => {
+  const CUT_OFF: Partial<SandboxView> = { state: 'incomplete', reason: "Setup didn't finish.", canContinue: true };
+
+  it('offers Continue setup and Start over, and never Start', async () => {
+    const { host: h } = await mount({ status: CUT_OFF });
+    expect(state(h)).toBe("Setup didn't finish");
+    expect(buttonByText(h, 'Continue setup')).toBeTruthy();
+    expect(buttonByText(h, 'Start over…')).toBeTruthy();
+    for (const word of ['Start', 'Start again', 'Reset…', 'Set up…']) expect(buttonByText(h, word), word).toBeUndefined();
+  });
+
+  it('Continue setup carries on and the page shows the bar again', async () => {
+    const { fake, host: h } = await mount({ status: CUT_OFF });
+    await click(buttonByText(h, 'Continue setup'));
+    await settle(4);
+    expect(calls(fake, 'continueInstall')).toHaveLength(1);
+    expect(state(h)).toBe('Setting up');
+    expect(buttonByText(h, 'Stop set up')).toBeTruthy();
+  });
+
+  it('without known answers only Start over is offered', async () => {
+    const { host: h } = await mount({ status: { ...CUT_OFF, canContinue: false } });
+    expect(buttonByText(h, 'Continue setup')).toBeUndefined();
+    expect(buttonByText(h, 'Start over…')).toBeTruthy();
+  });
+
+  it('Start over asks for the word, removes, and opens the wizard', async () => {
+    const { fake, host: h } = await mount({ status: CUT_OFF });
+    await click(buttonByText(h, 'Start over…'));
+    await settle(2);
+    const typed = byLabel(h, 'Type remove to confirm') as HTMLInputElement;
+    await typeInto(typed, 'remove');
+    await click(buttonByText(h, 'Remove sandbox'));
+    await settle(6);
+    expect(calls(fake, 'remove')).toHaveLength(1);
+    expect(state(h)).toBe('Not set up');
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+  });
+});
+
 describe('Set up', () => {
   it('opens the wizard, and opens nothing until pressed', async () => {
     const { host: h } = await mount();

@@ -142,6 +142,10 @@ stop_chrome() {
 start_xvfb() {
   if alive_key xvfb; then log "Xvfb already running on $DISPLAY_NAME"; return 0; fi
   rm -f "/tmp/.X${DNUM}-lock" "/tmp/.X11-unix/X${DNUM}" 2>/dev/null
+  # A distro that was terminated with the desktop up (a crash, a cut-off set up) leaves the session's ICE sockets in /tmp, and the
+  # next xfce4-session often gets the same process number ("server already running"). Only ours (this user's) can be removed here.
+  # Nothing of ours runs at this point: Xvfb is not alive, so no session is.
+  rm -f /tmp/.ICE-unix/* 2>/dev/null
   setsid nohup Xvfb "$DISPLAY_NAME" -screen 0 "${GEOM}x24" -nolisten tcp -ac >"$LOGS/xvfb.log" 2>&1 </dev/null &
   echo $! >"$(pidfile xvfb)"
   for _ in $(seq 1 50); do xdpyinfo -display "$DISPLAY_NAME" >/dev/null 2>&1 && break; sleep 0.1; done

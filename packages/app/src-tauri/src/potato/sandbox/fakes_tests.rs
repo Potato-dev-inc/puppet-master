@@ -26,6 +26,10 @@ pub struct State {
     pub desktop_starts: bool,
     /// The three secret files were written into /run/pm-sbx (they go away with the distro's stop).
     pub secrets_pushed: bool,
+    /// The marker the install wrote (what `Finish` sent).
+    pub marker: Option<String>,
+    /// What the look at a sandbox without a record finds.
+    pub legacy_finished: bool,
     pub apply_lines: Vec<String>,
     pub apply_code: i32,
     pub install_code: i32,
@@ -85,6 +89,8 @@ impl FakeGuest {
                 control_up: false,
                 desktop_starts: true,
                 secrets_pushed: false,
+                marker: None,
+                legacy_finished: true,
                 apply_lines: vec![
                     "PROGRESS 1/4 Installing packages".to_string(),
                     "PROGRESS 2/4 Installing Chrome".to_string(),
@@ -182,6 +188,14 @@ impl FakeGuest {
                 ok(b"DESKTOP_STOPPED".to_vec())
             }
             ["/bin/mkdir", ..] | ["/bin/tar", ..] => code(0),
+            // the install-time wsl.conf, unless the real one is already there
+            ["/bin/sh", "-c", script] if script.contains("wsl-install.conf") => code(0),
+            // the completion marker of the install (text from stdin) and the look a status takes at an older sandbox
+            ["/bin/sh", "-c", script] if script.contains("/etc/pm-sbx/installed") && script.contains("cat >") => {
+                st.marker = call.stdin.as_ref().map(|b| String::from_utf8_lossy(b).to_string());
+                code(0)
+            }
+            ["/bin/sh", "-c", script] if script.starts_with("test -f /etc/pm-sbx/installed") => code(if st.legacy_finished { 0 } else { 1 }),
             ["/usr/bin/python3", "-I", script, ..] if script.ends_with("apply-recipe.py") => {
                 for line in st.apply_lines.clone() {
                     on_line(&line);

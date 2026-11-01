@@ -8,7 +8,7 @@ import { PANEL_COPY } from '../../../lib/potato-panel';
 import type { SandboxTransport } from '../../../lib/potato-sandbox';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { useSandbox } from '../../settings/sandbox/useSandbox';
-import { ComputerMaintenance, SetUpCard, useSandboxActions } from './ComputerMaintenance';
+import { ComputerMaintenance, SetUpCard, UnfinishedCard, useSandboxActions } from './ComputerMaintenance';
 import { ComputerPanel } from './ComputerPanel';
 import { SandboxWizardHost } from './SandboxWizardHost';
 
@@ -67,7 +67,8 @@ function WithSandbox({
   const { view, refresh } = useSandbox(sandbox);
   const [wizard, setWizard] = useState(false);
   const actions = useSandboxActions(sandbox, refresh, onNotify);
-  const notSetUp = view !== null && (view.state === 'not_installed' || view.state === 'installing');
+  const unfinished = view !== null && view.state === 'incomplete';
+  const notSetUp = view !== null && (view.state === 'not_installed' || view.state === 'installing' || unfinished);
   return (
     <>
       <ComputerPanel
@@ -79,7 +80,15 @@ function WithSandbox({
         sandboxState={view ? view.state : null}
         onWake={() => void actions.start()}
         waking={actions.busy === 'start'}
-        notSetUp={notSetUp && view ? <SetUpCard botName={bot.name} view={view} onSetUp={() => setWizard(true)} /> : undefined}
+        notSetUp={
+          notSetUp && view ? (
+            unfinished ? (
+              <UnfinishedCard transport={sandbox} view={view} refresh={refresh} onSetUp={() => setWizard(true)} onNotify={onNotify} />
+            ) : (
+              <SetUpCard botName={bot.name} view={view} onSetUp={() => setWizard(true)} />
+            )
+          ) : undefined
+        }
         after={view && !notSetUp ? <ComputerMaintenance transport={sandbox} view={view} refresh={refresh} onOpenSettings={onOpenSettings} onNotify={onNotify} /> : null}
       />
       {wizard && (
