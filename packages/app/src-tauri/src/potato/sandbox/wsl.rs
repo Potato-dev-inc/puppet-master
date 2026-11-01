@@ -506,9 +506,14 @@ impl Wsl {
     }
 
     pub fn install_distro(&self, name: &SandboxName, dir: &Path) -> Result<(), WslError> {
+        self.install_distro_streaming(name, dir, &mut |_| {})
+    }
+
+    /// Like `install_distro`, handing each line `wsl.exe` prints to `on_line` (UTF-16 as it comes: the caller strips the NULs).
+    pub fn install_distro_streaming(&self, name: &SandboxName, dir: &Path, on_line: &mut dyn FnMut(&str)) -> Result<(), WslError> {
         let dir = dir.to_string_lossy();
         let call = Call::new(&["--install", DISTRO_IMAGE, "--name", name.as_str(), "--location", &dir, "--no-launch"]);
-        run(self.runner(), call.timeout(LONG))?.ok().map(|_| ())
+        run_streaming(self.runner(), call.timeout(LONG), on_line)?.ok().map(|_| ())
     }
 
     pub fn terminate(&self, name: &SandboxName) -> Result<(), WslError> {

@@ -39,7 +39,7 @@ pub mod wsl;
 use std::sync::Arc;
 
 use control::{Action, ControlError};
-use install::{GuestFiles, InstallError, InstallOptions, Layout, Progress};
+use install::{GuestFiles, InstallError, InstallOptions, InstallRecords, Layout, NoRecords, Progress, SavedInstall};
 use lifecycle::{Lifecycle, LifecycleError, Phase};
 use secrets::ScreenSecrets;
 use wsl::{GuestUser, SandboxName, Wsl, WslError};
@@ -106,6 +106,8 @@ pub struct Observation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     NotInstalled,
+    /// Our distro is there but its set up never ended ("Setup didn't finish"): it cannot be started, only carried on or removed.
+    Incomplete,
     Stopped,
     Starting,
     Running,
@@ -157,6 +159,10 @@ pub trait Sandbox: Send + Sync {
 
     /// Asks a running `install` to stop at its next step. Nothing running: nothing happens.
     fn cancel_install(&self) {}
+    /// The answers a set up that did not finish started with (to carry it on), when they are known.
+    fn resume_options(&self) -> Option<InstallOptions> {
+        None
+    }
     /// Whether Windows' Linux feature answers. A sandbox that does not need it always says yes.
     fn linux_feature(&self) -> bool {
         true
@@ -187,11 +193,65 @@ pub struct WslSandbox {
     files: GuestFiles,
     lifecycle: Arc<Lifecycle>,
     cancel: std::sync::atomic::AtomicBool,
+    records: Arc<dyn InstallRecords>,
+    /// A sandbox made before records existed: what the one look inside found (`Some(true)` = it ended).
+    legacy: parking_lot::Mutex<Option<bool>>,
 }
 
 impl WslSandbox {
     pub fn new(wsl: Wsl, name: SandboxName, layout: Layout, files: GuestFiles, lifecycle: Arc<Lifecycle>) -> Self {
-        Self { wsl, name, layout, files, lifecycle, cancel: std::sync::atomic::AtomicBool::new(false) }
+        Self {
+            wsl,
+            name,
+            layout,
+            files,
+            lifecycle,
+            cancel: std::sync::atomic::AtomicBool::new(false),
+            records: Arc::new(NoRecords),
+            legacy: parking_lot::Mutex::new(None),
+        }
+    }
+
+    /// Gives the sandbox the store where the host keeps the record of a set up (without one, every sandbox counts as finished).
+    pub fn with_records(mut self, records: Arc<dyn InstallRecords>) -> Self {
+        self.records = records;
+        self
+    }
+
+    /// Whether the set up of the distro ended. The record says; a distro without one (made by an older build) is looked at
+    /// once: its guest has the marker, or the file the last recipe step writes. A look that fails counts as "finished".
+    fn setup_finished(&self) -> bool {
+        if !self.records.keeps_records() {
+            return true;
+        }
+        if let Some(saved) = self.records.load(&self.name) {
+            return saved.done;
+        }
+        let mut legacy = self.legacy.lock();
+        if let Some(known) = *legacy {
+            return known;
+        }
+        let script = format!("test -f {} || test -f /etc/pm-sbx/desktop.conf", install::GUEST_MARKER);
+        let finished = match self.wsl.exec(&self.name, GuestUser::Root, &["/bin/sh", "-c", &script], None, std::time::Duration::from_secs(60)) {
+            Ok(out) => match out.code {
+                Some(0) => true,
+                Some(_) => false,
+                None => return true,
+            },
+            Err(_) => return true,
+        };
+        *legacy = Some(finished);
+        if finished {
+            self.records.save(&self.name, &SavedInstall::finished(None));
+        }
+        finished
+    }
+
+    fn ensure_finished(&self) -> SbxResult<()> {
+        if self.setup_finished() {
+            return Ok(());
+        }
+        Err(SandboxError::new("SANDBOX_SETUP_UNFINISHED", "Setup didn't finish. Continue setup, or start over."))
     }
 
     pub fn lifecycle(&self) -> &Arc<Lifecycle> {
@@ -220,7 +280,11 @@ impl Sandbox for WslSandbox {
         if !self.wsl.is_installed(&self.name)? {
             return Ok(make(State::NotInstalled, None));
         }
-        Ok(match self.lifecycle.phase() {
+        let phase = self.lifecycle.phase();
+        if !matches!(phase, Phase::Ready | Phase::Starting) && !self.setup_finished() {
+            return Ok(make(State::Incomplete, Some("Setup didn't finish.".to_string())));
+        }
+        Ok(match phase {
             Phase::Ready => make(State::Running, None),
             Phase::Starting => make(State::Starting, None),
             Phase::Failed(reason) => make(State::Failed, Some(reason)),
@@ -230,12 +294,13 @@ impl Sandbox for WslSandbox {
 
     fn install(&self, options: &InstallOptions, progress: &mut dyn FnMut(Progress)) -> SbxResult<()> {
         self.cancel.store(false, std::sync::atomic::Ordering::SeqCst);
-        let env = install::InstallEnv { wsl: &self.wsl, layout: &self.layout, files: &self.files, lifecycle: &self.lifecycle };
+        let env = install::InstallEnv { wsl: &self.wsl, layout: &self.layout, files: &self.files, lifecycle: &self.lifecycle, records: self.records.as_ref() };
         install::run(&env, options, &self.cancel, &now_ms, progress)?;
         Ok(())
     }
 
     fn start(&self) -> SbxResult<()> {
+        self.ensure_finished()?;
         self.lifecycle.ensure_ready(now_ms())?;
         Ok(())
     }
@@ -275,6 +340,8 @@ impl Sandbox for WslSandbox {
         if self.wsl.is_installed(&self.name)? {
             self.wsl.unregister(&self.name)?;
         }
+        self.records.clear(&self.name);
+        *self.legacy.lock() = None;
         // The reset points are files we wrote through wsl.exe; only those files go, one by one.
         let dir = self.layout.snapshots_dir(&self.name);
         if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -290,6 +357,7 @@ impl Sandbox for WslSandbox {
     }
 
     fn observe(&self) -> SbxResult<Observation> {
+        self.ensure_finished()?;
         let _busy = self.lifecycle.begin_use();
         let ready = self.lifecycle.ensure_ready(now_ms())?;
         let shot = ready.client.screenshot()?;
@@ -298,6 +366,7 @@ impl Sandbox for WslSandbox {
     }
 
     fn act(&self, actions: &[Action]) -> SbxResult<Observation> {
+        self.ensure_finished()?;
         let _busy = self.lifecycle.begin_use();
         let ready = self.lifecycle.ensure_ready(now_ms())?;
         let result = ready.client.act(actions, 300, true)?;
@@ -306,6 +375,7 @@ impl Sandbox for WslSandbox {
     }
 
     fn browser(&self, args: &[String]) -> SbxResult<String> {
+        self.ensure_finished()?;
         let _busy = self.lifecycle.begin_use();
         self.lifecycle.ensure_ready(now_ms())?;
         let tool = format!("{}/page-browser/pm-sbx-page-browser", lifecycle::GUEST_SHARE);
@@ -327,6 +397,17 @@ impl Sandbox for WslSandbox {
 
     fn cancel_install(&self) {
         WslSandbox::cancel_install(self);
+    }
+
+    fn resume_options(&self) -> Option<InstallOptions> {
+        if !self.records.keeps_records() {
+            return None;
+        }
+        let saved = self.records.load(&self.name)?;
+        if saved.done {
+            return None;
+        }
+        saved.options
     }
 
     fn linux_feature(&self) -> bool {
@@ -622,3 +703,6 @@ mod sandbox_tests;
 mod screen_tests;
 #[cfg(test)]
 mod wsl_tests;
+
+#[cfg(test)]
+mod resume_tests;

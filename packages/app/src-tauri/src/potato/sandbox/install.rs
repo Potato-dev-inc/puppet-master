@@ -9,26 +9,42 @@
 //! 3. `CreateDistro`: `wsl --install Ubuntu-24.04 --name <n> --location <dir> --no-launch`, with `<dir>`
 //!    under `<app data>/potato/sandbox/<n>/` (`Layout`), never the repo.
 //! 4. `CopyGuestFiles`: the guest files go in over stdin as a tar stream (`GuestFiles::tar_stream`) and are
-//!    unpacked by `tar` inside the distro. Nothing is copied through a Windows folder.
+//!    unpacked by `tar` inside the distro. Nothing is copied through a Windows folder. Then the short install-time
+//!    `/etc/wsl.conf` (systemd off) is put in place and the distro is restarted once, so the installer runs without
+//!    systemd (a fresh Ubuntu starts snapd, unattended-upgrades and PackageKit, which compete with apt).
 //! 5. `ApplyRecipes`: `apply-recipe.py` runs as root; its `PROGRESS n/total text` lines become progress
-//!    events (`parse_progress_line`), its `ERROR text` line becomes the failure reason.
+//!    events (`parse_progress_line`; `total` is 1000 and `n` the share of the whole job done, so the bar moves while
+//!    packages download), its `ERROR text` line becomes the failure reason.
 //! 6. `Restart`: `wsl --terminate <n>` so `/etc/wsl.conf` takes effect.
 //! 7. `BootCheck`: a real start with every readiness check (`Lifecycle::ensure_ready`), then a stop.
-//! 8. `Snapshot` (optional, on by default): `wsl --export` to the reset point.
+//! 8. `Finish`: the completion marker `/etc/pm-sbx/installed` is written in the guest (before the reset point, so a
+//!    restored reset point is complete too).
+//! 9. `Snapshot` (optional, on by default): `wsl --export` to the reset point.
+//!
+//! A distro of ours without the finished record (`InstallRecords`, kept by the host app; `SavedInstall`) is "Setup didn't
+//! finish": it was cut off (the app quit, the PC slept, a crash). `InstallOptions::resume` runs the plan again against the
+//! distro that is there (no download, no name check), with the options saved when it started; every step is safe to repeat
+//! (`apply-recipe.py` skips what it finished). A cut-off set up is never taken away by the app quitting.
 //!
 //! A failure after the distro exists unregisters that distro again (it is ours, made a minute ago), so a
 //! retry starts clean. A cancel between steps does the same. No secret is made or handled here.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use super::lifecycle::{Lifecycle, GUEST_SHARE};
+use parking_lot::Mutex;
 use super::wsl::{GuestUser, SandboxName, Wsl, WslError};
 
 const APPLY_TIMEOUT: Duration = Duration::from_secs(90 * 60);
 const COPY_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const PROGRESS_TEXT_CHARS: usize = 200;
+/// The short `/etc/wsl.conf` for the install (a file of the guest archive).
+const INSTALL_CONF: &str = "/usr/local/share/pm-sbx/desktop/wsl-install.conf";
+/// What the person is told the Ubuntu download weighs (`wsl --install` prints no percentage).
+const UBUNTU_DOWNLOAD_TEXT: &str = "about 340 MB";
 const MAX_OPTION_VALUE: usize = 200;
 const ADDONS: [&str; 2] = ["coding", "daily"];
 /// The default reset point.
@@ -227,6 +243,15 @@ impl Desktop {
         }
     }
 
+    /// The wizard's word for it (the other way round from `parse`).
+    pub fn word(self) -> &'static str {
+        match self {
+            Desktop::Light => "light",
+            Desktop::Xfce => "ubuntu",
+            Desktop::Zorin => "zorin",
+        }
+    }
+
     /// The wizard's word for it: `light`, `ubuntu` or `zorin`.
     pub fn parse(word: &str) -> Option<Self> {
         match word {
@@ -249,11 +274,13 @@ pub struct InstallOptions {
     pub options: Vec<(String, String)>,
     /// Save a reset point at the end.
     pub snapshot: bool,
+    /// Carry on with a set up that was cut off: the distro is already there, so no name check and no download.
+    pub resume: bool,
 }
 
 impl InstallOptions {
     pub fn new(name: SandboxName, desktop: Desktop) -> Self {
-        Self { name, desktop, addons: Vec::new(), options: Vec::new(), snapshot: true }
+        Self { name, desktop, addons: Vec::new(), options: Vec::new(), snapshot: true, resume: false }
     }
 
     fn chosen(&self) -> Vec<&str> {
@@ -311,6 +338,111 @@ impl InstallOptions {
     }
 }
 
+// ---- the record of a set up ----------------------------------------------------------------------
+
+/// Bumped when the guest marker or the record changes shape.
+pub const INSTALL_VERSION: u32 = 1;
+/// The completion marker in the guest, written by the `Finish` step.
+pub const GUEST_MARKER: &str = "/etc/pm-sbx/installed";
+
+/// What the host keeps about a set up: whether it ended, and the answers it started with (so it can be carried on).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SavedInstall {
+    pub done: bool,
+    /// `None` for a sandbox made before records existed (its answers are not known).
+    pub options: Option<InstallOptions>,
+}
+
+impl SavedInstall {
+    pub fn started(options: &InstallOptions) -> Self {
+        Self { done: false, options: Some(options.clone()) }
+    }
+
+    pub fn finished(options: Option<&InstallOptions>) -> Self {
+        Self { done: true, options: options.cloned() }
+    }
+
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut value = serde_json::json!({ "version": INSTALL_VERSION, "done": self.done });
+        if let Some(o) = &self.options {
+            value["desktop"] = o.desktop.word().into();
+            value["addons"] = o.addons.clone().into();
+            value["options"] = o.options.iter().map(|(k, v)| serde_json::json!([k, v])).collect::<Vec<_>>().into();
+            value["snapshot"] = o.snapshot.into();
+        }
+        value
+    }
+
+    /// `None` when the value is not a record this version understands.
+    pub fn from_json(name: &SandboxName, value: &serde_json::Value) -> Option<Self> {
+        let done = value.get("done")?.as_bool()?;
+        let options = match value.get("desktop").and_then(|d| d.as_str()) {
+            None => None,
+            Some(word) => {
+                let mut o = InstallOptions::new(name.clone(), Desktop::parse(word)?);
+                o.addons = value.get("addons")?.as_array()?.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+                for pair in value.get("options")?.as_array()? {
+                    let pair = pair.as_array()?;
+                    o.options.push((pair.first()?.as_str()?.to_string(), pair.get(1)?.as_str()?.to_string()));
+                }
+                o.snapshot = value.get("snapshot")?.as_bool()?;
+                o.validate().ok()?;
+                Some(o)
+            }
+        };
+        Some(Self { done, options })
+    }
+}
+
+/// Where the record lives. This folder writes no file on Windows, so the host app provides the store (a file under its
+/// app data); tests use `MemoryRecords`.
+pub trait InstallRecords: Send + Sync {
+    /// False for "no records are kept": a sandbox is then taken as finished, whatever is in it.
+    fn keeps_records(&self) -> bool {
+        true
+    }
+    fn load(&self, name: &SandboxName) -> Option<SavedInstall>;
+    fn save(&self, name: &SandboxName, saved: &SavedInstall);
+    fn clear(&self, name: &SandboxName);
+}
+
+/// Keeps nothing (the default of a `WslSandbox` nobody gave a store).
+pub struct NoRecords;
+
+impl InstallRecords for NoRecords {
+    fn keeps_records(&self) -> bool {
+        false
+    }
+    fn load(&self, _name: &SandboxName) -> Option<SavedInstall> {
+        None
+    }
+    fn save(&self, _name: &SandboxName, _saved: &SavedInstall) {}
+    fn clear(&self, _name: &SandboxName) {}
+}
+
+/// Keeps the record in memory.
+#[derive(Default)]
+pub struct MemoryRecords {
+    map: Mutex<std::collections::HashMap<String, SavedInstall>>,
+}
+
+impl InstallRecords for MemoryRecords {
+    fn load(&self, name: &SandboxName) -> Option<SavedInstall> {
+        self.map.lock().get(name.as_str()).cloned()
+    }
+    fn save(&self, name: &SandboxName, saved: &SavedInstall) {
+        self.map.lock().insert(name.to_string(), saved.clone());
+    }
+    fn clear(&self, name: &SandboxName) {
+        self.map.lock().remove(name.as_str());
+    }
+}
+
+/// What the `Finish` step writes into the guest.
+pub fn marker_text(options: &InstallOptions) -> String {
+    format!("version={INSTALL_VERSION}\ndesktop={}\nrecipe_args={}\n", options.desktop.word(), options.recipe_args().join(" "))
+}
+
 // ---- steps and progress --------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -322,6 +454,7 @@ pub enum Step {
     ApplyRecipes,
     Restart,
     BootCheck,
+    Finish,
     Snapshot,
 }
 
@@ -335,6 +468,7 @@ impl Step {
             Step::ApplyRecipes => "apply",
             Step::Restart => "restart",
             Step::BootCheck => "check_start",
+            Step::Finish => "finish",
             Step::Snapshot => "snapshot",
         }
     }
@@ -348,6 +482,7 @@ impl Step {
             Step::ApplyRecipes => "Installing the desktop and tools",
             Step::Restart => "Restarting the sandbox",
             Step::BootCheck => "Checking it starts safely",
+            Step::Finish => "Finishing up",
             Step::Snapshot => "Saving a reset point",
         }
     }
@@ -355,25 +490,24 @@ impl Step {
     /// Share of the whole install, for the percentage bar.
     pub fn weight(self) -> u32 {
         match self {
-            Step::CheckWsl | Step::CheckFree | Step::Restart => 1,
-            Step::CopyGuestFiles => 2,
+            Step::CheckWsl | Step::CheckFree | Step::Restart | Step::Finish => 1,
+            Step::CopyGuestFiles => 3,
             Step::BootCheck => 5,
-            Step::CreateDistro | Step::Snapshot => 15,
-            Step::ApplyRecipes => 60,
+            Step::Snapshot => 10,
+            Step::CreateDistro => 25,
+            Step::ApplyRecipes => 45,
         }
     }
 }
 
 pub fn plan(options: &InstallOptions) -> Vec<Step> {
-    let mut steps = vec![
-        Step::CheckWsl,
-        Step::CheckFree,
-        Step::CreateDistro,
-        Step::CopyGuestFiles,
-        Step::ApplyRecipes,
-        Step::Restart,
-        Step::BootCheck,
-    ];
+    let mut steps = if options.resume {
+        // The distro is there (it is the one that was cut off): nothing to check or download.
+        vec![Step::CheckWsl]
+    } else {
+        vec![Step::CheckWsl, Step::CheckFree, Step::CreateDistro]
+    };
+    steps.extend([Step::CopyGuestFiles, Step::ApplyRecipes, Step::Restart, Step::BootCheck, Step::Finish]);
     if options.snapshot {
         steps.push(Step::Snapshot);
     }
@@ -499,6 +633,7 @@ pub struct InstallEnv<'a> {
     pub layout: &'a Layout,
     pub files: &'a GuestFiles,
     pub lifecycle: &'a Lifecycle,
+    pub records: &'a dyn InstallRecords,
 }
 
 /// Runs the plan. `now_ms` is read once per start check. A failure or a cancel after the distro was made
@@ -517,8 +652,10 @@ pub fn run(
     let outcome = run_steps(env, options, &steps, cancel, now_ms, progress, &mut created);
     if outcome.is_err() && created {
         // Ours, made a moment ago: take it away so a retry starts clean. A failure to do so is not shown over the first.
+        // (A set up that was carried on keeps its distro: it is what the person can try to carry on again.)
         let _ = env.lifecycle.stop();
         let _ = env.wsl.unregister(&options.name);
+        env.records.clear(&options.name);
     }
     outcome
 }
@@ -564,22 +701,40 @@ fn run_steps(
             Step::CreateDistro => {
                 let dir = env.layout.distro_dir(name);
                 std::fs::create_dir_all(&dir).map_err(|e| step_error(step, e))?;
+                // From here on the distro is "set up not finished" until the last step says otherwise.
+                env.records.save(name, &SavedInstall::started(options));
                 *created = true;
-                env.wsl.install_distro(name, &dir).map_err(|e| step_error(step, e))?;
+                create_distro(env, name, &dir, steps, index, progress).map_err(|e| step_error(step, e))?;
             }
             Step::CopyGuestFiles => {
+                if options.resume {
+                    // Whatever the cut-off run left going inside the distro stops here (an apt that kept running, a held lock).
+                    let _ = env.wsl.terminate(name);
+                }
                 let tar = env.files.tar_stream().map_err(|e| step_error(step, e))?;
                 env.wsl.exec(name, GuestUser::Root, &["/bin/mkdir", "-p", GUEST_SHARE], None, COPY_TIMEOUT).and_then(|o| o.ok()).map_err(|e| step_error(step, e))?;
                 env.wsl
                     .exec(name, GuestUser::Root, &["/bin/tar", "-x", "-m", "-C", GUEST_SHARE, "-f", "-"], Some(tar), COPY_TIMEOUT)
                     .and_then(|o| o.ok())
                     .map_err(|e| step_error(step, e))?;
+                restart_without_systemd(env, name);
             }
             Step::ApplyRecipes => apply_recipes(env, options, steps, index, progress)?,
             Step::Restart => env.wsl.terminate(name).map_err(|e| step_error(step, e))?,
             Step::BootCheck => {
                 env.lifecycle.ensure_ready(now_ms()).map_err(|e| step_error(step, e.message()))?;
                 env.lifecycle.stop().map_err(|e| step_error(step, e.message()))?;
+            }
+            Step::Finish => {
+                let script = format!(
+                    "umask 022 && mkdir -p /etc/pm-sbx && cat > {GUEST_MARKER}.tmp && mv {GUEST_MARKER}.tmp {GUEST_MARKER}"
+                );
+                env.wsl
+                    .exec(name, GuestUser::Root, &["/bin/sh", "-c", &script], Some(marker_text(options).into_bytes()), COPY_TIMEOUT)
+                    .and_then(|o| o.ok())
+                    .map_err(|e| step_error(step, e))?;
+                // The reset point is taken from a stopped distro.
+                env.wsl.terminate(name).map_err(|e| step_error(step, e))?;
             }
             Step::Snapshot => {
                 let tar = env.layout.snapshot_path(name, BASE_SNAPSHOT).ok_or(InstallError::BadOptions("bad snapshot name"))?;
@@ -590,8 +745,93 @@ fn run_steps(
             }
         }
     }
+    env.records.save(name, &SavedInstall::finished(Some(options)));
     emit_done(progress, steps);
     Ok(())
+}
+
+/// Puts the short install-time wsl.conf in place and restarts the distro, so the installer runs without systemd. This only
+/// makes the install faster, so a failure here is not an install failure: the installer still works with systemd on.
+fn restart_without_systemd(env: &InstallEnv<'_>, name: &SandboxName) {
+    // Not over the real wsl.conf: a set up that is carried on after the recipes ended already has it (and the boot hook it names).
+    let script = format!("test -e /usr/local/sbin/pm-sbx-boot.sh || cp {INSTALL_CONF} /etc/wsl.conf");
+    let copied = env.wsl.exec(name, GuestUser::Root, &["/bin/sh", "-c", &script], None, COPY_TIMEOUT).and_then(|o| o.ok());
+    if copied.is_ok() {
+        let _ = env.wsl.terminate(name);
+    }
+}
+
+enum CreateEvent {
+    /// `wsl --install` printed its second line (the first is "Downloading", the second "Installing", in the person's language).
+    Unpacking,
+    Done(Result<(), WslError>),
+}
+
+fn mm_ss(elapsed: Duration) -> String {
+    let secs = elapsed.as_secs();
+    format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+/// The share of the step done and the line to show, for how long `wsl --install` has been running. It prints no
+/// percentage, so the bar eases toward the end of each phase and the line carries the elapsed time.
+pub fn create_progress(elapsed: Duration, unpacking_for: Option<Duration>) -> (f64, String) {
+    match unpacking_for {
+        None => {
+            let t = elapsed.as_secs_f64();
+            (0.7 * t / (t + 60.0), format!("Downloading Ubuntu ({UBUNTU_DOWNLOAD_TEXT}) \u{b7} {}", mm_ss(elapsed)))
+        }
+        Some(since) => {
+            let u = since.as_secs_f64();
+            (0.7 + 0.28 * u / (u + 15.0), format!("Unpacking Ubuntu \u{b7} {}", mm_ss(elapsed)))
+        }
+    }
+}
+
+/// `wsl --install` on a thread, while this one keeps the bar and the elapsed time moving once a second.
+fn create_distro(
+    env: &InstallEnv<'_>,
+    name: &SandboxName,
+    dir: &Path,
+    steps: &[Step],
+    index: usize,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<(), WslError> {
+    let (tx, rx) = mpsc::channel::<CreateEvent>();
+    let wsl = env.wsl;
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let mut lines = 0usize;
+            let mut last = String::new();
+            let result = wsl.install_distro_streaming(name, dir, &mut |raw| {
+                // wsl.exe prints UTF-16: after a split at the newline byte, NULs are left in the text.
+                let line: String = raw.chars().filter(|c| *c != '\0' && !c.is_control()).collect();
+                let line = line.trim().to_string();
+                if line.is_empty() || line == last {
+                    return;
+                }
+                last = line;
+                lines += 1;
+                if lines == 2 {
+                    let _ = tx.send(CreateEvent::Unpacking);
+                }
+            });
+            let _ = tx.send(CreateEvent::Done(result));
+        });
+        let started = Instant::now();
+        let mut unpacking: Option<Instant> = None;
+        loop {
+            let (fraction, detail) = create_progress(started.elapsed(), unpacking.map(|t| t.elapsed()));
+            emit(progress, steps, index, fraction, Some(detail));
+            match rx.recv_timeout(Duration::from_secs(1)) {
+                Ok(CreateEvent::Done(result)) => return result,
+                Ok(CreateEvent::Unpacking) => {
+                    unpacking.get_or_insert_with(Instant::now);
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Err(WslError::Start("the download stopped unexpectedly".to_string())),
+            }
+        }
+    })
 }
 
 fn emit_done(progress: &mut dyn FnMut(Progress), steps: &[Step]) {

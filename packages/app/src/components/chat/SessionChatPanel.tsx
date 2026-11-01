@@ -108,10 +108,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
         }
         pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
         composer={reply ? (
-          <>
-            {composerTop}
-            <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} slashCommands={slashCommands} />
-          </>
+          <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} slashCommands={slashCommands} toolbar={composerTop} />
         ) : undefined}
       />
       {clipFor !== null && <ClipSheet paneId={paneId} userItemId={clipFor} api={clipApi} onClose={() => setClipFor(null)} />}

@@ -3,7 +3,8 @@
 // goes through the potato_sandbox_* commands (the SandboxTransport), the same ones the settings rows use.
 import { useState } from 'react';
 import { COMPUTER_COPY, sandboxLine } from '../../../lib/potato-computer';
-import { plainSandboxError, type SandboxTransport, type SandboxView } from '../../../lib/potato-sandbox';
+import { REMOVE_WORD, plainSandboxError, type SandboxTransport, type SandboxView } from '../../../lib/potato-sandbox';
+import { ConfirmSheet } from '../../settings/controls';
 import '../../../styles/cockpit-potato-panel.css';
 
 export interface ComputerMaintenanceProps {
@@ -95,6 +96,61 @@ export function SetUpCard({ botName, view, onSetUp }: SetUpCardProps) {
       <button type="button" className="ck-btn ck-btn--primary" onClick={onSetUp}>
         {setting ? COMPUTER_COPY.showSetUp : COMPUTER_COPY.setUpButton}
       </button>
+    </section>
+  );
+}
+
+export interface UnfinishedCardProps {
+  transport: SandboxTransport;
+  view: SandboxView;
+  refresh: () => Promise<void>;
+  /** Start over removed the unfinished computer: open the set up. */
+  onSetUp: () => void;
+  onNotify?: (text: string) => void;
+}
+
+/** Set up was cut off (the app closed mid-way): "Setup didn't finish" with Continue setup / Start over, in place of Wake. */
+export function UnfinishedCard({ transport, view, refresh, onSetUp, onNotify }: UnfinishedCardProps) {
+  const [busy, setBusy] = useState<'continue' | 'over' | null>(null);
+  const [asking, setAsking] = useState(false);
+  const go = async (what: 'continue' | 'over', call: () => Promise<unknown>, after?: () => void) => {
+    setBusy(what);
+    try {
+      await call();
+      after?.();
+    } catch (error) {
+      onNotify?.(plainSandboxError(error, 'That did not work.'));
+    } finally {
+      setBusy(null);
+      await refresh();
+    }
+  };
+  return (
+    <section className="ck-potato-setup" aria-label={COMPUTER_COPY.unfinishedTitle}>
+      <h3 className="ck-potato-setup-title">{COMPUTER_COPY.unfinishedTitle}</h3>
+      <p className="ck-sub ck-potato-setup-body">{view.canContinue ? COMPUTER_COPY.unfinishedBody : COMPUTER_COPY.unfinishedBodyNoResume}</p>
+      <div className="ck-potato-maint-buttons">
+        {view.canContinue && (
+          <button type="button" className="ck-btn ck-btn--primary" disabled={busy !== null} onClick={() => void go('continue', () => transport.continueInstall())}>
+            {busy === 'continue' ? COMPUTER_COPY.continuing : COMPUTER_COPY.continueSetUp}
+          </button>
+        )}
+        <button type="button" className={`ck-btn ${view.canContinue ? 'ck-btn--secondary' : 'ck-btn--primary'}`} disabled={busy !== null} onClick={() => setAsking(true)}>
+          {COMPUTER_COPY.startOver}
+        </button>
+      </div>
+      {asking && (
+        <ConfirmSheet
+          title={COMPUTER_COPY.startOverTitle}
+          body={COMPUTER_COPY.startOverBody}
+          confirmLabel={COMPUTER_COPY.startOver}
+          onConfirm={() => {
+            setAsking(false);
+            void go('over', () => transport.remove(REMOVE_WORD), onSetUp);
+          }}
+          onCancel={() => setAsking(false)}
+        />
+      )}
     </section>
   );
 }

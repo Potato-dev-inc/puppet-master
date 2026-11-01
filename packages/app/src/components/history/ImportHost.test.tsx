@@ -144,6 +144,29 @@ describe('ImportHost', () => {
     expect(host.querySelector('.history-viewer')).toBeNull();
   });
 
+  it('Continue as chat makes a chat session of the old chat, selects its pane and closes the sheet', async () => {
+    const c = pane();
+    const api = { ...fakeApi(), continueAsChat: vi.fn().mockResolvedValue('acp-chat-1') };
+    act(() => root.render(<><Watch /><ImportHost c={c} api={api} /></>));
+    act(() => requestImportedChat('codex', 'sess-0001-abcd'));
+    await flush();
+    await act(async () => {
+      button('Continue as chat')!.click();
+    });
+    await flush();
+    expect(api.continueAsChat).toHaveBeenCalledWith('codex', 'sess-0001-abcd');
+    expect(c.registry.spawnPane).not.toHaveBeenCalled();
+    expect(c.select).toHaveBeenCalledWith('acp-chat-1');
+    expect(host.querySelector('.history-viewer')).toBeNull();
+  });
+
+  it('without a chat way in the api there is no Continue as chat button', async () => {
+    act(() => root.render(<><Watch /><ImportHost c={pane()} api={fakeApi()} /></>));
+    act(() => requestImportedChat('codex', 'sess-0001-abcd'));
+    await flush();
+    expect(button('Continue as chat')).toBeUndefined();
+  });
+
   it('a failed start keeps the sheet open and says so', async () => {
     const c = pane();
     c.registry.spawnPane.mockRejectedValueOnce(new Error('no such agent'));

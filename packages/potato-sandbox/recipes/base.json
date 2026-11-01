@@ -3,11 +3,11 @@
   "id": "base",
   "title": "Desktop base",
   "description": "What every sandbox needs: a hidden screen, a remote view that cannot type, the Chrome browser, fonts for every language, a terminal, a file manager, a text editor, a PDF reader, zip tools and Python. Always installed.",
+  "size_mb": 300,
   "pre": [],
   "apt": [
     "xvfb",
     "x11vnc",
-    "novnc",
     "websockify",
     "xdotool",
     "x11-utils",
@@ -59,7 +59,8 @@
     "tr -d '\\r' < \"$PM_SBX_GUEST/page-browser/pm-sbx-page-browser\" > /usr/local/bin/pm-sbx-page-browser && chmod 0755 /usr/local/bin/pm-sbx-page-browser",
     "install -d -o pm -g pm -m 0700 /home/pm/.browser-profiles",
     "printf '127.0.0.1 localhost\\n127.0.1.1 pm-sandbox\\n::1 localhost ip6-localhost ip6-loopback\\nff02::1 ip6-allnodes\\nff02::2 ip6-allrouters\\n' > /etc/hosts",
-    "echo pm-sandbox > /etc/hostname"
+    "echo pm-sandbox > /etc/hostname",
+    "bash \"$PM_SBX_ASSETS/pm-sbx-novnc-lite.sh\""
   ],
   "options": []
 }

@@ -71,7 +71,7 @@ export function RemoveSheet({ busy, onConfirm, onCancel }: { busy?: boolean; onC
 
 function statusLine(view: SandboxView): string {
   const parts: string[] = [STATE_WORD[view.state]];
-  if (view.reason && view.state !== 'installing') parts.push(view.reason);
+  if (view.reason && view.state !== 'installing' && view.state !== 'incomplete') parts.push(view.reason);
   return parts.join('. ').replace(/\.\./g, '.');
 }
 
@@ -79,6 +79,8 @@ function SandboxPanel({ transport, env }: { transport: SandboxTransport; env: Se
   const { view, failed, refresh } = useSandbox(transport);
   const [wizard, setWizard] = useState(false);
   const [removing, setRemoving] = useState(false);
+  // "Start over" is a remove (same typed word) that goes straight on to the wizard.
+  const [startOver, setStartOver] = useState(false);
   const [ask, setAsk] = useState<FeatureAsk | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -131,10 +133,13 @@ function SandboxPanel({ transport, env }: { transport: SandboxTransport; env: Se
   const remove = async () => {
     setBusy('remove');
     setMessage(null);
+    const again = startOver;
     try {
       await transport.remove(REMOVE_WORD);
       setRemoving(false);
+      setStartOver(false);
       setMessage({ ok: true, text: 'The sandbox was removed.' });
+      if (again) setWizard(true);
     } catch (error) {
       setMessage({ ok: false, text: plainSandboxError(error, 'Could not remove the sandbox.') });
     } finally {
@@ -172,6 +177,31 @@ function SandboxPanel({ transport, env }: { transport: SandboxTransport; env: Se
               <Btn onClick={() => setWizard(true)}>Show</Btn>
               <Btn disabled={view.install.cancelling} onClick={() => void run('cancel', () => transport.cancelInstall())}>
                 {view.install.cancelling ? 'Stopping…' : 'Stop set up'}
+              </Btn>
+            </div>
+          </>
+        )}
+
+        {view.state === 'incomplete' && (
+          <>
+            <Note>
+              Set up was cut off before it ended (the app was closed, or the computer slept). {view.canContinue ? 'Continue where it stopped, or start over.' : 'Start over to set it up again.'}
+            </Note>
+            <div className="sbx-buttons">
+              {view.canContinue && (
+                <Btn primary disabled={busy !== null} onClick={() => void run('continue', () => transport.continueInstall())}>
+                  {busy === 'continue' ? 'Continuing…' : 'Continue setup'}
+                </Btn>
+              )}
+              <Btn
+                primary={!view.canContinue}
+                disabled={busy !== null}
+                onClick={() => {
+                  setStartOver(true);
+                  setRemoving(true);
+                }}
+              >
+                Start over…
               </Btn>
             </div>
           </>
@@ -225,7 +255,16 @@ function SandboxPanel({ transport, env }: { transport: SandboxTransport; env: Se
           }}
         />
       )}
-      {removing && <RemoveSheet busy={busy === 'remove'} onConfirm={() => void remove()} onCancel={() => setRemoving(false)} />}
+      {removing && (
+        <RemoveSheet
+          busy={busy === 'remove'}
+          onConfirm={() => void remove()}
+          onCancel={() => {
+            setRemoving(false);
+            setStartOver(false);
+          }}
+        />
+      )}
       {ask && <ConfirmSheet title={ask.title} body={ask.body} confirmLabel="Turn on" onConfirm={() => void confirmAsk()} onCancel={() => setAsk(null)} />}
     </SettingBlock>
   );

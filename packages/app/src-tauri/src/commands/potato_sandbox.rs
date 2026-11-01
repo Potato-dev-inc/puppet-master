@@ -76,6 +76,12 @@ pub async fn potato_sandbox_install(answers: WizardAnswers) -> Result<(), String
     run(move |m| m.start_install(&answers)).await
 }
 
+/// "Continue setup": carries on a set up that did not finish, with the answers it started with.
+#[tauri::command]
+pub async fn potato_sandbox_continue_install() -> Result<(), String> {
+    run(|m| m.continue_install()).await
+}
+
 #[tauri::command]
 pub async fn potato_sandbox_cancel_install() -> Result<(), String> {
     run(|m| m.cancel_install()).await

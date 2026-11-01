@@ -238,6 +238,13 @@ class ScriptContract(unittest.TestCase):
             result = subprocess.run([BASH, "-n"], input=script, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
+class StaleSessionTests(unittest.TestCase):
+    def test_a_dirty_terminate_leaves_nothing_that_stops_the_next_session(self):
+        text = read(START)
+        body = function_text(text, "start_xvfb")
+        self.assertIn("/tmp/.X11-unix/X${DNUM}", body)
+        self.assertIn("rm -f /tmp/.ICE-unix/*", body, "xfce4-session fails with 'server already running' on a stale ICE socket")
+        self.assertLess(body.index("rm -f /tmp/.ICE-unix"), body.index("setsid nohup Xvfb"))
 
 if __name__ == "__main__":
     unittest.main()

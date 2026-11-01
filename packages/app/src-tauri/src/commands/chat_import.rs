@@ -197,6 +197,29 @@ pub async fn chat_import_resume_plan(app: AppHandle, agent: String, session: Str
     .await
 }
 
+/// Continues an old chat as a chat session (ACP) instead of a terminal pane: a conversation is made on the agent's own
+/// session, its chat pane is listed, and the pane id (the conversation id) is returned. The adapter loads the session
+/// and replays it when the chat is first read. Needs the Labs switch; the same one-writer rule as the terminal way.
+#[tauri::command]
+pub async fn chat_import_continue_as_chat(app: AppHandle, agent: String, session: String) -> Result<String, String> {
+    if !crate::acp::chat_enabled() {
+        return Err("FEATURE_OFF: chat (ACP) is switched off in Labs".into());
+    }
+    let plan = chat_import_resume_plan(app.clone(), agent.clone(), session.clone()).await?;
+    if !plan.ok {
+        return Err(plan.reason.unwrap_or_else(|| "This chat cannot be continued.".into()));
+    }
+    blocking(move || {
+        let conversations = crate::acp::conversations::global();
+        let view = conversations.import(&agent, std::path::Path::new(&plan.cwd), &session).map_err(|e| e.to_string())?;
+        let state = app.state::<AppState>();
+        let deps = super::acp_chat::live_deps(&app, &state.registry);
+        crate::acp::chat::restore_panes(&deps);
+        Ok(view.id)
+    })
+    .await
+}
+
 /// Runs `work` on a blocking thread: opening the index and reading the agents' folders are not for the async runtime.
 async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| format!("INTERNAL: {e}"))?

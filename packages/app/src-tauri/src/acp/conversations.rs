@@ -199,6 +199,31 @@ impl Conversations {
         Ok(self.view_of(&record))
     }
 
+    /// Brings an agent's own old session (one the person had in a terminal or another app) into the chat as a new
+    /// conversation. Nothing runs yet: the first read starts the adapter, which loads the session and replays it.
+    pub fn import(&self, agent: &str, cwd: &Path, session_id: &str) -> Result<ConversationView, ConversationError> {
+        let cfg = self.config_for(agent)?;
+        let id = format!("acp-{}", uuid::Uuid::new_v4().simple());
+        let now = now_ms();
+        let record = ConversationRecord {
+            id: id.clone(),
+            agent: cfg.id.clone(),
+            session_id: Some(session_id.to_string()),
+            cwd: cwd.to_string_lossy().into_owned(),
+            lane: RunLane::Acp,
+            last_known_state: LastState::Live,
+            terminal_pane: None,
+            notices: Vec::new(),
+            created_ms: now,
+            updated_ms: now,
+        };
+        self.0.records.lock().push(record.clone());
+        self.save();
+        self.build_session(&id, cfg, cwd, Some(session_id.to_string()), true);
+        let _ = self.0.writers.claim(&id, Writer::Chat);
+        Ok(self.view_of(&record))
+    }
+
     /// Starts the adapter and opens the session if it is not running (a viewer opening the chat).
     pub fn open_chat(&self, id: &str) -> Result<Readiness, ConversationError> {
         let session = self.live_session(id)?;
