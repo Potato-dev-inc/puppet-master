@@ -111,12 +111,26 @@ describe('BrainStateCard', () => {
     }
   });
 
-  it('asks for the DeepSeek key', () => {
+  it('asks for the DeepSeek key, and Add key opens exactly that row', () => {
     const onOpenSettings = vi.fn();
     show({ state: 'needs_key', onOpenSettings });
     expect(host.textContent).toContain('Add your DeepSeek key in Settings to talk with Fish.');
-    act(() => buttonByText(host, 'Open Settings')!.click());
-    expect(onOpenSettings).toHaveBeenCalled();
+    act(() => buttonByText(host, 'Add key')!.click());
+    expect(onOpenSettings).toHaveBeenCalledWith('potato-key');
+  });
+
+  it('Raise limit opens the daily limit row', () => {
+    const onOpenSettings = vi.fn();
+    show({ state: 'daily_limit', onOpenSettings });
+    act(() => buttonByText(host, 'Raise limit')!.click());
+    expect(onOpenSettings).toHaveBeenCalledWith('potato-limit');
+  });
+
+  it('Repair install opens the Potato section when no repair row exists', () => {
+    const onOpenSettings = vi.fn();
+    show({ state: 'missing_program', onOpenSettings });
+    act(() => buttonByText(host, 'Repair install')!.click());
+    expect(onOpenSettings).toHaveBeenCalledWith('potato');
   });
 
   it('asks for Node.js 20 and the Install Node.js button runs the install', async () => {
