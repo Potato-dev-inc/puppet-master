@@ -404,13 +404,16 @@ describe('Settings How to run rows', () => {
     expect(document.querySelector('[aria-label="Add chat (ACP) for Fake"]')).toBeNull();
   });
 
-  it('Remove chat shows only on an overlay agent and calls remove', async () => {
+  it('Remove chat shows on every agent with a chat, asks first, and an older app removes only an added chat', async () => {
     const overlayRemove = vi.fn(async () => undefined);
     const laneGet = vi.fn(async () => view());
     await act(async () => root.render(<AgentLaneRows api={{ laneGet, laneSet: vi.fn(), overlayRemove }} />));
     await flush();
-    expect(document.querySelectorAll('[aria-label^="Remove chat for"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[aria-label^="Remove chat for"]').length).toBeGreaterThan(0);
     await click(document.querySelector('[aria-label="Remove chat for Mine"]'));
+    expect(overlayRemove).not.toHaveBeenCalled();
+    await click(byText('Remove'));
+    await flush();
     expect(overlayRemove).toHaveBeenCalledWith('mine');
     expect(laneGet).toHaveBeenCalledTimes(2);
   });
@@ -446,5 +449,81 @@ describe('the + menu hint', () => {
     expect(host.querySelector('.ck-menu-setup')).toBeNull();
     await menu(undefined);
     expect(host.querySelector('.ck-menu-setup')).toBeNull();
+  });
+});
+
+describe('AddChatDialog with Chat (terminal)', () => {
+  const termSummary = 'Puppet Master runs Fake in a terminal and shows it as a chat. You get its tool cards and history, and you can answer its questions here. It cannot resume old sessions.';
+  const termOpt = (over: Partial<OverlayOption> = {}): OverlayOption => ({
+    kind: 'terminal_chat',
+    label: 'Chat (terminal)',
+    summary: termSummary,
+    terminal_chat: { reads_file: true, can_resume: false, can_answer_prompts: true, note: '' },
+    available: true,
+    ...over,
+  });
+
+  it('is kept by normalizeOptions and ranked after native and registry, before the bridge', () => {
+    const list = normalizeOptions({ ok: true, options: [bridgeOpt(), termOpt(), registryOpt()] });
+    expect(list.map((o) => o.kind)).toEqual(['bridge', 'terminal_chat', 'registry']);
+    expect(firstAvailable([nativeOpt({ available: false }), termOpt(), bridgeOpt()])).toBe(1);
+  });
+
+  it('alone it is the confirm screen with its summary and "Nothing to download.", no command box, no ACP word', async () => {
+    await open({ overlayResolve: resolved(termOpt()), overlaySet: vi.fn(async () => row()), overlayInstall: vi.fn(async () => ({})) });
+    expect(q('[data-testid="add-chat-summary"]')?.textContent).toBe(termSummary);
+    expect(q('[data-testid="add-chat-command"]')).toBeNull();
+    expect(document.body.textContent).toContain('Nothing to download.');
+    expect(document.querySelector('[data-testid="add-chat-dialog"]')?.textContent).not.toMatch(/ACP/);
+  });
+
+  it('is a radio with its label and summary when another route is also usable, and is preselected when first', async () => {
+    await open({ overlayResolve: resolved(termOpt(), registryOpt()), overlaySet: vi.fn(async () => row()), overlayInstall: vi.fn(async () => ({})) });
+    const radios = [...document.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios).toHaveLength(2);
+    expect(radios.map((r) => r.checked)).toEqual([true, false]);
+    const termRadio = q('[data-testid="add-chat-option-terminal_chat"]')!;
+    expect(termRadio.textContent).toContain('Chat (terminal)');
+    expect(termRadio.textContent).toContain(termSummary);
+    expect(termRadio.textContent).toContain('Nothing to download.');
+    expect(termRadio.textContent).not.toMatch(/ACP/);
+  });
+
+  it('is not preselected when a native program comes first', async () => {
+    await open({ overlayResolve: resolved(nativeOpt(), termOpt()), overlaySet: vi.fn(async () => row()), overlayInstall: vi.fn(async () => ({})) });
+    const radios = [...document.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios.map((r) => r.checked)).toEqual([true, false]);
+  });
+
+  it('Add chat calls install with {kind:"terminal_chat"} and confirmed true, never overlaySet, and reports the row', async () => {
+    const overlayInstall = vi.fn(async () => row({ lane: 'terminal_chat' as never }));
+    const overlaySet = vi.fn(async () => row());
+    const { onAdded } = await open({ overlayResolve: resolved(termOpt()), overlaySet, overlayInstall });
+    await click(byText('Add chat'));
+    await flush();
+    expect(overlayInstall).toHaveBeenCalledWith('fake', { kind: 'terminal_chat' }, true);
+    expect(overlaySet).not.toHaveBeenCalled();
+    expect(onAdded).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refusal shows the backend text and keeps the dialog open', async () => {
+    const overlayInstall = vi.fn(async () => {
+      throw new Error('Turn on Labs first.');
+    });
+    const { onAdded } = await open({ overlayResolve: resolved(termOpt()), overlayInstall });
+    await click(byText('Add chat'));
+    await flush();
+    expect(q('[data-testid="add-chat-error"]')?.textContent).toContain('Turn on Labs first.');
+    expect(onAdded).not.toHaveBeenCalled();
+  });
+
+  it('other routes are unchanged: a native program still saves with overlaySet, not install', async () => {
+    const overlaySet = vi.fn(async () => row());
+    const overlayInstall = vi.fn(async () => ({}));
+    await open({ overlayResolve: resolved(nativeOpt(), termOpt()), overlaySet, overlayInstall });
+    await click(byText('Add chat'));
+    await flush();
+    expect(overlaySet).toHaveBeenCalledWith('fake', expect.objectContaining({ command: 'fake-agent' }), true);
+    expect(overlayInstall).not.toHaveBeenCalled();
   });
 });

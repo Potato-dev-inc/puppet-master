@@ -1270,3 +1270,8 @@ mod collision;
 
 #[path = "fake_tui_potato.rs"]
 mod potato;
+
+// ---- A terminal chat answering the agent's question: stale, unclicked and unlisted picks press nothing (zero tokens) ----
+
+#[path = "fake_tui_terminal_chat_prompt.rs"]
+mod terminal_chat_prompt;

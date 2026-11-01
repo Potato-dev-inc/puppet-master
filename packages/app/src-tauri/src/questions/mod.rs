@@ -529,6 +529,20 @@ impl QuestionStore {
         Ok(resolution)
     }
 
+    /// Closes a pending question as expired: nobody is waiting for the answer any more (the asker went away). It is
+    /// never an answer and never runs a resolve hook. Idempotent; a question that is not pending is left as it is.
+    pub fn expire(&self, id: &str, now: u64) -> bool {
+        let mut inner = self.inner.lock();
+        let Some(q) = inner.items.iter_mut().find(|q| q.id == id) else { return false };
+        if q.state != QuestionState::Pending {
+            return false;
+        }
+        q.state = QuestionState::TimedOut;
+        q.resolved_at_ms = Some(now);
+        self.bump(&mut inner);
+        true
+    }
+
     /// Block until the question leaves `Pending` or `wait` passes. Returns its latest state,
     /// or `None` when the id is unknown.
     pub fn wait_resolved(&self, id: &str, wait: Duration) -> Option<Question> {

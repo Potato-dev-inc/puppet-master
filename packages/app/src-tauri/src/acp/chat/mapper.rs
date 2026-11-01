@@ -224,12 +224,22 @@ fn view_name(kind: &str) -> String {
     }
 }
 
+/// The most diffs one tool call shows. A call that edits more files shows the first ones and says how many it left
+/// out, because the view's input limit (`bound_input`) would otherwise drop the whole diff.
+pub const MAX_SHOWN_DIFFS: usize = 8;
+
 /// The input an edit call carries so the view can draw its diff (`old_string` / `new_string`, or a list of them).
 fn diff_input(diffs: &[Diff]) -> Value {
     let one = |diff: &Diff| json!({ "file_path": diff.path, "old_string": diff.old.clone().unwrap_or_default(), "new_string": diff.new });
     match diffs {
         [single] => one(single),
-        many => json!({ "edits": many.iter().map(one).collect::<Vec<_>>() }),
+        many => {
+            let mut input = json!({ "edits": many.iter().take(MAX_SHOWN_DIFFS).map(one).collect::<Vec<_>>() });
+            if many.len() > MAX_SHOWN_DIFFS {
+                input["omitted_edits"] = json!(many.len() - MAX_SHOWN_DIFFS);
+            }
+            input
+        }
     }
 }
 

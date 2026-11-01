@@ -116,6 +116,7 @@ mod tamper;
 pub mod shell_exec;
 mod standby;
 mod team;
+mod terminal_chat;
 pub mod tool_registry;
 mod toolbelt;
 mod agent_pack;
@@ -466,6 +467,8 @@ pub fn run() {
             settings_patch::settings_patch,
             commands::pane_prompt,
             commands::answer_pane_prompt,
+            commands::terminal_chat_prompt,
+            commands::terminal_chat_answer,
             commands::attention_snapshot,
             commands::focus_state,
             commands::focus_start,
@@ -635,12 +638,15 @@ pub fn run() {
             commands::acp_addon_install,
             commands::acp_addon_remove,
             commands::agent_lane_get,
+            terminal_chat::start::terminal_chat_start,
             commands::agent_lane_set,
             commands::acp_overlay_detect,
             commands::acp_overlay_resolve,
             commands::acp_overlay_install,
             commands::acp_overlay_set,
             commands::acp_overlay_remove,
+            commands::acp_chat_remove,
+            commands::acp_chat_restart,
             commands::acp_conversations_list,
             commands::acp_conversations_restore,
             commands::acp_conversation_create,

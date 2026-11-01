@@ -193,6 +193,18 @@ impl PaneRegistry {
         self.panes.get_mut(id)
     }
 
+    /// Tags a live terminal pane with how it runs (`PaneInfo.lane`, e.g. `"terminal_chat"`). False when the pane
+    /// is gone or is a chat session with no terminal of its own (its lane is fixed when it is made).
+    pub fn set_lane(&mut self, id: &str, lane: &str) -> bool {
+        match self.panes.get_mut(id) {
+            Some(pane) if pane.info.lane.is_none() || pane.info.lane.as_deref() == Some(lane) => {
+                pane.info.lane = Some(lane.to_string());
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn take(&mut self, id: &str) -> Option<PaneState> {
         super::hidden::forget(id);
         super::resize_clock::forget(id);

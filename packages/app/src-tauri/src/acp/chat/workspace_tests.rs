@@ -273,6 +273,37 @@ fn after_a_restart_the_conversation_is_a_chat_pane_that_loads_when_it_is_read() 
     app.forget_session(&id);
 }
 
+#[test]
+fn after_a_restart_a_message_sent_before_anyone_reads_the_chat_is_not_doubled_or_lost() {
+    let rig = Rig::new("");
+    let id = rig.id();
+    rig.say("stream 2");
+    rig.chat.retire();
+    rig.conversations.forget_session(&id);
+
+    let app = conversations_in(&rig.dir, &rig.opts);
+    app.restore_lazily(&rig.panes);
+    let deps = deps_for(&rig.dir, &app);
+    super::restore_panes(&deps);
+    let chat = get(&id).expect("the chat is back");
+    // The person types at once: the adapter starts for the message, loading the earlier conversation on the way.
+    chat.send("stream 1").expect("a message goes in");
+    assert!(wait_until(30, || chat.items().iter().any(|i| serde_json::to_value(i).unwrap()["kind"] == "turnEnd")));
+    let users: Vec<String> = chat.items().iter().filter_map(|i| match i {
+        crate::session_chat::ChatItem::User { text, .. } => Some(text.clone()),
+        _ => None,
+    }).collect();
+    assert_eq!(users.iter().filter(|t| t.as_str() == "stream 1").count(), 1, "the new message shows once: {users:?}");
+    assert!(users.iter().filter(|t| t.as_str() == "earlier question").count() <= 1, "the earlier message is never shown twice: {users:?}");
+    let ids: Vec<String> = chat.items().iter().map(|i| i.id().to_string()).collect();
+    let mut unique = ids.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), ids.len(), "ids stay unique: {ids:?}");
+    chat.retire();
+    app.forget_session(&id);
+}
+
 // ---- settings and slash commands --------------------------------------------------------------------------------
 
 #[test]

@@ -591,6 +591,12 @@ pub trait TuiProfile: Send + Sync {
         text.to_string()
     }
 
+    /// Whether this profile has its own parser for the agent's permission and question prompts (not the shared
+    /// wording guess in `generic`). Terminal chat shows an answerable card only for such agents.
+    fn has_prompt_parser(&self) -> bool {
+        false
+    }
+
     /// Whether `user_message_row` can ever answer (the profile declares how its transcript echoes a message).
     fn reads_user_messages(&self) -> bool {
         false
