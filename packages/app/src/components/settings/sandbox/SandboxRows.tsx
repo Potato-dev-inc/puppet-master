@@ -16,7 +16,8 @@ import {
 import '../../../styles/potato-sandbox.css';
 import { ConfirmSheet, NumberControl } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
-import { Btn, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
+import { Btn, Note, SettingBlock, SettingRow } from '../settings-ui';
+import { LabsSwitch } from '../LabsSwitch';
 import { InstallProgress, SandboxWizard } from './SandboxWizard';
 import { useSandbox } from './useSandbox';
 
@@ -269,7 +270,7 @@ export function makeSandboxRows(transport: SandboxTransport = tauriSandboxTransp
       group: 'Labs',
       labs: { name: 'Sandbox', about: "A small private Linux computer the bot can use, away from your files." },
       render: (env) => (
-        <SettingToggle
+        <LabsSwitch
           label="Sandbox"
           description="Set up a private Linux computer inside Windows for Potato Bot. It cannot see your files. Its settings appear under Potato Bot when this is on. It does nothing until you set it up."
           checked={env.settings.potato_sandbox_enabled ?? false}

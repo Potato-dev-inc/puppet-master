@@ -31,6 +31,7 @@ import { T as SIMPLE } from '../../simple/copy';
 import { T as WELCOME } from '../../firstrun/copy';
 import { reopenPatch } from '../../firstrun/model';
 import { Btn, FieldSelect, InfoRow, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
+import { LabsSwitch } from '../LabsSwitch';
 
 function useInstallInfo(): AppInstallInfo | null {
   const [info, setInfo] = useState<AppInstallInfo | null>(null);
@@ -209,6 +210,25 @@ function UninstallRow({ env }: { env: SettingsEnv }) {
 
 export const generalRows: RowDef[] = [
   { id: 'project-folder', label: 'Default project folder', hint: 'Where new panes and orchestrator tools start.', keywords: 'workspace directory browse path', group: 'Project', render: (env) => <ProjectFolder env={env} /> },
+  {
+    id: 'your-name',
+    label: 'Your name',
+    hint: 'Used in the greeting on the New agent page. Leave it empty for no name.',
+    keywords: 'name greeting hello welcome new agent page profile display',
+    group: 'Appearance',
+    render: (env) => (
+      <SettingRow label="Your name" description="Used in the greeting on the New agent page. Leave it empty for no name.">
+        <TextControl
+          aria-label="Your name"
+          value={env.settings.display_name ?? ''}
+          maxLength={60}
+          placeholder="Optional"
+          normalize={(text) => text.replace(/\s+/g, ' ').trim()}
+          onCommit={(next) => env.patch({ display_name: next || null })}
+        />
+      </SettingRow>
+    ),
+  },
   {
     id: 'start-at-sign-in',
     label: START_AT_SIGN_IN_LABEL,
@@ -420,7 +440,7 @@ export const generalRows: RowDef[] = [
     group: 'Labs',
     labs: { name: 'Missions', about: 'Agents work in a separate copy, turn by turn, until your checks pass.' },
     render: (env) => (
-      <SettingToggle
+      <LabsSwitch
         label="Missions (Preview)"
         description="Give agents a goal and the checks it must pass. They work in turns in a separate copy until the checks pass, within a budget. Every agent works in a visible pane. Nothing merges on its own."
         checked={env.settings.missions_enabled ?? false}
@@ -445,7 +465,7 @@ export const generalRows: RowDef[] = [
     group: 'Labs',
     labs: { name: 'Night Shift', about: 'Agents work through your tasks overnight, in separate copies.' },
     render: (env) => (
-      <SettingToggle
+      <LabsSwitch
         label="Night Shift"
         description="Plan tasks for tonight from the + menu. Agents work on them in separate copies while you sleep, with your tests as the check. Nothing merges until you press Keep in the morning."
         checked={env.settings.night_shift_enabled ?? false}
@@ -470,7 +490,7 @@ export const generalRows: RowDef[] = [
     group: 'Labs',
     labs: { name: 'Potato Bot', about: 'A chat friend with its own brain that asks before it starts any helper.' },
     render: (env) => (
-      <SettingToggle
+      <LabsSwitch
         label="Potato Bot"
         description="Chat with a bot that has a mood and a memory. It can ask you to start a helper, and nothing starts until you press Start. Its settings appear under Potato Bot when this is on."
         checked={env.settings.potato_bot_enabled ?? false}

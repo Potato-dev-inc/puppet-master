@@ -1,9 +1,61 @@
 //! In-memory public settings mirror for the HTTP bridge (synced from desktop).
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands::AppState;
+
+/// The Labs switches a development build shows as on (see `dev_labs_override_active`). `pane_mcp_enabled` is not
+/// one of them: it is on by default and lives in Settings › Agents.
+pub const DEV_LABS_KEYS: &[&str] = &[
+    "missions_enabled",
+    "night_shift_enabled",
+    "potato_bot_enabled",
+    "potato_sandbox_enabled",
+    "acp_chat_enabled",
+];
+
+/// Tests turn the override on through this; it is off in every test unless a test sets it.
+#[cfg(test)]
+pub(crate) static TEST_DEV_LABS: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+fn debug_build_allows_override() -> bool {
+    TEST_DEV_LABS.load(Ordering::SeqCst)
+}
+
+#[cfg(not(test))]
+fn debug_build_allows_override() -> bool {
+    true
+}
+
+/// The rule for the development override, in one place: a debug build, not switched off by `PM_DEV_LABS=0`,
+/// and allowed by the build (always, except under `cargo test`, where a test must turn it on).
+pub fn dev_labs_gate(debug_build: bool, env: Option<&str>, build_allows: bool) -> bool {
+    debug_build && env != Some("0") && build_allows
+}
+
+/// Whether every Labs switch reads as on: a debug build (`npm run dev`, the e2e build) unless `PM_DEV_LABS=0`.
+/// A release build is never affected. Applied at read time only: `settings.json` is never written with it.
+pub fn dev_labs_override_active() -> bool {
+    dev_labs_gate(cfg!(debug_assertions), std::env::var("PM_DEV_LABS").ok().as_deref(), debug_build_allows_override())
+}
+
+/// The settings the app acts on: `stored` with every Labs switch on when `active`. Pure; `stored` is not changed.
+pub fn with_dev_labs(stored: &Value, active: bool) -> Value {
+    let mut out = stored.clone();
+    if active {
+        if let Some(obj) = out.as_object_mut() {
+            for key in DEV_LABS_KEYS {
+                obj.insert((*key).to_string(), Value::Bool(true));
+            }
+        }
+    }
+    out
+}
 
 const PATCHABLE_KEYS: &[&str] = &[
     "orchestrator_backend",
@@ -92,33 +144,47 @@ pub fn merge_public_settings(base: &Value, patch: &Value) -> Value {
     merged
 }
 
-pub fn read_public_settings(app: &AppHandle) -> Value {
+/// The public settings as stored (the mirror), without the development override. Only the code that saves or
+/// mirrors settings reads this; everything that acts on a setting reads `read_public_settings`.
+fn stored_public_settings(app: &AppHandle) -> Value {
     app.try_state::<AppState>()
         .map(|state| state.public_settings.lock().clone())
         .unwrap_or_else(default_public_settings)
 }
 
+/// The effective public settings: the stored mirror with the development Labs override applied (if active).
+pub fn read_public_settings(app: &AppHandle) -> Value {
+    with_dev_labs(&stored_public_settings(app), dev_labs_override_active())
+}
+
+/// Tells the bridge SSE and each Labs owner the settings. Always called with the effective settings, so the
+/// override reaches every subsystem.
+fn apply_public_settings(effective: &Value) {
+    crate::bridge::push_settings_sse(effective);
+    crate::agent_hooks::apply_settings(effective);
+    crate::pane_mcp::apply_settings(effective);
+    crate::potato::live::apply_settings(effective);
+    crate::acp::apply_settings(effective);
+}
+
 /// Merge `patch` into the public mirror (bridge state + mobile SSE) without any window event.
-/// `settings_patch` uses this and emits its own `settings://changed`.
+/// `settings_patch` uses this and emits its own `settings://changed`. Returns the effective settings.
 pub fn mirror_public_patch(app: &AppHandle, patch: &Value) -> Value {
-    let current = read_public_settings(app);
+    let current = stored_public_settings(app);
     let merged = merge_public_settings(&current, patch);
     if let Some(state) = app.try_state::<AppState>() {
         *state.public_settings.lock() = merged.clone();
     }
-    crate::bridge::push_settings_sse(&merged);
-    crate::agent_hooks::apply_settings(&merged);
-    crate::pane_mcp::apply_settings(&merged);
-    crate::potato::live::apply_settings(&merged);
-    crate::acp::apply_settings(&merged);
+    let effective = with_dev_labs(&merged, dev_labs_override_active());
+    apply_public_settings(&effective);
 
-    if let Some(backend) = merged.get("orchestrator_backend").and_then(Value::as_str) {
+    if let Some(backend) = effective.get("orchestrator_backend").and_then(Value::as_str) {
         if backend != "api" {
             let _ = app.emit("orchestrator://ensure", json!({ "backend": backend }));
         }
     }
 
-    merged
+    effective
 }
 
 pub fn patch_public_settings(app: &AppHandle, patch: Value) -> Value {
@@ -151,11 +217,7 @@ pub fn load_saved_public_settings(app: &AppHandle) {
     }
     // The search index's switch is not in the public mirror (desktop-only setting): read it from the file.
     crate::chat_index::apply_setting(file.get("settings").unwrap_or(&Value::Null));
-    crate::bridge::push_settings_sse(&merged);
-    crate::agent_hooks::apply_settings(&merged);
-    crate::pane_mcp::apply_settings(&merged);
-    crate::potato::live::apply_settings(&merged);
-    crate::acp::apply_settings(&merged);
+    apply_public_settings(&with_dev_labs(&merged, dev_labs_override_active()));
 }
 
 #[cfg(test)]
@@ -189,5 +251,60 @@ mod tests {
         assert_eq!(missions_only["night_shift_enabled"], false);
         let from_file = public_settings_from_store_file(&json!({"settings": {"night_shift_enabled": true}}));
         assert_eq!(from_file["night_shift_enabled"], true);
+    }
+
+    #[test]
+    fn dev_override_turns_every_labs_switch_on_and_nothing_else() {
+        let stored = default_public_settings();
+        let effective = with_dev_labs(&stored, true);
+        for key in DEV_LABS_KEYS {
+            assert_eq!(effective[*key], true, "{key} should read as on");
+        }
+        // Not a Labs switch: unchanged (on by default, Settings › Agents).
+        assert_eq!(effective["pane_mcp_enabled"], true);
+        assert_eq!(effective["checkpoints_enabled"], stored["checkpoints_enabled"]);
+        assert_eq!(effective["default_model"], stored["default_model"]);
+        // Inactive: the stored value passes through untouched.
+        assert_eq!(with_dev_labs(&stored, false), stored);
+        assert_eq!(with_dev_labs(&stored, false)["potato_bot_enabled"], false);
+    }
+
+    #[test]
+    fn dev_override_never_changes_the_stored_file() {
+        let file = json!({"settings": {"potato_bot_enabled": false, "missions_enabled": false}});
+        let before = file.clone();
+        let stored = public_settings_from_store_file(&file);
+        let effective = with_dev_labs(&stored, true);
+        assert_eq!(effective["potato_bot_enabled"], true);
+        assert_eq!(effective["missions_enabled"], true);
+        // The mirror (what is saved) and the file are as they were.
+        assert_eq!(stored["potato_bot_enabled"], false);
+        assert_eq!(stored["missions_enabled"], false);
+        assert_eq!(file, before);
+    }
+
+    #[test]
+    fn dev_gate_is_on_only_in_a_debug_build_unless_pm_dev_labs_is_zero() {
+        // A debug build with no switch-off: on.
+        assert!(dev_labs_gate(true, None, true));
+        assert!(dev_labs_gate(true, Some("1"), true));
+        assert!(dev_labs_gate(true, Some(""), true));
+        // PM_DEV_LABS=0 turns it off.
+        assert!(!dev_labs_gate(true, Some("0"), true));
+        // A release build is never affected, whatever the variable says.
+        assert!(!dev_labs_gate(false, None, true));
+        assert!(!dev_labs_gate(false, Some("1"), true));
+        // Under cargo test the build itself must allow it (tests are off by default).
+        assert!(!dev_labs_gate(true, None, false));
+    }
+
+    #[test]
+    fn dev_override_is_off_in_tests_until_a_test_turns_it_on() {
+        assert!(!dev_labs_override_active(), "tests start with every Labs flag as stored");
+        TEST_DEV_LABS.store(true, Ordering::SeqCst);
+        let on = dev_labs_override_active();
+        TEST_DEV_LABS.store(false, Ordering::SeqCst);
+        assert_eq!(on, std::env::var("PM_DEV_LABS").ok().as_deref() != Some("0"));
+        assert!(!dev_labs_override_active());
     }
 }

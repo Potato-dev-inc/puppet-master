@@ -1,22 +1,28 @@
 /* Cockpit window. Everything is scoped under .cockpit. Monochrome tokens from mockups/ui-proposal/STYLE.md. */
 
 .cockpit {
-  --bg: #0a0a0b;
-  --bg-side: #111112;
-  --bg-raised: #18181a;
-  --bg-float: rgba(28, 28, 30, 0.82);
-  --fill: rgba(255, 255, 255, 0.05);
-  --fill-hover: rgba(255, 255, 255, 0.08);
-  --fill-active: rgba(255, 255, 255, 0.12);
-  --sep: rgba(255, 255, 255, 0.08);
-  --label: #f5f5f7;
-  --label-2: rgba(245, 245, 247, 0.64);
-  --label-3: rgba(245, 245, 247, 0.52);
-  --label-4: rgba(245, 245, 247, 0.22);
-  --primary-bg: #f5f5f7;
-  --primary-fg: #0a0a0b;
-  --focus: 0 0 0 3px rgba(245, 245, 247, 0.28);
-  --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --bg: #1b1a19;
+  --bg-side: #211f1e;
+  --bg-raised: #292725;
+  --bg-float: rgba(52, 50, 47, 0.88);
+  --fill: rgba(255, 248, 240, 0.055);
+  --fill-hover: rgba(255, 248, 240, 0.09);
+  --fill-active: rgba(255, 248, 240, 0.14);
+  --sep: rgba(255, 248, 240, 0.1);
+  --label: #f4f2ef;
+  --label-2: rgba(244, 242, 239, 0.68);
+  --label-3: rgba(244, 242, 239, 0.58);
+  --label-4: rgba(244, 242, 239, 0.26);
+  --primary-bg: #f4f2ef;
+  --primary-fg: #1b1a19;
+  --focus: 0 0 0 3px rgba(242, 154, 60, 0.4);
+  --accent: #f29a3c;
+  --accent-hover: #f7ad5c;
+  --accent-press: #d9852b;
+  --accent-soft: rgba(242, 154, 60, 0.14);
+  --accent-line: #f29a3c;
+  --accent-fg: #1b1409;
+  --raise-hi: inset 0 1px 0 rgba(255, 248, 240, 0.06);
   --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
@@ -41,7 +47,13 @@
   --label-4: rgba(29, 29, 31, 0.24);
   --primary-bg: #1d1d1f;
   --primary-fg: #ffffff;
-  --focus: 0 0 0 3px rgba(0, 0, 0, 0.18);
+  --focus: 0 0 0 3px rgba(212, 105, 11, 0.35);
+  --accent: #a84f05;
+  --accent-hover: #8f4204;
+  --accent-press: #763603;
+  --accent-soft: rgba(168, 79, 5, 0.1);
+  --accent-line: #d4690b;
+  --accent-fg: #ffffff;
   --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.8);
   --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.14);
 }
@@ -253,7 +265,23 @@
   background: var(--fill);
 }
 .cockpit .ck-row.is-active {
+  position: relative;
   background: var(--fill-active);
+}
+/* Accent: the active-row marker, a 2px bar at the left edge. */
+.cockpit .ck-row.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent-line);
+}
+/* Accent: the Potato Bot identity in the sidebar (its icon). */
+.cockpit .ck-row-glyph--icon.ck-row-glyph--potato {
+  color: var(--accent);
 }
 .cockpit .ck-row.is-needs .ck-row-title {
   font-weight: 600;
@@ -299,8 +327,8 @@
   height: 18px;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--primary-bg);
-  color: var(--primary-fg);
+  background: var(--accent);
+  color: var(--accent-fg);
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
@@ -347,6 +375,17 @@
   transition:
     transform 280ms var(--ease-sheet),
     width 280ms var(--ease-sheet);
+}
+/* Accent: the selected segment's indicator, a 2px line along the bottom of the pill. */
+.cockpit .ck-seg-pill::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent-line);
 }
 .cockpit .ck-seg-btn {
   position: relative;
@@ -1266,12 +1305,6 @@
   text-underline-offset: 2px;
 }
 .cockpit .ck-bridge-fix:hover {
-  color: var(--label);
-}
-/* The Inbox badge is not the loudest thing on a light screen: a fill, as the glyphs use, not a black pill. */
-.cockpit[data-theme='light'] .ck-count,
-[data-theme='light'] .cockpit .ck-count {
-  background: var(--fill-active);
   color: var(--label);
 }
 /* A disabled primary reads as unavailable, never as an enabled secondary. */

@@ -130,6 +130,9 @@ export async function startApp(opts) {
     // Potato Bot runs this stand-in for its brain (no model, no key, no network). Only a dev-fake-tui build reads it.
     PM_POTATO_BRAIN: path.join(REPO, 'packages', 'potato-brain', 'test', 'fake-brain.mjs'),
     PM_FAKE_TUI_LOG: fakeLog,
+    // The e2e build is a debug build, which shows every Labs switch on by default. The tests start from the
+    // stored switches (Labs off), so the development override is switched off here.
+    PM_DEV_LABS: '0',
     [pathKey]: dirs.bin + path.delimiter + (process.env[pathKey] || ''),
     RUST_LOG: process.env.RUST_LOG || 'info',
   };

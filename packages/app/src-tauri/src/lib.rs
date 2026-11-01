@@ -392,6 +392,7 @@ pub fn run() {
             commands::push_chat_event,
             commands::push_settings_event,
             commands::sync_public_settings,
+            commands::dev_labs_override_active,
             commands::create_mobile_pairing_session,
             commands::list_paired_mobile_devices,
             commands::revoke_paired_mobile_device,
