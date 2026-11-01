@@ -16,6 +16,9 @@
 //! - `log`: the 200-line log ring, every line cleaned
 //! - `helpers`: Start / Change folder / Not now, the caps, and watching a helper until it ends
 //! - `service`: the engine that ties them together; `live`: the app's one instance and its thread
+//! - `sandbox`: the bot's small Linux computer (a WSL 2 distro the app owns): the one `wsl.exe` door, install,
+//!   lazy start and idle stop, the control client and the screen lease (piece S1; the screen links, brain tools and
+//!   settings page come later)
 //! - `wire_names`: names the brain package fixes that are also other names (the one reasoned exception to the
 //!   "no agent names in generic code" guard)
 //!
@@ -32,6 +35,7 @@ pub mod log;
 pub mod wire_names;
 pub mod protocol;
 pub mod rules;
+pub mod sandbox;
 pub mod service;
 pub mod sidecar;
 pub mod store;

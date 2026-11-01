@@ -28,6 +28,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "missions_enabled",
     "night_shift_enabled",
     "potato_bot_enabled",
+    "potato_sandbox_enabled",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -61,6 +62,8 @@ pub fn default_public_settings() -> Value {
         // Potato Bot (Labs): a chat friend with its own brain that costs money per message, so off until chosen.
         // It is also the kill switch: off stops every brain (`potato::live::apply_settings`).
         "potato_bot_enabled": false,
+        // Potato Bot sandbox (Labs, needs Potato Bot): a small Linux computer the bot can use. Off until chosen.
+        "potato_sandbox_enabled": false,
     })
 }
 

@@ -120,6 +120,8 @@ export const SettingsSchema = z.object({
   night_shift_enabled: z.boolean().optional(),
   /** Potato Bot (Settings › General › Labs): a chat friend with its own small brain; it costs money per message. Off unless chosen, and also the kill switch. Rust: potato. */
   potato_bot_enabled: z.boolean().optional(),
+  /** Potato Bot sandbox (Settings › General › Labs, needs Potato Bot): a small Linux computer (a WSL 2 distro the app owns) the bot can use with a screen and keyboard. Off unless chosen. Rust: potato::sandbox. */
+  potato_sandbox_enabled: z.boolean().optional(),
   /** Simple mode: the cockpit with fewer buttons and plain words, for people who do not write code. Off unless chosen. */
   simple_mode: z.boolean().optional(),
   /** First-run welcome: absent = never decided (shown once on a fresh profile), true = finished or skipped, false = show it again. Rust reads it (first_run). */
