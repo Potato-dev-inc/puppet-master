@@ -29,6 +29,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "night_shift_enabled",
     "potato_bot_enabled",
     "potato_sandbox_enabled",
+    "acp_chat_enabled",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -64,6 +65,9 @@ pub fn default_public_settings() -> Value {
         "potato_bot_enabled": false,
         // Potato Bot sandbox (Labs, needs Potato Bot): a small Linux computer the bot can use. Off until chosen.
         "potato_sandbox_enabled": false,
+        // Chat over the Agent Client Protocol (Labs): agents driven through a protocol instead of a terminal
+        // screen. Off until chosen; it is also the kill switch (off closes every ACP session). Rust: acp.
+        "acp_chat_enabled": false,
     })
 }
 
@@ -106,6 +110,7 @@ pub fn mirror_public_patch(app: &AppHandle, patch: &Value) -> Value {
     crate::agent_hooks::apply_settings(&merged);
     crate::pane_mcp::apply_settings(&merged);
     crate::potato::live::apply_settings(&merged);
+    crate::acp::apply_settings(&merged);
 
     if let Some(backend) = merged.get("orchestrator_backend").and_then(Value::as_str) {
         if backend != "api" {
@@ -150,6 +155,7 @@ pub fn load_saved_public_settings(app: &AppHandle) {
     crate::agent_hooks::apply_settings(&merged);
     crate::pane_mcp::apply_settings(&merged);
     crate::potato::live::apply_settings(&merged);
+    crate::acp::apply_settings(&merged);
 }
 
 #[cfg(test)]

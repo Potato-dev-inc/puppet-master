@@ -918,6 +918,26 @@ and no chat app (`potato/guard_tests.rs`); a chat app's code would live only in 
 
 Tests: `cargo test --lib potato` (protocol, auth, rules, keeper, env, store, cost, service, helpers, sandbox, guards) and `cargo test --features dev-fake-tui --test fake_tui_e2e potato:: -- --test-threads=1`.
 
+
+### 3.20 ACP lane (`acp/`, A1 core: no UI and no chat items yet; Labs key `acp_chat_enabled`, default off)
+
+Drive an agent through the Agent Client Protocol (JSON-RPC over the stdio of a Node adapter) instead of its terminal screen. The terminal stays a full way to run every agent: the per-agent choice "Terminal | Chat (ACP)" (`acp/lane.rs`, default Terminal) is stored but nothing reads it yet (A3/A4). Design inputs: the ACP lane spec and the Nuphos study (design ideas only, no code copied) and the Windows spike. Transport and the dozen message types are our own, with no ACP crate (why: `acp/mod.rs` header; the schema crate turns on `serde_json/preserve_order` app-wide and broke 7 pinned tests).
+
+| Where | What |
+|---|---|
+| `acp/conn.rs` | one adapter process: `hidden_command` spawn with a cleared environment, 5 threads (reader, dispatcher, writer, stderr, monitor), bounded frame queue (backpressure onto the child's pipe), responses travel in the same ordered queue as notifications, stdin write timeout kills the tree, stderr in a capped ring. Dropping the last handle kills the adapter |
+| `acp/job.rs` | Windows Job Object with `KILL_ON_JOB_CLOSE` (adapter, its CLI and that CLI's tool servers die with the app); process-tree kill by pid elsewhere |
+| `acp/wire.rs`, `ring.rs`, `write_queue.rs` | framing (id spaces: a message with a `method` is never a response; 8 MiB line cap that resyncs), capped stderr, the normal + priority write lanes (cancel and permission replies never wait behind prompts) |
+| `acp/types.rs` | the message types read from the agent (`SessionUpdate`, `RequestPermissionRequest`, `StopReason`), tolerant of unknown fields; an unknown update kind stays raw |
+| `acp/state.rs` | the pure state machine: `Snapshot {epoch, revision, phase, tools, permission_waits, commands, config_options, history_lost, exit}`, revision moves only on a visible change, `pane_status()` maps to the four `PaneStatus` values |
+| `acp/session.rs` | `AcpSession`: lazy start, `session/resume` or `session/load` (replay marked `replay: true`), "history lost" signal, `prompt`/`cancel` (repeated until the turn ends)/`answer_permission`, parked permission questions (no timeout, never auto-answered), `set_config_option`, sleep/close, ordered event sinks |
+| `acp/timers.rs`, `acp/supervisor.rs` | inactivity window vs progress window (both pause while a question is open), stop request then grace then kill, idle TTL, live cap; `sweep(now)` is testable without waiting |
+| `acp/config.rs`, `acp/pin.rs`, `acp/handshake.rs` | agent spawn config as data (also the schema of the future `[acp]` TOML table; the Codex entry lives here and nowhere else), adapter version + SHA-256 pin check, `initialize` (v1 only, no `fs`, no terminal) |
+| `acp/lane.rs`, `commands/acp_lane.rs` | the stored per-agent lane; `agent_lane_get` / `agent_lane_set` (desktop only) |
+| `acp/fake_agent.rs`, `acp/tests.rs`, `acp/guard_tests.rs` | a fake ACP agent (the unit-test exe re-runs itself as the agent), end-to-end tests on real processes and pipes, source guards (generic code names no agent; only `answer_permission` selects an option) |
+
+Tests: `cargo test --lib acp`. No real agent is ever started by a test.
+
 ---
 
 ## 4. "Where do I change X?"
