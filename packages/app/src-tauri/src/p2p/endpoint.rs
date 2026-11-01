@@ -120,6 +120,10 @@ pub trait Transport: Send + Sync {
     /// The next incoming link, or `None` once the transport is closed.
     async fn accept(&self) -> Option<Arc<dyn Link>>;
     async fn close(&self);
+    /// LAN addresses this endpoint can be reached at, for the pairing ticket. Empty when unknown.
+    fn local_addrs(&self) -> Vec<SocketAddr> {
+        Vec::new()
+    }
 }
 
 /// What an endpoint is started with. Computed from the capabilities that are wanted, nothing else.
