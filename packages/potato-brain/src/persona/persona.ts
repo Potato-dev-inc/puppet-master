@@ -28,6 +28,8 @@ export function loadPersona(dir: string, pack?: string): Block[] {
     { path: join(base, "pasted.md"), id: `persona:pasted:${tag}` },
     // protocol is shared by every pack, so packs only need a core.md
     { path: join(dir, "protocol.md"), id: "persona:protocol" },
+    // the extra instructions the person wrote for this bot (Puppet Master writes the file when the brain starts)
+    { path: join(dir, "instructions.md"), id: "persona:instructions" },
   ];
 
   const blocks: Block[] = [];

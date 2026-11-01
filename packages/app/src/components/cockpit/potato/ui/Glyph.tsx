@@ -1,7 +1,7 @@
 // The small icons of the Potato Bot page, in the cockpit's icon style (16 px, 1.5 px stroke, round caps).
 import type { ReactNode } from 'react';
 
-export type GlyphName = 'monitor' | 'close' | 'list' | 'chevron-left' | 'chevron-right';
+export type GlyphName = 'monitor' | 'close' | 'list' | 'chevron-left' | 'chevron-right' | 'plus';
 
 const PATHS: Record<GlyphName, ReactNode> = {
   monitor: (
@@ -11,6 +11,7 @@ const PATHS: Record<GlyphName, ReactNode> = {
     </>
   ),
   close: <path d="M4 4l8 8M12 4l-8 8" />,
+  plus: <path d="M8 3.5v9M3.5 8h9" />,
   list: (
     <>
       <rect x="2.5" y="3" width="11" height="10" rx="2" />

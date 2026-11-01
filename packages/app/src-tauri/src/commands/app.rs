@@ -17,6 +17,13 @@ pub async fn sync_public_settings(
     Ok(())
 }
 
+/// Whether this build shows every Labs switch as on (a development build; see `settings_store::dev_labs_override_active`).
+/// The settings window uses it to show the switches on and disabled, with a note.
+#[tauri::command]
+pub fn dev_labs_override_active() -> bool {
+    settings_store::dev_labs_override_active()
+}
+
 /// Push a JSON chat event to all SSE clients (mobile PWA and any desktop browser).
 /// The frontend calls this after each LLM chunk so the mobile PWA receives it.
 #[tauri::command]

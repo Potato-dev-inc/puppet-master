@@ -1,0 +1,216 @@
+/* The Advanced tab of the bot panel: Notifications, Open work and Memory. Each section is a card with a title, the same
+   look as the other Advanced cards (cockpit-potato-advanced.css). Grayscale tokens only. */
+
+.cockpit .ck-potato-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 8px;
+  font-size: 13px;
+}
+.cockpit .ck-potato-psec {
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--fill);
+}
+.cockpit .ck-potato-psec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+  min-height: 24px;
+}
+.cockpit .ck-potato-psec-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-potato-psec-card {
+  padding: 0;
+}
+.cockpit .ck-potato-psec-hint {
+  margin: 0;
+  padding: 4px 0;
+  line-height: 1.5;
+}
+.cockpit .ck-potato-psec-note {
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+.cockpit .ck-potato-psec-error {
+  margin: 8px 0 0;
+  color: var(--label);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-potato-show-more {
+  margin: 4px 0 0;
+}
+.cockpit .ck-potato-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- Notifications ---------- */
+.cockpit .ck-potato-radios {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.cockpit .ck-potato-radios:disabled {
+  opacity: 0.6;
+}
+.cockpit .ck-potato-radio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  cursor: pointer;
+  color: var(--label);
+}
+.cockpit .ck-potato-radio input {
+  margin: 0;
+  accent-color: var(--label);
+  cursor: pointer;
+}
+
+/* ---------- Open work ---------- */
+.cockpit .ck-potato-add {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.cockpit .ck-potato-add-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+}
+.cockpit .ck-potato-add-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.cockpit .ck-potato-todo {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cockpit .ck-potato-todo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-potato-todo-row:first-child {
+  border-top: 0;
+}
+.cockpit .ck-potato-todo-check {
+  flex: none;
+  margin: 0;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--label);
+  cursor: pointer;
+}
+.cockpit .ck-potato-todo-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--label);
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.cockpit .ck-potato-todo-row.is-done .ck-potato-todo-text {
+  color: var(--label-3);
+  text-decoration: line-through;
+}
+.cockpit .ck-potato-helper-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--sep);
+}
+
+/* ---------- Memory ---------- */
+.cockpit .ck-potato-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cockpit .ck-potato-note-row {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-potato-note-row:first-child {
+  border-top: 0;
+}
+.cockpit .ck-potato-note-open {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cockpit .ck-potato-note-open:hover .ck-potato-note-title {
+  text-decoration: underline;
+}
+.cockpit .ck-potato-note-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.cockpit .ck-potato-note-body {
+  padding: 0 0 10px;
+}
+.cockpit .ck-potato-note-text {
+  margin: 0 0 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--label-2);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-potato-note-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cockpit .ck-potato-note-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cockpit .ck-potato-note-ask .ck-sub {
+  margin: 0;
+}

@@ -1,0 +1,162 @@
+/* Potato Bot routines (P9a): the Routines tab list, the pause switch, and the "New routine" form. Grayscale tokens
+   from cockpit.css only. Every rule sits under .cockpit. */
+.cockpit .ck-potato-routines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-potato-routines-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cockpit .ck-potato-routines-title {
+  font-weight: 600;
+}
+.cockpit .ck-potato-routines-empty {
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.cockpit .ck-potato-routines-notice {
+  margin: 0;
+  color: var(--label-2);
+}
+.cockpit .ck-potato-routines-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cockpit .ck-potato-routine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+}
+.cockpit .ck-potato-routine-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cockpit .ck-potato-routine-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-potato-routine-when,
+.cockpit .ck-potato-routine-line {
+  color: var(--label-3);
+}
+.cockpit .ck-potato-routine-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.cockpit .ck-potato-routine-ask {
+  color: var(--label-2);
+}
+.cockpit .ck-potato-routine-btn {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 120ms var(--ease);
+}
+.cockpit .ck-potato-routine-btn:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+.cockpit .ck-potato-routine-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cockpit .ck-potato-routine-btn-primary {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+.cockpit .ck-potato-routine-btn-danger {
+  font-weight: 600;
+}
+.cockpit .ck-potato-routine-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill-active);
+  cursor: pointer;
+  transition: background 160ms var(--ease);
+}
+.cockpit .ck-potato-routine-switch[aria-checked='true'] {
+  background: var(--label);
+}
+.cockpit .ck-potato-routine-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cockpit .ck-potato-routine-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  transition: transform 160ms var(--ease);
+}
+.cockpit .ck-potato-routine-switch[aria-checked='true'] .ck-potato-routine-knob {
+  transform: translateX(14px);
+}
+.cockpit .ck-potato-routine-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--label-2);
+}
+.cockpit .ck-potato-routine-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+}
+.cockpit .ck-potato-routine-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--label-2);
+}
+.cockpit .ck-potato-routine-field input,
+.cockpit .ck-potato-routine-field select,
+.cockpit .ck-potato-routine-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--sep);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+}
+.cockpit .ck-potato-routine-field textarea {
+  resize: vertical;
+}

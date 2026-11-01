@@ -1,6 +1,6 @@
-// The little toolbar beside a message: Copy and Reply. It shows when the message is hovered or has the keyboard focus (and
+// The little toolbar beside a message: Copy, Reply, then whatever the row adds (Speak, Save as file). It shows when the message is hovered or has the keyboard focus (and
 // always on a touch screen). Copy puts the message's text on the clipboard; Reply sends a quote to the composer.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { THREAD_COPY } from '../../../lib/potato-thread';
 import '../../../styles/cockpit-potato-thread.css';
 
@@ -10,9 +10,11 @@ const COPIED_MS = 1500;
 export interface HoverActionsProps {
   text: string;
   onReply: () => void;
+  /** More buttons after Reply, in order (Speak, then Save as file). */
+  children?: ReactNode;
 }
 
-export function HoverActions({ text, onReply }: HoverActionsProps) {
+export function HoverActions({ text, onReply, children }: HoverActionsProps) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -42,6 +44,7 @@ export function HoverActions({ text, onReply }: HoverActionsProps) {
       <button type="button" className="ck-potato-action" aria-label={`${THREAD_COPY.reply} to message`} onClick={onReply}>
         {THREAD_COPY.reply}
       </button>
+      {children}
     </div>
   );
 }

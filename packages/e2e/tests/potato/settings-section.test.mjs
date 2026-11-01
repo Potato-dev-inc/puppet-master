@@ -1,5 +1,5 @@
-// Settings > Potato Bot: the section is there only while the Labs switch is on; it shows the brain choice, the key (never its
-// value), Check key and the daily limit. The e2e app has no model: with the stand-in brain Check key says Works.
+// Settings > Potato Bot: the section is there only while the Labs switch is on; it shows the brain summary with a link to the
+// "Models and fallbacks" page (where the talk brain is chosen), the key (never its value), Check key, the daily limit and Usage. The e2e app has no model: with the stand-in brain Check key says Works.
 import path from 'node:path';
 import { openSettings, goToPage } from '../settings/_area.mjs';
 import { keepWelcomeOff } from '../companion/_area.mjs';
@@ -32,22 +32,29 @@ export async function run(t) {
 
   await t.step('Open it');
   await goToPage(t, 'Potato Bot');
-  await t.expect.text('Talk brain');
-  await t.expect.text('Pays DeepSeek per message. Usually cents a day.');
+  await t.expect.text('Models and fallbacks');
+  await t.expect.text('Talk brain: DeepSeek.');
   await t.expect.text('DeepSeek key');
   await t.expect.text('Default persona');
   await t.expect.text('Daily limit');
+  await t.expect.text('Usage');
+  await t.expect.text('Test voice');
 
   await t.step('Check key says Works.');
   await t.click('exact=Check key');
   await t.expect.text('Works.');
 
   await t.step('Pick another brain: the key row says it is not needed');
+  await t.click('css=button[aria-label="Open Models and fallbacks"]');
+  await t.expect.text('Pays DeepSeek per message. Usually cents a day.');
   await choose(t, 'Talk brain', 'agents');
   await t.expect.text('No extra cost.');
+  await t.click('exact=‹ Back');
   await t.expect.text('Not needed: this brain uses your own agents.');
+  await t.click('css=button[aria-label="Open Models and fallbacks"]');
   await choose(t, 'Talk brain', 'deepseek');
   await t.expect.text('Pays DeepSeek per message. Usually cents a day.');
+  await t.click('exact=‹ Back');
 
   await t.step('Save a picture of the page');
   const shot = process.env.E2E_SCREENSHOT || path.join(t.outDir, 'potato-settings.png');

@@ -5,6 +5,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { isTauri } from './cockpit-api';
+import { fakeArtifactTransport, tauriArtifactTransport, type ArtifactTransport, type FakeArtifactSeed } from './potato-artifacts';
 
 /** The two voices of a bot. */
 export type TalkPersona = 'fish' | 'potato';
@@ -37,6 +38,8 @@ export interface PotatoBotView {
   name: string;
   talkPersona: TalkPersona;
   brainState: BrainState;
+  /** The bot's own talk brain, or null for the Settings brain. Absent in older state: read it as null. */
+  talkBrain?: BrainKind | null;
   /** The last error code the brain reported and that nothing has cleared since. */
   lastError: string | null;
   typing: boolean;
@@ -57,6 +60,20 @@ export interface PotatoSettings {
   dailyLimitCents: number;
   /** Actions one bot may take on its sandbox computer in a day (default 500). The settings page for it comes with the sandbox settings. */
   sandboxActionsPerDay?: number;
+  /** The brains to try, in order, when the talk brain is out of balance or not answering. Never `agents`; empty: none. */
+  fallbacks?: BrainKind[];
+  /** Read replies aloud: the system voice, its speed, and the bots that read their replies. Missing: the defaults. */
+  voice?: PotatoVoice;
+}
+
+/** Potato Bot's voice settings (`potato/voice.rs`). The webview speaks with the system voices; no key, nothing leaves the PC. */
+export interface PotatoVoice {
+  /** The chosen voice's URI. Empty: the system default voice. */
+  voiceUri: string;
+  /** Speed in percent of normal, 50 to 200. */
+  ratePercent: number;
+  /** The bots whose new replies are read aloud while the page is visible. */
+  readAloudBots: string[];
 }
 
 export interface PotatoState {
@@ -124,6 +141,8 @@ export interface PotatoTransport {
   settingsSet(settings: PotatoSettings): Promise<PotatoSettings>;
   /** Settings > Check key: one tiny turn. Answers "Works." or rejects with one plain sentence. */
   checkKey(): Promise<string>;
+  /** The files the bots made or received: the Artifacts page and "Save as file" in a thread. */
+  artifacts: ArtifactTransport;
   /** `potato://changed`: something about this bot changed (`null`: the Labs switch moved). */
   onChanged?(cb: (botId: string | null) => void): Promise<UnlistenFn>;
 }
@@ -153,6 +172,7 @@ export const tauriPotatoTransport: PotatoTransport = {
   settingsGet: () => invoke<PotatoSettings>('potato_settings_get'),
   settingsSet: (settings) => invoke<PotatoSettings>('potato_settings_set', { settings }),
   checkKey: () => invoke<string>('potato_check_key'),
+  artifacts: tauriArtifactTransport,
   onChanged: (cb) => {
     if (!isTauri()) return Promise.resolve((() => {}) as UnlistenFn);
     return listen<{ botId?: string } | null>('potato://changed', (e) => cb(e.payload?.botId ?? null));
@@ -257,6 +277,8 @@ export interface FakePotatoSeed {
   folders?: string[];
   /** What Check key answers: a sentence, or throws one. */
   keyCheck?: () => string;
+  /** The files the bots made or received (see `fakeArtifactTransport`). */
+  artifacts?: FakeArtifactSeed;
 }
 
 export interface FakePotatoTransport extends PotatoTransport {
@@ -308,6 +330,7 @@ export function fakePotatoTransport(seed: FakePotatoSeed = {}): FakePotatoTransp
 
   return {
     calls,
+    artifacts: fakeArtifactTransport(seed.artifacts),
     emit,
     patchBot(botId, patch) {
       Object.assign(find(botId), patch);
