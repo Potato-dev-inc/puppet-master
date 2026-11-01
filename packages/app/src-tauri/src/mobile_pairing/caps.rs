@@ -162,6 +162,9 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
 
         // A pane's chat (what the agent said and did) is pane text like a screen: it needs `watch`.
         ("GET", ["panes", _, "chat"]) => Need::Cap(Watch),
+        // The Computer (the bot's sandbox screen): a paired phone asks for a view link with `watch`; the route itself asks
+        // for `type` as well when the link is for control, and the bridge gives a link to a paired phone only.
+        ("POST", ["potato", "sandbox", "screen-link"]) => Need::Cap(Watch),
         // The search across every chat (`bridge/routes/chats.rs`): it reads what was said, like a pane's chat.
         ("GET", ["chats", "search"]) => Need::Cap(Watch),
 

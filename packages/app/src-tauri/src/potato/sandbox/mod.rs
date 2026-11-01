@@ -9,6 +9,8 @@
 //! - `secrets`: the control token and the two VNC passwords, made by the app, in memory only
 //! - `control`: the HTTP client of the guest's control service
 //! - `lease`: who holds the screen (a mirror of the brain's `screen-lease.ts` plus expiry and run binding)
+//! - `screen`: the sealed screen links (HMAC, one hour, generation, lease) and the hub the Computer panel talks to;
+//!   `screen_live`: the app's one hub, its keeper thread and its Tauri events
 //!
 //! The `Sandbox` trait is what the rest of the app talks to. `WslSandbox` is the real one; `FakeSandbox`
 //! serves a static picture and records what it was asked (tests and the `dev-fake-tui` build).
@@ -25,6 +27,8 @@ pub mod control;
 pub mod install;
 pub mod lease;
 pub mod lifecycle;
+pub mod screen;
+pub mod screen_live;
 pub mod secrets;
 pub mod wsl;
 
@@ -530,5 +534,7 @@ mod lease_tests;
 mod lifecycle_tests;
 #[cfg(test)]
 mod sandbox_tests;
+#[cfg(test)]
+mod screen_tests;
 #[cfg(test)]
 mod wsl_tests;

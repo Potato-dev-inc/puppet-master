@@ -147,6 +147,8 @@ fn the_secrets_values_are_read_in_two_files_only() {
             "control.rs" => assert_eq!(reads, 1, "control.rs reads the token for the one header"),
             // the push into the distro (one line: token, view, control) and the check that the two passwords differ
             "secrets.rs" => assert_eq!(reads, 2, "secrets.rs reads the values for the push and for the difference check"),
+            // the one fragment of the iframe address (`fragment_password`): never a query, a log line or a path
+            "screen.rs" => assert_eq!(reads, 1, "screen.rs reads a password for the fragment of the iframe address only"),
             _ => assert_eq!(reads, 0, "{name} reads a secret"),
         }
     }
