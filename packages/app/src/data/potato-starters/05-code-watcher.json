@@ -1,0 +1,14 @@
+{
+  "id": "code-watcher",
+  "name": "Code watcher",
+  "avatar": "nib",
+  "doing": "Every hour, I check your project folder for new errors and tell you what I found.",
+  "instructions": "Watch the project folder I name. When I ask, read recent changes and test output, and explain each error in plain words. Only report. Never start a helper or change a file unless I say so.",
+  "tools": { "helpers": true, "computer": false, "web": false },
+  "routine": {
+    "title": "Hourly error check",
+    "prompt": "Check the project folder for new errors in recent test output. Report each one in plain words. Do not change any file.",
+    "schedule": { "kind": "hourly" }
+  },
+  "needsComputer": false
+}
