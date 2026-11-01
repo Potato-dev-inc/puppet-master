@@ -10,16 +10,17 @@ is off there is no sidebar row, no palette entry, no page and no Settings sectio
 ## How to set it up
 
 1. **Turn it on.** Settings > General > Labs > Potato Bot. A new section, **Potato Bot**, appears in Settings.
-2. **Pick the talk brain** (Settings > Potato Bot > Talk brain):
+2. **Pick the talk brain** (Settings > Potato Bot > Models and fallbacks, the first row):
    - **DeepSeek** (the default): pays DeepSeek per message, usually cents a day. It needs your DeepSeek key.
    - **OpenCode Go**: uses your OpenCode Go sign-in.
    - **Through my agents**: no extra cost. The chat is the companion's own chat; mood and personas are not available.
+   - **Fallbacks** (same page): if the talk brain is busy, out of balance or not answering, the next brain in the list is tried for that message. A new run starts on the talk brain again. Only DeepSeek and OpenCode Go can be fallbacks.
 3. **Add your DeepSeek key** (Settings > Potato Bot > DeepSeek key). It is kept in your system keychain. The page only ever shows
    "set" and the last 4 characters (`•••• 1a2b`). **Check key** sends one tiny message and says `Works.` or one plain sentence
    about what is wrong.
 4. **Pick the default persona** (Fish or Potato). You can change a bot's voice at any time in its chat; its name, thread, memory and
    mood stay.
-5. **Set the daily limit** ($0.05 to $20, default $0.50). It is per bot and covers everything it says.
+5. **Set the daily limit** ($0.05 to $20, default $0.50). It is per bot and covers everything it says. The **Usage** page (Settings > Potato Bot > Usage) shows the last 30 days per bot and today against this limit. It is read only.
 6. **Make a bot.** A bot is a companion with a brain. Open **Potato Bot** in the sidebar and press `Make <name> a bot` on a companion,
    or `New bot` to make a companion first.
 7. **Node.js 20 or newer** must be on this computer. If it is not, the chat shows `Potato Bot needs Node.js 20 or newer.` with an
@@ -65,6 +66,23 @@ answers them.
   path taken out.
 - **No window.** The brain starts hidden; a helper opens its pane in the cockpit grid like any agent run you start.
 
+## Per-bot settings (Advanced tab)
+
+The bot panel's **Advanced** tab holds what is set per bot, not for all of Potato Bot:
+
+- **Name.** Renames the bot. The name is the companion's name, so it changes in one place.
+- **Model.** The talk brain this bot uses: DeepSeek, OpenCode Go, Through my agents, or **Use the default** (the Settings brain).
+  It is stored in `potato/bot-settings/<bot>.json`. A running brain is stopped, so the next message starts it on the new brain.
+- **Instructions.** Extra text for this bot. Every save is a version (the last 50 are kept); **History** lists them and **Restore**
+  brings an old one back as the newest. The text in use is written to the bot's persona folder as `instructions.md` when its brain
+  starts, and the brain reads it with the persona files.
+- **Tools.** Three switches, all on by default. **Helpers** (`ask_helper`) and **Computer** (`computer_observe`, `computer_act`,
+  `ask_person_for_screen`; shown only with the sandbox Labs switch on) and **Web reading** (`browser_navigate`, `browser_snapshot`,
+  `browser_act`). A switch that is off makes the engine refuse that tool before it runs.
+- **Export chat.** The chat as one Markdown file, saved through the same save dialog as the pane exports.
+- **Delete bot.** Asks you to type the bot's name. The bot stops, leaves the list, and its chat, settings and brain folder move to
+  `potato/.removed/`. Nothing is deleted. The companion stays.
+
 ## Limits
 
 - The daily limit is judged by Puppet Master from the token counts the brain reports, with its own price table (an unknown model is
@@ -83,6 +101,17 @@ The brain: `packages/potato-brain/`.
 Tests: `cargo test --lib potato`; `npx vitest run src/components/cockpit/potato src/components/settings`; e2e
 `potato.dm-reply` and `potato.dm-reply-and-helper` (`npm run e2e -- --only "potato.*" --no-video --headless`).
 
+
+## Artifacts (Preview)
+
+Files a bot made or received are kept under `<app data>/potato/artifacts/<bot>/` (`index.json` plus one file per version;
+the same name again is a new version). A chat message can be saved as a Markdown file: hover a message and press
+**Save as file**. The **Artifacts** button in the bot list's header opens the page: filters by bot, kind and name, a list or a
+grid, and a preview. Text and Markdown show as plain text; an HTML file runs in a frame with `sandbox=""` (no scripts, no
+same-origin) and a policy that blocks network loads; PDFs and other files are downloaded or shown in their folder. Rust:
+`potato/artifacts.rs`, commands `commands/potato_artifacts.rs`; UI: `ArtifactsPage.tsx`, `ArtifactPreview.tsx`,
+`ArtifactSandbox.tsx`, `SaveAsFile.tsx`, `lib/potato-artifacts.ts`. Not yet: files the person attaches in chat (the
+`attach_file` brain tool), the date filter, and a maximise button.
 
 ## The Computer panel (Preview, needs the sandbox)
 

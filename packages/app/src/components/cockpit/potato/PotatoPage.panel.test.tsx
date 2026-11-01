@@ -7,6 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fakeCompanionTransport, type CompanionView } from '../../../lib/companion';
 import { fakePotatoTransport, type FakePotatoTransport, type PotatoState } from '../../../lib/potato';
+import { fakeBotSettingsTransport } from '../../../lib/potato-botsettings';
 import { LAYOUT_KEYS } from '../../../lib/potato-layout';
 import { fakeScreenTransport, type FakeScreenTransport } from '../../../lib/potatoScreen';
 import { usePotatoState } from '../../../hooks/usePotato';
@@ -54,6 +55,7 @@ function Harness({ transport, screen, companions }: { transport: FakePotatoTrans
       onNotify={() => {}}
       onOpenSettings={() => {}}
       screenTransport={screen}
+      botSettings={fakeBotSettingsTransport()}
     />
   );
 }
@@ -104,17 +106,19 @@ describe('the three regions', () => {
     expect(panel()).toBeNull();
   });
 
-  it('has the tabs Computer, Routines and Advanced, and the last two say "Coming soon"', async () => {
+  it('has the tabs Computer, Routines and Advanced: Routines says "Coming soon", Advanced has its sections', async () => {
     await mount({ screen: fakeScreenTransport() });
     await click(toggle());
     expect(tabs()).toEqual(['Computer', 'Routines', 'Advanced']);
     expect(visiblePanel()).toBe('Computer');
     await click(tab('Routines'));
     expect(visiblePanel()).toBe('Routines');
-    expect(host.querySelector('[role="tabpanel"][aria-label="Routines"]')!.textContent).toContain('Coming soon');
+    expect(host.querySelector('[role="tabpanel"][aria-label="Routines"]')!.textContent).toContain('No routines yet.');
     await click(tab('Advanced'));
     expect(visiblePanel()).toBe('Advanced');
-    expect(host.querySelector('[role="tabpanel"][aria-label="Advanced"]')!.textContent).toContain('Coming soon');
+    const advanced = host.querySelector('[role="tabpanel"][aria-label="Advanced"]')!;
+    expect(advanced.textContent).toContain('Model');
+    expect([...advanced.querySelectorAll('.ck-potato-psec-title')].map((t) => t.textContent)).toEqual(['Notifications', 'Open work', 'Memory']);
   });
 
   it("remembers each bot's tab while the page is open", async () => {
@@ -233,17 +237,21 @@ describe('the keys', () => {
 });
 
 describe('the Computer tab', () => {
-  it('has the computer: who has it, Take over, Hand back, Show', async () => {
+  it('has the computer: a live preview, who has it, Take control (the full window) and I am done', async () => {
     const screen = fakeScreenTransport({ phase: 'bot', bot: 'fish' });
     await mount({ screen });
     expect(host.querySelector('.ck-potato-computer')).toBeNull();
     await click(toggle());
     expect(host.querySelector('.ck-potato-panel .ck-potato-computer')).not.toBeNull();
-    expect(state()).toBe('Fish is using it');
-    await click(buttonByText(host, 'Take over'));
-    expect(state()).toBe('You have control');
     expect(host.querySelector('.ck-potato-panel iframe')).not.toBeNull();
-    await click(buttonByText(host, 'Hand back'));
+    expect(host.querySelector('.ck-potato-computer-label')?.textContent).toBe('Fish’s screen');
+    expect(state()).toBe('Fish is using it');
+    await click(buttonByText(host, 'Take control'));
+    expect(state()).toBe('You have control');
+    const layer = document.querySelector('.ck-potato-overlay');
+    expect(layer).not.toBeNull();
+    await click([...layer!.querySelectorAll('button')].find((b) => b.textContent === "I'm done"));
+    expect(document.querySelector('.ck-potato-overlay')).toBeNull();
     expect(state()).toBe('Not in use');
     expect(screen.calls.map((c) => c.method)).toEqual(expect.arrayContaining(['takeOver', 'handBack']));
   });
@@ -251,7 +259,6 @@ describe('the Computer tab', () => {
   it('stays mounted on the other tabs, so the screen does not reload', async () => {
     await mount({ screen: fakeScreenTransport({ phase: 'bot', bot: 'fish' }) });
     await click(toggle());
-    await click(buttonByText(host, 'Show'));
     const frame = host.querySelector('iframe');
     expect(frame).not.toBeNull();
     await click(tab('Routines'));
@@ -264,7 +271,7 @@ describe('the Computer tab', () => {
     await mount({ screen: fakeScreenTransport({ enabled: false }) });
     await click(toggle());
     expect(host.querySelector('.ck-potato-computer')).toBeNull();
-    expect(host.querySelector('.ck-potato-panel-empty')?.textContent).toBe('Fish has no computer here. Turn on Sandbox in Settings > Potato Bot.');
+    expect(host.querySelector('.ck-potato-panel-empty')?.textContent).toBe('Fish has no computer here. Turn on Sandbox in Settings > General > Labs.');
     act(() => root.unmount());
     root = createRoot(host);
     await mount();
@@ -296,7 +303,7 @@ describe('Needs you', () => {
     expect(banner()).toBeNull();
     expect(state()).toBe('Needs you');
     expect(panel()!.textContent).toContain('The site wants a code');
-    expect(buttonByText(host, 'Take over')).toBeTruthy();
+    expect(buttonByText(host, 'Take control')).toBeTruthy();
     expect(buttonByText(host, 'Skip')).toBeTruthy();
   });
 

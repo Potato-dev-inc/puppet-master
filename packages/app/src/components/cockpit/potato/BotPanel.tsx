@@ -1,12 +1,16 @@
 // The right bot panel (spec: Rakazo's side panel): who the bot is, a close button, and three tabs. Computer holds the
-// bot's sandbox screen; Routines and Advanced are placeholders until their phases. Every tab stays mounted while the
+// bot's sandbox screen; Routines lists its scheduled prompts. Every tab stays mounted while the
 // panel is open, so the screen does not reload and a draft in Advanced survives a tab switch.
 import type { AvatarId } from '../../../lib/companion';
+import type { BrainKind, PotatoSettings, PotatoTransport } from '../../../lib/potato';
 import { PANEL_COPY, PANEL_TABS, type PanelTab } from '../../../lib/potato-panel';
+import type { SandboxTransport } from '../../../lib/potato-sandbox';
+import type { BotSettingsTransport } from '../../../lib/potato-botsettings';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { Avatar } from '../../companion/Avatar';
 import { SegTabs } from '../SegTabs';
 import { AdvancedTab } from './AdvancedTab';
+import { useBotComputerOff } from './useBotComputerOff';
 import { ComputerTab } from './ComputerTab';
 import { RoutinesTab } from './RoutinesTab';
 import { Glyph } from './ui/Glyph';
@@ -19,12 +23,26 @@ export interface BotPanelProps {
   onTab: (tab: PanelTab) => void;
   onClose: () => void;
   screen?: ScreenTransport;
+  /** The sandbox's commands (start, stop, set up). Absent: the Computer tab has no upkeep section. */
+  sandbox?: SandboxTransport;
+  /** Opens Settings > Potato Bot (Sandbox). */
+  onOpenSettings?: () => void;
   /** "Through my agents": the bot has no computer of its own. */
   through: boolean;
   onNotify: (text: string) => void;
+  /** The Settings brain: what a bot without its own brain uses (the Advanced tab's Model row). */
+  defaultBrain?: BrainKind;
+  /** After a rename or a delete: the page reads its state again. */
+  onChanged?: () => void;
+  /** Tests pass a fake; the app passes nothing. */
+  botSettings?: BotSettingsTransport;
+  /** The Read replies aloud switch: the page's settings and the transport that saves them. */
+  settings?: PotatoSettings;
+  transport?: PotatoTransport;
 }
 
-export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, onNotify }: BotPanelProps) {
+export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, sandbox, onOpenSettings, through, onNotify, defaultBrain, onChanged, botSettings, settings, transport }: BotPanelProps) {
+  const computerOff = useBotComputerOff(bot.id, tab === 'computer' && !through, botSettings);
   return (
     <div className="ck-potato-botpanel">
       <header className="ck-potato-panel-head">
@@ -39,13 +57,13 @@ export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, on
       </div>
       <div className="ck-scroll ck-potato-panel-body">
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Computer" hidden={tab !== 'computer'}>
-          <ComputerTab bot={bot} screen={screen} through={through} onNotify={onNotify} />
+          <ComputerTab bot={bot} avatar={avatar} screen={screen} sandbox={sandbox} through={through} onNotify={onNotify} onOpenSettings={onOpenSettings} computerOff={computerOff} onOpenTools={() => onTab('advanced')} />
         </div>
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Routines" hidden={tab !== 'routines'}>
           <RoutinesTab bot={bot} />
         </div>
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Advanced" hidden={tab !== 'advanced'}>
-          <AdvancedTab bot={bot} />
+          <AdvancedTab bot={bot} defaultBrain={defaultBrain} transport={botSettings} onChanged={onChanged} onNotify={onNotify} settings={settings} potatoTransport={transport} />
         </div>
       </div>
     </div>

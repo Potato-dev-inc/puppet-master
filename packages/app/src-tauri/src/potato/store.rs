@@ -126,6 +126,15 @@ pub fn load_bots(root: &Path) -> StoreResult<Vec<Bot>> {
     }
 }
 
+/// The bot must be in `bots.json` (a folder of its own is not enough).
+pub fn require_bot(root: &Path, bot: &str) -> StoreResult<()> {
+    if load_bots(root)?.iter().any(|b| b.id == bot) {
+        Ok(())
+    } else {
+        Err(StoreError::new("POTATO_BOT_NOT_FOUND", "No bot has that name."))
+    }
+}
+
 pub fn save_bots(root: &Path, bots: &[Bot]) -> StoreResult<()> {
     write_json(&bots_path(root), &BotsFile { v: STORE_VERSION, bots: bots.to_vec() }, "bots.json")
 }
@@ -165,6 +174,16 @@ pub fn set_talk_persona(root: &Path, id: &str, talk_persona: &str) -> StoreResul
     Ok(copy)
 }
 
+/// Takes a bot off the list. Its files are the caller's to move (`bot_settings::move_bot_files`).
+pub fn remove_bot(root: &Path, id: &str) -> StoreResult<Bot> {
+    let _files = files_lock();
+    let mut bots = load_bots(root)?;
+    let at = bots.iter().position(|b| b.id == id).ok_or_else(|| StoreError::new("POTATO_BOT_NOT_FOUND", "No bot has that name."))?;
+    let gone = bots.remove(at);
+    save_bots(root, &bots)?;
+    Ok(gone)
+}
+
 // ---- settings -----------------------------------------------------------------------------------
 
 /// What the brain talks to.
@@ -189,11 +208,23 @@ pub struct Settings {
     pub daily_limit_cents: u32,
     /// How many actions on its sandbox computer one bot may take in a day.
     pub sandbox_actions_per_day: u32,
+    /// The brains to try, in order, when the talk brain is out of balance or down (`fallback.rs`). Empty: none.
+    pub fallbacks: Vec<BrainKind>,
+    /// The system voice, its speed, and the bots that read their replies aloud (see `voice.rs`).
+    pub voice: super::voice::VoiceSettings,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { v: STORE_VERSION, brain: BrainKind::Deepseek, default_persona: "fish".into(), daily_limit_cents: super::cost::DEFAULT_LIMIT_CENTS, sandbox_actions_per_day: super::cost::DEFAULT_SANDBOX_ACTIONS }
+        Settings {
+            v: STORE_VERSION,
+            brain: BrainKind::Deepseek,
+            default_persona: "fish".into(),
+            daily_limit_cents: super::cost::DEFAULT_LIMIT_CENTS,
+            sandbox_actions_per_day: super::cost::DEFAULT_SANDBOX_ACTIONS,
+            fallbacks: Vec::new(),
+            voice: super::voice::VoiceSettings::default(),
+        }
     }
 }
 
@@ -206,6 +237,8 @@ pub fn load_settings(root: &Path) -> StoreResult<Settings> {
     let mut settings = settings.unwrap_or_default();
     settings.daily_limit_cents = super::cost::clamp_limit_cents(settings.daily_limit_cents);
     settings.sandbox_actions_per_day = super::cost::clamp_sandbox_actions(settings.sandbox_actions_per_day);
+    settings.fallbacks = super::fallback::clean(settings.brain, &settings.fallbacks);
+    settings.voice = settings.voice.cleaned();
     if !valid_pack(&settings.default_persona) {
         settings.default_persona = "fish".into();
     }
@@ -217,6 +250,8 @@ pub fn save_settings(root: &Path, settings: &Settings) -> StoreResult<()> {
     settings.v = STORE_VERSION;
     settings.daily_limit_cents = super::cost::clamp_limit_cents(settings.daily_limit_cents);
     settings.sandbox_actions_per_day = super::cost::clamp_sandbox_actions(settings.sandbox_actions_per_day);
+    settings.fallbacks = super::fallback::clean(settings.brain, &settings.fallbacks);
+    settings.voice = settings.voice.cleaned();
     if !valid_pack(&settings.default_persona) {
         return Err(StoreError::new("POTATO_PERSONA_INVALID", "Pick Fish or Potato."));
     }

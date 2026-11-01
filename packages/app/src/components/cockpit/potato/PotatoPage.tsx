@@ -5,11 +5,14 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { AvatarId, CompanionTransport, CompanionView } from '../../../lib/companion';
 import { plainError, type PotatoState, type PotatoTransport } from '../../../lib/potato';
+import type { SandboxTransport } from '../../../lib/potato-sandbox';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { usePotatoThread } from '../../../hooks/usePotato';
+import type { BotSettingsTransport } from '../../../lib/potato-botsettings';
 import { CompanionSetupSheet } from '../companion/CompanionSetupSheet';
 import { DEFAULT_TAB, type PanelTab } from '../../../lib/potato-panel';
 import { BotList } from './BotList';
+import { ArtifactsPage } from './ArtifactsPage';
 import { BotPanel } from './BotPanel';
 import { PotatoLayout } from './PotatoLayout';
 import { ThreadView } from './ThreadView';
@@ -38,13 +41,19 @@ export interface PotatoPageProps {
   /** Opens a helper's pane (the Open button of a finished helper), and says whether the pane is still there. */
   onOpenPane?: (paneId: string) => void;
   paneExists?: (paneId: string) => boolean;
+  /** The Advanced tab's calls to the engine. Absent: the app's own. */
+  botSettings?: BotSettingsTransport;
   /** The Computer panel's way to the app (the sandbox screen). Absent: no panel. */
   screenTransport?: ScreenTransport;
+  /** The sandbox's commands for the Computer tab's upkeep section and its set up card. Absent: neither is drawn. */
+  sandboxTransport?: SandboxTransport;
 }
 
 export function PotatoPage(props: PotatoPageProps) {
-  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport } = props;
+  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport, sandboxTransport, botSettings } = props;
   const [sheetOpen, setSheetOpen] = useState(false);
+  // The Artifacts page takes the thread's place while it is open; opening a bot gives the thread back.
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
   const open = pickOpenBot(state.bots, openBotId);
   const layout = usePotatoLayout();
   // The tab each bot's panel was last on (not remembered between runs).
@@ -68,7 +77,8 @@ export function PotatoPage(props: PotatoPageProps) {
     }
   };
 
-  const through = !!open && (state.settings.brain === 'agents' || open.brainState === 'agents');
+  // A bot's own brain decides (the engine reports `agents` for it, default or not), not the Settings brain alone.
+  const through = !!open && open.brainState === 'agents';
   const panelOpen = layout.panelOpen && !!open;
 
   // The row menu's commands: each one runs, then the state is read again at once.
@@ -88,16 +98,21 @@ export function PotatoPage(props: PotatoPageProps) {
       bots={state.bots}
       avatars={avatars}
       openId={open?.id ?? null}
-      onOpen={onOpenBot}
+      onOpen={(botId) => {
+        setArtifactsOpen(false);
+        onOpenBot(botId);
+      }}
       onNew={() => setSheetOpen(true)}
       candidates={candidates}
       onUseCompanion={(id) => void makeBot(id)}
       mini={layout.listMini}
       onToggleMini={layout.toggleList}
       actions={botActions}
+      onArtifacts={() => setArtifactsOpen((was) => !was)}
+      artifactsOpen={artifactsOpen}
     />
   );
-  const thread = open ? (
+  const chat = open ? (
     <ThreadView
       key={open.id}
       bot={open}
@@ -128,6 +143,11 @@ export function PotatoPage(props: PotatoPageProps) {
   ) : (
     <div className="ck-potato-blank" aria-hidden="true" />
   );
+  const thread = artifactsOpen ? (
+    <ArtifactsPage bots={state.bots.map((b) => ({ id: b.id, name: b.name }))} transport={transport.artifacts} onClose={() => setArtifactsOpen(false)} onNotify={onNotify} />
+  ) : (
+    chat
+  );
   const panel = panelOpen && open ? (
     <BotPanel
       key={open.id}
@@ -137,8 +157,15 @@ export function PotatoPage(props: PotatoPageProps) {
       onTab={(next) => setTab(open.id, next)}
       onClose={() => layout.setPanelOpen(false)}
       screen={screenTransport}
+      sandbox={sandboxTransport}
+      onOpenSettings={onOpenSettings}
       through={through}
       onNotify={onNotify}
+      defaultBrain={state.settings.brain}
+      botSettings={botSettings}
+      settings={state.settings}
+      transport={transport}
+      onChanged={onChanged}
     />
   ) : null;
 

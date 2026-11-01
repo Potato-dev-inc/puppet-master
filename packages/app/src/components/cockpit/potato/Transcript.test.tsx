@@ -94,7 +94,7 @@ describe('Transcript, separators', () => {
     expect(labels('.ck-potato-sep--day')).toEqual(['Today']);
     expect(labels('.ck-potato-sep--time')).toEqual(['12:11 AM', '9:30 AM']);
     // the order in the list: day, time, one, two, time, three
-    const order = [...host.querySelectorAll('.ck-potato-rows > li')].map((li) => li.textContent?.replace(/(Copy|Reply)/g, '').trim());
+    const order = [...host.querySelectorAll('.ck-potato-rows > li')].map((li) => li.textContent?.replace(/(Copy|Reply|Speak|Save as file)/g, '').trim());
     expect(order).toEqual(['Today', '12:11 AM', 'one', 'two', '9:30 AM', 'three']);
   });
 

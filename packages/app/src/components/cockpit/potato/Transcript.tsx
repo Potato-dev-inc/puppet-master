@@ -3,7 +3,7 @@
 // "Jump to latest" button shows then. `followToken` goes up when the person sends, which pulls the view to the bottom
 // again and takes the "New" line away.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { PotatoBotView, PotatoMessage, PotatoTransport } from '../../../lib/potato';
+import type { PotatoBotView, PotatoMessage, PotatoTransport, PotatoVoice } from '../../../lib/potato';
 import { THREAD_COPY, firstUnreadId } from '../../../lib/potato-thread';
 import { MessageRow } from './MessageRow';
 import { DaySeparator, TimeSeparator, UnreadDivider } from './Separators';
@@ -30,9 +30,11 @@ export interface TranscriptProps {
   now: number;
   /** Opens a link from the bot's text. Default: the system browser. */
   openLink?: (url: string) => void;
+  /** The voice settings, for a reply's Speak button. */
+  voice?: PotatoVoice;
 }
 
-export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, hideEmpty = false, now, openLink }: TranscriptProps) {
+export function Transcript({ bot, messages, agentLabel, transport, onChanged, onOpenPane, paneExists, followToken = 0, hideEmpty = false, now, openLink, voice }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const [away, setAway] = useState(false);
@@ -111,6 +113,7 @@ export function Transcript({ bot, messages, agentLabel, transport, onChanged, on
                     paneExists={paneExists}
                     now={now}
                     openLink={openLink}
+                    voice={voice}
                   />
                 );
             }

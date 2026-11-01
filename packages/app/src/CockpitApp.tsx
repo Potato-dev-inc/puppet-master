@@ -44,6 +44,7 @@ import { tauriCompanionTransport } from './lib/companion';
 import { usePotatoState, readOpenBot, writeOpenBot } from './hooks/usePotato';
 import { tauriPotatoTransport } from './lib/potato';
 import { tauriScreenTransport } from './lib/potatoScreen';
+import { tauriSandboxTransport } from './lib/potato-sandbox';
 import { PotatoPage } from './components/cockpit/potato/PotatoPage';
 import { totalUnread } from './components/cockpit/potato/model';
 import { CompanionPage } from './components/cockpit/companion/CompanionPage';
@@ -489,6 +490,7 @@ export default function CockpitApp() {
             onOpenPane={(paneId) => nav.select(paneId)}
             paneExists={(paneId) => c.registry.panes.has(paneId)}
             screenTransport={tauriScreenTransport}
+            sandboxTransport={tauriSandboxTransport}
           />
         ) : view === 'pane' && c.selectedId && splitOn && split ? (
           <SplitView c={nav} leftId={c.selectedId} rightId={split} focus={side} ratio={ratio} onFocus={setSide} onRatio={setRatio} onClose={toggleSplit} />
