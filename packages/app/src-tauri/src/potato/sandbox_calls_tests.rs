@@ -96,7 +96,7 @@ fn actions_of(args: Value) -> Vec<Action> {
 
 #[test]
 fn the_five_tools_are_the_five_names() {
-    let names: Vec<&str> = [Tool::ComputerObserve, Tool::ComputerAct, Tool::BrowserNavigate, Tool::BrowserSnapshot, Tool::BrowserAct].iter().map(|t| t.name()).collect();
+    let names: Vec<&str> = [Tool::ComputerObserve, Tool::ComputerAct, Tool::BrowserNavigate, Tool::BrowserSnapshot, Tool::BrowserAct, Tool::AskPersonForScreen].iter().map(|t| t.name()).collect();
     assert_eq!(names, TOOL_NAMES);
     for name in TOOL_NAMES {
         assert_eq!(Tool::parse(name).unwrap().name(), name);
@@ -809,5 +809,104 @@ fn the_trust_of_a_call_never_comes_from_the_brain_and_the_brain_cannot_name_a_ca
     assert!(service.contains("rt.turn_trust.get(&conversation_id)"), "the engine looks the trust up");
     assert!(service.contains("if !self.own_conversation(bot, &conversation_id)"), "a call is for the brain's own bot only");
     // anything the model could make the dispatcher do goes through the same tool list
-    assert_eq!(TOOL_NAMES.len(), 5);
+    assert_eq!(TOOL_NAMES.len(), 6);
+}
+
+// ---- ask_person_for_screen: the sixth tool --------------------------------------------------------------
+
+#[test]
+fn ask_person_for_screen_needs_one_short_reason() {
+    let opts = Options::default();
+    for args in [json!({}), json!({ "reason": "" }), json!({ "reason": "   " }), json!({ "reason": 5 })] {
+        assert_eq!(validate(Tool::AskPersonForScreen, &args, None, &opts).unwrap_err().code, "BAD_ARGS", "{args}");
+    }
+    let long = "x".repeat(MAX_ASK_REASON_CHARS + 1);
+    assert_eq!(validate(Tool::AskPersonForScreen, &json!({ "reason": long }), None, &opts).unwrap_err().code, "BAD_ARGS");
+    match validate(Tool::AskPersonForScreen, &json!({ "reason": "  A login code is needed  " }), None, &opts).unwrap() {
+        Request::AskPerson { reason } => assert_eq!(reason, "A login code is needed"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(Request::AskPerson { reason: "r".into() }.cost(), 0);
+}
+
+#[test]
+fn a_bot_that_is_stuck_raises_the_needs_you_card_and_it_costs_nothing() {
+    let f = Fixture::new("ask");
+    f.call("computer_observe", json!({})).unwrap();
+    assert_eq!(f.used_today("nimbus"), 1);
+    let answer = f.call("ask_person_for_screen", json!({ "reason": "The site wants a code sent to your phone" })).unwrap();
+    assert_eq!((answer["asked"].clone(), answer["expiresInMinutes"].clone()), (json!(true), json!(30)));
+    assert!(answer["cardId"].as_str().is_some_and(|id| id.starts_with("needs-")), "{answer}");
+    // the Computer panel's lease table now says "Needs you"
+    match f.port.lease.lock().banner(f.now()) {
+        super::sandbox::lease::Banner::NeedsYou { .. } => {}
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(f.port.lease.lock().card(f.now()).unwrap().reason, "The site wants a code sent to your phone");
+    // it ran no program and spent no action
+    assert_eq!(f.fake.calls(), vec![Recorded::Observe]);
+    assert_eq!(f.used_today("nimbus"), 1);
+}
+
+#[test]
+fn skip_turns_the_card_down_and_the_bot_goes_on() {
+    let f = Fixture::new("ask-skip");
+    f.call("computer_observe", json!({})).unwrap();
+    let answer = f.call("ask_person_for_screen", json!({ "reason": "Please solve the check" })).unwrap();
+    let card_id = answer["cardId"].as_str().unwrap().to_string();
+    f.port.lease.lock().skip(&card_id).unwrap();
+    assert!(f.port.lease.lock().card(f.now()).is_none());
+    assert!(f.call("computer_observe", json!({})).is_ok(), "the bot keeps its hold after a Skip");
+}
+
+#[test]
+fn asking_with_no_hold_yet_takes_the_hold_first() {
+    let f = Fixture::new("ask-first");
+    let answer = f.call("ask_person_for_screen", json!({ "reason": "I cannot find the app" })).unwrap();
+    assert_eq!(answer["asked"], true);
+    assert!(f.calls.bot_is_using(&f.port, "nimbus"));
+    assert!(f.fake.calls().is_empty());
+}
+
+#[test]
+fn when_the_person_already_has_the_screen_nothing_is_raised() {
+    let f = Fixture::new("ask-person");
+    f.port.lease.lock().take_over(f.now());
+    let answer = f.call("ask_person_for_screen", json!({ "reason": "Please help" })).unwrap();
+    assert_eq!(answer["asked"], false);
+    assert!(answer["note"].as_str().unwrap().contains("already has the screen"));
+    assert!(f.port.lease.lock().card(f.now()).is_none());
+    assert!(f.port.lease.lock().current(f.now()).is_some_and(|l| l.holder == super::sandbox::lease::Holder::Person), "the person still holds it");
+}
+
+#[test]
+fn ask_person_for_screen_follows_the_same_gates_as_the_other_tools() {
+    let f = Fixture::new("ask-gates");
+    let args = json!({ "reason": "Please help" });
+    let ctx = f.ctx("nimbus");
+    let off = f.calls.execute(Some(&f.port), Gates { bot_on: true, sandbox_on: false }, &ctx, "ask_person_for_screen", &args);
+    assert_eq!(code(off), "SANDBOX_OFF");
+    let none = f.calls.execute(None, Gates { bot_on: true, sandbox_on: true }, &ctx, "ask_person_for_screen", &args);
+    assert_eq!(code(none), "SANDBOX_NOT_SET_UP");
+    assert_eq!(code(f.call("ask_person_for_screen", json!({}))), "BAD_ARGS");
+}
+
+#[test]
+fn the_reason_on_the_card_is_cleaned() {
+    let f = Fixture::new("ask-clean");
+    f.call("ask_person_for_screen", json!({ "reason": "The key is sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghij please" })).unwrap();
+    let card = f.port.lease.lock().card(f.now()).cloned().unwrap();
+    assert!(!card.reason.contains("sk-ant"), "{}", card.reason);
+}
+
+#[test]
+fn through_the_engine_the_card_comes_back_as_a_result() {
+    let (rig, _, lease) = engine("ask-engine");
+    rig.svc.send("nimbus", "go").unwrap();
+    rig.hello();
+    rig.post(vec![call_event("s-1", "computer_observe", json!({}), false), call_event("s-2", "ask_person_for_screen", json!({ "reason": "Please log in for me" }), false)]);
+    let all = results(&rig);
+    let item = all.iter().find(|i| i["callId"] == "s-2").unwrap();
+    assert_eq!((item["ok"].clone(), item["result"]["asked"].clone()), (json!(true), json!(true)));
+    assert!(lease.lock().card(rig.host.now.load(Ordering::SeqCst)).is_some());
 }

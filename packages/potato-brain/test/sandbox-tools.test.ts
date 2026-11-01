@@ -31,8 +31,15 @@ type Actions = { properties: { actions: { items: { oneOf?: Branch[]; properties?
 
 const spec = (name: string) => sandboxToolSpecs().find((s) => s.name === name)!;
 
-test("the five tools are the five names, in the original order, and each is a plain object schema", () => {
-  assert.deepEqual(sandboxToolSpecs().map((s) => s.name), ["browser_navigate", "browser_snapshot", "browser_act", "computer_observe", "computer_act"]);
+test("the six tools are the five lifted names in the original order, then the ask, and each is a plain object schema", () => {
+  assert.deepEqual(sandboxToolSpecs().map((s) => s.name), [
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_act",
+    "computer_observe",
+    "computer_act",
+    "ask_person_for_screen",
+  ]);
   assert.deepEqual([...SANDBOX_TOOL_NAMES].sort(), sandboxToolSpecs().map((s) => s.name).sort());
   for (const s of sandboxToolSpecs()) {
     assert.ok(isSandboxTool(s.name));
@@ -41,6 +48,19 @@ test("the five tools are the five names, in the original order, and each is a pl
     assert.deepEqual(JSON.parse(JSON.stringify(s)), s, "survives a JSON round trip");
   }
   for (const other of ["ask_helper", "share", "memory_search", "", "computer"]) assert.equal(isSandboxTool(other), false);
+});
+
+test("ask_person_for_screen takes one reason, nothing else, and says when to use it", () => {
+  const ask = spec("ask_person_for_screen");
+  const params = ask.parameters as { required?: string[]; additionalProperties?: boolean; properties: Record<string, { type?: string; maxLength?: number }> };
+  assert.deepEqual(params.required, ["reason"]);
+  assert.equal(params.additionalProperties, false);
+  assert.deepEqual(Object.keys(params.properties), ["reason"]);
+  assert.equal(params.properties["reason"]?.type, "string");
+  assert.equal(params.properties["reason"]?.maxLength, 300);
+  assert.match(ask.description, /stuck/);
+  assert.match(ask.description, /Take over and Skip/);
+  assert.match(ask.description, /never put a password or a key/);
 });
 
 test("the descriptions start with the lifted ones, and the originals are not changed by building the specs", () => {

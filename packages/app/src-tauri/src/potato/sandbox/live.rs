@@ -9,7 +9,11 @@
 //! a screenshot through the control client -> a click and typing through the control client (the typed command
 //! creates a file, so the keys really reached a program) -> the screen target answers on its loopback port and the
 //! app's own passwords are the ones x11vnc holds -> the desktop script stops Chrome -> stop -> remove (unregister
-//! `pm-sbx-e2e` and nothing else). No window may appear on the person's screens: the visible remote-desktop windows
+//! `pm-sbx-e2e` and nothing else). Between the screen target and the Chrome stop it also runs the bot's side THROUGH THE REAL
+//! PATH: the host's wiring (`sandbox_host::wire_into`: one sandbox, the screen hub's one lease), S3's dispatcher
+//! (`sandbox_calls::Calls`) with `browser_navigate https://example.com` and `browser_snapshot` (the page must say
+//! "Example Domain"), the "Needs you" card, and S2's screen route in process serving `embed.html` for a sealed link made by
+//! the hub. No window may appear on the person's screens: the visible remote-desktop windows
 //! (WSLg's `msrdc`) are counted before, during the start and after, and every count must be 0.
 //!
 //! It touches only the distro `pm-sbx-e2e`. Pictures go to `D:\pm-sandbox\e2e\`. Not part of the normal test run.
@@ -17,42 +21,26 @@
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use super::control::Action;
 use super::install::{Desktop, GuestFiles, InstallOptions, Layout};
-use super::lifecycle::{Lifecycle, WindowCheck, START_DESKTOP};
+use super::lifecycle::{Lifecycle, START_DESKTOP};
 use super::wsl::{GuestUser, SandboxName, Wsl};
+use super::screen::{Audience, Mode, ScreenHub};
 use super::{Sandbox, WslSandbox};
+use crate::potato::protocol::Trust;
+use crate::potato::sandbox_calls::{Calls, Context, Gates};
+use crate::potato::service::Host;
+use crate::potato::service_tests::FakeHost;
+use crate::potato::window_guard;
 
 const DISTRO: &str = "pm-sbx-e2e";
 /// The folder the distro lives under (`<this>/sandbox/pm-sbx-e2e`).
 const APP_DATA: &str = r"D:\pm-sandbox\pm-sbx-e2e";
 const OUT_DIR: &str = r"D:\pm-sandbox\e2e";
-
-/// The visible-window check of the spike (`winlist.ps1`): lists visible top-level windows of `msrdc`/`msrdcw`, WSLg's RDP
-/// client. Any row means a WSLg window is on a Windows screen.
-const WINLIST_PS1: &str = r####"
-Add-Type @"
-using System; using System.Text; using System.Runtime.InteropServices; using System.Collections.Generic;
-public class WL {
-  public delegate bool EnumProc(IntPtr h, IntPtr l);
-  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
-  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
-  [DllImport("user32.dll")] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
-  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
-  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L,T,R,B; }
-  public static List<string> All() { var res = new List<string>();
-    EnumWindows((h,l)=>{ if(!IsWindowVisible(h)) return true; uint pid; GetWindowThreadProcessId(h,out pid); var sb=new StringBuilder(256); GetWindowText(h,sb,256); RECT r; GetWindowRect(h,out r);
-      res.Add(pid+"|"+sb+"|"+r.L+","+r.T+","+r.R+","+r.B); return true; },IntPtr.Zero); return res; } }
-"@
-$ids = @(Get-Process msrdc,msrdcw -ErrorAction SilentlyContinue | % Id)
-$rows = [WL]::All() | ? { $ids -contains [int]($_.Split('|')[0]) }
-"msrdc pids: $($ids -join ',')  visible msrdc windows: $(@($rows).Count)"
-$rows
-"####;
 
 fn out_dir() -> PathBuf {
     let dir = PathBuf::from(OUT_DIR);
@@ -60,35 +48,9 @@ fn out_dir() -> PathBuf {
     dir
 }
 
-/// How many visible msrdc windows there are right now, and the report line.
+/// How many visible msrdc windows there are right now, and the report line (the production check, `window_guard`).
 fn visible_msrdc_windows() -> Result<(usize, String), String> {
-    let script = out_dir().join("winlist.ps1");
-    std::fs::write(&script, WINLIST_PS1).map_err(|e| e.to_string())?;
-    let mut command = crate::proc_util::hidden_command("powershell.exe");
-    command.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]).arg(&script);
-    let out = command.output().map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&out.stdout).to_string();
-    let line = text.lines().find(|l| l.contains("visible msrdc windows:")).ok_or_else(|| format!("no count in: {text} {}", String::from_utf8_lossy(&out.stderr)))?;
-    let count = line.rsplit(':').next().and_then(|n| n.trim().parse::<usize>().ok()).ok_or("bad count")?;
-    Ok((count, line.trim().to_string()))
-}
-
-struct Msrdc;
-
-impl WindowCheck for Msrdc {
-    fn visible_remote_window(&self) -> bool {
-        match visible_msrdc_windows() {
-            Ok((count, line)) => {
-                println!("[live] window check during start: {line}");
-                count > 0
-            }
-            // Cannot tell: fail closed.
-            Err(e) => {
-                println!("[live] window check failed: {e}");
-                true
-            }
-        }
-    }
+    window_guard::visible_windows(&window_guard::PowerShell)
 }
 
 /// Removes the e2e distro (that name and no other) if the test ends early.
@@ -147,6 +109,71 @@ fn show_list(label: &str, wsl: &Wsl) {
     println!("[live] wsl -l -v {label}: {}", rows.join(" | "));
 }
 
+/// The bot's side of the real path against the running sandbox: the host's wiring (one sandbox, the hub's one lease), the
+/// dispatcher with the page tools, the "Needs you" card, and the screen route serving the viewer page for a sealed link.
+fn bots_side_through_the_real_path(sandbox: &Arc<WslSandbox>) {
+    use std::collections::HashMap;
+
+    use parking_lot::Mutex;
+    use serde_json::json;
+
+    let host = Arc::new(FakeHost {
+        now: AtomicI64::new(1_000),
+        secrets: Mutex::new(HashMap::new()),
+        changes: Mutex::new(Vec::new()),
+        resources: Mutex::new(None),
+        url: Mutex::new(None),
+    });
+    let clock = host.clone();
+    let hub = Arc::new(ScreenHub::with_clock(Box::new(move || clock.now.load(Ordering::SeqCst))));
+    hub.set_enabled(true);
+    let as_dyn: Arc<dyn Sandbox> = sandbox.clone();
+    let port = crate::potato::sandbox_host::wire_into(&hub, Some(&as_dyn)).expect("the host's port");
+    assert!(Arc::ptr_eq(&port.lease, hub.lease()), "one lease");
+
+    let root = out_dir().join("calls");
+    std::fs::create_dir_all(&root).unwrap();
+    let calls = Calls::new(root, host.clone() as Arc<dyn Host>);
+    let ctx = Context { bot: "fish".to_string(), conversation: "app:dm:fish".to_string(), trust: Trust::OwnerPc, want_image: false };
+    let gates = Gates { bot_on: true, sandbox_on: true };
+
+    // browser_navigate + browser_snapshot through S3's dispatcher with the real sandbox
+    let t = std::time::Instant::now();
+    let navigated = calls.execute(Some(&port), gates, &ctx, "browser_navigate", &json!({ "url": "https://example.com" })).expect("browser_navigate https://example.com");
+    println!("[live] browser_navigate took {:?}: {}", t.elapsed(), navigated.to_string().chars().take(300).collect::<String>());
+    assert_ne!(navigated["ok"], json!(false), "navigate did not fail: {navigated}");
+    let t = std::time::Instant::now();
+    let snapshot = calls.execute(Some(&port), gates, &ctx, "browser_snapshot", &json!({})).expect("browser_snapshot");
+    let text = snapshot.to_string();
+    println!("[live] browser_snapshot took {:?}: {}", t.elapsed(), text.chars().take(400).collect::<String>());
+    assert!(text.contains("Example Domain"), "the page is example.com: {text}");
+
+    // the dispatcher took the hub's lease
+    let state = hub.state();
+    println!("[live] screen state after the calls: {state:?}");
+    assert_eq!((state.phase, state.bot.as_deref()), ("bot", Some("fish")), "the bot holds the hub's one lease");
+
+    // the sixth tool raises the card on that same lease
+    let asked = calls.execute(Some(&port), gates, &ctx, "ask_person_for_screen", &json!({ "reason": "live test: please look at the page" })).expect("ask_person_for_screen");
+    assert_eq!(asked["asked"], json!(true), "{asked}");
+    let state = hub.state();
+    assert_eq!(state.phase, "needs_you");
+    hub.skip(state.card_id.as_deref().expect("a card id")).expect("skip");
+    assert_eq!(hub.state().phase, "bot", "Skip keeps the bot's hold");
+
+    // S2's screen route in process: the sealed link of the hub serves the viewer page
+    let src = hub.link("fish", Mode::View, &Audience::App, "").expect("a screen link").into_inner();
+    let start = src.find("/screen/").expect("a screen path") + "/screen/".len();
+    let sealed = src[start..].split('/').next().unwrap().to_string();
+    let (status, head, body) = crate::bridge::screen_get_in_process(&hub, &sealed, "embed.html");
+    println!("[live] GET screen/<sealed>/embed.html -> {status}, {} bytes, no-store: {}", body.len(), head.to_lowercase().contains("no-store"));
+    assert_eq!(status, 200, "{head}");
+    assert!(body.to_lowercase().contains("<html") && body.to_lowercase().contains("novnc"), "the viewer page");
+    let passwords = sandbox.screen_target().expect("target").passwords.expect("passwords");
+    assert!(!body.contains(passwords.view().expose()) && !body.contains(passwords.control().expose()) && !head.contains(passwords.view().expose()), "no password in the answer");
+    println!("[live] the bot's side works through the real path");
+}
+
 #[test]
 #[ignore = "needs WSL, downloads Ubuntu and Chrome, takes minutes: PM_SBX_LIVE=1 cargo test --lib potato::sandbox::live -- --ignored --nocapture"]
 fn a_real_distro_installs_starts_is_driven_and_is_removed() {
@@ -174,8 +201,8 @@ fn a_real_distro_installs_starts_is_driven_and_is_removed() {
     let layout = Layout::new(Path::new(APP_DATA));
     let files = GuestFiles::new(&guest_files());
     files.check().expect("the guest files are in the repo");
-    let lifecycle = Arc::new(Lifecycle::new(wsl.clone(), name.clone()).with_window_check(Arc::new(Msrdc)));
-    let sandbox = WslSandbox::new(wsl.clone(), name.clone(), layout, files, lifecycle.clone());
+    let lifecycle = Arc::new(Lifecycle::new(wsl.clone(), name.clone()).with_window_check(Arc::new(window_guard::Msrdc::live())));
+    let sandbox = Arc::new(WslSandbox::new(wsl.clone(), name.clone(), layout, files, lifecycle.clone()));
 
     // ---- install (base + the light desktop), with the real start check inside it
     let mut options = InstallOptions::new(name.clone(), Desktop::Light);
@@ -260,6 +287,8 @@ fn a_real_distro_installs_starts_is_driven_and_is_removed() {
     assert_eq!(control_file, passwords.control().expose(), "x11vnc holds the app's control password");
     assert_ne!(view_file, control_file);
     println!("[live] x11vnc holds the app's two passwords (not printed)");
+
+    bots_side_through_the_real_path(&sandbox);
 
     // ---- stopping the desktop stops Chrome too
     let _ = ready.client.act(&[Action::Launch { app: "chrome".to_string(), arg: Some("about:blank".to_string()) }, Action::Wait { ms: 3000 }], 500, false);

@@ -15,7 +15,7 @@
  * "sandbox_call").
  *
  * The bot's computer: a "send" says capabilities.sandbox, and on such a turn
- * the five sandbox tools are offered. A tool call is the event
+ * the six sandbox tools are offered. A tool call is the event
  *   {"type":"sandbox_call","callId","conversationId","tool","args","image"}
  * and its answer an inbox item
  *   {"type":"sandbox_result","callId","ok":true,"result":{...}}  or

@@ -202,6 +202,14 @@ fn screen_path(sealed: &str, rest: &str) -> String {
     format!("/bridge/potato/sandbox/screen/{sealed}/{rest}")
 }
 
+/// One GET of `rest` under the sealed link, through this file's in-process bridge (the opt-in live test of the sandbox
+/// uses it with the real sandbox behind the hub).
+pub(in crate::bridge) fn get_in_process(hub: &Arc<ScreenHub>, sealed: &str, rest: &str) -> (u16, String, String) {
+    let addr = spawn_bridge(hub.clone());
+    let reply = request(addr, "GET", &screen_path(sealed, rest), &[]);
+    (reply.status, reply.head.clone(), reply.text())
+}
+
 const FORWARDED: &str = "X-Forwarded-For: 203.0.113.9";
 
 /// A websocket client: sends the upgrade, returns the stream and the handshake answer.

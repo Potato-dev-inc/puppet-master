@@ -1,5 +1,5 @@
 //! The bot's computer, as the brain's tools use it: `computer_observe`, `computer_act`, `browser_navigate`,
-//! `browser_snapshot` and `browser_act`. The brain sends a `sandbox_call` event; this file decides whether it
+//! `browser_snapshot`, `browser_act` and `ask_person_for_screen`. The brain sends a `sandbox_call` event; this file decides whether it
 //! may run, runs it, and builds the answer (`sandbox_result`). The engine (`service.rs`) calls it on its own thread.
 //!
 //! The order of the checks, and why. Everything before the sandbox is touched is cheap and cannot start anything:
@@ -16,6 +16,10 @@
 //! 6. the day's action cap (`cost::spend_sandbox_actions`, a setting, default 500). A call that would pass the
 //!    cap is refused whole and not counted;
 //! 7. the call itself, one at a time (the screen has one pointer). It starts the sandbox if it is stopped.
+//!
+//! `ask_person_for_screen {reason}` is the sixth tool. It is not a screen action: it costs nothing against the cap and runs
+//! no program. It raises the "Needs you" card (Take over / Skip, 30 minutes) on the Computer panel, for a bot that is stuck
+//! (a login, a code, a check it cannot pass). If the person already has the screen it says so and raises nothing.
 //!
 //! What goes back is plain JSON the brain can read: window title, pointer, a frame id, whether the screen changed
 //! since the last look, and, for a model that can see, the picture. For a model that cannot (`image: false` in the
@@ -43,7 +47,9 @@ use super::service::Host;
 use super::store;
 
 #[cfg_attr(not(test), allow(dead_code))]
-pub const TOOL_NAMES: [&str; 5] = ["computer_observe", "computer_act", "browser_navigate", "browser_snapshot", "browser_act"];
+pub const TOOL_NAMES: [&str; 6] = ["computer_observe", "computer_act", "browser_navigate", "browser_snapshot", "browser_act", "ask_person_for_screen"];
+/// The longest reason a bot gives when it asks the person for the screen (the card keeps 200 of it).
+pub const MAX_ASK_REASON_CHARS: usize = 300;
 /// Most actions in one `computer_act` or `browser_act` call.
 pub const MAX_ACTIONS: usize = 24;
 /// A picture bigger than this (PNG bytes) is not sent; the answer says so and gives the words instead.
@@ -60,6 +66,7 @@ pub enum Tool {
     BrowserNavigate,
     BrowserSnapshot,
     BrowserAct,
+    AskPersonForScreen,
 }
 
 impl Tool {
@@ -70,6 +77,7 @@ impl Tool {
             "browser_navigate" => Tool::BrowserNavigate,
             "browser_snapshot" => Tool::BrowserSnapshot,
             "browser_act" => Tool::BrowserAct,
+            "ask_person_for_screen" => Tool::AskPersonForScreen,
             _ => return None,
         })
     }
@@ -82,6 +90,7 @@ impl Tool {
             Tool::BrowserNavigate => "browser_navigate",
             Tool::BrowserSnapshot => "browser_snapshot",
             Tool::BrowserAct => "browser_act",
+            Tool::AskPersonForScreen => "ask_person_for_screen",
         }
     }
 }
@@ -132,6 +141,8 @@ pub enum Request {
     Snapshot,
     /// Already rebuilt by `browser::clean_actions`.
     BrowserAct { actions: Vec<Value> },
+    /// Not a screen action: the "Needs you" card. `reason` is trimmed and not empty.
+    AskPerson { reason: String },
 }
 
 impl Request {
@@ -140,6 +151,7 @@ impl Request {
         match self {
             Request::Act { actions, .. } => actions.len() as u32,
             Request::BrowserAct { actions } => actions.len() as u32,
+            Request::AskPerson { .. } => 0,
             _ => 1,
         }
     }
@@ -301,6 +313,16 @@ pub fn validate(tool: Tool, args: &Value, pointer: Option<(i32, i32)>, opts: &Op
     Ok(match tool {
         Tool::ComputerObserve => Request::Observe,
         Tool::BrowserSnapshot => Request::Snapshot,
+        Tool::AskPersonForScreen => {
+            let reason = obj.get("reason").and_then(Value::as_str).map(str::trim).unwrap_or("");
+            if reason.is_empty() {
+                return Err(bad("ask_person_for_screen needs a reason: one plain sentence saying what you need the person to do."));
+            }
+            if reason.chars().count() > MAX_ASK_REASON_CHARS {
+                return Err(bad("Keep the reason to one or two short sentences."));
+            }
+            Request::AskPerson { reason: reason.to_string() }
+        }
         Tool::BrowserNavigate => {
             let url = obj.get("url").and_then(Value::as_str).ok_or_else(|| bad("browser_navigate needs a url."))?;
             Request::Navigate { url: browser::check_url(url, opts.allow_local_pages)? }
@@ -409,6 +431,11 @@ impl Calls {
         };
 
         let now = self.host.now_ms();
+        if let Request::AskPerson { reason } = &request {
+            let mut answer = self.ask_person(port, ctx, &id, reason, now)?;
+            redact(&mut answer);
+            return Ok(answer);
+        }
         self.hold_screen(port, ctx, &id, now)?;
         self.spend(ctx, now, request.cost())?;
 
@@ -494,7 +521,32 @@ impl Calls {
             Request::Navigate { url } => Ok(browser::run(sandbox, &browser::navigate_args(&url)?)?),
             Request::Snapshot => Ok(browser::run(sandbox, &browser::snapshot_args())?),
             Request::BrowserAct { actions } => Ok(browser::run(sandbox, &browser::act_args(&actions)?)?),
+            // Answered before the screen is touched (`execute`); never reaches the sandbox.
+            Request::AskPerson { .. } => Err(CallError::new("BAD_ARGS", "That is not a screen action.")),
         }
+    }
+
+    /// `ask_person_for_screen`: the bot asks the person to step in. It must hold the screen for the card to exist, so it takes
+    /// (or renews) its hold first; asking needs no fresh look, so a "the screen changed hands" notice is not an error here.
+    fn ask_person(&self, port: &Port, ctx: &Context, id: &str, reason: &str, now: i64) -> Result<Value, CallError> {
+        match self.hold_screen(port, ctx, id, now) {
+            Ok(()) => {}
+            Err(e) if e.code == "LEASE_LOST" => {}
+            Err(e) if e.code == "LEASE_HELD_BY_PERSON" => {
+                return Ok(json!({
+                    "asked": false,
+                    "note": "The person already has the screen, so there is nobody to ask. Wait for them to hand it back, and do not use the computer meanwhile.",
+                }));
+            }
+            Err(e) => return Err(e),
+        }
+        let card = self.needs_you(port, &ctx.bot, &ctx.conversation, reason)?;
+        Ok(json!({
+            "asked": true,
+            "cardId": card.card_id,
+            "expiresInMinutes": (card.expires_ms - card.asked_ms) / 60_000,
+            "note": "The person sees a card on the Computer panel with Take over and Skip. Tell them in one short line what you need, then stop using the computer until they answer.",
+        }))
     }
 
     /// The part of an answer that is about the screen. Remembers the frame and the pointer for the run.
@@ -554,8 +606,7 @@ impl Calls {
     }
 
     /// The bot, holding the screen, asks the person to step in (the "Needs you" card, 30 minutes). The Computer
-    /// panel (screen links, piece S2) shows the card; no brain tool raises it yet.
-    #[allow(dead_code)]
+    /// panel shows the card (Take over / Skip); the brain's `ask_person_for_screen` tool raises it.
     pub fn needs_you(&self, port: &Port, bot: &str, conversation: &str, reason: &str) -> Result<NeedsYou, CallError> {
         let id = run_id(bot, conversation);
         let held = self.runs.lock().get(&id).and_then(|r| r.lease_id.clone());

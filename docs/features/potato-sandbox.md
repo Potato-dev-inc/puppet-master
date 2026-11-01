@@ -111,6 +111,12 @@ These come from the sandbox core and its guest files; the wizard only sets them 
 - **The app guest files must ship with the app.** The install reads `packages/potato-sandbox/` from the app's resources or, in a
   dev build, from the source tree.
 
+## How it is wired and shipped
+
+- **One sandbox, one lease.** `potato/sandbox_host.rs` builds the app's one sandbox (the real `WslSandbox`, a stand-in without `wsl.exe`, or `FakeSandbox` in a `dev-fake-tui` build with the stand-in brain) and is the only place that hands it on (`sync`, run after it is built and after every install, start, stop, reset and remove). The Computer panel and the screen links get it as the hub's source; the bot's tools get a `Port` made of the same sandbox and the screen hub's own lease table, so the panel, the tools and the host see one lease. Labs off, or nothing set up yet: both get nothing, and a running sandbox is stopped.
+- **No window on your screen.** After every start `potato/window_guard.rs` asks PowerShell (hidden, no file on disk) whether a visible window owned by `msrdc` (WSLg's remote-desktop client) exists. If one does, or if it cannot tell, the start fails, the sandbox is stopped and the Settings row shows an error card.
+- **Packaged like the brain.** `scripts/bundle-potato-sandbox.mjs` copies `packages/potato-sandbox/{guest,recipes,viewer}` (the viewer includes noVNC) to `packages/app/src-tauri/resources/potato-sandbox/` (generated, gitignored); `scripts/ensure-tauri-resources.mjs` runs it when a piece is missing and `scripts/bundle-mcp.mjs` runs it for a release. `tauri.conf.json` lists `resources/potato-sandbox/**/*`. `potato/resource_dirs.rs` finds the installed folder (`resources/potato-sandbox`, then `potato-sandbox`); a dev build falls back to the staged copy and then the source tree (`sandbox_host::guest_root`, `screen_live::viewer_dir`).
+
 ## Where it is in the code
 
 - Recipes: `packages/potato-sandbox/recipes/` (`zorin-look.json` is new; `coding.json` has the extras checklist; `SCHEMA.md` has

@@ -353,7 +353,7 @@ pub struct ScreenHub {
     source: Mutex<Option<Arc<dyn ScreenSource>>>,
     /// The sandbox's name, asked once (a real sandbox answers by asking the system).
     name: Mutex<Option<String>>,
-    lease: Mutex<ScreenLease>,
+    lease: Arc<Mutex<ScreenLease>>,
     phone_yes: Mutex<HashSet<String>>,
     enabled: AtomicBool,
     clock: Box<dyn Fn() -> i64 + Send + Sync>,
@@ -379,7 +379,7 @@ impl ScreenHub {
             key: ScreenKey::generate(),
             source: Mutex::new(None),
             name: Mutex::new(None),
-            lease: Mutex::new(ScreenLease::new()),
+            lease: Arc::new(Mutex::new(ScreenLease::new())),
             phone_yes: Mutex::new(HashSet::new()),
             enabled: AtomicBool::new(false),
             clock,
@@ -426,7 +426,7 @@ impl ScreenHub {
     }
 
     /// The lease table. The brain's tool loop takes the bot's lease from here (one screen, one lease).
-    pub fn lease(&self) -> &Mutex<ScreenLease> {
+    pub fn lease(&self) -> &Arc<Mutex<ScreenLease>> {
         &self.lease
     }
 

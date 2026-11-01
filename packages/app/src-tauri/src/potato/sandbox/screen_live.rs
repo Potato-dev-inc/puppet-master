@@ -6,14 +6,15 @@
 //!   keeper that lets the clock end leases and cards. It starts no sandbox and opens no window.
 //! - `set_enabled` follows the two Labs switches: the Computer works only while `potato_bot_enabled` AND
 //!   `potato_sandbox_enabled` are on.
-//! - `set_source` is how the real sandbox (or, in a `dev-fake-tui` build, the fake) is given to the hub.
+//! - The hub's sandbox is given by `potato::sandbox_host::sync` (the one place that owns the app's sandbox): the real one,
+//!   or in a `dev-fake-tui` build with the stand-in brain, the fake.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
 
-use super::screen::{self, ScreenSource};
+use super::screen;
 
 /// The page reads `screen_state` again whenever this fires. No payload.
 pub const SCREEN_EVENT: &str = "potato://screen";
@@ -32,20 +33,18 @@ pub fn apply_settings(public: &Value) {
 
 static VIEWER_DIR: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
 
-/// The folder with the viewer page and `novnc/` (`embed.html` is in it): the app's resources, else the source tree of
-/// a dev build. `None` when neither is there (the route then says so).
+/// The folder with the viewer page and `novnc/` (`embed.html` is in it): the app's resources (`resources/potato-sandbox/viewer`,
+/// staged by `scripts/bundle-potato-sandbox.mjs`), else the staged copy next to the manifest, else the source tree of a
+/// dev build. `None` when none is there (the route then says so).
 pub fn viewer_dir() -> Option<std::path::PathBuf> {
     VIEWER_DIR.get().cloned().flatten().or_else(dev_viewer_dir)
 }
 
 fn dev_viewer_dir() -> Option<std::path::PathBuf> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("potato-sandbox").join("viewer");
-    dir.join("embed.html").is_file().then_some(dir)
-}
-
-/// Gives the hub its sandbox.
-pub fn set_source(source: Option<Arc<dyn ScreenSource>>) {
-    screen::hub().set_source(source);
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    [manifest.join("resources").join("potato-sandbox").join("viewer"), manifest.join("..").join("..").join("potato-sandbox").join("viewer")]
+        .into_iter()
+        .find(|dir| dir.join("embed.html").is_file())
 }
 
 /// Starts the keeper and the event. Safe to call once; a second call only adds a second keeper, so `lib.rs` calls it once.
@@ -53,12 +52,8 @@ pub fn start(app: Option<tauri::AppHandle>) {
     let hub = screen::hub().clone();
     #[cfg(not(test))]
     if let Some(app) = app {
-        use tauri::{path::BaseDirectory, Emitter, Manager};
-        let shipped = app
-            .path()
-            .resolve("potato-sandbox/viewer", BaseDirectory::Resource)
-            .ok()
-            .filter(|dir| dir.join("embed.html").is_file());
+        use tauri::Emitter;
+        let shipped = crate::potato::resource_dirs::installed(&app, "potato-sandbox/viewer", "embed.html");
         let _ = VIEWER_DIR.set(shipped);
         hub.set_listener(Some(Arc::new(move |_| {
             let _ = app.emit(SCREEN_EVENT, ());
@@ -66,9 +61,6 @@ pub fn start(app: Option<tauri::AppHandle>) {
     }
     #[cfg(test)]
     let _ = app;
-    // A build with the fake terminal agents also has the fake sandbox (a picture, no distro).
-    #[cfg(feature = "dev-fake-tui")]
-    set_source(Some(Arc::new(super::FakeSandbox::new())));
     let _ = std::thread::Builder::new().name("potato-screen".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(1));
         hub.tick();

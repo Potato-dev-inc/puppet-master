@@ -1,6 +1,6 @@
 /**
- * The bot's computer, as the model sees it: five tools (`computer_observe`, `computer_act`, `browser_navigate`,
- * `browser_snapshot`, `browser_act`) that do nothing by themselves. Each one sends a `sandbox_call` to Puppet
+ * The bot's computer, as the model sees it: six tools (`computer_observe`, `computer_act`, `browser_navigate`,
+ * `browser_snapshot`, `browser_act`, `ask_person_for_screen`) that do nothing by themselves. Each one sends a `sandbox_call` to Puppet
  * Master and waits for the `sandbox_result` (channels/potato.ts owns the wire). Puppet Master checks everything
  * (the Labs switches, the screen lease, the trust of the turn, the day's cap) and the brain adds nothing it does
  * not need to: this file only turns the answer into text the model reads.
@@ -39,6 +39,7 @@ export const SANDBOX_TOOL_NAMES = [
   "browser_navigate",
   "browser_snapshot",
   "browser_act",
+  "ask_person_for_screen",
 ] as const;
 export type SandboxToolName = (typeof SANDBOX_TOOL_NAMES)[number];
 
@@ -128,7 +129,33 @@ function browserActSpec(): ToolSpec {
   return spec;
 }
 
-/** The five specs, in the order the original lists them. */
+/** Longest reason the app takes for an ask (it keeps 200 of them on the card). */
+export const ASK_REASON_MAX = 300;
+
+/**
+ * The sixth tool is ours, not a lifted one: the bot is stuck and asks the person to step in. Puppet Master raises the
+ * "Needs you" card (Take over / Skip) on the Computer panel.
+ */
+function askPersonSpec(): ToolSpec {
+  return {
+    name: "ask_person_for_screen",
+    description:
+      "Ask the person to step in on the computer's screen when you are stuck and cannot go on alone: a login, a code sent to their phone, " +
+      "a check you cannot pass, a choice only they can make. They see a card with Take over and Skip. Give one plain sentence as the reason, " +
+      "say in your reply what you need from them, and then stop using the computer until they answer. " +
+      "Do not use it for something you can still try yourself, and never put a password or a key in the reason.",
+    parameters: {
+      type: "object",
+      properties: {
+        reason: { type: "string", maxLength: ASK_REASON_MAX, description: "One plain sentence: what you need the person to do on the screen." },
+      },
+      required: ["reason"],
+      additionalProperties: false,
+    },
+  };
+}
+
+/** The six specs: the five lifted ones in the order the original lists them, then the ask. */
 export function sandboxToolSpecs(): ToolSpec[] {
   return [
     toSpec(BROWSER_NAVIGATE_TOOL),
@@ -136,6 +163,7 @@ export function sandboxToolSpecs(): ToolSpec[] {
     browserActSpec(),
     computerObserveSpec(),
     computerActSpec(),
+    askPersonSpec(),
   ];
 }
 
@@ -157,6 +185,7 @@ export function readReply(item: Record<string, unknown>): SandboxReply {
 const HINTS: Record<string, string> = {
   LEASE_HELD_BY_PERSON:
     "The person has the screen. Tell them in one short line that you are waiting for it, and stop using the computer for now. Do not retry right away.",
+  LEASE_NOT_HOLDER: "You do not hold the screen now. Look again (computer_observe) and then ask.",
   LEASE_LOST: "The screen changed hands since your last call. Look again (computer_observe or browser_snapshot) before you act.",
   SANDBOX_DAILY_CAP: "You have no computer actions left today. Say so, and do something else.",
   SANDBOX_OFF: "The computer is switched off. Say so; do not try again.",
@@ -224,7 +253,7 @@ export interface SandboxToolsOptions {
 }
 
 /**
- * The five tools for one conversation. They are `gate: "sandbox"`: the Agent offers them only on a turn the app
+ * The six tools for one conversation. They are `gate: "sandbox"`: the Agent offers them only on a turn the app
  * said had a computer.
  */
 export function sandboxTools(opts: SandboxToolsOptions): ExtraTool[] {

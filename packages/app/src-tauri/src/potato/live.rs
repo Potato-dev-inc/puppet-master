@@ -67,13 +67,19 @@ pub fn sandbox_labs_on(public: &Value) -> bool {
 }
 
 /// Wires the sandbox (with the screen lease it shares with the Computer panel) to the bots' tools. Until it is
-/// called no brain is told it has a computer. The wizard and the settings page call it when the sandbox exists.
-#[allow(dead_code)]
+/// called no brain is told it has a computer. Only `sandbox_host::sync` calls it: it makes the port from the one
+/// sandbox and the screen hub's one lease, and calls it with `None` when the Labs switch is off or nothing is set up.
 pub fn install_sandbox(port: Option<Port>) {
     *SANDBOX_PORT.lock() = port.clone();
     if let Some(service) = service() {
         service.set_sandbox_port(port);
     }
+}
+
+/// The sandbox the bots' tools use right now, if one is wired in (tests look at what the host wired).
+#[cfg(test)]
+pub fn sandbox_port() -> Option<Port> {
+    SANDBOX_PORT.lock().clone()
 }
 
 /// Called with the public settings whenever they change (and once at startup, from the saved file).
@@ -148,16 +154,8 @@ impl Host for LiveHost {
 
     fn resources(&self) -> Option<PathBuf> {
         #[cfg(not(test))]
-        {
-            use tauri::{path::BaseDirectory, Manager};
-            if let Some(dir) = self
-                .app
-                .as_ref()
-                .and_then(|app| app.path().resolve("potato-brain", BaseDirectory::Resource).ok())
-                .filter(|dir| dir.is_dir())
-            {
-                return Some(dir);
-            }
+        if let Some(dir) = self.app.as_ref().and_then(|app| super::resource_dirs::installed(app, "potato-brain", "brain.mjs")) {
+            return Some(dir);
         }
         // A dev build has no installed resource folder: the generated one in the source tree.
         let staged = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources").join("potato-brain");
@@ -272,12 +270,6 @@ pub fn start(app: Option<AppHandle>, registry: Option<Arc<Mutex<crate::pty::Pane
         return None;
     }
     service.set_sandbox_enabled(SANDBOX_LABS.load(Ordering::SeqCst));
-    #[cfg(feature = "dev-fake-tui")]
-    if SANDBOX_PORT.lock().is_none() {
-        // The stand-in computer for the dev build: a static picture, recorded actions, no WSL.
-        let fake: Arc<dyn super::sandbox::Sandbox> = Arc::new(super::sandbox::FakeSandbox::new());
-        *SANDBOX_PORT.lock() = Some(Port { sandbox: fake, lease: Arc::new(Mutex::new(super::sandbox::lease::ScreenLease::new())) });
-    }
     service.set_sandbox_port(SANDBOX_PORT.lock().clone());
     if let Some(hands) = hands {
         service.set_hands(hands);

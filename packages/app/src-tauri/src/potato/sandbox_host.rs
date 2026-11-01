@@ -4,6 +4,11 @@
 //! - `apply_settings(public)` is called with the public settings whenever they change (from `live::apply_settings`):
 //!   the Labs switch `potato_sandbox_enabled` (and Potato Bot itself) must both be on. On: the manager is built (on its own
 //!   thread) and a sandbox the app lost track of is stopped. Off: a running sandbox is stopped.
+//! - ONE sandbox, ONE lease. This file owns the app's sandbox and is the only place that hands it to the rest of the app
+//!   (`sync`, run after the manager is built and after every install, start, stop, reset and remove): the screen hub gets it as
+//!   its source (`ScreenHub::set_source`, the Computer panel and the screen links) and the brain's tools get it as a `Port`
+//!   (`live::install_sandbox`) holding the hub's OWN lease table, so the panel, the dispatcher and this host see one lease.
+//!   Labs off, or no sandbox set up yet: both are given `None`, so no tool is offered and the panel has nothing to show.
 //! - `manager()` is what the commands use; it answers `POTATO_SANDBOX_OFF` while the switch is off.
 //! - `stop_on_exit()`: the sandbox leaves with the app, like the brains.
 //!
@@ -20,12 +25,15 @@ use serde_json::Value;
 use tauri::AppHandle;
 
 use super::sandbox::control::Action;
+use super::sandbox::screen::{self, ScreenHub, ScreenSource};
 use super::sandbox::install::{GuestFiles, InstallError, InstallOptions, Layout, Progress};
 use super::sandbox::lifecycle::{Lifecycle, DEFAULT_IDLE_MINUTES};
 use super::sandbox::manager::{Events, InstallView, Manager};
 use super::sandbox::wsl::{SandboxName, Wsl};
 use super::sandbox::{Observation, SandboxError, SbxResult, ScreenTarget, State, Status, WslSandbox};
 use super::sandbox::Sandbox;
+use super::sandbox_calls::Port;
+use super::window_guard::Msrdc;
 use super::store;
 
 /// The Labs switch of the sandbox (it needs Potato Bot's too).
@@ -66,12 +74,71 @@ pub fn apply_settings(public: &Value) {
                 let _ = manager_unchecked();
                 BUILDING.store(false, Ordering::SeqCst);
             });
+        } else if MANAGER.get().is_some() {
+            // Turned back on: a sandbox that is set up is offered again (asking Windows takes a moment).
+            let _ = std::thread::Builder::new().name("potato-sandbox-sync".into()).spawn(sync);
         }
-    } else if let Some(manager) = MANAGER.get().cloned() {
-        let _ = std::thread::Builder::new().name("potato-sandbox-off".into()).spawn(move || {
-            let _ = manager.stop();
-        });
+    } else {
+        // Nothing is offered or shown from this moment (no wait for the stop below).
+        sync();
+        if let Some(manager) = MANAGER.get().cloned() {
+            let _ = std::thread::Builder::new().name("potato-sandbox-off".into()).spawn(move || {
+                // A set up that is still running is asked to stop; the stop of a busy sandbox is refused, so it is tried after.
+                let _ = manager.cancel_install();
+                let _ = manager.stop();
+            });
+        }
     }
+}
+
+// ---- one sandbox, one lease -------------------------------------------------------------------------
+
+/// The hub's source: the host's sandbox, seen as a screen.
+struct Source(Arc<dyn Sandbox>);
+
+impl ScreenSource for Source {
+    fn name(&self) -> String {
+        self.0.status().map(|s| s.name).unwrap_or_default()
+    }
+
+    fn target(&self) -> SbxResult<ScreenTarget> {
+        self.0.screen_target()
+    }
+}
+
+/// Gives `sandbox` (or nothing) to the screen `hub` and returns the `Port` the brain's tools use: the same sandbox and the
+/// hub's own lease table. This is the only place a `Port` is made.
+pub fn wire_into(hub: &ScreenHub, sandbox: Option<&Arc<dyn Sandbox>>) -> Option<Port> {
+    hub.set_source(sandbox.map(|s| Arc::new(Source(s.clone())) as Arc<dyn ScreenSource>));
+    sandbox.map(|s| Port { sandbox: s.clone(), lease: hub.lease().clone() })
+}
+
+static SYNC: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
+/// The sandbox the rest of the app may use: the Labs switches are on (`on`) and one is set up.
+pub fn usable_of(on: bool, manager: Option<&Arc<Manager>>) -> Option<Arc<dyn Sandbox>> {
+    if !on {
+        return None;
+    }
+    let sandbox = manager?.sandbox().clone();
+    match sandbox.status() {
+        Ok(status) if status.state != State::NotInstalled => Some(sandbox),
+        _ => None,
+    }
+}
+
+/// What `sync` does, with its inputs and its screen hub passed in: gives the hub the sandbox (or nothing) and returns the
+/// port for the brain's tools (or nothing).
+pub fn sync_into(on: bool, manager: Option<&Arc<Manager>>, hub: &ScreenHub) -> Option<Port> {
+    wire_into(hub, usable_of(on, manager).as_ref())
+}
+
+/// Wires the app to the sandbox as it is now (see the top of this file). Safe to call from any thread, any time.
+pub fn sync() {
+    // One at a time, so a slow caller with an old answer cannot overwrite a newer one.
+    let _one = SYNC.lock();
+    let port = sync_into(enabled(), MANAGER.get(), screen::hub());
+    super::live::install_sandbox(port);
 }
 
 /// The manager, or the plain reason it may not be used now.
@@ -83,7 +150,18 @@ pub fn manager() -> Result<Arc<Manager>, String> {
 }
 
 fn manager_unchecked() -> Arc<Manager> {
-    MANAGER.get_or_init(build).clone()
+    let mut built = false;
+    let manager = MANAGER
+        .get_or_init(|| {
+            built = true;
+            build()
+        })
+        .clone();
+    if built {
+        // Just built (maybe long after the switch was turned on): wire it in if a sandbox is already set up.
+        sync();
+    }
+    manager
 }
 
 /// The sandbox leaves with the app.
@@ -147,6 +225,8 @@ impl Events for LiveEvents {
     }
 
     fn changed(&self) {
+        // An install ended, or the sandbox was removed, reset, started or stopped: the app's wiring follows.
+        sync();
         #[cfg(not(test))]
         if let Some(app) = APP.get() {
             use tauri::Emitter;
@@ -158,11 +238,8 @@ impl Events for LiveEvents {
 /// Where the guest files and recipes are: the installed resources, the staged copy of a dev build, or the source tree.
 pub fn guest_root() -> Option<PathBuf> {
     #[cfg(not(test))]
-    {
-        use tauri::{path::BaseDirectory, Manager as _};
-        if let Some(dir) = APP.get().and_then(|app| app.path().resolve("potato-sandbox", BaseDirectory::Resource).ok()).filter(|d| d.is_dir()) {
-            return Some(dir);
-        }
+    if let Some(dir) = APP.get().and_then(|app| super::resource_dirs::installed(app, "potato-sandbox", "recipes")) {
+        return Some(dir);
     }
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     [manifest.join("resources").join("potato-sandbox"), manifest.join("..").join("..").join("potato-sandbox")]
@@ -177,7 +254,8 @@ fn build() -> Arc<Manager> {
     let sandbox: Arc<dyn Sandbox> = match Wsl::live() {
         _ if fake_requested() => fake(),
         Ok(wsl) => {
-            let lifecycle = Arc::new(Lifecycle::new(wsl.clone(), name.clone()));
+            // After every start the guard looks for a visible remote-desktop window; if there is one the start fails.
+            let lifecycle = Arc::new(Lifecycle::new(wsl.clone(), name.clone()).with_window_check(Arc::new(Msrdc::live())));
             lifecycle.set_idle_minutes(load_idle_minutes());
             let files = GuestFiles::new(root.as_deref().unwrap_or_else(|| std::path::Path::new("")));
             Arc::new(WslSandbox::new(wsl, name.clone(), layout.clone(), files, lifecycle))

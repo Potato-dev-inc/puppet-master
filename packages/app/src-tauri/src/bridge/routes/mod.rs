@@ -26,7 +26,7 @@ mod plans;
 pub(super) mod potato_brain;
 pub(super) mod potato_screen;
 #[cfg(test)]
-mod potato_screen_tests;
+pub(super) mod potato_screen_tests;
 mod review_desk;
 pub(super) mod panes;
 pub(super) mod previews;

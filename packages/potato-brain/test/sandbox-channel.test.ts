@@ -149,7 +149,7 @@ const offered = (r: Rig, n: number): string[] => (r.provider.calls[n]?.tools ?? 
 
 // ---- offering the tools -----------------------------------------------------------------------------
 
-test("the five tools are offered only on a turn where the app says the bot has a computer", async () => {
+test("the six tools are offered only on a turn where the app says the bot has a computer", async () => {
   const r = await rig(new Scripted([says("plain"), says("with a computer"), says("and again plain")]));
   try {
     r.bridge.push(sendMsg({ id: "a" }));
@@ -159,12 +159,12 @@ test("the five tools are offered only on a turn where the app says the bot has a
     r.bridge.push(sendMsg({ id: "c", capabilities: { sandbox: false } }));
     await r.bridge.waitFor((e) => e["type"] === "reply" && e["inReplyTo"] === "c");
 
-    assert.deepEqual(offered(r, 0).filter((n) => n.startsWith("computer_") || n.startsWith("browser_")), [], "no capabilities field: no computer");
+    assert.deepEqual(offered(r, 0).filter((n) => (SANDBOX_TOOL_NAMES as readonly string[]).includes(n)), [], "no capabilities field: no computer");
     assert.deepEqual(
-      offered(r, 1).filter((n) => n.startsWith("computer_") || n.startsWith("browser_")).sort(),
+      offered(r, 1).filter((n) => (SANDBOX_TOOL_NAMES as readonly string[]).includes(n)).sort(),
       [...SANDBOX_TOOL_NAMES].sort(),
     );
-    assert.deepEqual(offered(r, 2).filter((n) => n.startsWith("computer_") || n.startsWith("browser_")), [], "false means no");
+    assert.deepEqual(offered(r, 2).filter((n) => (SANDBOX_TOOL_NAMES as readonly string[]).includes(n)), [], "false means no");
     assert.ok(offered(r, 0).includes("ask_helper"), "the helper tool is offered either way");
     assert.ok(offered(r, 1).includes("ask_helper"));
   } finally {
@@ -185,6 +185,47 @@ test("a tool the app did not offer is not run even if the model names it", async
 });
 
 // ---- a call and its answer ----------------------------------------------------------------------------
+
+test("ask_person_for_screen sends the reason as a sandbox_call and the model reads what to do next", async () => {
+  const r = await rig(new Scripted([wants([call("ask_person_for_screen", { reason: "The site wants a code" }, "a1")]), says("I asked you for the screen.")]));
+  try {
+    r.answer(() => okResult({ asked: true, cardId: "needs-1", expiresInMinutes: 30, note: "Tell them in one short line what you need." }));
+    r.bridge.push(withComputer());
+    await r.bridge.waitFor((e) => e["type"] === "reply");
+    const [sent] = r.sent();
+    assert.equal(sent?.["tool"], "ask_person_for_screen");
+    assert.deepEqual(sent?.["args"], { reason: "The site wants a code" });
+    const msg = toolMessages(r, 1)[0];
+    assert.match(String(msg?.content), /<sandbox_data tool="ask_person_for_screen">/);
+    assert.match(String(msg?.content), /"asked":true/);
+  } finally {
+    await r.done();
+  }
+});
+
+test("a bot told the person has the screen can still ask, and a refusal reaches it as words", async () => {
+  const r = await rig(
+    new Scripted([
+      wants([call("computer_observe", {}, "o1")]),
+      wants([call("ask_person_for_screen", { reason: "I am stuck on a login" }, "a1")]),
+      says("Waiting for you."),
+    ]),
+  );
+  try {
+    r.answer((event) =>
+      event["tool"] === "computer_observe"
+        ? failed("LEASE_HELD_BY_PERSON", "The person is using the screen right now.", true)
+        : okResult({ asked: false, note: "The person already has the screen, so there is nobody to ask." }),
+    );
+    r.bridge.push(withComputer());
+    await r.bridge.waitFor((e) => e["type"] === "reply");
+    assert.deepEqual(r.sent().map((e) => e["tool"]), ["computer_observe", "ask_person_for_screen"]);
+    assert.match(String(toolMessages(r, 1)[0]?.content), /LEASE_HELD_BY_PERSON/);
+    assert.match(String(toolMessages(r, 2)[1]?.content), /"asked":false/);
+  } finally {
+    await r.done();
+  }
+});
 
 test("a call goes out as sandbox_call and the answer reaches the model as fenced words", async () => {
   const r = await rig(new Scripted([wants([call("computer_observe", {}, "o1")]), says("I looked.")]));
