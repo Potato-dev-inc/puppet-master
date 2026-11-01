@@ -38,6 +38,7 @@ use super::rules::{self, Caps, Channel, Decision, Facts, Sender};
 use super::sandbox_calls::{self, Calls, Gates, Port};
 use super::sidecar::{Child, Launcher, LineSink, NodeState, SpawnSpec};
 use super::wire_names;
+use super::bot_settings::{self, BotOptions, BotSettings, ToolSwitches};
 use super::store::{self, BrainKind, FromKind, Message, MsgKind, StoreError};
 use crate::secrets::{self, SecretMask};
 
@@ -126,6 +127,8 @@ pub struct BotView {
     pub name: String,
     pub talk_persona: String,
     pub brain_state: BrainState,
+    /// The bot's own talk brain, when it has one (`None`: the Settings brain).
+    pub talk_brain: Option<BrainKind>,
     /// The last error code the brain reported and that nothing has cleared since.
     pub last_error: Option<String>,
     pub typing: bool,
@@ -411,6 +414,116 @@ impl Service {
         store::load_settings(&self.root)
     }
 
+    /// The settings a bot's brain runs with: the saved ones, with the bot's own talk brain put in when it has one.
+    pub(super) fn settings_for(&self, bot: &str, settings: &store::Settings) -> store::Settings {
+        let mut own = settings.clone();
+        own.brain = bot_settings::effective_brain(settings.brain, &bot_settings::load(&self.root, bot).unwrap_or_default());
+        own
+    }
+
+    /// Picks the bot's own talk brain (`None`: the default in Settings). A running brain is stopped, so the
+    /// next message starts it on the new one.
+    pub fn set_talk_brain(&self, bot: &str, brain: Option<BrainKind>) -> Result<BotSettings> {
+        self.require_bot(bot)?;
+        let before = bot_settings::load(&self.root, bot)?.brain;
+        let saved = bot_settings::update(&self.root, bot, |s| {
+            s.brain = brain;
+            Ok(())
+        })?;
+        if before != brain {
+            let line = match brain {
+                Some(kind) => format!("Now using {}.", bot_settings::brain_name(kind)),
+                None => "Now using the default brain.".to_string(),
+            };
+            self.note(bot, &line);
+            self.stop_bot(bot);
+        }
+        self.host.changed(bot);
+        Ok(saved)
+    }
+
+    /// Saves a new version of the instructions (nothing when the text is the one in use). A running brain is
+    /// stopped, because its persona is read when it starts.
+    pub fn set_instructions(&self, bot: &str, text: &str) -> Result<BotSettings> {
+        self.require_bot(bot)?;
+        let now = self.host.now_ms();
+        let mut changed = false;
+        let saved = bot_settings::update(&self.root, bot, |s| {
+            changed = bot_settings::save_instructions(s, text, now)?;
+            Ok(())
+        })?;
+        self.after_instructions(bot, changed);
+        Ok(saved)
+    }
+
+    /// Makes the version saved at `at` the one in use (it is added again as the newest version).
+    pub fn restore_instructions(&self, bot: &str, at: i64) -> Result<BotSettings> {
+        self.require_bot(bot)?;
+        let now = self.host.now_ms();
+        let mut changed = false;
+        let saved = bot_settings::update(&self.root, bot, |s| {
+            changed = bot_settings::restore_instructions(s, at, now)?;
+            Ok(())
+        })?;
+        self.after_instructions(bot, changed);
+        Ok(saved)
+    }
+
+    fn after_instructions(&self, bot: &str, changed: bool) {
+        if changed {
+            self.stop_bot(bot);
+        }
+        self.host.changed(bot);
+    }
+
+    /// The tool switches. They are checked before each tool call, so nothing restarts.
+    pub fn set_tools(&self, bot: &str, tools: ToolSwitches) -> Result<BotSettings> {
+        self.require_bot(bot)?;
+        let saved = bot_settings::update(&self.root, bot, |s| {
+            s.tools = tools;
+            Ok(())
+        })?;
+        self.host.changed(bot);
+        Ok(saved)
+    }
+
+    /// Whether the bot exists (the check the commands make before they act on its companion).
+    pub fn require_bot_exists(&self, bot: &str) -> Result<()> {
+        self.require_bot(bot).map(|_| ())
+    }
+
+    /// What the Advanced tab shows for a bot.
+    pub fn bot_options(&self, bot: &str) -> Result<BotOptions> {
+        self.require_bot(bot)?;
+        let settings = bot_settings::load(&self.root, bot)?;
+        Ok(bot_settings::options_of(&settings, self.sandbox_on.load(Ordering::SeqCst)))
+    }
+
+    /// The bot's chat as Markdown (the text only; the save goes through the page's save path).
+    pub fn export_markdown(&self, bot: &str) -> Result<String> {
+        self.require_bot(bot)?;
+        let messages = store::read_messages(&self.root, &store::app_conversation(bot), bot_settings::EXPORT_MESSAGES, self.home_of(bot).as_deref())?;
+        Ok(bot_settings::chat_markdown(&self.name_of(bot), &messages))
+    }
+
+    /// Deletes a bot: its brain is stopped, it leaves the list, and its chat, settings, read mark and brain
+    /// folder are moved into `potato/.removed/` (nothing is deleted). The name must be typed exactly. The
+    /// companion stays: it is still a companion, and can be made a bot again.
+    pub fn delete_bot(&self, bot: &str, typed_name: &str) -> Result<()> {
+        self.require_bot(bot)?;
+        if typed_name.trim() != self.name_of(bot) {
+            return Err(err("POTATO_NAME_MISMATCH", "Type the bot's name exactly to delete it."));
+        }
+        let stamp = self.host.now_ms().to_string();
+        self.stop_all_of(bot, Duration::from_millis(500));
+        bot_settings::move_bot_files(&self.root, bot, &stamp)?;
+        store::remove_bot(&self.root, bot)?;
+        store::forget_talk_memory(&self.root, bot, &stamp)?;
+        self.inner.lock().bots.remove(bot);
+        self.host.changed(bot);
+        Ok(())
+    }
+
     pub fn set_settings(&self, new: store::Settings) -> Result<store::Settings> {
         let old = store::load_settings(&self.root)?;
         store::save_settings(&self.root, &new)?;
@@ -485,7 +598,7 @@ impl Service {
     pub fn send(&self, bot: &str, text: &str) -> Result<SendOutcome> {
         self.require_bot(bot)?;
         let now = self.host.now_ms();
-        let settings = store::load_settings(&self.root)?;
+        let settings = self.settings_for(bot, &store::load_settings(&self.root)?);
         let day = self.host.local_day(now);
         let used = cost::day_of(&self.root, &day, bot).map_err(|e| err("POTATO_STORE_INVALID", e))?.cost_nano();
         let over = cost::budget(used, settings.daily_limit_cents) == Budget::Over;
@@ -597,7 +710,7 @@ impl Service {
     pub fn start_bot(&self, bot: &str) -> Result<()> {
         self.require_bot(bot)?;
         let now = self.host.now_ms();
-        let settings = store::load_settings(&self.root)?;
+        let settings = self.settings_for(bot, &store::load_settings(&self.root)?);
         let blocked = self.preflight(&settings);
         let mut g = self.inner.lock();
         let rt = g.bots.entry(bot.to_string()).or_insert_with(BotRt::new);
@@ -789,11 +902,12 @@ impl Service {
             let last = thread.iter().rev().find(|m| m.kind != MsgKind::Note);
             let g = self.inner.lock();
             let rt = g.bots.get(&bot.id);
-            let brain_state = self.state_of(&g, &bot.id, &settings, over);
+            let brain_state = self.state_of(&g, &bot.id, &self.settings_for(&bot.id, &settings), over);
             let view = BotView {
                 name: self.name_of(&bot.id),
                 talk_persona: bot.talk_persona.clone(),
                 brain_state,
+                talk_brain: bot_settings::load(&self.root, &bot.id).unwrap_or_default().brain,
                 last_error: rt.and_then(|r| r.last_error).map(|c| c.as_str().to_string()),
                 typing: rt.is_some_and(|r| r.typing.values().any(|at| now - *at < TYPING_TTL_MS)),
                 mood: rt.and_then(|r| r.mood.clone()),
@@ -918,7 +1032,8 @@ impl Service {
 
     /// Starts the process. `Err(Some(_))`: something the person must fix; `Err(None)`: it failed (a crash).
     fn try_spawn(&self, rt: &mut BotRt, bot: &str) -> std::result::Result<(), Option<Blocked>> {
-        let settings = store::load_settings(&self.root).map_err(fail)?;
+        let settings = self.settings_for(bot, &store::load_settings(&self.root).map_err(fail)?);
+        let bot_own = bot_settings::load(&self.root, bot).map_err(fail)?;
         if settings.brain == BrainKind::Agents {
             return Err(None);
         }
@@ -942,6 +1057,8 @@ impl Service {
         let host_env = self.host.host_env();
         let vault = store::vault_dir(&self.root, bot).map_err(fail)?;
         let persona_dir = store::persona_dir(&self.root, bot).map_err(fail)?;
+        // The instructions in use travel the same way as the persona: a file in the persona folder.
+        bot_settings::write_instructions_file(&persona_dir, &bot_own).map_err(fail)?;
         let state_dir = store::state_dir(&self.root, bot).map_err(fail)?;
         let share_dir = store::share_dir(&self.root, bot).map_err(fail)?;
         let brain_env = env::build(&env::Inputs {
@@ -1281,11 +1398,17 @@ impl Service {
     }
 
     fn run_sandbox_call(&self, ctx: sandbox_calls::Context, call_id: String, tool: String, args: Value) {
-        let gates = Gates { bot_on: self.brains.enabled(), sandbox_on: self.sandbox_on.load(Ordering::SeqCst) };
-        let port = self.port.lock().clone();
-        let item = match self.calls.execute(port.as_ref(), gates, &ctx, &tool, &args) {
-            Ok(result) => protocol::sandbox_result_ok(&call_id, result),
-            Err(e) => protocol::sandbox_result_err(&call_id, e.code, &e.message, e.needs_you),
+        // The bot's tool switches come first: a switch that is off means the tool never runs.
+        let switches = bot_settings::load(&self.root, &ctx.bot).unwrap_or_default().tools;
+        let item = if !bot_settings::sandbox_tool_on(&switches, &tool) {
+            protocol::sandbox_result_err(&call_id, "TOOL_OFF", "This tool is off for this bot. Turn it on in its panel, under Advanced.", false)
+        } else {
+            let gates = Gates { bot_on: self.brains.enabled(), sandbox_on: self.sandbox_on.load(Ordering::SeqCst) };
+            let port = self.port.lock().clone();
+            match self.calls.execute(port.as_ref(), gates, &ctx, &tool, &args) {
+                Ok(result) => protocol::sandbox_result_ok(&call_id, result),
+                Err(e) => protocol::sandbox_result_err(&call_id, e.code, &e.message, e.needs_you),
+            }
         };
         // A brain that left meanwhile does not get it: a new brain knows nothing of the call.
         self.push_to_brain(&ctx.bot, item);
@@ -1306,6 +1429,10 @@ impl Service {
         };
         if !rules::tool_access(trust).helpers {
             refuse(HelperStatus::Refused, "");
+            return false;
+        }
+        if !bot_settings::load(&self.root, bot).unwrap_or_default().tools.helpers {
+            refuse(HelperStatus::Declined, "Helpers are off for this bot. Turn them on in its panel, under Advanced.");
             return false;
         }
         if self.open_card_ids(bot).len() >= MAX_OPEN_CARDS {

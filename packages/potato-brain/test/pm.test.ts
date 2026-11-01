@@ -267,6 +267,22 @@ test("the persona packs fit the static budget and carry the three required rules
   assert.ok(blocks.includes("persona:protocol"));
 });
 
+test("the instructions the person wrote for a bot are read like the persona files, and only when there are some", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pm-instructions-"));
+  try {
+    const none = loadPersona(dir, "potato").map((b) => b.id);
+    assert.ok(!none.includes("persona:instructions"));
+    writeFileSync(join(dir, "instructions.md"), "  Always answer in short lines.  \n", "utf8");
+    const blocks = loadPersona(dir, "potato");
+    const block = blocks.find((b) => b.id === "persona:instructions");
+    assert.ok(block, "instructions.md is a persona block");
+    assert.equal(block.content, "Always answer in short lines.");
+    assert.equal(block.volatility, 0, "instructions are static, like the rest of the persona");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("no pack names a company, a model or an agent", () => {
   const dir = join(PKG, "persona");
   const files = [

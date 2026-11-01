@@ -3,6 +3,8 @@
 // panel is open, so the screen does not reload and a draft in Advanced survives a tab switch.
 import type { AvatarId } from '../../../lib/companion';
 import { PANEL_COPY, PANEL_TABS, type PanelTab } from '../../../lib/potato-panel';
+import type { BrainKind } from '../../../lib/potato';
+import type { BotSettingsTransport } from '../../../lib/potato-botsettings';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { Avatar } from '../../companion/Avatar';
 import { SegTabs } from '../SegTabs';
@@ -22,9 +24,15 @@ export interface BotPanelProps {
   /** "Through my agents": the bot has no computer of its own. */
   through: boolean;
   onNotify: (text: string) => void;
+  /** The Settings brain: what a bot without its own brain uses (the Advanced tab's Model row). */
+  defaultBrain?: BrainKind;
+  /** After a rename or a delete: the page reads its state again. */
+  onChanged?: () => void;
+  /** Tests pass a fake; the app passes nothing. */
+  botSettings?: BotSettingsTransport;
 }
 
-export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, onNotify }: BotPanelProps) {
+export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, onNotify, defaultBrain, onChanged, botSettings }: BotPanelProps) {
   return (
     <div className="ck-potato-botpanel">
       <header className="ck-potato-panel-head">
@@ -45,7 +53,7 @@ export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, through, on
           <RoutinesTab bot={bot} />
         </div>
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Advanced" hidden={tab !== 'advanced'}>
-          <AdvancedTab bot={bot} />
+          <AdvancedTab bot={bot} defaultBrain={defaultBrain} transport={botSettings} onChanged={onChanged} onNotify={onNotify} />
         </div>
       </div>
     </div>

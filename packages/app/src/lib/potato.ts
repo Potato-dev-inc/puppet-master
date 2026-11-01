@@ -37,6 +37,8 @@ export interface PotatoBotView {
   name: string;
   talkPersona: TalkPersona;
   brainState: BrainState;
+  /** The bot's own talk brain, or null for the Settings brain. Absent in older state: read it as null. */
+  talkBrain?: BrainKind | null;
   /** The last error code the brain reported and that nothing has cleared since. */
   lastError: string | null;
   typing: boolean;

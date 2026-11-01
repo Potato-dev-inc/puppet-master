@@ -59,7 +59,8 @@ export interface ThreadViewProps {
 export function ThreadView(props: ThreadViewProps) {
   const { bot, messages, settings, avatar, agentLabel, transport, onOpenSettings, onNotify, onChanged, companionPaneId, onOpenCompanion, onOpenPane, paneExists, screen, panel, now = Date.now() } = props;
   const [follow, setFollow] = useState(0);
-  const through = settings.brain === 'agents' || bot.brainState === 'agents';
+  // The engine reports `agents` for a bot whose brain is "through my agents", its own or the default.
+  const through = bot.brainState === 'agents';
   const screenState = useScreenState(through ? undefined : screen);
 
   const run = async (call: () => Promise<unknown>, failed: string) => {
@@ -75,7 +76,7 @@ export function ThreadView(props: ThreadViewProps) {
     <ThreadHeader
       bot={bot}
       avatar={avatar}
-      brain={settings.brain}
+      brain={bot.talkBrain ?? settings.brain}
       through={through}
       onPersona={(next: TalkPersona) => void run(() => transport.setPersona(bot.id, next), 'Could not change the voice.')}
       onStop={() => void run(() => transport.stopBot(bot.id), 'Could not stop it.')}

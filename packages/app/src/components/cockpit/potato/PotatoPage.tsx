@@ -7,6 +7,7 @@ import type { AvatarId, CompanionTransport, CompanionView } from '../../../lib/c
 import { plainError, type PotatoState, type PotatoTransport } from '../../../lib/potato';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { usePotatoThread } from '../../../hooks/usePotato';
+import type { BotSettingsTransport } from '../../../lib/potato-botsettings';
 import { CompanionSetupSheet } from '../companion/CompanionSetupSheet';
 import { DEFAULT_TAB, type PanelTab } from '../../../lib/potato-panel';
 import { BotList } from './BotList';
@@ -38,12 +39,14 @@ export interface PotatoPageProps {
   /** Opens a helper's pane (the Open button of a finished helper), and says whether the pane is still there. */
   onOpenPane?: (paneId: string) => void;
   paneExists?: (paneId: string) => boolean;
+  /** The Advanced tab's calls to the engine. Absent: the app's own. */
+  botSettings?: BotSettingsTransport;
   /** The Computer panel's way to the app (the sandbox screen). Absent: no panel. */
   screenTransport?: ScreenTransport;
 }
 
 export function PotatoPage(props: PotatoPageProps) {
-  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport } = props;
+  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport, botSettings } = props;
   const [sheetOpen, setSheetOpen] = useState(false);
   const open = pickOpenBot(state.bots, openBotId);
   const layout = usePotatoLayout();
@@ -68,7 +71,8 @@ export function PotatoPage(props: PotatoPageProps) {
     }
   };
 
-  const through = !!open && (state.settings.brain === 'agents' || open.brainState === 'agents');
+  // A bot's own brain decides (the engine reports `agents` for it, default or not), not the Settings brain alone.
+  const through = !!open && open.brainState === 'agents';
   const panelOpen = layout.panelOpen && !!open;
 
   const list = (
@@ -125,6 +129,9 @@ export function PotatoPage(props: PotatoPageProps) {
       screen={screenTransport}
       through={through}
       onNotify={onNotify}
+      defaultBrain={state.settings.brain}
+      botSettings={botSettings}
+      onChanged={onChanged}
     />
   ) : null;
 
