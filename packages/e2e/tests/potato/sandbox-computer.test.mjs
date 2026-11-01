@@ -119,7 +119,7 @@ export const run = guarded(async (t) => {
   await t.step('The other tabs say "Coming soon", and the bot list can be made small');
   await t.click('exact=Routines', { within: 'css=.ck-potato-panel' });
   await t.expect.text('Coming soon', { within: 'css=.ck-potato-panel' });
-  await t.click('css=.ck-potato-list-head button');
+  await t.click('css=.ck-potato-list-toggle');
   await t.expect.visible('css=.ck-potato-list.is-mini');
   const tabsShot = process.env.E2E_SCREENSHOT_TABS || path.join(t.outDir, 'potato-panel-routines-strip.png');
   await t.page.screenshot(tabsShot);

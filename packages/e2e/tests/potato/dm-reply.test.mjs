@@ -40,6 +40,8 @@ export const run = guarded(async (t) => {
   await t.expect.text('Fish heard: hello');
   await t.expect.text('Genki · energy 60');
   await t.expect.noText('Fish is typing…');
+  // The bot list shows the reply as its last line a moment before the thread has the message: wait for the bubble.
+  await t.expect.visible('css=.ck-potato-bubble--bot');
   t.expect.equal(await t.page.count('css=.ck-potato-bubble--you'), 1, 'one bubble is yours');
   t.expect.equal(await t.page.count('css=.ck-potato-bubble--bot'), 1, 'one bubble is the bot\'s');
 
