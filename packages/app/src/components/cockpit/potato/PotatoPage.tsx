@@ -71,6 +71,18 @@ export function PotatoPage(props: PotatoPageProps) {
   const through = !!open && (state.settings.brain === 'agents' || open.brainState === 'agents');
   const panelOpen = layout.panelOpen && !!open;
 
+  // The row menu's commands: each one runs, then the state is read again at once.
+  const botCommand = (what: string, run: (botId: string) => Promise<void>) => (botId: string) => {
+    run(botId)
+      .catch((error) => onNotify(plainError(error, `Could not ${what}.`)))
+      .finally(onChanged);
+  };
+  const botActions = {
+    pause: botCommand('pause the bot', (id) => transport.stopBot(id)),
+    resume: botCommand('start the bot', (id) => transport.startBot(id)),
+    markRead: botCommand('mark the bot read', (id) => transport.markRead(id)),
+  };
+
   const list = (
     <BotList
       bots={state.bots}
@@ -82,6 +94,7 @@ export function PotatoPage(props: PotatoPageProps) {
       onUseCompanion={(id) => void makeBot(id)}
       mini={layout.listMini}
       onToggleMini={layout.toggleList}
+      actions={botActions}
     />
   );
   const thread = open ? (

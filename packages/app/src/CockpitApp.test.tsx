@@ -925,6 +925,19 @@ describe('CockpitApp Potato Bot wiring', () => {
     expect(mainText()).toContain('POTATO VIEW bee');
   });
 
+  it('Ctrl+K on the Potato page leaves the palette shut (the bot list searches), and elsewhere it opens', async () => {
+    const palette = () => host.querySelector('[data-testid="palette"]');
+    await remount({ enabled: true, bots: [{ id: 'fish', unread: 0 }] });
+    clickButton('Potato Bot 0');
+    expect(mainText()).toContain('POTATO VIEW');
+    openPalette();
+    expect(palette()).toBeNull();
+    clickButton('Inbox');
+    expect(mainText()).not.toContain('POTATO VIEW');
+    openPalette();
+    expect(palette()).not.toBeNull();
+  });
+
   it('the page is gone the moment the switch turns off', async () => {
     await remount({ enabled: true, bots: [{ id: 'fish', unread: 0 }] });
     clickButton('Potato Bot 0');
