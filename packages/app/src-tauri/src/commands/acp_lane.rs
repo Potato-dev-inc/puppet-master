@@ -4,31 +4,52 @@
 //! default (`useAcpLanes`) and `run_agent` without `lane` (`acp::chat::surface::wants`).
 
 use crate::acp::lane::{effective_lane, LaneStore, RunLane};
+use crate::acp::overlay::OverlayStore;
 use crate::acp::{self, config};
 use serde_json::{json, Value};
 
-fn view() -> Value {
-    let store = LaneStore::in_app_data();
-    let labs = acp::chat_enabled();
-    let chosen = store.all();
-    let agents: Vec<Value> = config::builtin_agents()
-        .iter()
-        .map(|cfg| {
-            let lane = chosen.get(&cfg.id).copied().unwrap_or_default();
-            json!({
-                "id": cfg.id,
-                "label": cfg.label,
-                "lane": lane.as_str(),
-                "effective_lane": effective_lane(lane, labs, !cfg.disabled).as_str(),
-                "disabled": cfg.disabled,
-                "disabled_note": cfg.disabled_note,
-            })
-        })
-        .collect();
-    json!({ "labs_enabled": labs, "agents": agents })
+pub(crate) fn view() -> Value {
+    lane_view(&LaneStore::in_app_data(), &OverlayStore::in_app_data(), acp::chat_enabled())
 }
 
-/// `{labs_enabled, agents: [{id, label, lane, effective_lane}]}` for every agent that has an ACP definition.
+fn row(cfg: &config::AgentConfig, chosen: &std::collections::BTreeMap<String, RunLane>, labs: bool, overlay: bool) -> Value {
+    let lane = chosen.get(&cfg.id).copied().unwrap_or_default();
+    let mut row = json!({
+        "id": cfg.id,
+        "label": cfg.label,
+        "lane": lane.as_str(),
+        "effective_lane": effective_lane(lane, labs, !cfg.disabled).as_str(),
+        "disabled": cfg.disabled,
+        "disabled_note": cfg.disabled_note,
+    });
+    if overlay {
+        row["overlay"] = json!(true);
+    }
+    row
+}
+
+/// The view over given stores (tests use temp ones). `agents` = agents with an `[acp]` table, then the agents
+/// served by the person's chat overlay (`overlay: true`, so the screen can offer Remove); `can_add_chat` = agents
+/// that could get one.
+pub(crate) fn lane_view(store: &LaneStore, overlay: &OverlayStore, labs: bool) -> Value {
+    let chosen = store.all();
+    let mut agents: Vec<Value> = config::builtin_agents().iter().map(|cfg| row(cfg, &chosen, labs, false)).collect();
+    agents.extend(acp::overlay::overlay_agents(overlay).iter().map(|cfg| row(cfg, &chosen, labs, true)));
+    let can_add: Vec<Value> = acp::overlay::addable_agents(overlay)
+        .into_iter()
+        .map(|a| {
+            let mut v = json!({"id": a.id, "label": a.label});
+            if let Some(reason) = a.reason {
+                v["reason"] = json!(reason);
+            }
+            v
+        })
+        .collect();
+    json!({ "labs_enabled": labs, "agents": agents, "can_add_chat": can_add })
+}
+
+/// `{labs_enabled, agents: [{id, label, lane, effective_lane, disabled, disabled_note, overlay?}], can_add_chat: [{id, label, reason?}]}`.
+/// `agents` lists every agent that has chat: its own ACP definition, or the person's overlay (`overlay: true`).
 /// `lane` is the saved choice, `effective_lane` what a new session would use (Chat needs the Labs switch).
 #[tauri::command]
 pub fn agent_lane_get() -> Value {
@@ -48,4 +69,52 @@ pub fn agent_lane_set(id: String, lane: String) -> Result<Value, String> {
     }
     LaneStore::in_app_data().set(&id, lane)?;
     Ok(view())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp() -> (LaneStore, OverlayStore, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("pm-lane-view-{}", uuid::Uuid::new_v4()));
+        (LaneStore::at(dir.join("agent_lane.json")), OverlayStore::at(dir.join("acp_overlay.json")), dir)
+    }
+
+    fn ids(v: &Value, key: &str) -> Vec<String> {
+        v[key].as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap().to_string()).collect()
+    }
+
+    #[test]
+    fn the_view_lists_who_can_add_chat_and_marks_overlay_rows() {
+        let (lanes, overlay, dir) = temp();
+        let before = lane_view(&lanes, &overlay, true);
+        assert_eq!(before["labs_enabled"], json!(true));
+        let can_add = ids(&before, "can_add_chat");
+        assert!(!can_add.is_empty(), "the registry has agents with no chat table");
+        let own = ids(&before, "agents");
+        assert!(can_add.iter().all(|id| !own.contains(id)), "an agent with its own table is not offered");
+        assert!(before["agents"].as_array().unwrap().iter().all(|a| a.get("overlay").is_none()));
+        for a in before["agents"].as_array().unwrap() {
+            for field in ["id", "label", "lane", "effective_lane", "disabled", "disabled_note"] {
+                assert!(a.get(field).is_some(), "{field} stays");
+            }
+        }
+        assert!(can_add.iter().all(|id| !crate::tui::is_shell(id)), "no shell is offered");
+
+        let pick = can_add[0].clone();
+        overlay.put(&pick, &acp::overlay::OverlayEntry { command: "adapter".into(), args: vec!["acp".into()], ..Default::default() }).unwrap();
+        let after = lane_view(&lanes, &overlay, true);
+        assert!(!ids(&after, "can_add_chat").contains(&pick), "not offered once it has an overlay");
+        let row = after["agents"].as_array().unwrap().iter().find(|a| a["id"] == json!(pick)).expect("an overlay row");
+        assert_eq!(row["overlay"], json!(true));
+        assert_eq!(row["lane"], json!("terminal"));
+        assert_eq!(row["effective_lane"], json!("terminal"));
+        lanes.set(&pick, RunLane::Acp).unwrap();
+        let chosen = lane_view(&lanes, &overlay, true);
+        let row = chosen["agents"].as_array().unwrap().iter().find(|a| a["id"] == json!(pick)).unwrap();
+        assert_eq!(row["effective_lane"], json!("acp"));
+        overlay.remove(&pick).unwrap();
+        assert!(ids(&lane_view(&lanes, &overlay, true), "can_add_chat").contains(&pick));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

@@ -80,6 +80,27 @@
   color: var(--label);
 }
 
+/* "+" menu: the quiet "Set up chat" next to an agent that has no chat yet. */
+.cockpit .ck-menu-setup {
+  flex: none;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--label-3);
+  cursor: pointer;
+}
+
+.cockpit .ck-menu-setup:hover:not(:disabled) {
+  color: var(--label);
+  background: var(--fill);
+}
+
+.cockpit .ck-menu-setup:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* A conversation handed to a terminal: the note, the link and the way back. */
 .cockpit .ck-acp-handed-actions {
   display: inline-flex;

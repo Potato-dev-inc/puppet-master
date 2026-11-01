@@ -730,8 +730,17 @@ pub fn builtin_agents() -> Vec<AgentConfig> {
     crate::tui::registry::registry().ordered().iter().filter_map(|profile| profile.acp_table()).collect()
 }
 
+/// The chat config of a registered agent: its own `[acp]` table, else (only when it has none) the person's
+/// chat overlay (`acp::overlay`, "Add chat (ACP)").
 pub fn find_builtin(id: &str) -> Option<AgentConfig> {
-    crate::tui::registry::registry().find(id.trim()).and_then(|profile| profile.acp_table())
+    let profile = crate::tui::registry::registry().find(id.trim())?;
+    match profile.acp_table() {
+        Some(table) => Some(table),
+        None => {
+            let label = crate::tui::descriptor_for(profile.id()).map(|d| d.label);
+            super::overlay::resolve_with(&super::overlay::OverlayStore::in_app_data(), profile.id(), None, label)
+        }
+    }
 }
 
 /// The Codex table (for tests and tools).

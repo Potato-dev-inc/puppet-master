@@ -96,19 +96,33 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
 /// `[acp]`: the table's own checks, plus the two rules every program a definition starts is held to.
 fn check_acp(def: &Definition, e: &mut Errors) {
     let Some(table) = &def.acp else { return };
+    for (code, path, message) in acp_table_errors(table, def.agent.allow_interpreter) {
+        e.add(code, &path, message);
+    }
+}
+
+/// Every problem of an `[acp]` table as `(code, path, message)`: the table's own checks, VAL-4 (a shell or
+/// interpreter needs `allow_interpreter`) and VAL-5 (no denied environment key). Shared with the chat overlay
+/// (`acp::overlay`), which holds a table that is not in a definition to the same rules.
+pub(crate) fn acp_table_errors(table: &crate::acp::config::AgentConfig, allow_interpreter: bool) -> Vec<(&'static str, String, String)> {
+    let mut out = Vec::new();
     for (path, message) in crate::acp::config::table_problems(table) {
-        e.add("AGENT_DEF_ACP_INVALID", &path, message);
+        out.push(("AGENT_DEF_ACP_INVALID", path, message));
     }
     let program = table.command.to_ascii_lowercase();
     let file = program.rsplit(['/', '\\']).next().unwrap_or(&program);
     let stem = file.rsplit_once('.').map_or(file, |(s, ext)| if WINDOWS_EXTENSIONS.contains(&ext) { s } else { file });
-    if INTERPRETERS.contains(&stem) && !def.agent.allow_interpreter {
-        e.add("AGENT_DEF_SHELL_INTERPRETER", "acp.command", format!("`{}` is a shell or interpreter; needs agent.allow_interpreter", table.command));
+    if INTERPRETERS.contains(&stem) && !allow_interpreter {
+        out.push(("AGENT_DEF_SHELL_INTERPRETER", "acp.command".to_string(), format!("`{}` is a shell or interpreter; needs agent.allow_interpreter", table.command)));
     }
     let named = table.env.keys().chain(table.env_allow.iter()).chain(std::iter::once(&table.mcp_config.env));
     for key in named.filter(|key| !key.is_empty()) {
-        check_env_key(key, "acp.env", e);
+        let upper = key.to_ascii_uppercase();
+        if DENIED_ENV.contains(&upper.as_str()) || upper.starts_with("DYLD_") {
+            out.push(("AGENT_DEF_DENIED_ENV", "acp.env".to_string(), format!("environment key `{key}` is not allowed")));
+        }
     }
+    out
 }
 
 fn check_install(def: &Definition, e: &mut Errors) {
