@@ -171,9 +171,9 @@ describe('panic sheet', () => {
     };
     const onClose = vi.fn();
     act(() => root.render(<PanicSheet report={report} names={names} onClose={onClose} />));
-    expect(host.querySelector('#ck-panic-t')!.textContent).toBe('Stopped 2 agents');
+    expect(host.querySelector('#ck-panic-t')!.textContent).toBe('Everything is stopped');
     const rows = Array.from(host.querySelectorAll('.ck-panic-list')[0].querySelectorAll('li')).map((l) => l.textContent);
-    expect(rows).toEqual(['Claudeapp', 'codexapi']);
+    expect(rows).toEqual(['2 agents stopped']);
     expect(host.textContent).toContain('pane has exited');
     act(() => button('Done')!.click());
     expect(onClose).toHaveBeenCalled();
@@ -181,7 +181,8 @@ describe('panic sheet', () => {
 
   it('says so when nothing was running', () => {
     act(() => root.render(<PanicSheet report={{ stopped: [], failed: [] }} names={names} onClose={() => {}} />));
-    expect(host.querySelector('#ck-panic-t')!.textContent).toBe('Nothing was running');
+    expect(host.querySelector('#ck-panic-t')!.textContent).toBe('Everything is stopped');
+    expect(host.textContent).toContain('Nothing was running.');
   });
 
   it('is one palette entry, "Stop all agents"', () => {
