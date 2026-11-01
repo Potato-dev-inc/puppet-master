@@ -39,6 +39,11 @@
   display: grid;
   place-items: center;
   padding-top: 1px;
+  /* Accent: the bot avatar ring, a 1.5px orange ring that says "this is a Potato Bot". */
+  height: 26px;
+  margin-top: 1px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--accent-line);
 }
 .cockpit .ck-potato-conv-main {
   flex: 1;
@@ -99,7 +104,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--label);
+  background: var(--accent);
 }
 .cockpit .ck-potato-list-foot {
   flex: none;

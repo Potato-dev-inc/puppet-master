@@ -7,11 +7,11 @@ function cssRgb(name: string, fallback: string): string {
 
 /** Monochrome ANSI palette aligned with Puppet Master CSS tokens. */
 export function terminalThemeFromCss(): TerminalTheme {
-  const background = cssRgb('--pm-bg', '#0a0a0a');
-  const foreground = cssRgb('--pm-text', '#e8e8e8');
-  const cursor = cssRgb('--pm-accent', '#f5f5f5');
+  const background = cssRgb('--pm-bg', '#1b1a19');
+  const foreground = cssRgb('--pm-text', '#f4f2ef');
+  const cursor = cssRgb('--pm-accent', '#f29a3c');
   const muted = cssRgb('--pm-muted', '#969696');
-  const raised = cssRgb('--pm-raised', '#191919');
+  const raised = cssRgb('--pm-raised', '#292725');
   const warn = cssRgb('--pm-warn', '#b4b4b4');
   const err = cssRgb('--pm-err', '#ffffff');
 
@@ -38,7 +38,7 @@ export function terminalThemeFromCss(): TerminalTheme {
     brightBlue: foreground,
     brightMagenta: foreground,
     brightCyan: foreground,
-    brightWhite: cursor,
+    brightWhite: foreground,
   };
 }
 

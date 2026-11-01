@@ -216,8 +216,8 @@
   min-height: 44px;
   padding: 0 14px;
   border-radius: 12px;
-  background: var(--label);
-  color: var(--bg);
+  background: var(--accent);
+  color: var(--accent-fg);
   font: 600 15px/1 var(--font-ui);
 }
 .ph .ph-chat .ck-chat-send:disabled {
