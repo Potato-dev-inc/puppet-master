@@ -143,6 +143,9 @@ pub struct AcpChat {
     /// The message the agent refused because it needs a sign-in, kept to send again once the person has signed in.
     sign_in_held: Mutex<Option<String>>,
     closed: AtomicBool,
+    /// One `send` at a time: a second message while the first is still bringing the adapter up is `Busy` at once, so
+    /// it can neither replace the first message's text in the chat nor take it away when it fails.
+    send_gate: Mutex<()>,
     /// How long a card lives before it is raised again (a day; a test makes it short).
     card_timeout_s: AtomicU64,
     /// The saved conversation behind this pane (its id is the pane's id): hand-over to a terminal and restart
@@ -178,6 +181,16 @@ pub fn all() -> Vec<Arc<AcpChat>> {
 /// Closes every chat session (the Labs switch went off: it is also the kill switch). Their panes stay listed, idle.
 pub fn close_all() {
     close_these(all());
+}
+
+/// Chat was removed for `agent`: every open chat of it stops (the adapter and its tree, open cards taken down). A chat
+/// that a terminal pane holds is left alone. The panes stay listed, idle and closed, until the person closes them.
+/// Returns how many stopped.
+pub fn close_agent(agent: &str) -> usize {
+    let chats: Vec<Arc<AcpChat>> = all().into_iter().filter(|c| c.agent_id().eq_ignore_ascii_case(agent.trim()) && !c.is_closed() && !c.held_by_terminal()).collect();
+    let count = chats.len();
+    close_these(chats);
+    count
 }
 
 fn close_these(chats: Vec<Arc<AcpChat>>) {
@@ -248,12 +261,18 @@ impl AcpChat {
             pending_user: Mutex::new(None),
             sign_in_held: Mutex::new(None),
             closed: AtomicBool::new(false),
+            send_gate: Mutex::new(()),
             card_timeout_s: AtomicU64::new(cards::CARD_TIMEOUT_S),
             conversations,
             agent_answering: AtomicBool::new(false),
             waking: AtomicBool::new(false),
             started_by: Mutex::new(None),
         })
+    }
+
+    /// A terminal pane has the conversation (hand-over).
+    fn held_by_terminal(&self) -> bool {
+        self.conversations.as_ref().is_some_and(|c| matches!(c.writer(&self.pane_id), Some(Writer::Terminal { .. })))
     }
 
     pub fn pane_id(&self) -> &str {
@@ -494,7 +513,12 @@ impl AcpChat {
         if let Some(card) = card {
             // Answered through the card: it is resolved already. Any other way: take it down (the hook finds no card).
             if !card.resolved {
-                let _ = questions::store().dismiss(&card.question_id, questions::now_ms());
+                if matches!(how, Resolution::AgentGone) {
+                    // The agent is gone (crash, hang, closed): nobody is waiting for this answer any more.
+                    questions::store().expire(&card.question_id, questions::now_ms());
+                } else {
+                    let _ = questions::store().dismiss(&card.question_id, questions::now_ms());
+                }
             }
             self.host.questions_changed(None);
         }
@@ -533,6 +557,7 @@ impl AcpChat {
         if self.is_closed() {
             return Err(SendError::Gone);
         }
+        let Some(_gate) = self.send_gate.try_lock() else { return Err(SendError::Busy) };
         *self.pending_user.lock() = Some(text.to_string());
         match self.session.prompt_text(text) {
             Ok(_) => {
@@ -549,6 +574,15 @@ impl AcpChat {
                 Err(send_error(&error))
             }
         }
+    }
+
+    /// "Restart chat": brings the adapter back after it stopped (a crash, a hang, a start that failed). The
+    /// conversation resumes in the same chat. Blocks until the adapter answers or fails.
+    pub fn restart(&self) -> Result<(), AcpError> {
+        if self.is_closed() {
+            return Err(AcpError::SessionClosed);
+        }
+        self.session.ensure_running().map(|_| ())
     }
 
     /// Whether the agent refused to work until the person signs in (the sign-in card is shown).
@@ -634,7 +668,8 @@ impl AcpChat {
         let open: Vec<Card> = std::mem::take(&mut *self.cards.lock()).into_values().collect();
         for card in &open {
             if !card.resolved {
-                let _ = questions::store().dismiss(&card.question_id, questions::now_ms());
+                // The session is going away: the card expires. It is never an answer, and never a "yes".
+                questions::store().expire(&card.question_id, questions::now_ms());
             }
         }
         self.session.close();

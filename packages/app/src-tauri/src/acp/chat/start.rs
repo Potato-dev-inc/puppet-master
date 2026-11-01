@@ -140,7 +140,7 @@ pub fn start(deps: &StartDeps, cfg: AgentConfig, request: StartRequest) -> Resul
             conversations.discard(&pane_id);
         }
         let needs_sign_in = matches!(error, crate::acp::error::AcpError::AuthRequired { .. });
-        let message = if needs_sign_in { "The agent needs you to sign in first.".to_string() } else { format!("The agent could not start: {error}") };
+        let message = if needs_sign_in { "The agent needs you to sign in first.".to_string() } else { start_failure_sentence(&label, &error) };
         return Err(StartError::new(if needs_sign_in { "ACP_SIGN_IN_NEEDED" } else { "ACP_START_FAILED" }, message, true));
     }
 
@@ -157,6 +157,19 @@ pub fn start(deps: &StartDeps, cfg: AgentConfig, request: StartRequest) -> Resul
     deps.host.panes_changed();
     deps.host.state_changed(&pane_id, &chat.state());
     Ok(chat)
+}
+
+/// What the person reads when the chat program of `label` would not start: one cause, one thing to do. No path and no
+/// raw system text (a path can carry a user name), and the terminal is always named as the way out.
+pub fn start_failure_sentence(label: &str, error: &crate::acp::error::AcpError) -> String {
+    use crate::acp::error::AcpError;
+    match error {
+        AcpError::Spawn(_) => format!("The chat program for {label} was not found or would not run. Check that it is installed, or run the agent in a terminal."),
+        AcpError::Pin(_) => format!("The chat add-on for {label} is not the version this app was tested with. Install it again in Settings, under Agents, or run the agent in a terminal."),
+        AcpError::Timeout { .. } => format!("{label} did not answer in time. It may still be starting or may need a sign-in. Try again, or run the agent in a terminal."),
+        AcpError::Closed => format!("The chat program for {label} closed right away. Run the agent in a terminal once to see why (it may need a sign-in or an update)."),
+        other => format!("The agent could not start: {other}"),
+    }
 }
 
 /// After an app start: a chat pane for every conversation that came back (`Conversations::restore_lazily`). The pane
@@ -205,6 +218,18 @@ mod tests {
         assert_eq!(check_gate(true, true, RunLane::Terminal, false), Err(GateError::TerminalChosen));
         assert_eq!(check_gate(true, true, RunLane::Acp, false), Ok(()));
         assert_eq!(check_gate(true, true, RunLane::Terminal, true), Ok(()));
+    }
+
+    #[test]
+    fn a_failed_start_says_one_cause_and_one_thing_to_do_without_a_path() {
+        use crate::acp::error::AcpError;
+        let spawn = start_failure_sentence("Kilo", &AcpError::Spawn("C:/Users/someone/kilo.exe: program not found (os error 2)".into()));
+        assert_eq!(spawn, "The chat program for Kilo was not found or would not run. Check that it is installed, or run the agent in a terminal.");
+        assert!(!spawn.contains("someone") && !spawn.contains("os error"));
+        assert!(start_failure_sentence("Kilo", &AcpError::Pin("hash".into())).contains("Install it again in Settings"));
+        assert!(start_failure_sentence("Kilo", &AcpError::Timeout { method: "session/new".into(), secs: 30 }).contains("did not answer in time"));
+        assert!(start_failure_sentence("Kilo", &AcpError::Closed).contains("closed right away"));
+        assert!(start_failure_sentence("Kilo", &AcpError::QueueFull).starts_with("The agent could not start"));
     }
 
     #[test]

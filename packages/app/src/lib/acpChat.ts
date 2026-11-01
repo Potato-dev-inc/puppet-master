@@ -43,6 +43,8 @@ export interface AcpChatState {
   usage: { used: number; size: number } | null;
   permissions: AcpPermission[];
   closed: boolean;
+  /** Why the adapter is not running (phase `exited`): `closed` | `crashed` | `hung` | `write_stalled` | `start_failed`. */
+  exit?: { kind: string; code: number | null; reason: string | null } | null;
   /** The agent refused the last message until the person signs in (the sign-in card shows). */
   signIn?: { needed: boolean; hint: string };
   /** The saved conversation's id (== the pane id) when the chat is a saved conversation, else null. */
@@ -102,6 +104,17 @@ export interface AcpLaneAgent {
   disabled_note: string | null;
   /** The chat comes from the person's own add-on (`acp_overlay_set`), so it can be removed. */
   overlay?: boolean;
+  /** The chat add-on files this agent has on disk (the Remove sheet offers to delete them). Absent: none. */
+  addon?: { installed: boolean; size_mb: number };
+}
+
+/** What `acp_chat_remove` did (it comes with the lane view as `removal`). */
+export interface AcpRemoval {
+  chats_stopped: number;
+  conversations: number;
+  overlay_removed: boolean;
+  addon_deleted: boolean | null;
+  addon_error: string | null;
 }
 
 /** An agent that has no chat yet and could get one (`reason`: why it cannot, then the button is off). */
@@ -318,6 +331,10 @@ export interface AcpChatApi {
   overlaySet?: (agent: string, acp: OverlayAcp, confirmed: boolean) => Promise<AcpLaneAgent>;
   /** Take the added chat away again. */
   overlayRemove?: (agent: string) => Promise<void>;
+  /** Remove Chat for any agent: stops its chats, back to Terminal, drops an added chat, and with `removeAddon` deletes the add-on files. */
+  chatRemove?: (agent: string, opts: { removeAddon: boolean }) => Promise<AcpLaneView & { removal?: AcpRemoval }>;
+  /** "Restart chat": brings the adapter of a stopped chat back. */
+  restart?: (paneId: string) => Promise<AcpChatState>;
 }
 
 const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -373,6 +390,11 @@ export const tauriAcpChatApi: AcpChatApi = {
   overlayRemove: async (agent) => {
     await call<unknown>('acp_overlay_remove', { agent });
   },
+  chatRemove: async (agent, opts) => {
+    const view = await call<AcpLaneView & { removal?: AcpRemoval }>('acp_chat_remove', { agent, opts: { remove_addon: opts.removeAddon } });
+    return { ...normalizeLaneView(view), removal: view.removal };
+  },
+  restart: (paneId) => call<AcpChatState>('acp_chat_restart', { paneId }),
 };
 
 /** The permission cards that belong to `paneId`, oldest first. */
@@ -389,6 +411,25 @@ export function runStrip(state: AcpChatState | null, asked = false): { text: str
   if (state.stopping || asked) return { text: 'Stopping…', stopping: true };
   if (state.phase === 'needs_input') return { text: 'Waiting for your answer', stopping: false };
   return { text: 'Working…', stopping: false };
+}
+
+const STOPPED_WHY: Record<string, string> = {
+  crashed: 'the agent stopped unexpectedly',
+  hung: 'the agent stopped answering',
+  write_stalled: 'the agent stopped reading messages',
+  start_failed: 'the agent could not start',
+};
+
+/**
+ * The line shown when the adapter is gone for a reason that is not the person's doing: "The chat stopped: <why>" with a
+ * Restart button. `null` while it runs, was closed on purpose, or is only napping. No spinner goes with it.
+ */
+export function stoppedStrip(state: AcpChatState | null): { text: string } | null {
+  if (!state || state.closed || state.phase !== 'exited' || !state.exit) return null;
+  const why = STOPPED_WHY[state.exit.kind];
+  if (!why) return null;
+  const detail = state.exit.kind === 'start_failed' && state.exit.reason ? `: ${state.exit.reason.replace(/\s+/g, ' ').trim().slice(0, 160)}` : state.exit.kind === 'crashed' && state.exit.code != null ? ` (exit code ${state.exit.code})` : '';
+  return { text: `The chat stopped: ${why}${detail}` };
 }
 
 // ---- Settings chips (model, mode, effort) -------------------------------------------------------------------------

@@ -308,6 +308,12 @@ impl OverlayStore {
         build_item_config(&id, &id, &item).ok().map(|_| item)
     }
 
+    /// The stored entry as it is written, without checking that it can still start (a broken entry still names the
+    /// add-on folder it installed, which Remove needs).
+    pub fn stored_item(&self, agent: &str) -> Option<OverlayItem> {
+        OverlayItem::from_value(self.read().agents.get(&key(agent))?).ok()
+    }
+
     /// The stored command entry of `agent` (`source: "command"`, also an entry without `source`).
     pub fn get(&self, agent: &str) -> Option<OverlayEntry> {
         match self.get_item(agent)? {

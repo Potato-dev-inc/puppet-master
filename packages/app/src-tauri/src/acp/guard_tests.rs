@@ -34,6 +34,7 @@ fn generic_code_names_no_agent() {
         "overlay.rs", "record.rs", "ring.rs", "session.rs", "state.rs", "supervisor.rs", "timers.rs", "types.rs", "wire.rs",
         "write_queue.rs", "writers.rs", "bridge/mod.rs", "bridge/server.rs", "bridge/turn.rs",
         "../terminal_chat/mod.rs", "../terminal_chat/lane.rs", "../terminal_chat/start.rs",
+        "../commands/acp_remove.rs", "chat/mod.rs",
     ];
     for file in files {
         let code = shipped(&read(file)).to_lowercase();

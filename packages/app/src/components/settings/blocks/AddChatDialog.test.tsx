@@ -404,13 +404,16 @@ describe('Settings How to run rows', () => {
     expect(document.querySelector('[aria-label="Add chat (ACP) for Fake"]')).toBeNull();
   });
 
-  it('Remove chat shows only on an overlay agent and calls remove', async () => {
+  it('Remove chat shows on every agent with a chat, asks first, and an older app removes only an added chat', async () => {
     const overlayRemove = vi.fn(async () => undefined);
     const laneGet = vi.fn(async () => view());
     await act(async () => root.render(<AgentLaneRows api={{ laneGet, laneSet: vi.fn(), overlayRemove }} />));
     await flush();
-    expect(document.querySelectorAll('[aria-label^="Remove chat for"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[aria-label^="Remove chat for"]').length).toBeGreaterThan(0);
     await click(document.querySelector('[aria-label="Remove chat for Mine"]'));
+    expect(overlayRemove).not.toHaveBeenCalled();
+    await click(byText('Remove'));
+    await flush();
     expect(overlayRemove).toHaveBeenCalledWith('mine');
     expect(laneGet).toHaveBeenCalledTimes(2);
   });

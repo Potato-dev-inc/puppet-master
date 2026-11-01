@@ -349,12 +349,13 @@ pub fn acp_overlay_set(agent: String, acp: Value, confirmed: bool) -> Result<Val
 }
 
 /// Removes the overlay entry and, when the agent's lane was terminal chat, puts the lane back to Terminal.
-pub(crate) fn remove_in(overlay: &OverlayStore, lanes: &LaneStore, agent: &str) -> Result<(), String> {
-    overlay.remove(agent)?;
+/// `acp_chat_remove` (commands/acp_remove.rs) does its overlay + terminal-chat step through this function. Says whether an entry was there.
+pub(crate) fn remove_in(overlay: &OverlayStore, lanes: &LaneStore, agent: &str) -> Result<bool, String> {
+    let had = overlay.remove(agent)?;
     if lanes.lane_for(agent) == RunLane::TerminalChat {
         lanes.set(agent, RunLane::Terminal)?;
     }
-    Ok(())
+    Ok(had)
 }
 
 /// Removes the chat setup. Existing conversations stay as records (they say the agent is not available). Returns the view.
