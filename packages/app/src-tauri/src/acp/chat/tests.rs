@@ -202,6 +202,8 @@ fn an_adapter_that_will_not_start_leaves_nothing_behind_and_offers_the_terminal(
     let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }), conversations: None };
     let error = start(&deps, cfg, StartRequest { agent_id: "fake".into(), folder: dir, explicit: true }).err().expect("it cannot start");
     assert_eq!(error.code, "ACP_START_FAILED");
+    assert!(error.message.starts_with("The chat program for Fake agent was not found"), "{}", error.message);
+    assert!(!error.message.contains("no-such-adapter"), "no path in the sentence");
     assert!(error.fallback, "the terminal can run this agent instead");
     assert!(registry.lock().list().is_empty(), "no pane was made");
 }

@@ -81,8 +81,11 @@ export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi
 
   const addable = addableChat(view);
   if (!view || !view.labs_enabled || (view.agents.length === 0 && addable.length === 0)) return null;
+  // The rows are direct children of the Settings row wrapper (a wrapping element would make Settings hide the whole block:
+  // see the `.st-rowwrap:not(:has(> .st-row))` rule in settings.css). The empty marker is for tests.
   return (
-    <div data-testid="agent-lane">
+    <>
+      <span hidden data-testid="agent-lane" />
       {view.agents.map((agent) => (
         <SettingRow
           key={agent.id}
@@ -149,6 +152,6 @@ export function AgentLaneRows({ api = tauriAcpChatApi }: { api?: Pick<AcpChatApi
           {error}
         </p>
       )}
-    </div>
+    </>
   );
 }

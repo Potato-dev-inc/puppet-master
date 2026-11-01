@@ -1,7 +1,6 @@
 // The question before Chat is removed for an agent: what changes (new sessions start in a terminal, saved chats stay),
 // and when an add-on is on disk, a box to delete it too. Plain words, no jargon. Cancel is the default button.
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import type { AcpLaneAgent } from '../../../lib/acpChat';
 import { Btn } from '../settings-ui';
 
@@ -56,5 +55,6 @@ export function RemoveChatDialog({
       </div>
     </div>
   );
-  return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body);
+  // Not in a portal: the Settings buttons are styled only inside the Settings window, and a fixed overlay covers it anyway.
+  return dialog;
 }

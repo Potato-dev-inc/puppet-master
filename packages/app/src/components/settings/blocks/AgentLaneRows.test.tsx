@@ -104,6 +104,14 @@ describe('How to run', () => {
   });
 });
 
+describe('inside the Settings row wrapper', () => {
+  it('the agent rows are direct children, so Settings does not hide the block', async () => {
+    const view = { labs_enabled: true, agents: [agent(), agent({ id: 'kilo', label: 'Kilo' })] };
+    await render({ laneGet: async () => view, laneSet: vi.fn() });
+    expect(host.querySelectorAll(':scope > .st-row').length).toBe(2);
+  });
+});
+
 describe('Remove chat', () => {
   type Api = Parameters<typeof AgentLaneRows>[0]['api'];
   const removeApi = (agents: AcpLaneAgent[]) => {
