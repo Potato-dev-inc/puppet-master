@@ -6,7 +6,7 @@ mod capabilities;
 pub(crate) mod checks;
 pub(crate) mod completion;
 pub(crate) mod delivery;
-mod headless;
+pub(crate) mod headless;
 mod messaging;
 mod native;
 pub(crate) mod pane_close;

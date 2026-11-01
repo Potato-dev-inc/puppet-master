@@ -131,6 +131,13 @@ use std::path::{Path, PathBuf};
 use tauri::path::BaseDirectory;
 use tauri::{Listener, Manager};
 
+/// Command-line modes of the app executable that run without a window (`acp-bridge --agent <id>`: a chat
+/// adapter for an agent that has no ACP). `Some(exit code)` when one ran; `main` exits with it. `None`:
+/// start the app as usual.
+pub fn run_cli_subcommand() -> Option<i32> {
+    acp::bridge::run_cli(&std::env::args().skip(1).collect::<Vec<_>>())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     worker_launch::init_from_env();
@@ -612,6 +619,8 @@ pub fn run() {
             commands::agent_lane_get,
             commands::agent_lane_set,
             commands::acp_overlay_detect,
+            commands::acp_overlay_resolve,
+            commands::acp_overlay_install,
             commands::acp_overlay_set,
             commands::acp_overlay_remove,
             commands::acp_conversations_list,

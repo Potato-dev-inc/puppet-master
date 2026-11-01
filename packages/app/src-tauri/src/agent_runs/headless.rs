@@ -32,6 +32,8 @@ pub(super) use finish::failure_message;
 #[cfg(test)]
 pub(super) use output::append_valid_utf8;
 pub(super) use process::{execute_headless, publish};
+/// The one way a headless `LaunchSpec` becomes a hidden child process (the ACP bridge, `acp/bridge`, reuses it).
+pub(crate) use process::headless_command;
 pub(super) use view::compact_prompt;
 /// `compact_prompt` for the hand-off tests (`handoff::tests`).
 #[cfg(test)]

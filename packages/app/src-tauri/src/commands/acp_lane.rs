@@ -115,6 +115,15 @@ mod tests {
         assert_eq!(row["effective_lane"], json!("acp"));
         overlay.remove(&pick).unwrap();
         assert!(ids(&lane_view(&lanes, &overlay, true), "can_add_chat").contains(&pick));
+        // a bridge overlay is an ordinary overlay row (Remove works), for an agent that has a headless mode
+        if let Some(h) = ids(&lane_view(&lanes, &overlay, true), "can_add_chat").into_iter().find(|id| acp::bridge::available_for(id).is_ok()) {
+            overlay.put_item(&h, &acp::overlay::OverlayItem::Bridge(acp::overlay::BridgeEntry { raw: json!({"source": "bridge"}) })).unwrap();
+            let v = lane_view(&lanes, &overlay, true);
+            let row = v["agents"].as_array().unwrap().iter().find(|a| a["id"] == json!(h)).expect("a bridge row");
+            assert_eq!(row["overlay"], json!(true));
+            overlay.remove(&h).unwrap();
+            assert!(ids(&lane_view(&lanes, &overlay, true), "can_add_chat").contains(&h));
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 }
