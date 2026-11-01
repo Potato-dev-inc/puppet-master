@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AvatarId, CompanionView } from '../../../lib/companion';
 import { COPY, type PotatoBotView } from '../../../lib/potato';
 import { activityEvents, botMenuItems, isSearchShortcut, listSections, LIST_COPY, type BotMenuAction } from '../../../lib/potato-list';
+import { ARTIFACT_COPY } from '../../../lib/potato-artifacts';
 import { IconPlus } from '../Icons';
 import { ActivityList } from './ActivityList';
 import { BotContextMenu } from './BotContextMenu';
@@ -39,6 +40,9 @@ export interface BotListProps {
   onToggleMini?: () => void;
   /** The row menu's actions. Absent (or empty): no "..." button and no right-click menu. */
   actions?: BotListActions;
+  /** Opens the Artifacts page (its button sits in the list's header). Absent: no button. */
+  onArtifacts?: () => void;
+  artifactsOpen?: boolean;
   /** Passed in so a test can pin the clock. */
   now?: number;
 }
@@ -50,7 +54,7 @@ const VIEWS: { id: View; label: string }[] = [
 ];
 const ALL_ACTIONS: readonly BotMenuAction[] = ['pause', 'resume', 'markRead'];
 
-export function BotList({ bots, avatars, openId, onOpen, onNew, candidates, onUseCompanion, mini = false, onToggleMini, actions, now = Date.now() }: BotListProps) {
+export function BotList({ bots, avatars, openId, onOpen, onNew, candidates, onUseCompanion, mini = false, onToggleMini, actions, onArtifacts, artifactsOpen = false, now = Date.now() }: BotListProps) {
   const [view, setView] = useState<View>('bots');
   const [query, setQuery] = useState('');
   const [menu, setMenu] = useState<{ botId: string; x: number; y: number } | null>(null);
@@ -130,6 +134,20 @@ export function BotList({ bots, avatars, openId, onOpen, onNew, candidates, onUs
                 </button>
               ))}
             </div>
+          )}
+          {onArtifacts && (
+            <button
+              type="button"
+              className={`ck-icon-btn ck-potato-artifacts-open${artifactsOpen ? ' is-on' : ''}`}
+              aria-label={ARTIFACT_COPY.title}
+              aria-pressed={artifactsOpen}
+              title={ARTIFACT_COPY.title}
+              onClick={onArtifacts}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5.5 4.5L2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5M9 3l-2 10" />
+              </svg>
+            </button>
           )}
           {onToggleMini && (
             <button

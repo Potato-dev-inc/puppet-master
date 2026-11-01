@@ -18,6 +18,7 @@
 //! - `bot_settings`: a bot's own talk brain, instructions with their history, tool switches, delete and export
 //!   (one file per bot; the Advanced tab's commands are in `commands/potato_bot_settings.rs`)
 //! - `routines`: prompts a bot runs on a schedule (`routines.json`), the 30 s tick that sends the due ones
+//! - `artifacts`: the files a bot made or received (versions by name, previews, "Save as file", download, delete)
 //! - `cost`: pricing the tokens the brain reports and judging them against the daily limit
 //! - `log`: the 200-line log ring, every line cleaned
 //! - `helpers`: Start / Change folder / Not now, the caps, and watching a helper until it ends
@@ -38,6 +39,7 @@
 //! names an agent or a chat app: a chat app's code would live only in `potato/surfaces/<app>/`.
 
 pub mod attachments;
+pub mod artifacts;
 pub mod auth;
 pub mod bot_settings;
 pub mod cost;
@@ -64,6 +66,7 @@ pub mod window_guard;
 
 #[cfg(test)]
 mod attachments_tests;
+mod artifacts_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]

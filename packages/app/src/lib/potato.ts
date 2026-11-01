@@ -5,6 +5,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { isTauri } from './cockpit-api';
+import { fakeArtifactTransport, tauriArtifactTransport, type ArtifactTransport, type FakeArtifactSeed } from './potato-artifacts';
 
 /** The two voices of a bot. */
 export type TalkPersona = 'fish' | 'potato';
@@ -126,6 +127,8 @@ export interface PotatoTransport {
   settingsSet(settings: PotatoSettings): Promise<PotatoSettings>;
   /** Settings > Check key: one tiny turn. Answers "Works." or rejects with one plain sentence. */
   checkKey(): Promise<string>;
+  /** The files the bots made or received: the Artifacts page and "Save as file" in a thread. */
+  artifacts: ArtifactTransport;
   /** `potato://changed`: something about this bot changed (`null`: the Labs switch moved). */
   onChanged?(cb: (botId: string | null) => void): Promise<UnlistenFn>;
 }
@@ -155,6 +158,7 @@ export const tauriPotatoTransport: PotatoTransport = {
   settingsGet: () => invoke<PotatoSettings>('potato_settings_get'),
   settingsSet: (settings) => invoke<PotatoSettings>('potato_settings_set', { settings }),
   checkKey: () => invoke<string>('potato_check_key'),
+  artifacts: tauriArtifactTransport,
   onChanged: (cb) => {
     if (!isTauri()) return Promise.resolve((() => {}) as UnlistenFn);
     return listen<{ botId?: string } | null>('potato://changed', (e) => cb(e.payload?.botId ?? null));
@@ -259,6 +263,8 @@ export interface FakePotatoSeed {
   folders?: string[];
   /** What Check key answers: a sentence, or throws one. */
   keyCheck?: () => string;
+  /** The files the bots made or received (see `fakeArtifactTransport`). */
+  artifacts?: FakeArtifactSeed;
 }
 
 export interface FakePotatoTransport extends PotatoTransport {
@@ -310,6 +316,7 @@ export function fakePotatoTransport(seed: FakePotatoSeed = {}): FakePotatoTransp
 
   return {
     calls,
+    artifacts: fakeArtifactTransport(seed.artifacts),
     emit,
     patchBot(botId, patch) {
       Object.assign(find(botId), patch);

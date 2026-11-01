@@ -7,6 +7,7 @@ import { tauri } from '../../../lib/tauri';
 import { ChatMarkdown } from '../../chat/ChatMarkdown';
 import { HelperCard } from './HelperCard';
 import { HoverActions } from './HoverActions';
+import { SaveAsFile } from './SaveAsFile';
 import type { ThreadRow } from './model';
 
 /** The app's external-link helper; outside the desktop shell it does nothing. */
@@ -75,7 +76,9 @@ export function MessageRow({ row, botId, botName, agentLabel, transport, onChang
       <div className={`ck-potato-bubble ck-potato-bubble--${row.side}${row.side === 'bot' ? ' ck-potato-bubble--md' : ''}`} title={formatWhen(m.at, now)}>
         {row.side === 'bot' ? <ChatMarkdown text={m.text} onOpenLink={openLink} /> : m.text}
       </div>
-      <HoverActions text={m.text} onReply={() => emitQuote(botId, m.text)} />
+      <HoverActions text={m.text} onReply={() => emitQuote(botId, m.text)}>
+        <SaveAsFile botId={botId} messageId={m.id} files={transport.artifacts} />
+      </HoverActions>
     </li>
   );
 }

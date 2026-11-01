@@ -1,0 +1,358 @@
+/* The Artifacts page (the files the bots made or received) and the "Save as file" action under a chat message. The page takes
+   the thread's place: a header, the filters, then a list or a grid on the left and the preview on the right. Grayscale tokens
+   only; the HTML preview is a sandboxed frame with its own background. */
+
+/* ---------- page ---------- */
+.cockpit .ck-artifacts {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cockpit .ck-artifacts-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 40px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-artifacts-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-artifacts-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cockpit .ck-artifacts-filters {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-artifacts-search {
+  width: 100%;
+  max-width: 360px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+}
+.cockpit .ck-artifacts-search:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.cockpit .ck-artifacts-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cockpit .ck-artifacts-chip {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--sep);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 150ms var(--ease),
+    color 150ms var(--ease);
+}
+.cockpit .ck-artifacts-chip:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-artifacts-chip[aria-pressed='true'] {
+  background: var(--primary-bg);
+  border-color: var(--primary-bg);
+  color: var(--primary-fg);
+}
+.cockpit .ck-artifacts-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.cockpit .ck-artifacts-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* ---------- the list and the grid ---------- */
+.cockpit .ck-artifacts-list {
+  flex: none;
+  width: 260px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-right: 1px solid var(--sep);
+}
+.cockpit .ck-artifacts-list.is-grid {
+  width: 360px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 6px;
+}
+.cockpit .ck-artifact-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms var(--ease);
+}
+.cockpit .ck-artifact-row:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-artifact-row.is-active {
+  background: var(--fill-active);
+}
+.cockpit .ck-artifacts-list.is-grid .ck-artifact-row {
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-artifact-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cockpit .ck-artifact-row-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-artifacts-list.is-grid .ck-artifact-row-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-artifact-row-meta {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-artifact-badge {
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  color: var(--label-3);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+/* ---------- the preview ---------- */
+.cockpit .ck-artifacts-preview {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cockpit .ck-artifact-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.cockpit .ck-artifact-view-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.cockpit .ck-artifact-view-title {
+  min-width: 0;
+}
+.cockpit .ck-artifact-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-artifact-meta {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+.cockpit .ck-artifact-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cockpit .ck-artifact-text-btn {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cockpit .ck-artifact-text-btn:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.cockpit .ck-artifact-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--sep);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  box-shadow: var(--float-shadow);
+}
+.cockpit .ck-artifact-confirm p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.cockpit .ck-artifact-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.cockpit .ck-artifact-version select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--label);
+  font: inherit;
+  font-size: 12px;
+}
+.cockpit .ck-artifact-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cockpit .ck-artifact-text {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--sep);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-artifact-image {
+  align-self: flex-start;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--sep);
+  border-radius: 14px;
+}
+.cockpit .ck-artifact-frame-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 360px;
+  border: 1px solid var(--sep);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--bg-raised);
+}
+.cockpit .ck-artifact-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+.cockpit .ck-artifact-pill {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 4px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 22px;
+  background: var(--bg-float);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--raise-hi), var(--float-shadow);
+  color: var(--label-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* ---------- "Save as file" under a chat message ---------- */
+.cockpit .ck-artifact-save {
+  white-space: nowrap;
+}
+.cockpit .ck-artifact-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.cockpit .ck-artifact-saved,
+.cockpit .ck-artifact-note {
+  align-self: center;
+  padding: 0 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--label-2);
+}
+.cockpit .ck-potato-artifacts-open.is-on {
+  background: var(--fill-active);
+  color: var(--label);
+}
+
+/* ---------- narrow: the list over the preview ---------- */
+@media (max-width: 760px) {
+  .cockpit .ck-artifacts-body {
+    flex-direction: column;
+  }
+  .cockpit .ck-artifacts-list {
+    width: auto;
+    max-height: 40%;
+    border-right: 0;
+    border-bottom: 1px solid var(--sep);
+  }
+  .cockpit .ck-artifacts-list.is-grid {
+    width: auto;
+  }
+}
