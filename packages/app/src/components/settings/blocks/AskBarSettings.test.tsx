@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 const AGENTS: AskbarAgent[] = [
-  { id: 'claude', label: 'Claude Code', ready: true },
+  { id: 'claude', label: 'Claude', ready: true },
   { id: 'codex', label: 'Codex', ready: false },
 ];
 
@@ -76,7 +76,7 @@ describe('AskBarSettingsBlock', () => {
   it('choosing a shortcut and an agent saves those values', async () => {
     const api = fakeApi(settings({ enabled: true }));
     await mount(api);
-    expect(Array.from(selects()[1].options).map((o) => o.textContent)).toEqual(['Last used', 'Claude Code', 'Codex']);
+    expect(Array.from(selects()[1].options).map((o) => o.textContent)).toEqual(['Last used', 'Claude', 'Codex']);
     await pick(selects()[0], 'Ctrl+Shift+Space');
     expect(api.settingsSet).toHaveBeenLastCalledWith(expect.objectContaining({ shortcut: 'Ctrl+Shift+Space', enabled: true }));
     await pick(selects()[1], 'codex');

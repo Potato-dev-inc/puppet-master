@@ -138,7 +138,7 @@ fn team_notify_makes_a_draft_and_no_envelope_leaves_until_the_person_sends() {
         "kind": "pushed",
         "refs": { "branch": "feat/x" },
         "note": "Token refresh is in, careful with login()",
-        "agent": "Claude Code",
+        "agent": "Claude",
     });
     let before = crate::team::git::TRACE.lock().map(|t| t.len()).unwrap_or(0);
     let reply = live.svc.mcp_notify(&args, "session-1").expect("a draft");
@@ -158,11 +158,11 @@ fn team_notify_makes_a_draft_and_no_envelope_leaves_until_the_person_sends() {
         assert!(inner.store.cards.is_empty() && inner.store.jobs.is_empty());
         let draft = &inner.store.drafts[0];
         assert_eq!(draft.id, draft_id);
-        assert_eq!(draft.drafted_by.as_deref(), Some("Claude Code"));
+        assert_eq!(draft.drafted_by.as_deref(), Some("Claude"));
         assert_eq!(draft.event.note.as_deref(), Some("Token refresh is in, careful with login()"));
         assert_eq!(draft.event.kind, TeamEventKind::Pushed);
         assert_eq!(draft.event.actor.display, "Maya");
-        assert_eq!(draft.event.actor.agent.as_ref().unwrap().label, "Claude Code");
+        assert_eq!(draft.event.actor.agent.as_ref().unwrap().label, "Claude");
     }
     assert_eq!(live.wire.count(), 0, "drafting sends no envelope");
     // Drafting the same thing again keeps the one draft; reading and waiting change nothing on the wire either.
@@ -187,7 +187,7 @@ fn team_notify_makes_a_draft_and_no_envelope_leaves_until_the_person_sends() {
     assert_eq!(sent.kind, TeamEventKind::Pushed);
     assert_eq!(sent.note.as_deref(), Some("Token refresh is in, careful with login()"));
     assert_eq!(sent.subject.branch.as_deref(), Some("feat/x"));
-    assert_eq!(sent.actor.agent.as_ref().unwrap().label, "Claude Code");
+    assert_eq!(sent.actor.agent.as_ref().unwrap().label, "Claude");
     assert_eq!(sent.id, draft_id);
 }
 

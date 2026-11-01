@@ -27,7 +27,7 @@ const colour: PanePrompt = {
 function cockpit(list: ReturnType<typeof mk>[], prompts: Record<string, PanePrompt>, answer = vi.fn()): CockpitApi {
   return {
     registry: { paneList: list, panes: new Map(list.map((p) => [p.info.id, p])), initialReady: true },
-    names: new Map(list.map((p) => [p.info.id, p.info.agent_type === 'codex' ? 'Codex' : 'Claude Code'])),
+    names: new Map(list.map((p) => [p.info.id, p.info.agent_type === 'codex' ? 'Codex' : 'Claude'])),
     prompts,
     statusSince: new Map(),
     now: 12_000,

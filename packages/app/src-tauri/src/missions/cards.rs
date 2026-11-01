@@ -42,7 +42,7 @@ pub fn tamper_lines(m: &Mission) -> Vec<String> {
     lines
 }
 
-/// The stuck card's body: "Claude Code and Codex each tried 3 turns. Still 9 of 12 pass."
+/// The stuck card's body: "Claude and Codex each tried 3 turns. Still 9 of 12 pass."
 pub fn stuck_sentence(m: &Mission) -> String {
     let mut names: Vec<String> = Vec::new();
     for r in &m.rounds {

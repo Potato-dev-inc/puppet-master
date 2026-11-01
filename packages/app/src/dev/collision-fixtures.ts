@@ -16,18 +16,18 @@ export interface CollisionScenario {
 const FOOTER = 'Nothing was paused. You decide.';
 
 const SIDES: CollisionView['sides'] = [
-  { paneId: PANE_CLAUDE, label: 'Claude Code', working: false },
+  { paneId: PANE_CLAUDE, label: 'Claude', working: false },
   { paneId: PANE_CODEX, label: 'Codex', working: true },
 ];
 
-/** Both agents changed lines 40-80 of one file, in separate copies. Claude Code has stopped, so it goes first. */
+/** Both agents changed lines 40-80 of one file, in separate copies. Claude has stopped, so it goes first. */
 export const CLASH: CollisionView = {
   id: 'ca-0123456789ab',
   level: 'clash',
   relation: 'copies',
-  title: 'Claude Code and Codex both changed src/auth.ts',
+  title: 'Claude and Codex both changed src/auth.ts',
   detail: 'Lines 40-80 overlap.',
-  advice: 'Finish Claude Code first. It has stopped working. Look at its changes and merge them first. Then Codex can build on it.',
+  advice: 'Finish Claude first. It has stopped working. Look at its changes and merge them first. Then Codex can build on it.',
   place: 'In separate copies.',
   footer: FOOTER,
   sides: SIDES,
@@ -42,7 +42,7 @@ export const QUIET: CollisionView = {
   id: 'ca-ba9876543210',
   level: 'same_file',
   relation: 'copies',
-  title: 'Claude Code and Codex both changed src/billing/invoice.ts',
+  title: 'Claude and Codex both changed src/billing/invoice.ts',
   detail: 'Different places in the file. No clash yet.',
   advice: null,
   place: 'In separate copies.',

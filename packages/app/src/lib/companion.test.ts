@@ -30,7 +30,7 @@ function view(over: Partial<CompanionView> = {}): CompanionView {
     avatar: 'mochi',
     persona: 'calm',
     agentType: 'claude',
-    agentLabel: 'Claude Code',
+    agentLabel: 'Claude',
     folderName: 'mochi-1',
     state: 'idle',
     stateLine: 'Here. Ask me anything.',

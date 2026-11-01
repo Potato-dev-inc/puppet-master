@@ -11,7 +11,7 @@ export function McpInstallBlock({ env }: { env: SettingsEnv }) {
   return (
     <SettingBlock
       label="Install MCP runtime"
-      description={`Register Claude Code, Codex, and OpenCode to use the selected runtime: ${runtimeName(env)}.`}
+      description={`Register Claude, Codex, and OpenCode to use the selected runtime: ${runtimeName(env)}.`}
     >
       <div className="flex flex-wrap items-center gap-2">
         <Btn primary disabled={!installPath || busy !== null} onClick={() => void run('project', () => installNpmMcpConfigs(installPath))}>

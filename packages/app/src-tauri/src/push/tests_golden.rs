@@ -73,7 +73,7 @@ fn waiting(heading: Option<&str>, prompt: Option<PromptInfo>) -> Candidate {
         kind: Kind::WaitingInput,
         key: "pane-1".into(),
         pane_id: Some("pane-1".into()),
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: heading.map(str::to_string),
         prompt,
         item: None,
@@ -141,7 +141,7 @@ fn question() {
         kind: Kind::Question,
         key: "q-1".into(),
         pane_id: None,
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: None,
         prompt: Some(PromptInfo { prompt_id: String::new(), text: "Keep the old /login route as a redirect, or remove it?".into(), actionable: false, risk: None }),
         item: None,
@@ -200,7 +200,7 @@ fn approval_low_ios() {
     let c = waiting(Some("auth refactor"), Some(prompt(Some((RiskLevel::Low, "Run tests")), "Run command: npm test (in shop)")));
     let payload = payload_for(&plan("g-low-ios", &c), "dev-i");
     assert!(payload.get("act").is_none(), "Apple shows no action buttons: no grant that nothing can use");
-    assert_eq!(payload["body"], "Low risk · Run tests\nClaude Code", "two lines: the risk and who, no command");
+    assert_eq!(payload["body"], "Low risk · Run tests\nClaude", "two lines: the risk and who, no command");
     check("approval_low_ios", &payload);
 }
 
@@ -220,14 +220,14 @@ fn question_ios() {
         kind: Kind::Question,
         key: "q-1".into(),
         pane_id: None,
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: None,
         prompt: info("Keep the old /login route as a redirect, or remove it?"),
         item: item("Qk2x9aLm"),
         detail: None,
     };
     let payload = payload_for(&plan("g-question-ios", &c), "dev-i");
-    assert_eq!(payload["body"], "Question from Claude Code");
+    assert_eq!(payload["body"], "Question from Claude");
     assert_eq!(payload["item_id"], "Qk2x9aLm", "the tap opens this card");
     check("question_ios", &payload);
 }
@@ -238,7 +238,7 @@ fn trust_gate() {
         kind: Kind::TrustGate,
         key: "pane-1".into(),
         pane_id: Some("pane-1".into()),
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: Some("auth refactor".into()),
         prompt: Some(PromptInfo { prompt_id: "pid-t".into(), text: "Trust this workspace?".into(), actionable: false, risk: None }),
         item: item("T7rustAb"),
@@ -246,7 +246,7 @@ fn trust_gate() {
     };
     let payload = payload_for(&plan("g-trust", &c), "dev-a");
     assert!(payload.get("act").is_none(), "a folder is never trusted from a lock screen");
-    assert_eq!(payload["body"], "Trust this folder? · shop\nClaude Code");
+    assert_eq!(payload["body"], "Trust this folder? · shop\nClaude");
     check("trust_gate", &payload);
 }
 
@@ -256,14 +256,14 @@ fn trust_gate_signin() {
         kind: Kind::TrustGate,
         key: "pane-1".into(),
         pane_id: Some("pane-1".into()),
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: Some("auth refactor".into()),
         prompt: None,
         item: None,
         detail: None,
     };
     let payload = payload_for(&plan("g-signin", &c), "dev-a");
-    assert_eq!(payload["body"], "Claude Code needs you on your PC");
+    assert_eq!(payload["body"], "Claude needs you on your PC");
     check("trust_gate_signin", &payload);
 }
 
@@ -275,9 +275,9 @@ fn consent() {
         pane_id: None,
         agent_label: "Codex".into(),
         heading: None,
-        prompt: info("Allow Codex to control Claude Code?"),
+        prompt: info("Allow Codex to control Claude?"),
         item: item("C0nsentX"),
-        detail: Some("Codex wants to control Claude Code".into()),
+        detail: Some("Codex wants to control Claude".into()),
     };
     let payload = payload_for(&plan("g-consent", &c), "dev-a");
     assert!(payload.get("act").is_none() && payload.get("target").is_none());
@@ -292,14 +292,14 @@ fn budget() {
         kind: Kind::Budget,
         key: "q-b1".into(),
         pane_id: None,
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: None,
-        prompt: info("Claude Code used its 20 turns."),
+        prompt: info("Claude used its 20 turns."),
         item: item("B9dgetXy"),
         detail: Some("20 of 20 turns".into()),
     };
     let payload = payload_for(&plan("g-budget", &c), "dev-a");
-    assert_eq!(payload["body"], "Budget used up · 20 of 20 turns\nClaude Code");
+    assert_eq!(payload["body"], "Budget used up · 20 of 20 turns\nClaude");
     check("budget", &payload);
 }
 
@@ -309,14 +309,14 @@ fn limit() {
         kind: Kind::Limit,
         key: "q-l1".into(),
         pane_id: None,
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: None,
-        prompt: info("Claude Code ran out of usage."),
+        prompt: info("Claude ran out of usage."),
         item: item("L1mitZzZ"),
         detail: Some("14:05".into()),
     };
     let payload = payload_for(&plan("g-limit", &c), "dev-a");
-    assert_eq!(payload["body"], "Usage limit · resets 14:05\nClaude Code");
+    assert_eq!(payload["body"], "Usage limit · resets 14:05\nClaude");
     check("limit", &payload);
 }
 
@@ -335,7 +335,7 @@ fn no_first_line_is_longer_than_fifty_six_characters() {
     for (kind, detail) in kinds {
         for view in [View::Full, View::Ios, View::Hidden] {
             let prompt = PromptInfo { prompt_id: "p".into(), text: long.clone(), actionable: false, risk: None };
-            let words = copy_for_view(kind, "Claude Code", Some("auth refactor"), Some(&prompt), detail, view);
+            let words = copy_for_view(kind, "Claude", Some("auth refactor"), Some(&prompt), detail, view);
             let first = words.body.lines().next().unwrap();
             assert!(first.chars().count() <= MAX_FIRST_LINE_CHARS, "{kind:?} {view:?}: {first}");
         }
@@ -599,7 +599,7 @@ fn question_candidate() -> Candidate {
         kind: Kind::Question,
         key: "q-1".into(),
         pane_id: None,
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: None,
         prompt: Some(PromptInfo { prompt_id: String::new(), text: "Keep the old /login route as a redirect, or remove it?".into(), actionable: false, risk: None }),
         item: None,
@@ -612,7 +612,7 @@ fn trust_candidate() -> Candidate {
         kind: Kind::TrustGate,
         key: "pane-1".into(),
         pane_id: Some("pane-1".into()),
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: Some("auth refactor".into()),
         prompt: Some(PromptInfo { prompt_id: "pid-t".into(), text: "Trust this workspace?".into(), actionable: false, risk: None }),
         item: item("T7rustAb"),
@@ -666,9 +666,9 @@ fn things_that_must_get_through_are_never_quiet() {
         kind: Kind::Budget,
         key: "q-b1".into(),
         pane_id: None,
-        agent_label: "Claude Code".into(),
+        agent_label: "Claude".into(),
         heading: None,
-        prompt: info("Claude Code used its 20 turns."),
+        prompt: info("Claude used its 20 turns."),
         item: item("B9dgetXy"),
         detail: Some("20 of 20 turns".into()),
     };

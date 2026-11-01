@@ -10,7 +10,7 @@ import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const accounts = { list: async () => ({ agents: [], accounts: [] }) } as unknown as AccountsApi;
-const ENTRIES = [{ type: 'claude', label: 'Claude Code' }];
+const ENTRIES = [{ type: 'claude', label: 'Claude' }];
 
 const SHOP: RecentProject = { path: 'D:\\code\\shop', name: 'shop', state: 'repo', last_used_ms: 3 };
 const SITE: RecentProject = { path: 'D:\\code\\site', name: 'site', state: 'folder', last_used_ms: 2 };

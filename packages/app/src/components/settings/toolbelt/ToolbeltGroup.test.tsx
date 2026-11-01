@@ -156,7 +156,7 @@ describe('Apply preview sheet', () => {
     expect(api.syncPreview).toHaveBeenCalledWith({ project: 'C:/work/app', includePm: false });
     const hosts = dialog.querySelectorAll('[data-testid="toolbelt-host"]');
     expect(hosts).toHaveLength(4);
-    expect(hosts[0].textContent).toContain('Claude Code');
+    expect(hosts[0].textContent).toContain('Claude');
     expect(hosts[0].textContent).toContain('2 to add');
     expect(hosts[0].textContent).toContain('Postgres');
     expect(hosts[1].textContent).toContain('1 to remove');
@@ -215,7 +215,7 @@ describe('Import sheet', () => {
     expect(boxes[0].checked).toBe(true);
     expect(boxes[1].disabled).toBe(true);
     expect(dialog.textContent).toContain('Already in your toolbelt');
-    expect(dialog.textContent).toContain('Found in Claude Code, Codex');
+    expect(dialog.textContent).toContain('Found in Claude, Codex');
     await click(button('Add to toolbelt', dialog));
     expect(api.importApply).toHaveBeenCalledWith(['global|claude|github'], 'C:/work/app');
     expect(host.textContent).toContain('Added 1 server to your toolbelt.');

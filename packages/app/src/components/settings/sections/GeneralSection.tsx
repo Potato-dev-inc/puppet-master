@@ -427,7 +427,7 @@ export const generalRows: RowDef[] = [
   {
     id: 'bring-old-chats',
     label: 'Bring my old chats',
-    hint: 'Read the chats you had in Claude Code, Codex and other agents on this PC, and add them to Ctrl+Shift+F search. Nothing leaves this computer. Remove them any time.',
+    hint: 'Read the chats you had in Claude, Codex and other agents on this PC, and add them to Ctrl+Shift+F search. Nothing leaves this computer. Remove them any time.',
     keywords: 'import old chats claude codex opencode history bring',
     group: 'Storage',
     render: (env) => <BringChatsSettings env={env} />,

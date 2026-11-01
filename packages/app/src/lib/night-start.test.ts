@@ -14,7 +14,7 @@ const NOON = new Date(2026, 9, 28, 12, 0, 0, 0).getTime();
 
 const PLANS: NightPlanView[] = [
   { key: 'codex', label: 'Codex', ready: true, whyNot: null, outUntil: null, triedHere: {} },
-  { key: 'claude', label: 'Claude Code', ready: false, whyNot: 'Out of usage until 16:40.', outUntil: null, triedHere: {} },
+  { key: 'claude', label: 'Claude', ready: false, whyNot: 'Out of usage until 16:40.', outUntil: null, triedHere: {} },
 ];
 
 const TASK = { project: 'C:/work/app', text: 'Fix the cart.' };

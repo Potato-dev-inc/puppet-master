@@ -122,8 +122,8 @@ export const SIMPLE_CHECKPOINTS = {
 };
 
 export const SIMPLE_SUMMARIES = [
-  { paneId: 'x', agent: 'Claude Code', turn: 1, startedAtMs: now - 13 * MIN, endedAtMs: now - 11 * MIN, durationMs: 2 * MIN, files: { count: 1, added: 148, deleted: 0, paths: ['tool.html'] }, approvals: [], end: { kind: 'idle' }, sentence: '' },
-  { paneId: 'x', agent: 'Claude Code', turn: 2, startedAtMs: now - 6 * MIN, endedAtMs: now - 2 * MIN, durationMs: 4 * MIN, files: { count: 1, added: 12, deleted: 4, paths: ['tool.html'] }, approvals: [], end: { kind: 'idle' }, sentence: '' },
+  { paneId: 'x', agent: 'Claude', turn: 1, startedAtMs: now - 13 * MIN, endedAtMs: now - 11 * MIN, durationMs: 2 * MIN, files: { count: 1, added: 148, deleted: 0, paths: ['tool.html'] }, approvals: [], end: { kind: 'idle' }, sentence: '' },
+  { paneId: 'x', agent: 'Claude', turn: 2, startedAtMs: now - 6 * MIN, endedAtMs: now - 2 * MIN, durationMs: 4 * MIN, files: { count: 1, added: 12, deleted: 4, paths: ['tool.html'] }, approvals: [], end: { kind: 'idle' }, sentence: '' },
 ];
 
 export const SIMPLE_DIFF = {

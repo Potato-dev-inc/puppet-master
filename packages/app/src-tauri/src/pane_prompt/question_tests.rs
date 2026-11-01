@@ -1,6 +1,6 @@
 //! A pane that shows a menu is a pane that is asking, whatever its profile's tables say (night 2026-10-28).
 //!
-//! Live, in the founder's app: Claude Code's AskUserQuestion menu and a wizard-added agent's workspace-trust screen
+//! Live, in the founder's app: Claude's AskUserQuestion menu and a wizard-added agent's workspace-trust screen
 //! were both `idle` (Inbox: "Nothing needs you"), while the run supervisor already said `needs_input`. These tests
 //! drive the real classifier (`pty::status::classify_agent_observation`) and the card reader with real-shaped screens,
 //! and the negatives that must NOT count: an idle input box, a finished reply with a numbered list, a busy spinner.

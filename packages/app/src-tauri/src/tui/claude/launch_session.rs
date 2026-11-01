@@ -1,4 +1,4 @@
-//! Choosing Claude Code's session id at launch (`claude --session-id <uuid>`), so a pane's session file is
+//! Choosing Claude's session id at launch (`claude --session-id <uuid>`), so a pane's session file is
 //! `<project folder>/<id>.jsonl` from the first second, even with several panes in one folder.
 
 use crate::tui::LaunchSession;

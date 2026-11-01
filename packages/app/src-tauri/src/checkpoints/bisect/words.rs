@@ -437,7 +437,7 @@ mod tests {
     fn all_copy() -> Vec<String> {
         let stats = FileStatsLite { count: 4, added: 52, deleted: 20 };
         let names = vec!["cart.test.ts".to_string(), "b.test.ts".to_string(), "c.test.ts".to_string()];
-        let agents = vec!["Codex".to_string(), "Claude Code".to_string()];
+        let agents = vec!["Codex".to_string(), "Claude".to_string()];
         let mut out: Vec<String> = vec![
             found_title("Codex", 7),
             found_title(UNKNOWN_AGENT, 7),
@@ -603,8 +603,8 @@ mod tests {
 
     #[test]
     fn narrowed_lists_each_agent_once() {
-        let agents = vec!["Codex".to_string(), "Codex".to_string(), "Claude Code".to_string()];
-        assert_eq!(narrowed(5, 8, &agents), "It was one of turns 5 to 8 (Codex, Claude Code).");
+        let agents = vec!["Codex".to_string(), "Codex".to_string(), "Claude".to_string()];
+        assert_eq!(narrowed(5, 8, &agents), "It was one of turns 5 to 8 (Codex, Claude).");
         assert_eq!(narrowed(5, 8, &[]), "It was one of turns 5 to 8.");
     }
 

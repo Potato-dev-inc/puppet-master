@@ -422,7 +422,7 @@ fn create_pr_pushes_the_pm_branch_and_makes_a_draft_with_the_receipt_body() {
     assert!(commit_pending(&worktree).unwrap());
     let facts = PrFacts {
         task: Some("Round the cart totals to cents".into()),
-        summary: Some("Claude Code changed 1 file and ran 2 commands.".into()),
+        summary: Some("Claude changed 1 file and ran 2 commands.".into()),
         files: vec![("src/new.rs".into(), 1, 0)],
         files_total: 1,
         additions: 1,
@@ -558,7 +558,7 @@ fn the_sheet_is_prefilled_from_the_receipt() {
         additions: 52,
         deletions: 15,
         checks: Some("14/14 passed".into()),
-        second_opinion: Some("Claude Code: no concerns".into()),
+        second_opinion: Some("Claude: no concerns".into()),
         setup: Some("Ran npm ci.".into()),
         ..Default::default()
     };

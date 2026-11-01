@@ -59,7 +59,7 @@ const PROGRESS: ImportProgress = {
 
 const FOUND: ImportFound = {
   id: 'claude',
-  label: 'Claude Code',
+  label: 'Claude',
   fromDefinition: false,
   chats: 412,
   bytes: 38 * 1024 * 1024,
@@ -162,7 +162,7 @@ describe('line helpers', () => {
   const now = new Date(2026, 9, 28).getTime();
 
   it('foundLine shows the name, the chats, the size and the span', () => {
-    expect(foundLine(FOUND, now)).toBe('Claude Code · 412 chats · 38 MB · Mar 2026 to now');
+    expect(foundLine(FOUND, now)).toBe('Claude · 412 chats · 38 MB · Mar 2026 to now');
   });
 
   it('chatCount uses the singular only for exactly one', () => {
@@ -176,9 +176,9 @@ describe('line helpers', () => {
     const one: ImportFound = { ...FOUND, label: 'Codex', chats: 1, bytes: 512, oldestMs: null, newestMs: null };
     expect(foundLine(one, now)).toBe('Codex · 1 chat · 512 B');
     const old = { ...FOUND, newestMs: new Date(2026, 7, 14).getTime() };
-    expect(foundLine(old, now)).toBe('Claude Code · 412 chats · 38 MB · Mar 2026 to Aug 2026');
+    expect(foundLine(old, now)).toBe('Claude · 412 chats · 38 MB · Mar 2026 to Aug 2026');
     const same = { ...FOUND, oldestMs: new Date(2026, 7, 2).getTime(), newestMs: new Date(2026, 7, 14).getTime() };
-    expect(foundLine(same, now)).toBe('Claude Code · 412 chats · 38 MB · Aug 2026');
+    expect(foundLine(same, now)).toBe('Claude · 412 chats · 38 MB · Aug 2026');
   });
 
   it('progressLine reads the phase, with the agent name or its id', () => {

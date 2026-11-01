@@ -62,14 +62,14 @@ describe('version notes in the Inbox', () => {
     const good: CanaryStatus = {
       ...status([]),
       notices: [
-        { id: 'canary:claude:2.4.0:ok', agent: 'claude', text: 'Claude Code 2.3.0 \u2192 2.4.0: checked, all good.', at_ms: 1, dismissed: false, kind: 'good' },
+        { id: 'canary:claude:2.4.0:ok', agent: 'claude', text: 'Claude 2.3.0 \u2192 2.4.0: checked, all good.', at_ms: 1, dismissed: false, kind: 'good' },
       ],
     };
     const api = fakeApi(good);
     await act(async () => root.render(<CanaryNotices api={api} />));
     const card = host.querySelector('[data-testid="canary-notice"]')!;
     expect(card.getAttribute('data-result')).toBe('good');
-    expect(card.querySelector('.ib-title')?.textContent).toBe('Claude Code 2.3.0 \u2192 2.4.0: checked, all good.');
+    expect(card.querySelector('.ib-title')?.textContent).toBe('Claude 2.3.0 \u2192 2.4.0: checked, all good.');
     expect(Array.from(card.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Dismiss']);
     await act(async () => card.querySelector('button')!.click());
     expect(api.dismissNotice).toHaveBeenCalledWith('canary:claude:2.4.0:ok');

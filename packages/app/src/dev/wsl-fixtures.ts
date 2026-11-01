@@ -13,7 +13,7 @@ export interface WslScenario {
 }
 
 export const EXAMPLE_PLACES: AgentPlaceRow[] = [
-  { agentId: 'claude', label: 'Claude Code', distro: 'Ubuntu-Test', found: null, whyNot: null },
+  { agentId: 'claude', label: 'Claude', distro: 'Ubuntu-Test', found: null, whyNot: null },
   { agentId: 'codex', label: 'Codex', distro: null, found: null, whyNot: null },
   { agentId: 'opencode', label: 'OpenCode', distro: null, found: null, whyNot: "OpenCode can't run in Linux from Puppet Master yet." },
 ];
@@ -27,7 +27,7 @@ export const EXAMPLE_CHECK: DistroView = {
   interop: true,
   networking: null,
   agents: [
-    { agentId: 'claude', label: 'Claude Code', distro: 'Ubuntu-Test', found: true, whyNot: null },
+    { agentId: 'claude', label: 'Claude', distro: 'Ubuntu-Test', found: true, whyNot: null },
     { agentId: 'codex', label: 'Codex', distro: 'Ubuntu-Test', found: false, whyNot: null },
   ],
 };

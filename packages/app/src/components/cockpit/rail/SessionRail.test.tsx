@@ -42,7 +42,7 @@ const props = {
   paneId: 'p1',
   status: 'idle',
   cwd: '/work/shop',
-  agentName: 'Claude Code',
+  agentName: 'Claude',
   accountLabel: null,
   readsChat: true,
   helperOf: null,

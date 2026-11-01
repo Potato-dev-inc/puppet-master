@@ -40,7 +40,7 @@ async function open(props: { offers?: KeepGoingOffer[]; ask_back?: boolean; rese
   vi.mocked(keepGoingSettingsGet).mockResolvedValue(settings(props.ask_back ?? true));
   const onClose = props.onClose ?? vi.fn();
   await act(async () => {
-    root.render(<ContinueOnSheet paneId="p-claude" cardId="l1" fromLabel="Claude Code" resetAtMs={props.resetAtMs} onClose={onClose} />);
+    root.render(<ContinueOnSheet paneId="p-claude" cardId="l1" fromLabel="Claude" resetAtMs={props.resetAtMs} onClose={onClose} />);
   });
   return onClose;
 }
@@ -86,7 +86,7 @@ describe('ContinueOnSheet: the picker', () => {
 
   it('says what the agent gets and which agent is stopped, in plain words', async () => {
     await open();
-    expect(host.textContent).toContain('The agent gets a short brief. Claude Code in this pane is stopped first.');
+    expect(host.textContent).toContain('The agent gets a short brief. Claude in this pane is stopped first.');
     expect(host.textContent).toContain('Puppet Master never answers its questions for you.');
   });
 });
@@ -171,7 +171,7 @@ describe('ContinueOnSheet: when it cannot load', () => {
     vi.mocked(keepGoingTargets).mockRejectedValue(new Error('KEEP_GOING_NO_PANE: This pane cannot hand over.'));
     vi.mocked(keepGoingSettingsGet).mockResolvedValue(settings(true));
     await act(async () => {
-      root.render(<ContinueOnSheet paneId="p-companion" cardId="l1" fromLabel="Claude Code" onClose={vi.fn()} />);
+      root.render(<ContinueOnSheet paneId="p-companion" cardId="l1" fromLabel="Claude" onClose={vi.fn()} />);
     });
     expect(host.querySelector('[role="alert"]')?.textContent).toBe('This pane cannot hand over.');
     expect(radios()).toHaveLength(0);
@@ -182,7 +182,7 @@ describe('ContinueOnSheet: when it cannot load', () => {
     vi.mocked(keepGoingTargets).mockResolvedValue([codex]);
     vi.mocked(keepGoingSettingsGet).mockRejectedValue(new Error('Settings are not ready.'));
     await act(async () => {
-      root.render(<ContinueOnSheet paneId="p-claude" cardId="l1" fromLabel="Claude Code" onClose={vi.fn()} />);
+      root.render(<ContinueOnSheet paneId="p-claude" cardId="l1" fromLabel="Claude" onClose={vi.fn()} />);
     });
     expect(host.querySelector('[role="alert"]')?.textContent).toBe('Settings are not ready.');
     expect(primary()!.disabled).toBe(true);

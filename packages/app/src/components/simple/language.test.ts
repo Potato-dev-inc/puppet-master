@@ -21,10 +21,10 @@ describe('Simple mode language', () => {
   });
 
   it('the checker itself catches what it should', () => {
-    const long = 'Claude Code wants to look at all of the files that you have in this project right now today.';
+    const long = 'Claude wants to look at all of the files that you have in this project right now today.';
     expect(problemsIn(long).some((p) => p.reason.includes('words'))).toBe(true);
     expect(problemsIn('It is one. It is two. It is three. It is four.').some((p) => p.reason.includes('sentences'))).toBe(true);
-    expect(problemsIn('Claude Code made a commit to the branch.').map((p) => p.reason).join()).toMatch(/commit/);
+    expect(problemsIn('Claude made a commit to the branch.').map((p) => p.reason).join()).toMatch(/commit/);
     expect(problemsIn('The checkpoint failed.').map((p) => p.reason).join()).toMatch(/checkpoint/);
     expect(problemsIn('Press the xylophone.').map((p) => p.reason).join()).toMatch(/not on the word list/);
     expect(problemsIn('Do it now!').map((p) => p.reason).join()).toMatch(/exclamation/);
@@ -33,7 +33,7 @@ describe('Simple mode language', () => {
   });
 
   it('a file name does not end a sentence and does not count as a word to look up', () => {
-    expect(sentencesOf('Claude Code made quiz.html. It works.')).toHaveLength(2);
+    expect(sentencesOf('Claude made quiz.html. It works.')).toHaveLength(2);
     expect(wordsOf('Made quiz.html.')).toEqual(['made', 'file']);
   });
 
@@ -57,12 +57,12 @@ describe('Simple mode language', () => {
       T.somethingWrong,
       T.makeFailed,
       T.blockedSafe,
-      F.agentStopped('Claude Code'),
-      F.agentSignedOut('Claude Code'),
-      F.agentSlow('Claude Code'),
-      F.agentMissing('Claude Code'),
-      F.messageLost('Claude Code'),
-      F.trustDeclined('Claude Code'),
+      F.agentStopped('Claude'),
+      F.agentSignedOut('Claude'),
+      F.agentSlow('Claude'),
+      F.agentMissing('Claude'),
+      F.messageLost('Claude'),
+      F.trustDeclined('Claude'),
       ...PROBLEMS,
     ];
     for (const text of problems) expect(text, text).toMatch(/safe|saved|Nothing was (lost|changed)/);

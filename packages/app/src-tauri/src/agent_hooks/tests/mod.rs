@@ -652,10 +652,10 @@ fn the_doctor_row_uses_plain_words() {
     assert!(!codex.sentence.contains('_'), "{}", codex.sentence);
     let cursor = health::for_agent("cursor_agent", "Cursor", None).unwrap();
     assert_eq!(cursor.state, health::HookHealthState::NotSupported);
-    let untested = health::for_agent("claude", "Claude Code", Some("9.9.9")).unwrap();
+    let untested = health::for_agent("claude", "Claude", Some("9.9.9")).unwrap();
     assert_eq!(untested.state, health::HookHealthState::UntestedVersion);
     apply_settings(&json!({ "agent_hooks_mode": "off" }));
-    let off = health::for_agent("claude", "Claude Code", Some("2.1.300")).unwrap();
+    let off = health::for_agent("claude", "Claude", Some("2.1.300")).unwrap();
     apply_settings(&json!({}));
     assert_eq!((off.state, off.sentence.as_str()), (health::HookHealthState::Off, "Live updates are off."));
 }

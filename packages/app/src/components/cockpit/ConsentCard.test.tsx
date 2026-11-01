@@ -22,8 +22,8 @@ afterEach(() => {
 
 const takeOver: Question = {
   id: 'c1',
-  agent: 'Claude Code',
-  question: 'Allow Claude Code to control Codex?',
+  agent: 'Claude',
+  question: 'Allow Claude to control Codex?',
   context: 'It would type into the pane and answer its questions. It did not start this pane.',
   choices: [
     { id: 'allow_once', label: 'Allow once' },
@@ -35,7 +35,7 @@ const takeOver: Question = {
   created_at_ms: 0,
   expires_at_ms: 600_000,
   state: 'pending',
-  consent: { action: 'take_over', requester: 'Claude Code', target: 'Codex', pane_id: 'p-codex' },
+  consent: { action: 'take_over', requester: 'Claude', target: 'Codex', pane_id: 'p-codex' },
 };
 
 function render(q: Question, paneName?: string) {
@@ -55,7 +55,7 @@ const button = (text: string) => [...host.querySelectorAll('button')].find((b) =
 describe('ConsentCard', () => {
   it("asks in the pane's own name with Deny as the primary button", () => {
     render(takeOver, 'Codex 1');
-    expect(host.querySelector('.ib-title')?.textContent).toBe('Allow Claude Code to control Codex 1?');
+    expect(host.querySelector('.ib-title')?.textContent).toBe('Allow Claude to control Codex 1?');
     expect(button('Deny')?.className).toContain('ck-btn--primary');
     expect(button('Allow once')?.className).toContain('ck-btn--secondary');
     expect(button('Always for this pane')?.className).toContain('ck-btn--plain');
@@ -79,16 +79,16 @@ describe('ConsentCard', () => {
       ...takeOver,
       question: 'x',
       choices: [takeOver.choices[0], takeOver.choices[2]],
-      consent: { action: 'answer_prompt', requester: 'Another agent', target: 'Claude Code', risk: 'high' },
+      consent: { action: 'answer_prompt', requester: 'Another agent', target: 'Claude', risk: 'high' },
     };
     render(answer);
-    expect(host.querySelector('.ib-title')?.textContent).toBe('Allow another agent to answer a question in Claude Code?');
+    expect(host.querySelector('.ib-title')?.textContent).toBe('Allow another agent to answer a question in Claude?');
     expect(button('Always for this pane')).toBeUndefined();
     expect(host.querySelector('input')).toBeNull();
   });
 
   it('shows no raw ids and falls back to the target name when the pane is closed', () => {
-    expect(consentTitle(takeOver)).toBe('Allow Claude Code to control Codex?');
+    expect(consentTitle(takeOver)).toBe('Allow Claude to control Codex?');
     render(takeOver);
     expect(host.textContent).not.toContain('p-codex');
   });

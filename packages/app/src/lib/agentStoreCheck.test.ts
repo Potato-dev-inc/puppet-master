@@ -253,7 +253,7 @@ describe('runStoreCheck', () => {
   });
 
   it('a sign-in verdict from the writer stops the run the same way', async () => {
-    const api = fakeApi({ drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude Code' }]), ask: vi.fn(async () => 'sign_in_or_payment') }, unsure());
+    const api = fakeApi({ drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude' }]), ask: vi.fn(async () => 'sign_in_or_payment') }, unsure());
     api.verdict = vi.fn(async (_s: string, verdict) => ({
       decision: 'stop' as const,
       verdict,
@@ -305,7 +305,7 @@ describe('runStoreCheck', () => {
 
   it('a failed visible test gives a short message without the failing screen or paths', async () => {
     const bad: VisibleTestResult = { ...visibleOk(), ok: false, text: 'The visible test found 1 problem. SCREEN C:\\Users\\you\\secret.txt', errors: [] };
-    const api = fakeApi({ visibletest: vi.fn(async () => bad), drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude Code' }]), ask: vi.fn(async () => `${F}toml\n${TOML}\n${F}`) });
+    const api = fakeApi({ visibletest: vi.fn(async () => bad), drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude' }]), ask: vi.fn(async () => `${F}toml\n${TOML}\n${F}`) });
     const t = setup(api);
     const out = await t.run();
     expect(out.status).toBe('stopped');

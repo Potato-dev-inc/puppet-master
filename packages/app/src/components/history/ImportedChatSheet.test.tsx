@@ -101,7 +101,7 @@ describe('ImportedChatSheet', () => {
     const api = fakeApi({ open: vi.fn(async () => ({ meta: { ...META, agent: 'claude' }, items: ITEMS })) });
     render({ api, request: { agent: 'claude', session: 'sess-0002-efgh', nonce: 2 } });
     await flush();
-    expect(host.querySelector('.history-viewer-banner')?.textContent).toMatch(/^Old Claude Code chat from 14 Aug( 2026)?\. Read-only\.$/);
+    expect(host.querySelector('.history-viewer-banner')?.textContent).toMatch(/^Old Claude chat from 14 Aug( 2026)?\. Read-only\.$/);
     expect(host.textContent).not.toContain('Old claude chat');
   });
 

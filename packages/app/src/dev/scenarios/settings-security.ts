@@ -11,7 +11,7 @@ const s: HarnessScenario = {
   window: { width: 1440, height: 1100 },
   authority: { ask_before_agent_control: true, agents_may_merge: false },
   audit: [
-    { seq: 7, ts_ms: now - 2 * min, kind: 'consent', who: 'desktop', summary: 'You allowed Claude Code to control Codex, once' },
+    { seq: 7, ts_ms: now - 2 * min, kind: 'consent', who: 'desktop', summary: 'You allowed Claude to control Codex, once' },
     { seq: 6, ts_ms: now - 41 * min, kind: 'approval', who: 'device', summary: 'A phone answered from its lock screen: Allowed once' },
     { seq: 5, ts_ms: now - 95 * min, kind: 'merge', who: 'agent', summary: 'An agent tried to merge a separate copy; it was not allowed' },
     { seq: 4, ts_ms: now - 3 * 60 * min, kind: 'shell_exec', who: 'agent', summary: 'Ran a command in a shell pane' },

@@ -58,8 +58,8 @@ export function projectName(cwd: string): string {
 
 /**
  * Tab title: the pane's title when it has one, else the agent's display name from the registry
- * listing (`Claude Code`, `PowerShell`; the raw id when no label is known), numbered when several
- * panes run the same agent (`Claude Code 2`). Without a listing, the compiled agents' labels apply.
+ * listing (`Claude`, `PowerShell`; the raw id when no label is known), numbered when several
+ * panes run the same agent (`Claude 2`). Without a listing, the compiled agents' labels apply.
  */
 export function tabLabels(panes: PaneInfo[], listing: AgentRegistryListing = fallbackListing()): Map<string, string> {
   const ordered = orderPanes(panes);

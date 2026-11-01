@@ -177,15 +177,15 @@ describe('PointBox', () => {
         state: {
           ...STATE,
           targets: [
-            { paneId: 'p1', agentLabel: 'Claude Code', title: 'Claude Code', sameFolder: true, canSend: true },
-            { paneId: 'p2', agentLabel: 'Claude Code', title: 'fix-pricing', sameFolder: false, canSend: true },
+            { paneId: 'p1', agentLabel: 'Claude', title: 'Claude', sameFolder: true, canSend: true },
+            { paneId: 'p2', agentLabel: 'Claude', title: 'fix-pricing', sameFolder: false, canSend: true },
           ],
         },
         target: 'p1',
       }),
     );
     const labels = Array.from(select().querySelectorAll('option')).map((o) => o.textContent);
-    expect(labels).toEqual(['Claude Code', 'Claude Code · fix-pricing']);
+    expect(labels).toEqual(['Claude', 'Claude · fix-pricing']);
   });
 
   it('choosing another pane reports it through onTarget', () => {

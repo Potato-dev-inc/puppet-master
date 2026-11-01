@@ -82,7 +82,7 @@ pub struct Answer {
 pub struct ConsentInfo {
     /// `take_over` or `answer_prompt`.
     pub action: String,
-    /// Who is asking, in the words the card uses ("Claude Code", or "An agent").
+    /// Who is asking, in the words the card uses ("Claude", or "An agent").
     pub requester: String,
     /// What it wants to control or answer in, in the words the card uses ("Codex").
     pub target: String,
@@ -100,7 +100,7 @@ pub struct ConsentInfo {
 pub struct LimitInfo {
     /// `usage_limit` (the agent ran out) or `reset_reminder` (a reminder the person asked for).
     pub kind: String,
-    /// The agent's name in the words the card uses ("Claude Code").
+    /// The agent's name in the words the card uses ("Claude").
     pub agent_label: String,
     /// What ran out ("session limit", "weekly limit"), when the screen said.
     #[serde(skip_serializing_if = "Option::is_none")]

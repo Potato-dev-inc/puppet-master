@@ -14,7 +14,7 @@ function pick(over: Partial<PickView> = {}): PickView {
 }
 
 function target(over: Partial<Target> = {}): Target {
-  return { paneId: 'p1', agentLabel: 'Claude Code', title: 'fix-pricing', sameFolder: false, canSend: true, ...over };
+  return { paneId: 'p1', agentLabel: 'Claude', title: 'fix-pricing', sameFolder: false, canSend: true, ...over };
 }
 
 describe('sourceLine', () => {
@@ -45,15 +45,15 @@ describe('sourceLine', () => {
 
 describe('targetLabel', () => {
   it('shows the agent label and the pane title after a dot', () => {
-    expect(targetLabel({ agentLabel: 'Claude Code', title: 'fix-pricing' })).toBe('Claude Code · fix-pricing');
+    expect(targetLabel({ agentLabel: 'Claude', title: 'fix-pricing' })).toBe('Claude · fix-pricing');
   });
 
   it('leaves the title out when it repeats the agent label', () => {
-    expect(targetLabel({ agentLabel: 'Claude Code', title: 'Claude Code' })).toBe('Claude Code');
+    expect(targetLabel({ agentLabel: 'Claude', title: 'Claude' })).toBe('Claude');
   });
 
   it('treats a title that differs only by case or outer spaces as the same name', () => {
-    expect(targetLabel({ agentLabel: 'Claude Code', title: 'claude code' })).toBe('Claude Code');
+    expect(targetLabel({ agentLabel: 'Claude', title: 'claude' })).toBe('Claude');
     expect(targetLabel({ agentLabel: ' Codex ', title: 'Codex ' })).toBe('Codex');
   });
 

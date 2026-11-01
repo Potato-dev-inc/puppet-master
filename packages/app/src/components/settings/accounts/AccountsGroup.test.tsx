@@ -8,7 +8,7 @@ import { AccountsGroup } from './AccountsGroup';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// Offline compiled registry: gives the display labels ("Claude Code", "Codex") without Tauri.
+// Offline compiled registry: gives the display labels ("Claude", "Codex") without Tauri.
 const REGISTRY = fallbackListing();
 vi.mock('../../../lib/agentRegistry', async (orig) => ({
   ...(await orig<typeof import('../../../lib/agentRegistry')>()),
@@ -74,8 +74,8 @@ describe('AccountsGroup', () => {
   it('headings show the agent display name, not the raw id', async () => {
     await render(fakeApi());
     const headings = Array.from(host.querySelectorAll('h4')).map((h) => h.textContent?.trim());
-    expect(headings).toEqual(['Claude Code', 'Codex CLI']);
-    expect(host.querySelector('[data-testid="accounts-claude"] h4')?.textContent).toBe('Claude Code');
+    expect(headings).toEqual(['Claude', 'Codex CLI']);
+    expect(host.querySelector('[data-testid="accounts-claude"] h4')?.textContent).toBe('Claude');
     expect(host.querySelector('[data-testid="accounts-codex"] h4')?.textContent).toBe('Codex CLI');
   });
 

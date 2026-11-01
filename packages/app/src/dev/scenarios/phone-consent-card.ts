@@ -10,8 +10,8 @@ const now = Date.now();
 // Allow once, no pre-selected default. It sorts with high risk, ahead of calmer things.
 const question: Question = {
   id: 'consent-1',
-  agent: 'Claude Code',
-  question: 'Allow Claude Code to control Codex?',
+  agent: 'Claude',
+  question: 'Allow Claude to control Codex?',
   context: 'It would type into the pane and answer its questions. It did not start this pane.',
   choices: [
     { id: 'deny', label: 'Deny' },
@@ -22,7 +22,7 @@ const question: Question = {
   created_at_ms: now - 40_000,
   expires_at_ms: now + 560_000,
   state: 'pending',
-  consent: { action: 'take_over', requester: 'Claude Code', target: 'Codex', pane_id: PANE_CODEX },
+  consent: { action: 'take_over', requester: 'Claude', target: 'Codex', pane_id: PANE_CODEX },
 };
 
 const item: AttentionItem = {
@@ -35,7 +35,7 @@ const item: AttentionItem = {
   since_ms: now - 40_000,
   expires_at_ms: now + 560_000,
   pane: null,
-  title: 'Claude Code wants to control another agent',
+  title: 'Claude wants to control another agent',
   sentence: null,
   risk: null,
   prompt: null,

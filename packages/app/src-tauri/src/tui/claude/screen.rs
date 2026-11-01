@@ -1,9 +1,9 @@
-//! The interactive Claude Code TUI: what its screens show about whether a turn is running.
+//! The interactive Claude TUI: what its screens show about whether a turn is running.
 
 use crate::tui::{ComposerState, StandbyScreen};
 
 /// Ctrl+U, sixteen times: each press erases ONE visual line of the input box backwards (live,
-/// Claude Code 2.1.300: two wrapped copies of a follow-up needed two presses; presses on an empty
+/// Claude 2.1.300: two wrapped copies of a follow-up needed two presses; presses on an empty
 /// box do nothing). Used only on text Puppet Master typed (`TuiProfile::retype_clear_sequence`),
 /// never on a person's draft.
 pub(super) const CLEAR_TYPED_TEXT: &str =
@@ -231,7 +231,7 @@ pub(super) fn is_chrome_line(lower: &str) -> bool {
 mod tests {
     use super::*;
 
-    // Rows recorded from a live Claude Code session (v2.1.287).
+    // Rows recorded from a live Claude session (v2.1.287).
     const WORKING: &str = "\u{276f} Reply with only the word PONG. Use no tools.\n\u{2722} Osmosing\u{2026}\n  \u{23bf}  Tip: Want a side agent watching your back\n\u{2500}\u{2500}\u{2500}\u{2500}\n\u{276f} \n\u{2500}\u{2500}\u{2500}\u{2500}\n";
     const WORKING_STAR: &str = "* Osmosing\u{2026}\n\u{2500}\u{2500}\u{2500}\u{2500}\n\u{276f} \n";
     const FINISHED: &str = "\u{276f} Reply with only the word PONG. Use no tools.\n\u{25cf} PONG\n\u{273b} Brewed for 1s \u{b7} done 23:01\n\u{2500}\u{2500}\u{2500}\u{2500}\n\u{276f} \n\u{2500}\u{2500}\u{2500}\u{2500}\n";
@@ -252,12 +252,12 @@ mod tests {
             "a rule glued to the prompt by a soft wrap is still the empty box"
         );
         assert_eq!(standby_screen(WORKING), StandbyScreen::NotReady);
-        assert_eq!(standby_screen("\u{276f} half typed text\n Claude Code"), StandbyScreen::NotReady);
+        assert_eq!(standby_screen("\u{276f} half typed text\n Claude"), StandbyScreen::NotReady);
         assert_eq!(standby_screen(""), StandbyScreen::NotReady);
         assert_eq!(standby_screen("Select login method:\n\u{276f} 1. Claude account"), StandbyScreen::NeedsAttention);
     }
 
-    // Real run results (Claude Code 2.1.299, live run 2026-10-14): the screen's footer rows came along.
+    // Real run results (Claude 2.1.299, live run 2026-10-14): the screen's footer rows came along.
     const RESULT_MANUAL: &str = include_str!("fixtures/result_footer_manual_mode_live.txt");
 
     #[test]
@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(input_box(&typed), ComposerState::HasText, "{typed}");
     }
 
-    /// A real Claude Code 2.1.300 pane (120x30, `/panes/{id}/screen`) right after a turn, with the
+    /// A real Claude 2.1.300 pane (120x30, `/panes/{id}/screen`) right after a turn, with the
     /// suggestion `commit this` drawn faint in the input box. Captured live 2026-10-14 23:04.
     const GHOST_LIVE: &str = include_str!("fixtures/ghost_suggestion_2_1_300_live.ansi");
 

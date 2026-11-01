@@ -51,7 +51,7 @@ const cockpit = (over: Record<string, unknown> = {}) =>
     prompts: {},
     asked: { questions: [] },
     statusSince: new Map(),
-    names: new Map([['p1', 'Claude Code']]),
+    names: new Map([['p1', 'Claude']]),
     launchEntries: [],
     readyAgents: new Set(),
     now: 0,
@@ -66,10 +66,10 @@ describe('stuck card', () => {
   it('says what is wrong in one plain sentence, shows the evidence and the four actions', () => {
     act(() =>
       root.render(
-        <StuckCard name="Claude Code" signal={signal} onHint={() => {}} onInterrupt={() => {}} onAsk={() => {}} onDismiss={() => {}} />,
+        <StuckCard name="Claude" signal={signal} onHint={() => {}} onInterrupt={() => {}} onAsk={() => {}} onDismiss={() => {}} />,
       ),
     );
-    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude Code seems stuck: the same error 4 times.');
+    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude seems stuck: the same error 4 times.');
     expect(Array.from(host.querySelectorAll('.ib-evidence li')).map((l) => l.textContent)).toEqual(signal.evidence_lines);
     expect(Array.from(host.querySelectorAll('button')).map((b) => b.textContent)).toEqual([
       'Give it a hint',
@@ -116,7 +116,7 @@ describe('stuck card', () => {
     // in the Inbox it is a card in the one list, spaced by the list (no dock margin)
     expect(host.querySelector('[aria-label="Needs you"] [data-kind="stuck"]')).not.toBeNull();
     expect(host.querySelector('.ib-dock')).toBeNull();
-    expect(host.textContent).toContain('Claude Code seems stuck: the same error 4 times.');
+    expect(host.textContent).toContain('Claude seems stuck: the same error 4 times.');
   });
 });
 
@@ -160,7 +160,7 @@ describe('useLoopSignals', () => {
 });
 
 describe('panic sheet', () => {
-  const names = new Map([['p1', 'Claude Code']]);
+  const names = new Map([['p1', 'Claude']]);
   it('lists what was stopped', () => {
     const report: StopReport = {
       stopped: [
@@ -173,7 +173,7 @@ describe('panic sheet', () => {
     act(() => root.render(<PanicSheet report={report} names={names} onClose={onClose} />));
     expect(host.querySelector('#ck-panic-t')!.textContent).toBe('Stopped 2 agents');
     const rows = Array.from(host.querySelectorAll('.ck-panic-list')[0].querySelectorAll('li')).map((l) => l.textContent);
-    expect(rows).toEqual(['Claude Codeapp', 'codexapi']);
+    expect(rows).toEqual(['Claudeapp', 'codexapi']);
     expect(host.textContent).toContain('pane has exited');
     act(() => button('Done')!.click());
     expect(onClose).toHaveBeenCalled();

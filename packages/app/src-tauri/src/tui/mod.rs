@@ -437,6 +437,15 @@ mod descriptor {
     }
 
     #[test]
+    fn claude_label_is_not_the_brand_name() {
+        // UX-4: Anthropic's brand rule. The label people read is "Claude", never "Claude Code".
+        let _serial = registry::test_serial();
+        let claude = descriptors().into_iter().find(|d| d.id == "claude").expect("claude descriptor");
+        assert_eq!(claude.label, "Claude");
+        assert!(!claude.label.contains("Claude Code"), "label was {}", claude.label);
+    }
+
+    #[test]
     fn descriptor_modes_follow_features() {
         let _serial = registry::test_serial();
         for profile in profiles() {

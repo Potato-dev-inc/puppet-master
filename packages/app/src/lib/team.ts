@@ -302,7 +302,7 @@ export const MAX_NOTE = 280;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/** "Maya's Claude Code" or "Maya". */
+/** "Maya's Claude" or "Maya". */
 export function whoDid(event: TeamEvent): string {
   const agent = event.actor.agent?.label;
   return agent ? `${event.actor.display}'s ${agent}` : event.actor.display;

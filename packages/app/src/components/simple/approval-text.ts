@@ -146,9 +146,9 @@ export const KNOWN_HEADLINES: string[] = [
 
 /** Words for the language test: every `what` and `safe` phrase, in a card sentence. */
 export const STRINGS: string[] = [
-  ...[...Object.values(MEDIUM), ...Object.values(LOW), ...Object.values(GENERIC)].map((w) => `Claude Code wants to ${w.what}. ${w.safe}`.trim()),
-  `Claude Code wants to ${READ_WORDS.what}. ${READ_WORDS.safe}`,
-  ...Object.values(BLOCKED).map((what) => `Claude Code wanted to ${what}.`),
+  ...[...Object.values(MEDIUM), ...Object.values(LOW), ...Object.values(GENERIC)].map((w) => `Claude wants to ${w.what}. ${w.safe}`.trim()),
+  `Claude wants to ${READ_WORDS.what}. ${READ_WORDS.safe}`,
+  ...Object.values(BLOCKED).map((what) => `Claude wanted to ${what}.`),
   NOTHING_CHANGES,
   CAN_GO_BACK,
   CHECK_FIRST,

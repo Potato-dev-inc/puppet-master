@@ -33,7 +33,7 @@ export function helpersAskingFor(list: ReadonlyArray<PaneLike>, paneId: string, 
   return list.filter((p) => p.info.id !== paneId && asking(p.info.id) && bubbleTargets(list, p.info.id).includes(paneId)).map((p) => p.info.id);
 }
 
-/** "Claude Code helper asks": the card's lead-in, with the helper's agent name. */
+/** "Claude helper asks": the card's lead-in, with the helper's agent name. */
 export function helperAsksLabel(agentName: string): string {
   return `${agentName} helper asks`;
 }

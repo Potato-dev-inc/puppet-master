@@ -22,9 +22,9 @@ afterEach(() => {
 
 const card: Question = {
   id: 'b1',
-  agent: 'Claude Code',
+  agent: 'Claude',
   pane_id: 'p1',
-  question: 'Claude Code used its 20 turns.',
+  question: 'Claude used its 20 turns.',
   context: "20 of 20 turns. It's paused after its last turn. Nothing was lost.",
   choices: [
     { id: 'add_turns', label: 'Add 10 turns' },
@@ -56,7 +56,7 @@ function render(q: Question = card) {
 describe('the budget pause card', () => {
   it('says the agent used its turns, that nothing was lost, and offers Add 10 turns / Stop here', () => {
     render();
-    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude Code used its 20 turns.');
+    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude used its 20 turns.');
     expect(host.textContent).toContain("It's paused after its last turn. Nothing was lost.");
     expect(host.textContent).toContain('auth refactor');
     expect(button('Add 10 turns')!.className).toContain('ck-btn--primary');

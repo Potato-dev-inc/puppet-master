@@ -150,7 +150,7 @@ export function holdReasonText(reason: string): string {
   }
 }
 
-/** "claude [work] (headless) D:/proj" (the pool's key label) as "Claude Code, headless, work: D:/proj". */
+/** "claude [work] (headless) D:/proj" (the pool's key label) as "Claude, headless, work: D:/proj". */
 export function holdKeyLabel(key: string): string {
   const match = /^(\S+)((?: \[[^\]]*\])?)((?: \(headless\))?) (.*)$/.exec(key);
   if (!match) return key;

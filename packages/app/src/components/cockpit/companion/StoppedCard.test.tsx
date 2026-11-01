@@ -26,7 +26,7 @@ const view: CompanionView = {
   avatar: 'mochi',
   persona: 'calm',
   agentType: 'claude',
-  agentLabel: 'Claude Code',
+  agentLabel: 'Claude',
   folderName: 'companion-test',
   state: 'stopped',
   stateLine: 'Mochi keeps stopping. Open the terminal to see why.',

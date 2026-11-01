@@ -228,7 +228,7 @@ fn test_profile_spawns_without_agent_type() {
 }
 
 /// A launcher that exported NO_COLOR (npm does when its output is redirected) must not make
-/// Claude Code render monochrome in a pane: the pane env keeps color-capable TERM/COLORTERM and
+/// Claude render monochrome in a pane: the pane env keeps color-capable TERM/COLORTERM and
 /// drops every color-disabling variable.
 #[test]
 fn pane_env_enables_color_and_drops_no_color() {

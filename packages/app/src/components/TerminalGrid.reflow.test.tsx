@@ -2,7 +2,7 @@
 // The grid must leave a pane alone when something ELSE changes: another pane opening or closing (an
 // agent run's pane, a warm standby), a status update, a fresh pane list. Only a pane that really came
 // back from its own window plays the settle animation and gets a reflow, because every refit that
-// changes the cell size resizes the PTY and makes an inline TUI (Claude Code and friends) reprint.
+// changes the cell size resizes the PTY and makes an inline TUI (Claude and friends) reprint.
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

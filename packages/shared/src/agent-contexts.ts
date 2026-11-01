@@ -49,7 +49,7 @@ const MODEL_PATTERNS: Array<{ pattern: RegExp; normalize?: (match: RegExpMatchAr
 export const AGENT_CONTEXT_PROFILES: Record<AgentType, AgentContextProfile> = {
   claude: {
     agent_type: 'claude',
-    label: 'Claude Code',
+    label: 'Claude',
     default_model: null,
     model_detection: 'cli-banner',
     smartness: 9,

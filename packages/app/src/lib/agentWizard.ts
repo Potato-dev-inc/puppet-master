@@ -462,7 +462,7 @@ export type Drafter =
   | { kind: 'local_agent'; id: string; label: string }
   | { kind: 'openrouter'; model: string; label: string };
 
-/** Claude Code first, then Codex, then whatever else can answer a read-only question. */
+/** Claude first, then Codex, then whatever else can answer a read-only question. */
 export function chooseDefaultDrafter(list: LocalDrafter[]): LocalDrafter | null {
   for (const id of ['claude', 'codex']) {
     const hit = list.find((d) => d.id === id);

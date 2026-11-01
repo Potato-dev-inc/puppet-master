@@ -27,7 +27,7 @@ describe('HelperCard', () => {
       name="Fish"
       task="fix the failing build"
       project="demo-a"
-      agentLabel="Claude Code"
+      agentLabel="Claude"
       open
       onStart={() => Promise.resolve()}
       onNotNow={() => Promise.resolve()}
@@ -40,7 +40,7 @@ describe('HelperCard', () => {
     act(() => root.render(card()));
     expect(host.textContent).toContain('Fish wants a helper: fix the failing build');
     expect(host.textContent).toContain('Folder: demo-a');
-    expect(host.textContent).toContain('Agent: Claude Code');
+    expect(host.textContent).toContain('Agent: Claude');
     expect([...host.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Start', 'Change folder', 'Not now']);
   });
 

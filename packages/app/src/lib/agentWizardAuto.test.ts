@@ -106,12 +106,12 @@ describe('the switch', () => {
 });
 
 describe('the writer', () => {
-  it('is Claude Code, else Codex, else nobody (never "whatever else is installed")', () => {
-    expect(pickAutoDrafter([{ id: 'codex', label: 'Codex' }, { id: 'claude', label: 'Claude Code' }])?.id).toBe('claude');
+  it('is Claude, else Codex, else nobody (never "whatever else is installed")', () => {
+    expect(pickAutoDrafter([{ id: 'codex', label: 'Codex' }, { id: 'claude', label: 'Claude' }])?.id).toBe('claude');
     expect(pickAutoDrafter([{ id: 'opencode', label: 'OpenCode' }, { id: 'codex', label: 'Codex' }])?.id).toBe('codex');
     expect(pickAutoDrafter([{ id: 'opencode', label: 'OpenCode' }])).toBeNull();
     expect(pickAutoDrafter([])).toBeNull();
-    expect(NO_AUTO_DRAFTER_MESSAGE).toContain('Claude Code or Codex');
+    expect(NO_AUTO_DRAFTER_MESSAGE).toContain('Claude or Codex');
   });
 });
 
@@ -418,7 +418,7 @@ function world(over: Partial<WizardApi> = {}, decide: (v: string, w: World) => P
   return w;
 }
 
-const drafter = { kind: 'local_agent' as const, id: 'claude', label: 'Claude Code' };
+const drafter = { kind: 'local_agent' as const, id: 'claude', label: 'Claude' };
 
 // ---- the AI look at a menu nobody could read (SPEC 11.20) --------------------------------------------------------------
 
@@ -820,7 +820,7 @@ describe('runAutonomous', () => {
     expect(out).toMatchObject({ status: 'finished', approved: true, checks: 9, rounds: 1 });
     // every automatic decision is in the list, in plain short English, in order
     expect(r.decisions).toEqual([
-      'Picked Claude Code to write the profile',
+      'Picked Claude to write the profile',
       'Will run (capture): nimbus',
       "Answered Nimbus's trust question: Yes, I trust this folder",
       'Decided the agent is ready (AI look)',

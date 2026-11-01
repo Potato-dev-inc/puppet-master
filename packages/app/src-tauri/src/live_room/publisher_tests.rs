@@ -645,7 +645,7 @@ fn a_turn_end_after_a_new_turn_is_shown() {
 fn a_pane_that_closes_keeps_its_label_and_title() {
     let rig = Rig::new(vec![pane("pa", false), pane("pb", false)]);
     rig.set("pa", |spec| {
-        spec.label = "Claude Code".into();
+        spec.label = "Claude".into();
         spec.title = Some("Fix the build".into());
     });
     let mut publisher = rig.publisher(T0 + 20 * MIN);
@@ -659,7 +659,7 @@ fn a_pane_that_closes_keeps_its_label_and_title() {
     let last_snapshot = rig.bodies().into_iter().rev().find(|body| body["kind"] == "snap").expect("a snapshot");
     let closed = &last_snapshot["panes"][0];
     assert_eq!(closed["state"], "gone");
-    assert_eq!(closed["label"], "Claude Code");
+    assert_eq!(closed["label"], "Claude");
     assert_eq!(closed["title"], "Fix the build");
 }
 
@@ -667,14 +667,14 @@ fn a_pane_that_closes_keeps_its_label_and_title() {
 fn a_pane_reported_closed_with_its_name_is_shown_closed_with_that_name() {
     let rig = Rig::new(vec![pane("pa", false), pane("pb", false)]);
     rig.set("pa", |spec| {
-        spec.label = "Claude Code".into();
+        spec.label = "Claude".into();
         spec.status = None;
     });
     let mut publisher = rig.publisher(T0 + 20 * MIN);
     publisher.start(T0).expect("starts");
     let first = &rig.bodies()[0];
     assert_eq!(first["panes"][0]["state"], "gone");
-    assert_eq!(first["panes"][0]["label"], "Claude Code");
+    assert_eq!(first["panes"][0]["label"], "Claude");
     assert_eq!(first["panes"][0]["title"], "Fix login");
 }
 

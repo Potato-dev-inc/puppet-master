@@ -11,7 +11,7 @@ describe('blameLine', () => {
   });
 
   it('shows only the agent when the pane has no title', () => {
-    expect(blameLine({ agent: 'Claude Code', paneTitle: null, atMs: at }).text).toBe('Claude Code \u00b7 14:02');
+    expect(blameLine({ agent: 'Claude', paneTitle: null, atMs: at }).text).toBe('Claude \u00b7 14:02');
   });
 
   it('pads the clock to two digits', () => {

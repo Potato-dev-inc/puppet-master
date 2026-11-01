@@ -119,8 +119,8 @@ describe('PreloadSettings', () => {
     const master = host.querySelector('[role="switch"]');
     expect(master?.getAttribute('aria-checked')).toBe('false');
     expect(host.textContent).toContain('stays open in the background, which uses memory');
-    expect(checkbox('Keep Claude Code warm')?.checked).toBe(false);
-    expect(checkbox('Keep Claude Code warm')?.disabled).toBe(false);
+    expect(checkbox('Keep Claude warm')?.checked).toBe(false);
+    expect(checkbox('Keep Claude warm')?.disabled).toBe(false);
     // Codex can open a visible pane but has no warm mode yet.
     expect(checkbox('Keep Codex CLI warm')?.disabled).toBe(true);
     expect(host.textContent).toContain('no warm mode yet');
@@ -133,12 +133,12 @@ describe('PreloadSettings', () => {
     expect(api.setConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({ preload: { enabled: true, providers: {} } }),
     );
-    await click(checkbox('Keep Claude Code warm'));
+    await click(checkbox('Keep Claude warm'));
     expect(api.setConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({ preload: { enabled: true, providers: { claude: 1 } } }),
     );
-    expect(checkbox('Keep Claude Code warm')?.checked).toBe(true);
-    await click(checkbox('Keep Claude Code warm'));
+    expect(checkbox('Keep Claude warm')?.checked).toBe(true);
+    await click(checkbox('Keep Claude warm'));
     expect(api.setConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({ preload: { enabled: true, providers: {} } }),
     );
@@ -147,7 +147,7 @@ describe('PreloadSettings', () => {
   it('a ticked provider can keep two warm and the idle timeout is edited in minutes', async () => {
     const api = mockApi({ ...DEFAULT_STANDBY_CONFIG, preload: { enabled: true, providers: { claude: 1 } } });
     await render(api);
-    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Warm Claude Code count"]');
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Warm Claude count"]');
     expect(select?.value).toBe('1');
     expect(select?.disabled).toBe(false);
     expect(Array.from(select?.options ?? []).map((o) => o.value)).toEqual(['1', '2']);
@@ -159,7 +159,7 @@ describe('PreloadSettings', () => {
   it('shows the experimental tag and says why a non-terminal agent has no warm mode', async () => {
     const base = peekAgentRegistry().agents.find((agent) => agent.id === 'claude') as AgentDescriptor;
     registryOverride.agents = [
-      { ...base, id: 'claude', label: 'Claude Code', standby: { visible: true, headless: false, experimental: false } },
+      { ...base, id: 'claude', label: 'Claude', standby: { visible: true, headless: false, experimental: false } },
       { ...base, id: 'myagent', label: 'My Agent', standby: { visible: true, headless: false, experimental: true } },
       { ...base, id: 'opencode_native', label: 'OpenCode (API)', kind: 'native_protocol', standby: { visible: false, headless: false, experimental: false } },
     ];
@@ -169,7 +169,7 @@ describe('PreloadSettings', () => {
     const myAgent = host.querySelector<HTMLLabelElement>('input[aria-label="Keep My Agent warm"]')?.closest('label');
     expect(myAgent?.textContent).toContain('(experimental)');
     expect(checkbox('Keep My Agent warm')?.disabled).toBe(false);
-    expect(checkbox('Keep Claude Code warm')?.closest('label')?.textContent).not.toContain('(experimental)');
+    expect(checkbox('Keep Claude warm')?.closest('label')?.textContent).not.toContain('(experimental)');
     // The API agent explains itself instead of promising a warm mode.
     expect(checkbox('Keep OpenCode (API) warm')?.disabled).toBe(true);
     expect(host.textContent).toContain(NOT_TERMINAL_NOTE);

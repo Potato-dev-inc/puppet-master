@@ -1,4 +1,4 @@
-//! Which of Claude Code's session files a pane is writing.
+//! Which of Claude's session files a pane is writing.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

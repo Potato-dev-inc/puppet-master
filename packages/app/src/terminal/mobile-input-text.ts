@@ -49,7 +49,7 @@ export const SPECIAL_KEY_GROUPS: SpecialKeyGroup[] = [
     keys: [
       { id: 'esc', glyph: '⎋', caption: 'esc', value: CONTROL_KEYS.Escape, label: 'Escape' },
       { id: 'tab', glyph: '⇥', caption: 'tab', value: CONTROL_KEYS.Tab, label: 'Tab' },
-      // Claude Code cycles its permission modes with Shift-Tab.
+      // Claude cycles its permission modes with Shift-Tab.
       { id: 'backtab', glyph: '⇤', caption: 'mode', value: '\x1b[Z', label: 'Shift-Tab' },
       { id: 'ctrl-c', glyph: '⌃C', caption: 'interrupt', value: '\x03', label: 'Ctrl-C' },
       { id: 'ctrl-d', glyph: '⌃D', caption: 'eof', value: '\x04', label: 'Ctrl-D' },

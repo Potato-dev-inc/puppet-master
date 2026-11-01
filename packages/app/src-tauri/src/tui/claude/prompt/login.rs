@@ -1,8 +1,8 @@
-//! Claude Code's own sign-in menu (`/login`, or a "Login expired" message that asks for it).
+//! Claude's own sign-in menu (`/login`, or a "Login expired" message that asks for it).
 //!
 //! ```text
 //! Login
-//! Claude Code can be used with your Claude subscription or billed based on API usage through your Console account.
+//! Claude can be used with your Claude subscription or billed based on API usage through your Console account.
 //! Select login method:
 //!  ❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise
 //!    2. Anthropic Console account · API usage billing
@@ -71,7 +71,7 @@ pub(super) fn login_menu(agent_type: &str, screen: &str) -> Option<Value> {
     let mut prompt = generic::prompt_json(agent_type, "question", &all[anchor..].join("\n"), choices);
     prompt["labels"] = Value::Object(labels);
     prompt["menu"] = json!({"selected": selected, "options": menu_options});
-    prompt["summary"] = Value::String("Claude Code needs you to sign in".into());
+    prompt["summary"] = Value::String("Claude needs you to sign in".into());
     prompt["note"] = Value::String("Pick how you sign in. A browser window opens.".into());
     prompt["cancel_key"] = Value::String(ESC.into());
     prompt["identity"] = Value::String(format!("sign_in|{}", found.iter().map(|option| alnum(&option.label)).collect::<Vec<_>>().join("|")));

@@ -38,7 +38,7 @@ fn plural(n: u32, unit: &str) -> String {
     }
 }
 
-/// "Claude Code used its 20 turns." / "Claude Code used its 60 minutes." / "... its budget."
+/// "Claude used its 20 turns." / "Claude used its 60 minutes." / "... its budget."
 pub fn headline(agent: &str, record: &BudgetRecord, reason: Reason) -> String {
     match (reason, record.turns, record.minutes) {
         (Reason::Turns, Some(turns), _) => format!("{agent} used its {}.", plural(turns, "turn")),

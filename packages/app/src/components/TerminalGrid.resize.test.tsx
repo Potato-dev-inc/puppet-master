@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // The whole stack (grid -> pane -> useTerminalSession -> TerminalSession) with a fake xterm and a spy on
 // the bridge's resize call: a pane whose cell did not change size must never get a PTY resize, whatever
-// happens around it. Every resize makes an inline TUI (Claude Code and friends) reprint its screen.
+// happens around it. Every resize makes an inline TUI (Claude and friends) reprint its screen.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

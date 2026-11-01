@@ -10,7 +10,7 @@ import { AskBar } from './AskBar';
 type Fake = { [K in keyof AskbarApi]: Mock<AskbarApi[K]> };
 
 const AGENTS: AskbarAgent[] = [
-  { id: 'claude', label: 'Claude Code', ready: true },
+  { id: 'claude', label: 'Claude', ready: true },
   { id: 'kilo', label: 'Kilo', ready: false },
   { id: 'codex', label: 'Codex', ready: false },
 ];
@@ -104,7 +104,7 @@ describe('ask bar', () => {
     await renderBar(api);
     expect(host.querySelector('.askbar')!.getAttribute('data-state')).toBe('empty');
     expect(input().placeholder).toBe('Ask anything…');
-    expect(chipLabel()).toBe('Claude Code');
+    expect(chipLabel()).toBe('Claude');
     expect(api.resize).toHaveBeenCalledWith(false);
   });
 
@@ -115,7 +115,7 @@ describe('ask bar', () => {
 
     act(() => (host.querySelector('.askbar-chip') as HTMLButtonElement).click());
     const rows = Array.from(host.querySelectorAll('.askbar-menu-row'));
-    expect(rows.map((r) => r.querySelector('.askbar-menu-label')!.textContent)).toEqual(['Claude Code', 'Kilo', 'Codex']);
+    expect(rows.map((r) => r.querySelector('.askbar-menu-label')!.textContent)).toEqual(['Claude', 'Kilo', 'Codex']);
     expect(rows.map((r) => r.querySelector('.askbar-menu-ready')?.textContent ?? null)).toEqual(['Ready', null, null]);
 
     act(() => (rows[2] as HTMLButtonElement).click());
@@ -221,7 +221,7 @@ describe('ask bar', () => {
     await ask(api, 'What changed in main?');
     expect(host.querySelector('.askbar')!.getAttribute('data-state')).toBe('running');
     expect(host.querySelector('[role="img"][aria-label="Working"]')).not.toBeNull();
-    expect(host.textContent).toContain('Asking Claude Code…');
+    expect(host.textContent).toContain('Asking Claude…');
     expect(api.ask).toHaveBeenCalledTimes(1);
     expect(api.ask.mock.calls[0][0]).toMatchObject({ question: 'What changed in main?', agent: 'claude', clipboard: null });
     expect(api.resize).toHaveBeenLastCalledWith(true);

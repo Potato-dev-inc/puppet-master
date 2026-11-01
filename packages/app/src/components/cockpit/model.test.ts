@@ -43,7 +43,7 @@ describe('cockpit model', () => {
     expect(spinnerStatus('weird')).toBe('exited');
   });
   it('matches words', () => {
-    expect(matchesQuery('Switch to Claude Code', 'claude sw')).toBe(true);
+    expect(matchesQuery('Switch to Claude', 'claude sw')).toBe(true);
     expect(matchesQuery('Interrupt', 'claude')).toBe(false);
   });
   it('names a pane state in plain words', () => {
@@ -60,9 +60,9 @@ describe('cockpit model', () => {
   it('spawn log uses plain words for all five stages, with and without an agent name', () => {
     const stage = (s: 'claiming' | 'spawning' | 'attached' | 'ready' | 'failed', warm = false) =>
       ({ agent_id: 'claude', pane_id: null, stage: s, warm }) as Parameters<typeof spawnLogLine>[0];
-    expect(spawnLogLine(stage('claiming'), 'Claude Code')).toBe('Getting a ready agent');
-    expect(spawnLogLine(stage('spawning'), 'Claude Code')).toBe('Starting Claude Code');
-    expect(spawnLogLine(stage('spawning', true), 'Claude Code')).toBe('Starting Claude Code');
+    expect(spawnLogLine(stage('claiming'), 'Claude')).toBe('Getting a ready agent');
+    expect(spawnLogLine(stage('spawning'), 'Claude')).toBe('Starting Claude');
+    expect(spawnLogLine(stage('spawning', true), 'Claude')).toBe('Starting Claude');
     expect(spawnLogLine(stage('spawning'))).toBe('Starting the agent');
     expect(spawnLogLine(stage('attached'))).toBe('Connected');
     expect(spawnLogLine(stage('ready'))).toBe('Ready');

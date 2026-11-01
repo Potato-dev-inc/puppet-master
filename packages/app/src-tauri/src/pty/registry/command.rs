@@ -135,7 +135,7 @@ pub(super) fn apply_common_pty_env(cmd_builder: &mut CommandBuilder) {
     cmd_builder.env("COLORTERM", "truecolor");
     // The pane is a real terminal that renders ANSI colors. Variables inherited from whatever
     // launched the app (`npm run dev > log` makes npm export NO_COLOR=1 / COLOR=0) switch
-    // Claude Code and other TUIs to monochrome output, so drop them.
+    // Claude and other TUIs to monochrome output, so drop them.
     for name in COLOR_DISABLING_ENV {
         cmd_builder.env_remove(name);
     }

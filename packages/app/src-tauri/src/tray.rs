@@ -781,10 +781,10 @@ mod tests {
     #[test]
     fn agents_with_a_warm_worker_are_marked_ready() {
         let items = new_pane_items(
-            &[agent("claude", "Claude Code", true, true), agent("kilo", "Kilo", true, true)],
+            &[agent("claude", "Claude", true, true), agent("kilo", "Kilo", true, true)],
             &["kilo".to_string()],
         );
-        assert_eq!(items[0], Item::Action { id: "new:claude".into(), label: "Claude Code".into(), enabled: true });
+        assert_eq!(items[0], Item::Action { id: "new:claude".into(), label: "Claude".into(), enabled: true });
         assert_eq!(items[1], Item::Action { id: "new:kilo".into(), label: "Kilo (ready)".into(), enabled: true });
     }
 

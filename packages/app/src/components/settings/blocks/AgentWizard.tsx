@@ -329,7 +329,7 @@ export function AgentWizard({
       }
       const list = orderDrafters(await api.drafters().catch(() => []));
       if (auto) {
-        // The writer is picked for the person: Claude Code, else Codex, else the run stops with a plain message.
+        // The writer is picked for the person: Claude, else Codex, else the run stops with a plain message.
         const pick = pickAutoDrafter(list);
         if (!pick) {
           await discardSession();
@@ -757,7 +757,7 @@ export function AgentWizard({
                 )}
                 {locals.length === 0 && models.length === 0 && (
                   <p className="text-xs text-pm-muted">
-                    No writer is available. Install Claude Code or Codex, or add an OpenRouter key in Settings &gt; Keys.
+                    No writer is available. Install Claude or Codex, or add an OpenRouter key in Settings &gt; Keys.
                   </p>
                 )}
               </div>

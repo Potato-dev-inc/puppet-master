@@ -171,7 +171,7 @@ impl RepoWatch {
 pub struct PaneFacts {
     pub cwd: String,
     pub status: String,
-    /// Display label from the agent registry ("Claude Code").
+    /// Display label from the agent registry ("Claude").
     pub label: String,
     /// An agent (not a plain shell). A push typed in a shell pane is the person's own.
     pub is_agent: bool,

@@ -641,7 +641,7 @@ impl Env for TestEnv {
     fn pane(&self, _pane_id: &str) -> Option<PaneCtx> {
         self.present.get().then(|| PaneCtx {
             agent_id: "claude".into(),
-            agent_label: "Claude Code".into(),
+            agent_label: "Claude".into(),
             account: Some("acct-work".into()),
             project: self.project.to_string_lossy().into_owned(),
             status: self.status.borrow().clone(),
@@ -728,7 +728,7 @@ fn a_usage_limit_mid_turn_parks_the_run_as_waiting_input_and_raises_one_card() {
     assert_eq!(when_iso(action["reset_at_ms"].as_u64().unwrap() as i64, env.clock()), "2026-10-15T17:00");
     assert_eq!(action["self_resume_armed"], false);
     assert_eq!(action["options"], serde_json::json!([]), "nothing to choose, nothing to answer");
-    assert_eq!(action["summary"], "Claude Code ran out of usage. It can continue at 17:00.");
+    assert_eq!(action["summary"], "Claude ran out of usage. It can continue at 17:00.");
     assert_eq!(env.published.borrow().len(), 1, "the new state is published once");
     assert!(env.marks.borrow().iter().any(|m| m.starts_with("limit:detected window session limit")), "{:?}", env.marks.borrow());
 
@@ -737,7 +737,7 @@ fn a_usage_limit_mid_turn_parks_the_run_as_waiting_input_and_raises_one_card() {
     let cards = env.pending();
     assert_eq!(cards.len(), 1);
     let card = &cards[0];
-    assert_eq!(card.question, "Claude Code ran out of usage. It can continue at 17:00.");
+    assert_eq!(card.question, "Claude ran out of usage. It can continue at 17:00.");
     assert_eq!(card.choices.iter().map(|c| (c.id.as_str(), c.label.as_str())).collect::<Vec<_>>(), vec![("remind", "Remind me at 17:00"), ("stop", "Stop here")]);
     assert!(card.context.is_none(), "{:?}", card.context);
     assert!(!card.allow_free_text);
@@ -773,7 +773,7 @@ fn the_card_says_claude_continues_on_its_own_when_its_own_wait_is_armed() {
     let cards = env.pending();
     assert_eq!(cards.len(), 1);
     assert!(cards[0].limit.as_ref().unwrap().self_resume_armed);
-    assert!(cards[0].context.as_deref().unwrap().starts_with("Claude Code is set to continue on its own."), "{:?}", cards[0].context);
+    assert!(cards[0].context.as_deref().unwrap().starts_with("Claude is set to continue on its own."), "{:?}", cards[0].context);
     // Respecting the vendor's wait: the only labels are "Remind me" and "Stop here"; nothing offers to
     // cancel, replace or press its wait.
     let labels: Vec<_> = cards[0].choices.iter().map(|c| c.label.clone()).collect();
@@ -787,7 +787,7 @@ fn a_limit_with_no_printed_reset_says_so_and_offers_a_reminder_in_an_hour() {
     running_run(&env);
     hit_the_limit(&env, &mut engine, &claude_screen("usage_opus_no_reset"));
     let card = env.pending().remove(0);
-    assert_eq!(card.question, "Claude Code ran out of usage. It didn't say when it can continue.");
+    assert_eq!(card.question, "Claude ran out of usage. It didn't say when it can continue.");
     assert_eq!(card.choices[0].label, "Remind me in 1 hour");
 }
 
@@ -939,7 +939,7 @@ fn remind_me_raises_a_reminder_at_the_reset_and_not_before_and_survives_a_restar
     env.advance(3_600_000 + 1_000); // 17:00:01
     engine.tick(&env, &alive);
     let reminder = env.pending().into_iter().find(|q| q.limit.as_ref().is_some_and(|l| l.kind == "reset_reminder")).expect("the reminder card");
-    assert_eq!(reminder.question, "Claude Code's usage limit should have reset by now.");
+    assert_eq!(reminder.question, "Claude's usage limit should have reset by now.");
     assert_eq!(reminder.choices.len(), 1);
     assert!(engine.reminders().is_empty(), "raised once");
     assert_eq!(std::fs::read_to_string(&file).unwrap().trim(), "[]");
@@ -950,12 +950,12 @@ fn remind_me_raises_a_reminder_at_the_reset_and_not_before_and_survives_a_restar
 fn a_reminder_is_skipped_when_the_agent_already_carried_on_or_the_pane_is_gone() {
     let env = TestEnv::new();
     let mut engine = Engine::default();
-    engine.reminders.push(Reminder { pane_id: PANE.into(), agent_label: "Claude Code".into(), window: None, due_ms: env.now() + 10 });
+    engine.reminders.push(Reminder { pane_id: PANE.into(), agent_label: "Claude".into(), window: None, due_ms: env.now() + 10 });
     *env.status.borrow_mut() = "running".into(); // working again, no limit on screen
     env.advance(1_000);
     engine.tick(&env, &alive);
     assert!(env.pending().is_empty(), "it continued by itself: nothing to remind about");
-    engine.reminders.push(Reminder { pane_id: PANE.into(), agent_label: "Claude Code".into(), window: None, due_ms: env.now() });
+    engine.reminders.push(Reminder { pane_id: PANE.into(), agent_label: "Claude".into(), window: None, due_ms: env.now() });
     env.present.set(false);
     engine.tick(&env, &alive);
     assert!(env.pending().is_empty(), "the pane is gone");
@@ -1008,7 +1008,7 @@ fn a_transient_rate_limit_raises_no_card_and_leaves_the_run_alone() {
     engine.observe(&env, PANE, claude.as_ref(), &claude_screen("transient_retrying"));
     let (kind, text) = engine.status_line(&env, PANE).expect("a status line");
     assert_eq!(kind, crate::tui::ActivityKind::Working);
-    assert_eq!(text, "Claude Code is busy at its end · retrying");
+    assert_eq!(text, "Claude is busy at its end · retrying");
     assert!(!text.to_lowercase().contains("rate limit"), "chrome never says rate limit");
     engine.observe(&env, PANE, claude.as_ref(), &claude_screen("warning_used_pct"));
     assert!(engine.status_line(&env, PANE).is_none());
@@ -1022,7 +1022,7 @@ fn the_pane_status_line_says_where_the_agent_stopped() {
     hit_the_limit(&env, &mut engine, &claude_screen("usage_session_window"));
     let (kind, text) = engine.status_line(&env, PANE).unwrap();
     assert_eq!(kind, crate::tui::ActivityKind::Waiting);
-    assert_eq!(text, "Claude Code hit its usage limit · resets 17:00");
+    assert_eq!(text, "Claude hit its usage limit · resets 17:00");
 }
 
 #[test]
@@ -1139,7 +1139,7 @@ fn the_handoff_module_has_no_way_to_write_to_a_pane() {
 #[test]
 fn plain_loopback_http_cannot_answer_a_limit_card_but_a_phone_can() {
     let env = TestEnv::new();
-    let card = super::card::limit_card(&usage("z"), "Claude Code", PANE, true, env.clock(), &super::keep_going::model::KeepGoingOffer::NotHere);
+    let card = super::card::limit_card(&usage("z"), "Claude", PANE, true, env.clock(), &super::keep_going::model::KeepGoingOffer::NotHere);
     // The routes use the process-wide store.
     let created = crate::questions::store().create(card, crate::questions::now_ms()).unwrap();
     let path = format!("/questions/{}/answer", created.id);
@@ -1155,7 +1155,7 @@ fn plain_loopback_http_cannot_answer_a_limit_card_but_a_phone_can() {
 
 #[test]
 fn an_agent_cannot_raise_a_limit_card_through_ask_user() {
-    let body = serde_json::json!({"question": "Claude Code ran out of usage.", "limit": {"kind": "usage_limit", "agent_label": "x"}});
+    let body = serde_json::json!({"question": "Claude ran out of usage.", "limit": {"kind": "usage_limit", "agent_label": "x"}});
     let (status, reply) = crate::questions::routes::handle("POST", &["questions", "ask"], &body, None, false, &|| {}).unwrap().unwrap();
     assert_eq!(status, 200);
     let id = reply["question_id"].as_str().unwrap().to_string();
@@ -1167,7 +1167,7 @@ fn an_agent_cannot_raise_a_limit_card_through_ask_user() {
 #[test]
 fn a_limit_card_outlives_the_hour_an_agent_question_may_wait() {
     let env = TestEnv::new();
-    let card = super::card::limit_card(&usage("z"), "Claude Code", PANE, true, env.clock(), &super::keep_going::model::KeepGoingOffer::NotHere);
+    let card = super::card::limit_card(&usage("z"), "Claude", PANE, true, env.clock(), &super::keep_going::model::KeepGoingOffer::NotHere);
     let created = env.store.create(card, env.now()).unwrap();
     assert!(created.expires_at_ms - created.created_at_ms > 3_600_000);
     let plain = crate::questions::NewQuestion { question: "q".into(), timeout_s: Some(7_200), ..Default::default() };
@@ -1177,11 +1177,11 @@ fn a_limit_card_outlives_the_hour_an_agent_question_may_wait() {
 #[test]
 fn the_wire_shape_of_a_limit_card_is_what_the_inbox_reads() {
     let env = TestEnv::new();
-    let card = super::card::limit_card(&usage("z"), "Claude Code", PANE, true, env.clock(), &super::keep_going::model::KeepGoingOffer::NotHere);
+    let card = super::card::limit_card(&usage("z"), "Claude", PANE, true, env.clock(), &super::keep_going::model::KeepGoingOffer::NotHere);
     let created = env.store.create(card, env.now()).unwrap();
     let json = serde_json::to_value(&created).unwrap();
     assert_eq!(json["limit"]["kind"], "usage_limit");
-    assert_eq!(json["limit"]["agent_label"], "Claude Code");
+    assert_eq!(json["limit"]["agent_label"], "Claude");
     assert_eq!(json["limit"]["window"], "session limit");
     assert_eq!(json["limit"]["reset_at_ms"], 1_000);
     assert_eq!(json["limit"]["has_run"], true);
@@ -1320,7 +1320,7 @@ fn a_limit_on_the_final_screen_of_a_turn_parks_the_run_without_the_two_second_ho
     // The same card and the same single state change as the mid-turn path.
     let cards = env.pending();
     assert_eq!(cards.len(), 1);
-    assert_eq!(cards[0].question, "Claude Code ran out of usage. It can continue at 17:00.");
+    assert_eq!(cards[0].question, "Claude ran out of usage. It can continue at 17:00.");
     assert_eq!(env.published.borrow().len(), 1);
     assert!(env.marks.borrow().iter().any(|m| m.starts_with("limit:detected window session limit")), "{:?}", env.marks.borrow());
 

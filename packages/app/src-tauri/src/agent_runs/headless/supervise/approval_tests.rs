@@ -98,7 +98,7 @@ fn the_same_command_asked_again_after_its_dialog_went_away_is_a_new_entry() {
     assert_eq!(entries(&run).len(), 2);
 }
 
-// The same Bash approval read at two pane widths (real Claude Code 2.1.299 captures of ONE pending
+// The same Bash approval read at two pane widths (real Claude 2.1.299 captures of ONE pending
 // dialog: the pane at the phone's 52 columns, then at the desktop's 120). VERIFY-R11 #2: answering
 // from the phone's Keys panel re-wrapped the pane, the command text broke at different places, and the
 // transcript listed the approval once per width change (live: wrapped, wide, wrapped = 3 entries).

@@ -33,7 +33,7 @@ export function ContinueOnSheet({
   paneId: string;
   /** The usage-limit card; the backend dismisses it when the hand-over starts. */
   cardId: string;
-  /** The agent that ran out, in the words the card uses ("Claude Code"). */
+  /** The agent that ran out, in the words the card uses ("Claude"). */
   fromLabel: string;
   /** When the limit ends (epoch ms), when the card knows. The move-back switch only shows then. */
   resetAtMs?: number;

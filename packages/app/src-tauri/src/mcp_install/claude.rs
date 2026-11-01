@@ -1,4 +1,4 @@
-//! Claude Code target: project `.mcp.json`, approvals in settings, and user/global scope via the `claude mcp` CLI.
+//! Claude target: project `.mcp.json`, approvals in settings, and user/global scope via the `claude mcp` CLI.
 
 use super::*;
 
@@ -165,9 +165,9 @@ pub(super) fn ensure_claude_mcp(
         changed,
         backend: "claude_cli".into(),
         message: if installed {
-            "Claude Code MCP configured for puppet-master".into()
+            "Claude MCP configured for puppet-master".into()
         } else {
-            "Claude Code MCP install incomplete".into()
+            "Claude MCP install incomplete".into()
         },
     })
 }
@@ -199,13 +199,13 @@ pub(super) fn ensure_claude_user_mcp_with_source(source: McpLaunchSource) -> Ens
             installed: true,
             changed: true,
             backend: "claude_cli_global".into(),
-            message: "Claude Code user MCP configured for puppet-master".into(),
+            message: "Claude user MCP configured for puppet-master".into(),
         },
         Err(add_err) => EnsureMcpResult {
             installed: false,
             changed: remove.is_ok(),
             backend: "claude_cli_global".into(),
-            message: format!("Claude Code global MCP install incomplete: {add_err}"),
+            message: format!("Claude global MCP install incomplete: {add_err}"),
         },
     }
 }
@@ -311,19 +311,19 @@ pub(super) fn uninstall_claude_mcp_scope(scope: &str) -> EnsureMcpResult {
             installed: false,
             changed: true,
             backend,
-            message: format!("Removed puppet-master from Claude Code {scope} MCP"),
+            message: format!("Removed puppet-master from Claude {scope} MCP"),
         },
         Err(err) if claude_mcp_remove_not_found(&err) => EnsureMcpResult {
             installed: false,
             changed: false,
             backend,
-            message: format!("puppet-master was not registered in Claude Code {scope} MCP"),
+            message: format!("puppet-master was not registered in Claude {scope} MCP"),
         },
         Err(err) => EnsureMcpResult {
             installed: true,
             changed: false,
             backend,
-            message: format!("Could not remove Claude Code {scope} MCP: {err}"),
+            message: format!("Could not remove Claude {scope} MCP: {err}"),
         },
     }
 }

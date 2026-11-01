@@ -21,7 +21,7 @@ export const BACKEND_AGENT: Record<CliOrchestratorBackend, AgentType> = {
 };
 
 export const BACKEND_LABEL: Record<CliOrchestratorBackend, string> = {
-  claude_cli: 'Claude Code',
+  claude_cli: 'Claude',
   codex_cli: 'Codex CLI',
   opencode_cli: 'OpenCode',
 };

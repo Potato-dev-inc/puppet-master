@@ -15,7 +15,7 @@ export const CLEAR_SCROLLBACK = '\x1b[3J';
 
 /**
  * Agents whose TUI reprints its whole conversation on every resize without clearing scrollback
- * (`TuiProfile::reprints_on_resize`, Claude Code) leave one more copy of the conversation in a
+ * (`TuiProfile::reprints_on_resize`, Claude) leave one more copy of the conversation in a
  * viewer's history at every PTY resize. The viewer wipes its saved lines at the resize point of the
  * byte stream, so the reprint that follows is the only copy. Agents that do not reprint keep their
  * history.

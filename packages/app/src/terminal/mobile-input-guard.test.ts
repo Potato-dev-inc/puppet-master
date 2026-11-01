@@ -715,7 +715,7 @@ describe('MobileInputGuard', () => {
     cleanup();
   });
 
-  it('sends Shift-Tab as the backtab sequence Claude Code uses to cycle modes', () => {
+  it('sends Shift-Tab as the backtab sequence Claude uses to cycle modes', () => {
     const { cleanup, container, emitted } = createGuard();
     (container.querySelector('.terminal-mobile-special-toggle') as HTMLButtonElement).click();
 

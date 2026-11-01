@@ -9,7 +9,7 @@ export interface QuestionChoice {
 /** What a consent card is about (Rust `questions::ConsentInfo`). Only Puppet Master raises these. */
 export interface ConsentInfo {
   action: 'take_over' | 'answer_prompt';
-  /** Who is asking, as a name ("Claude Code", "Another agent"). */
+  /** Who is asking, as a name ("Claude", "Another agent"). */
   requester: string;
   /** What it wants to control, as a name ("Codex"). The card prefers the pane's own name. */
   target: string;
@@ -24,7 +24,7 @@ export interface ConsentInfo {
  */
 export interface LimitInfo {
   kind: 'usage_limit' | 'reset_reminder';
-  /** The agent's name in the words the card uses ("Claude Code"). */
+  /** The agent's name in the words the card uses ("Claude"). */
   agent_label: string;
   /** What ran out ("session limit"), when the screen said. */
   window?: string;
@@ -90,7 +90,7 @@ export const isCiCard = (q: Question): boolean => isCiFix(q) || isCiPush(q);
 /** What the person typed or picked: exactly one of the two. */
 export type QuestionAnswer = { choice_id: string } | { text: string };
 
-/** "Question from Claude Code": the agent's own name, else the pane's name, else "an agent". */
+/** "Question from Claude": the agent's own name, else the pane's name, else "an agent". */
 export function askerName(q: Question, paneName?: string): string {
   return q.agent?.trim() || paneName || 'an agent';
 }
@@ -108,7 +108,7 @@ export function timeLeftText(ms: number): string {
   return `${Math.round(minutes / 60)} h`;
 }
 
-/** "Claude Code stops waiting in 8 min": how long the asking agent will still wait for an answer. */
+/** "Claude stops waiting in 8 min": how long the asking agent will still wait for an answer. */
 export function waitCaption(q: Question, now: number, paneName?: string): string {
   const who = q.agent?.trim() || paneName || 'The agent';
   const left = q.expires_at_ms - now;

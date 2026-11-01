@@ -61,7 +61,7 @@ pub fn companion_awake(state: &CompanionState) -> bool {
 
 /// The agent panes a chat may see, oldest first. Companion panes are left out (they are reached with
 /// `/c` or plain text), and so are shell and protocol panes (the outbox refuses them). Headings use
-/// the same numbering the sidebar uses ("Claude Code 2") over every pane.
+/// the same numbering the sidebar uses ("Claude 2") over every pane.
 pub fn pane_lines(infos: &[PaneInfo], label_of: &dyn Fn(&str) -> String, is_agent: &dyn Fn(&str) -> bool) -> Vec<PaneLine> {
     let names: Vec<PaneName> = infos
         .iter()
@@ -81,7 +81,7 @@ pub fn pane_lines(infos: &[PaneInfo], label_of: &dyn Fn(&str) -> String, is_agen
         .collect()
 }
 
-/// The display name of an agent type, as the desktop shows it ("Claude Code"). Unknown types show as typed.
+/// The display name of an agent type, as the desktop shows it ("Claude"). Unknown types show as typed.
 fn label_of(agent_type: &str) -> String {
     crate::tui::descriptor_for(agent_type).map(|d| d.label).unwrap_or_else(|| agent_type.to_string())
 }
@@ -232,7 +232,7 @@ mod tests {
 
     fn label(agent: &str) -> String {
         match agent {
-            "claude" => "Claude Code".into(),
+            "claude" => "Claude".into(),
             "codex" => "Codex".into(),
             other => other.into(),
         }
@@ -268,11 +268,11 @@ mod tests {
         let lines = pane_lines(&infos, &label, &|_: &str| true);
         let ids: Vec<&str> = lines.iter().map(|l| l.id.as_str()).collect();
         assert_eq!(ids, vec!["p-a", "p-c", "p-b"]);
-        assert_eq!(lines[0].heading, "Claude Code 1");
+        assert_eq!(lines[0].heading, "Claude 1");
         assert_eq!(lines[0].status, "needs you");
         assert_eq!(lines[1].heading, "auth refactor");
         assert_eq!(lines[1].agent_label, "Codex");
-        assert_eq!(lines[2].heading, "Claude Code 2");
+        assert_eq!(lines[2].heading, "Claude 2");
         assert_eq!(lines[2].status, "working");
     }
 

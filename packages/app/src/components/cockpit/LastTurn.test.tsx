@@ -14,7 +14,7 @@ const NOW = 1_800_000_000_000;
 function summary(extra: Partial<TurnSummary> = {}): TurnSummary {
   return {
     paneId: 'p1',
-    agent: 'Claude Code',
+    agent: 'Claude',
     turn: 3,
     startedAtMs: NOW - 200_000,
     endedAtMs: NOW - 60_000,
@@ -22,7 +22,7 @@ function summary(extra: Partial<TurnSummary> = {}): TurnSummary {
     files: { count: 4, added: 86, deleted: 12, paths: ['src/a.ts', 'src/b.ts'] },
     approvals: [],
     end: { kind: 'waiting_input', prompt: 'allow `npm test`?' },
-    sentence: 'Claude Code edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?',
+    sentence: 'Claude edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?',
     ...extra,
   };
 }
