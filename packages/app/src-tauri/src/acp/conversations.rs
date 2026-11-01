@@ -99,6 +99,7 @@ pub struct RestoreReport {
 impl Conversations {
     pub fn new(store: RecordStore, supervisor: Arc<Supervisor>, host: Arc<dyn HostEnv>, agents: Arc<dyn AgentSource>) -> Self {
         let records = store.load();
+        store.sweep_orphan_journals(&records);
         Conversations(Arc::new(Inner { records: Mutex::new(records), store, writers: WriterLedger::new(), supervisor, host, agents }))
     }
 

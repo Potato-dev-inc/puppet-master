@@ -103,6 +103,43 @@ impl RecordStore {
         self.path.parent().map(Path::to_path_buf).unwrap_or_default().join("journals").join(format!("{safe}.jsonl"))
     }
 
+    /// Removes the journal of every record that `save` drops past the cap.
+    fn drop_journals(&self, dropped: &[ConversationRecord]) {
+        for r in dropped {
+            let path = self.journal_path(&r.id);
+            let _ = std::fs::remove_file(path.with_extension("prev.jsonl"));
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    /// Removes journals that no record owns (after the 200-record cap or a deleted record). Only regular files
+    /// directly inside the journals folder named `<id>.jsonl` or `<id>.prev.jsonl` with a plain id; links, folders
+    /// and every other name are left alone. Records in any state (also "chat removed") keep their journal.
+    pub fn sweep_orphan_journals(&self, records: &[ConversationRecord]) -> usize {
+        let dir = self.journal_path("x").parent().map(Path::to_path_buf).unwrap_or_default();
+        let Ok(entries) = std::fs::read_dir(&dir) else { return 0 };
+        let owned: std::collections::HashSet<String> = records
+            .iter()
+            .map(|r| self.journal_path(&r.id).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default())
+            .collect();
+        let mut removed = 0;
+        for entry in entries.flatten() {
+            // `DirEntry::file_type` does not follow links: a link is neither a file nor a folder here.
+            if !entry.file_type().is_ok_and(|t| t.is_file() && !t.is_symlink()) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(stem) = name.strip_suffix(".prev.jsonl").or_else(|| name.strip_suffix(".jsonl")) else { continue };
+            if stem.is_empty() || !stem.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') || owned.contains(stem) {
+                continue;
+            }
+            if std::fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        removed
+    }
+
     pub fn in_app_data() -> Self {
         Self::at(crate::app_paths::app_data_dir().join("acp").join(FILE))
     }
@@ -119,7 +156,9 @@ impl RecordStore {
         let skip = records.len().saturating_sub(MAX_RECORDS);
         let body = serde_json::json!({ "version": FILE_VERSION, "conversations": &records[skip..] });
         let text = serde_json::to_vec_pretty(&body).map_err(|e| e.to_string())?;
-        crate::settings_patch::write_atomic(&self.path, &text).map_err(|e| format!("could not save: {e}"))
+        crate::settings_patch::write_atomic(&self.path, &text).map_err(|e| format!("could not save: {e}"))?;
+        self.drop_journals(&records[..skip]);
+        Ok(())
     }
 }
 
@@ -189,6 +228,73 @@ mod tests {
         let back = store.load();
         assert_eq!(back.len(), MAX_RECORDS);
         assert_eq!(back[0].id, "c3");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod journal_sweep_tests {
+    use super::*;
+
+    fn rec(id: &str, state: LastState) -> ConversationRecord {
+        ConversationRecord {
+            id: id.into(), agent: "codex".into(), session_id: None, cwd: "D:/w".into(), lane: RunLane::Acp,
+            last_known_state: state, terminal_pane: None, notices: Vec::new(), created_ms: 1, updated_ms: 1,
+        }
+    }
+
+    fn store() -> (RecordStore, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("pm-acp-sweep-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("journals")).unwrap();
+        (RecordStore::at(dir.join(FILE)), dir)
+    }
+
+    fn touch(store: &RecordStore, id: &str) -> PathBuf {
+        let p = store.journal_path(id);
+        std::fs::write(&p, "x\n").unwrap();
+        p
+    }
+
+    #[test]
+    fn a_record_dropped_by_the_cap_takes_its_journal_with_it() {
+        let (store, dir) = store();
+        let many: Vec<_> = (0..MAX_RECORDS + 2).map(|i| rec(&format!("c{i}"), LastState::Live)).collect();
+        let (old, kept) = (touch(&store, "c0"), touch(&store, "c5"));
+        store.save(&many).unwrap();
+        assert!(!old.exists(), "the dropped record's journal is gone");
+        assert!(kept.exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn at_start_orphans_go_but_removed_chats_and_other_files_stay() {
+        let (store, dir) = store();
+        let removed_chat = rec("gone", LastState::Closed);
+        let owned = touch(&store, "gone");
+        let orphan = touch(&store, "orphan");
+        let orphan_prev = store.journal_path("orphan").with_extension("prev.jsonl");
+        std::fs::write(&orphan_prev, "x").unwrap();
+        let other = dir.join("journals").join("notes.txt");
+        std::fs::write(&other, "keep").unwrap();
+        let odd = dir.join("journals").join("not a journal.jsonl");
+        std::fs::write(&odd, "keep").unwrap();
+        let folder = dir.join("journals").join("sub.jsonl");
+        std::fs::create_dir_all(&folder).unwrap();
+        // A link to a file outside the folder: never followed, never removed.
+        let outside = dir.join("outside.jsonl");
+        std::fs::write(&outside, "keep").unwrap();
+        let link = dir.join("journals").join("linked.jsonl");
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_file(&outside, &link).is_ok();
+        #[cfg(not(windows))]
+        let linked = std::os::unix::fs::symlink(&outside, &link).is_ok();
+
+        assert_eq!(store.sweep_orphan_journals(&[removed_chat]), 2);
+        assert!(owned.exists() && !orphan.exists() && !orphan_prev.exists());
+        assert!(other.exists() && odd.exists() && folder.exists() && outside.exists());
+        if linked {
+            assert!(std::fs::symlink_metadata(&link).is_ok(), "the link is left alone");
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 }
