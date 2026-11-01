@@ -10,6 +10,7 @@ import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { Avatar } from '../../companion/Avatar';
 import { SegTabs } from '../SegTabs';
 import { AdvancedTab } from './AdvancedTab';
+import { useBotComputerOff } from './useBotComputerOff';
 import { ComputerTab } from './ComputerTab';
 import { RoutinesTab } from './RoutinesTab';
 import { Glyph } from './ui/Glyph';
@@ -41,6 +42,7 @@ export interface BotPanelProps {
 }
 
 export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, sandbox, onOpenSettings, through, onNotify, defaultBrain, onChanged, botSettings, settings, transport }: BotPanelProps) {
+  const computerOff = useBotComputerOff(bot.id, tab === 'computer' && !through, botSettings);
   return (
     <div className="ck-potato-botpanel">
       <header className="ck-potato-panel-head">
@@ -55,7 +57,7 @@ export function BotPanel({ bot, avatar, tab, onTab, onClose, screen, sandbox, on
       </div>
       <div className="ck-scroll ck-potato-panel-body">
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Computer" hidden={tab !== 'computer'}>
-          <ComputerTab bot={bot} avatar={avatar} screen={screen} sandbox={sandbox} through={through} onNotify={onNotify} onOpenSettings={onOpenSettings} />
+          <ComputerTab bot={bot} avatar={avatar} screen={screen} sandbox={sandbox} through={through} onNotify={onNotify} onOpenSettings={onOpenSettings} computerOff={computerOff} onOpenTools={() => onTab('advanced')} />
         </div>
         <div className="ck-potato-tabpanel" role="tabpanel" aria-label="Routines" hidden={tab !== 'routines'}>
           <RoutinesTab bot={bot} />

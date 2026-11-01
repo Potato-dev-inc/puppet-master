@@ -132,6 +132,10 @@ describe('SpeakButton', () => {
     const lines = [...host.querySelectorAll('li.ck-potato-line')];
     expect(lines[0].querySelector('.ck-potato-speak')).not.toBeNull();
     expect(lines[1].querySelector('.ck-potato-speak')).toBeNull();
+    // one hover toolbar: Copy, Reply, Speak (bot replies only), Save as file
+    const buttons = (li: Element) => [...li.querySelectorAll('.ck-potato-actions button')].map((b) => b.textContent);
+    expect(buttons(lines[0])).toEqual(['Copy', 'Reply', 'Speak', 'Save as file']);
+    expect(buttons(lines[1])).toEqual(['Copy', 'Reply', 'Save as file']);
   });
 });
 

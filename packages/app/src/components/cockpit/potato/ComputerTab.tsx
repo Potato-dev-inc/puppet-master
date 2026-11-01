@@ -22,14 +22,37 @@ export interface ComputerTabProps {
   onNotify: (text: string) => void;
   /** Opens Settings > Potato Bot (where the Sandbox rows are). */
   onOpenSettings?: () => void;
+  /** This bot's Computer tool switch is off (Advanced > Tools): the tab says so and links there. The screen stays. */
+  computerOff?: boolean;
+  /** Opens the Advanced tab. */
+  onOpenTools?: () => void;
 }
 
-export function ComputerTab({ bot, avatar, screen, sandbox, through, onNotify, onOpenSettings }: ComputerTabProps) {
+export function ComputerTab({ bot, avatar, screen, sandbox, through, onNotify, onOpenSettings, computerOff = false, onOpenTools }: ComputerTabProps) {
   if (through) return <p className="ck-sub ck-potato-panel-empty">{PANEL_COPY.noComputerThrough}</p>;
   const off = <p className="ck-sub ck-potato-panel-empty">{PANEL_COPY.noComputer(bot.name)}</p>;
   if (!screen) return off;
-  if (!sandbox) return <ComputerPanel bot={bot} avatar={avatar} transport={screen} onNotify={onNotify} whenOff={off} />;
-  return <WithSandbox bot={bot} avatar={avatar} screen={screen} sandbox={sandbox} onNotify={onNotify} onOpenSettings={onOpenSettings} whenOff={off} />;
+  const toolOff = computerOff && (
+    <p className="ck-sub ck-potato-computer-toolsoff" role="note">
+      {PANEL_COPY.computerOff}{' '}
+      {onOpenTools && (
+        <button type="button" className="ck-potato-link" onClick={onOpenTools}>
+          {PANEL_COPY.computerOffLink}
+        </button>
+      )}
+    </p>
+  );
+  const body = sandbox ? (
+    <WithSandbox bot={bot} avatar={avatar} screen={screen} sandbox={sandbox} onNotify={onNotify} onOpenSettings={onOpenSettings} whenOff={off} />
+  ) : (
+    <ComputerPanel bot={bot} avatar={avatar} transport={screen} onNotify={onNotify} whenOff={off} />
+  );
+  return (
+    <>
+      {toolOff}
+      {body}
+    </>
+  );
 }
 
 function WithSandbox({

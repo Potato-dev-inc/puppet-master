@@ -1,6 +1,5 @@
-// Notifications of one bot: "When it replies", "When it needs me" or "Never". The choice is saved at once. If saving fails,
-// the old choice stays and the sentence shows under the list. "When it needs me" is stored now; its phone push comes with
-// the approvals (P6), so the card says so.
+// Notifications of one bot: "When it replies" or "Never". The choice is saved at once. If saving fails,
+// the old choice stays and the sentence shows under the list. "When it needs me" is not offered: nothing sends that push yet.
 import { useEffect, useState } from 'react';
 import { plainError } from '../../../lib/potato';
 import { NOTIFY_CHOICES, tauriNotifyTransport, type NotifyChoice, type NotifyTransport } from '../../../lib/potato-notify';
@@ -9,7 +8,6 @@ import { PanelSection } from './ui/PanelSection';
 export const NOTIFY_COPY = {
   title: 'Notifications',
   hint: 'Phone pushes from this bot.',
-  needsYouLater: 'Coming soon: a push when it needs you.',
   loadFailed: 'Could not read this setting.',
   saveFailed: 'Could not save that choice.',
 };
@@ -68,7 +66,6 @@ export function NotifySection({ botId, transport = tauriNotifyTransport }: Notif
           </label>
         ))}
       </fieldset>
-      {choice === 'needs_you' && <p className="ck-sub ck-potato-psec-note">{NOTIFY_COPY.needsYouLater}</p>}
       {error && (
         <p className="ck-sub ck-potato-psec-error" role="alert">
           {error}

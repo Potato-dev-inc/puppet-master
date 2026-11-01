@@ -1,5 +1,5 @@
-/* The Advanced tab of the bot panel: Notifications, Open work and Memory. Each section is a title and a rounded card.
-   Grayscale tokens only. */
+/* The Advanced tab of the bot panel: Notifications, Open work and Memory. Each section is a card with a title, the same
+   look as the other Advanced cards (cockpit-potato-advanced.css). Grayscale tokens only. */
 
 .cockpit .ck-potato-advanced {
   display: flex;
@@ -10,6 +10,9 @@
 }
 .cockpit .ck-potato-psec {
   min-width: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--fill);
 }
 .cockpit .ck-potato-psec-head {
   display: flex;
@@ -17,7 +20,7 @@
   justify-content: space-between;
   gap: 8px;
   margin: 0 0 6px;
-  min-height: 28px;
+  min-height: 24px;
 }
 .cockpit .ck-potato-psec-title {
   margin: 0;
@@ -26,11 +29,7 @@
   color: var(--label);
 }
 .cockpit .ck-potato-psec-card {
-  border: 1px solid var(--sep);
-  border-radius: 12px;
-  background: var(--bg-raised);
-  box-shadow: var(--raise-hi);
-  padding: 8px 12px;
+  padding: 0;
 }
 .cockpit .ck-potato-psec-hint {
   margin: 0;

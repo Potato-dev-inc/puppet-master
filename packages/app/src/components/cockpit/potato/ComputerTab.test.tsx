@@ -166,3 +166,20 @@ describe('when there is no computer to show', () => {
     expect(sandbox.calls).toHaveLength(0);
   });
 });
+
+describe('the Computer switch of the bot (Advanced > Tools)', () => {
+  it('keeps the tab and Take control, and says the computer is off with a link to Advanced', async () => {
+    const onOpenTools = vi.fn();
+    await mount({ computerOff: true, onOpenTools });
+    expect(host.querySelector('.ck-potato-computer')).toBeTruthy();
+    expect(buttonByText(host, 'Take control')).toBeTruthy();
+    expect(host.querySelector('.ck-potato-computer-toolsoff')!.textContent).toContain('Computer is off for this bot.');
+    await click('Turn it on in Advanced › Tools');
+    expect(onOpenTools).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing when the switch is on', async () => {
+    await mount({ computerOff: false });
+    expect(host.querySelector('.ck-potato-computer-toolsoff')).toBeNull();
+  });
+});

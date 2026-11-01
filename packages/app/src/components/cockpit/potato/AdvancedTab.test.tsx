@@ -84,9 +84,9 @@ const switchNamed = (label: string) => {
 const sheet = () => host.querySelector<HTMLElement>('[role="alertdialog"]');
 
 describe('the Advanced tab', () => {
-  it('shows its sections in order: Name, Model, Instructions, Tools, Notifications, Open work, Memory, then the bot', async () => {
+  it('shows its sections in order: Read replies aloud, Name, Model, Instructions, Tools, Notifications, Open work, Memory, then the bot', async () => {
     await mount(fakeBotSettingsTransport());
-    expect(titles()).toEqual(['Name', 'Model', 'Instructions', 'Tools', 'Notifications', 'Open work', 'Memory', 'Bot']);
+    expect(titles()).toEqual(['Read replies aloud', 'Name', 'Model', 'Instructions', 'Tools', 'Notifications', 'Open work', 'Memory', 'Bot']);
   });
 
   it('reads Notifications, Open work and Memory for this bot from their own commands', async () => {
@@ -99,9 +99,10 @@ describe('the Advanced tab', () => {
   it('adds an open-work item through the add command with the bot id and the text', async () => {
     await mount(fakeBotSettingsTransport());
     await click(host.querySelector('button[aria-label="Add an item"]'));
-    await typeIn(host.querySelector<HTMLInputElement>('.ck-potato-add-input')!, 'Call Sam');
+    const input = host.querySelector<HTMLInputElement>('.ck-potato-add-input')!;
+    await typeIn(input, 'Call Sam');
     await act(async () => {
-      host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      input.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
     await flush();
     expect(invoke).toHaveBeenCalledWith('potato_open_work_add', { botId: 'fish', text: 'Call Sam' });

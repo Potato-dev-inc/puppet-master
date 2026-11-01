@@ -15,10 +15,9 @@ export const PANEL_COPY = {
   show: 'Show bot panel',
   hide: 'Hide bot panel',
   close: 'Close bot panel',
-  comingSoon: 'Coming soon',
-  routines: 'Routines will let this bot do jobs on a schedule.',
-  advanced: 'Per-bot settings will live here.',
   noComputer: (name: string) => `${name} has no computer here. Turn on Sandbox in Settings > General > Labs.`,
+  computerOff: 'Computer is off for this bot.',
+  computerOffLink: 'Turn it on in Advanced › Tools',
   noComputerThrough: 'A bot that talks through your agents has no computer of its own.',
   /** The banner in the thread while the panel is not showing the computer. */
   needsYou: (name: string) => `${name} needs you on the computer.`,

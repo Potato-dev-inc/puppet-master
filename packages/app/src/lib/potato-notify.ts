@@ -1,4 +1,5 @@
-// "Notify me" of a Potato Bot (the bot panel's Advanced tab): when it replies, when it needs me, or never. The choice is
+// "Notify me" of a Potato Bot (the bot panel's Advanced tab): when it replies, or never. (`needs_you` is stored by the engine
+// but not offered: nothing sends that push yet.) The choice is
 // stored per bot (src-tauri/src/potato/notify.rs). Desktop only: the Tauri commands `potato_notify_*`.
 // `fakeNotifyTransport` is the in-memory twin for tests.
 import { invoke } from '@tauri-apps/api/core';
@@ -7,7 +8,6 @@ export type NotifyChoice = 'reply' | 'needs_you' | 'never';
 
 export const NOTIFY_CHOICES: readonly { id: NotifyChoice; label: string }[] = [
   { id: 'reply', label: 'When it replies' },
-  { id: 'needs_you', label: 'When it needs me' },
   { id: 'never', label: 'Never' },
 ];
 

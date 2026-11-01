@@ -146,3 +146,43 @@ fn a_deepseek_fallback_without_its_key_is_not_used() {
     rig.post(vec![error_event("PROVIDER_DOWN", &sent.id)]);
     assert_eq!(rig.spawned(), 1, "no key, so no switch");
 }
+
+#[test]
+fn the_chain_starts_from_the_bots_own_brain_when_it_has_one() {
+    // Settings: DeepSeek, then Go. This bot picked Go itself, so Go is the first choice and the list has nothing left for it.
+    let rig = with_go_fallback("fb-own-go");
+    rig.svc.set_talk_brain("nimbus", Some(BrainKind::Go)).unwrap();
+    let sent = rig.svc.send("nimbus", "hello there").unwrap();
+    assert_eq!(rig.launcher.spawned.lock()[0].provider, wire_names::GO, "the bot's own brain runs first");
+    rig.hello();
+    rig.post(vec![error_event("PROVIDER_LIMIT", &sent.id)]);
+    assert_eq!(rig.spawned(), 1, "Go is already the first choice, so there is no brain to fall back to");
+    assert!(!rig.child(0).killed.load(Ordering::SeqCst));
+    assert!(rig.notes().iter().any(|n| n.contains("out of balance or too busy")), "{:?}", rig.notes());
+}
+
+#[test]
+fn an_own_brain_equal_to_the_default_still_gets_the_fallback_list() {
+    // The bot picked DeepSeek itself (the same as the default): the Go fallback still follows it.
+    let rig = with_go_fallback("fb-own-ds");
+    rig.svc.set_talk_brain("nimbus", Some(BrainKind::Deepseek)).unwrap();
+    let sent = rig.svc.send("nimbus", "hello there").unwrap();
+    assert_eq!(rig.launcher.spawned.lock()[0].provider, wire_names::DEEPSEEK);
+    rig.hello();
+    rig.post(vec![error_event("PROVIDER_LIMIT", &sent.id)]);
+    assert_eq!(rig.spawned(), 2);
+    assert_eq!(rig.launcher.spawned.lock()[1].provider, wire_names::GO);
+}
+
+#[test]
+fn the_default_brain_is_not_a_fallback_for_a_bot_with_its_own_brain() {
+    // Settings: Go as the brain, DeepSeek as the fallback. This bot picked DeepSeek: the Settings brain (Go) is not added behind it.
+    let rig = Rig::new("fb-own-first");
+    rig.svc.set_settings(Settings { brain: BrainKind::Go, fallbacks: vec![BrainKind::Deepseek], ..Settings::default() }).unwrap();
+    rig.svc.set_talk_brain("nimbus", Some(BrainKind::Deepseek)).unwrap();
+    let sent = rig.svc.send("nimbus", "hi").unwrap();
+    assert_eq!(rig.launcher.spawned.lock()[0].provider, wire_names::DEEPSEEK);
+    rig.hello();
+    rig.post(vec![error_event("PROVIDER_DOWN", &sent.id)]);
+    assert_eq!(rig.spawned(), 1);
+}

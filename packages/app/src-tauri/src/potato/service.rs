@@ -1452,6 +1452,8 @@ impl Service {
     fn fall_back(&self, bot: &str, now: i64, code: ErrorCode, in_reply_to: Option<&str>) -> bool {
         let Some(id) = in_reply_to else { return false };
         let Ok(settings) = store::load_settings(&self.root) else { return false };
+        // The chain starts from the brain this bot runs on: its own choice when it has one, else the Settings brain.
+        let settings = self.settings_for(bot, &settings);
         let chain = fallback::chain(settings.brain, &settings.fallbacks, self.has_key());
         let mut g = self.inner.lock();
         let Some(rt) = g.bots.get_mut(bot) else { return false };

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Notifications of a bot: the saved choice shows, a pick is saved at once, "When it needs me" says it is coming, and a
+// Notifications of a bot: the saved choice shows, a pick is saved at once, there is no choice that nothing acts on, and a
 // save that fails keeps the old choice and says why.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -31,9 +31,9 @@ const checked = () => host.querySelector<HTMLInputElement>('input[type="radio"]:
 const alertText = () => host.querySelector('[role="alert"]')?.textContent;
 
 describe('Notifications', () => {
-  it('shows the three choices and the saved one', async () => {
+  it('shows the two choices and the saved one', async () => {
     await show(fakeNotifyTransport({ choices: { nimbus: 'never' } }));
-    expect([...host.querySelectorAll('label.ck-potato-radio')].map((l) => l.textContent)).toEqual(['When it replies', 'When it needs me', 'Never']);
+    expect([...host.querySelectorAll('label.ck-potato-radio')].map((l) => l.textContent)).toEqual(['When it replies', 'Never']);
     expect(checked()).toBe('never');
   });
 
@@ -42,17 +42,14 @@ describe('Notifications', () => {
     expect(checked()).toBe('reply');
   });
 
-  it('saves a pick at once and says the needs-me push is coming', async () => {
+  it('saves a pick at once, and offers no choice that nothing acts on', async () => {
     const transport = fakeNotifyTransport();
     await show(transport);
-    await act(async () => radio('needs_you').click());
-    expect(transport.calls.at(-1)).toEqual({ method: 'set', args: ['nimbus', 'needs_you'] });
-    expect(checked()).toBe('needs_you');
-    expect(host.textContent).toContain(NOTIFY_COPY.needsYouLater);
-
+    expect(host.querySelector('input[type="radio"][value="needs_you"]')).toBeNull();
     await act(async () => radio('never').click());
+    expect(transport.calls.at(-1)).toEqual({ method: 'set', args: ['nimbus', 'never'] });
     expect(checked()).toBe('never');
-    expect(host.textContent).not.toContain(NOTIFY_COPY.needsYouLater);
+    expect(host.textContent).not.toMatch(/coming soon/i);
   });
 
   it('keeps the old choice and shows the sentence when a save fails', async () => {

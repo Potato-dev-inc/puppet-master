@@ -156,9 +156,27 @@ export const run = guarded(async (t) => {
   await t.expect.eventually(async () => (await t.page.count('css=.ck-potato-overlay')) === 0, { message: 'the full window closes after I am done' });
   await t.expect.text('Not in use', { within: 'css=.ck-potato-computer' });
 
-  await t.step('The other tabs say "Coming soon", and the bot list can be made small');
+  await t.step('The Routines tab lists the bot's routines (none yet) and offers a new one; a screenshot of it');
   await t.click('exact=Routines', { within: 'css=.ck-potato-panel' });
-  await t.expect.text('Coming soon', { within: 'css=.ck-potato-panel' });
+  await t.expect.text('No routines yet.', { within: 'css=.ck-potato-panel' });
+  await t.expect.visible('exact=New routine', { within: 'css=.ck-potato-panel' });
+  await t.expect.noText('Coming soon');
+  const routinesShot = process.env.E2E_SCREENSHOT_ROUTINES || path.join(t.outDir, 'potato-panel-routines.png');
+  await t.page.screenshot(routinesShot);
+  t.log('screenshot: ' + routinesShot);
+
+  await t.step('The Advanced tab has the bot settings in order; a screenshot of it');
+  await t.click('exact=Advanced', { within: 'css=.ck-potato-panel' });
+  const sections = ['Read replies aloud', 'Name', 'Model', 'Instructions', 'Tools', 'Notifications', 'Open work', 'Memory', 'Bot'];
+  for (const title of sections) await t.expect.text(title, { within: 'css=.ck-potato-panel' });
+  const titles = await t.page.c.evalJs("[...document.querySelectorAll('.ck-potato-panel .ck-potato-adv-title, .ck-potato-panel .ck-potato-psec-title')].map((h) => h.textContent)");
+  t.expect.equal(JSON.stringify(titles), JSON.stringify(sections), 'the Advanced sections are in the agreed order');
+  await t.expect.noText('Coming soon');
+  const advancedShot = process.env.E2E_SCREENSHOT_ADVANCED || path.join(t.outDir, 'potato-panel-advanced.png');
+  await t.page.screenshot(advancedShot);
+  t.log('screenshot: ' + advancedShot);
+
+  await t.step('The bot list can be made small');
   await t.click('css=.ck-potato-list-toggle');
   await t.expect.visible('css=.ck-potato-list.is-mini');
   const tabsShot = process.env.E2E_SCREENSHOT_TABS || path.join(t.outDir, 'potato-panel-routines-strip.png');
