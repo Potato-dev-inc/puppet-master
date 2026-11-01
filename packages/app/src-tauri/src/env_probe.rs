@@ -101,7 +101,7 @@ fn probe_first_within(names: &[&str], args: &[&str], known_path: Option<&str>, t
     json!({"present": false, "version": Value::Null, "path": Value::Null})
 }
 
-fn find_on_path(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_on_path(name: &str) -> Option<PathBuf> {
     let paths = std::env::var_os("PATH")?;
     let extensions: Vec<String> = if cfg!(windows) {
         std::env::var("PATHEXT")

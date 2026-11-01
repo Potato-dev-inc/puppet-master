@@ -1,6 +1,7 @@
 #![recursion_limit = "512"]
 
 mod accounts;
+mod acp;
 mod actors;
 mod agent_authority;
 mod agent_run_mode;
@@ -594,6 +595,8 @@ pub fn run() {
             commands::telegram_tag_ignore,
             commands::telegram_tag_update_group,
             commands::telegram_tag_remove,
+            commands::agent_lane_get,
+            commands::agent_lane_set,
             commands::agent_run_mode_get,
             commands::agent_run_mode_set,
             commands::audit_recent,
