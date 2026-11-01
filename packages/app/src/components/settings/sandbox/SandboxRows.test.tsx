@@ -110,7 +110,10 @@ describe('Set up', () => {
     expect(h.querySelector('[role="dialog"]')).toBeNull();
     await click(buttonByText(h, 'Set up…'));
     await settle(6);
-    expect(h.querySelector('[role="dialog"]')?.textContent).toContain('Set up the sandbox');
+    // The wizard is a modal in a portal at the document root, not inside the section card.
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Set up the sandbox');
+    expect(h.contains(dialog)).toBe(false);
   });
 
   it('shows the bar and Stop set up while it runs, even with the wizard closed', async () => {

@@ -3,6 +3,7 @@
 // (`transport.menu()`); the languages are pre-checked from the person's own projects (`transport.detect()`). Nothing is
 // installed until the person presses Install on the summary. Monochrome, simple English.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ALWAYS_INCLUDED,
   LOOK_LABEL,
@@ -26,6 +27,7 @@ import {
   type SandboxView,
 } from '../../../lib/potato-sandbox';
 import '../../../styles/potato-sandbox.css';
+import { useSheetKeys } from '../../cockpit/Sheet';
 import { ConfirmSheet } from '../controls';
 import { Btn, Note } from '../settings-ui';
 
@@ -143,6 +145,7 @@ export function SandboxWizard({ transport, onClose }: { transport: SandboxTransp
   const [busy, setBusy] = useState(false);
   const [ask, setAsk] = useState<FeatureAsk | null>(null);
   const [restart, setRestart] = useState(false);
+  const [confirmHide, setConfirmHide] = useState(false);
   const started = useRef(false);
 
   // Read the recipes, the person's projects and the status once.
@@ -185,6 +188,15 @@ export function SandboxWizard({ transport, onClose }: { transport: SandboxTransp
     if (install.state !== 'running') void transport.dismissInstall().catch(() => undefined);
     onClose();
   };
+
+  // Esc is Cancel. While a set up runs it asks first: closing only hides the window, the set up keeps going.
+  const sheetRef = useSheetKeys(() => (install.state === 'running' ? setConfirmHide(true) : close()), !!ask || confirmHide);
+  const covered = !!ask || confirmHide;
+  useEffect(() => {
+    // The sheet that sat on top is gone: take the keyboard back, so Tab and Esc work in the wizard again.
+    const box = sheetRef.current;
+    if (!covered && box && !box.contains(document.activeElement)) box.focus();
+  }, [covered, sheetRef]);
 
   const go = (delta: number) => {
     setError(null);
@@ -512,18 +524,18 @@ export function SandboxWizard({ transport, onClose }: { transport: SandboxTransp
 
   const position = steps.indexOf(step);
 
-  return (
+  // In a portal on the settings window itself (a fixed layer over the whole window), not inside the section card: a card
+  // clips and scrolls what it holds. The settings tokens live on `.settings`, so the portal goes there, not to the body.
+  const root = document.querySelector('.settings') ?? document.body;
+  return createPortal(
     <>
       <div
-        className="st-scrim"
+        className="st-scrim sbx-scrim"
         onMouseDown={(e) => {
           if (e.target === e.currentTarget && install.state !== 'running') close();
         }}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape' && !ask) close();
-        }}
       >
-        <div className="st-sheet sbx-sheet" role="dialog" aria-modal="true" aria-labelledby="sbx-title" data-step={step}>
+        <div ref={sheetRef} tabIndex={-1} className="st-sheet sbx-sheet" role="dialog" aria-modal="true" aria-labelledby="sbx-title" data-step={step}>
           <header className="sbx-head">
             <h2 id="sbx-title">Set up the sandbox</h2>
             {position >= 0 && steps.length > 0 && (
@@ -541,6 +553,19 @@ export function SandboxWizard({ transport, onClose }: { transport: SandboxTransp
         </div>
       </div>
       {ask && <ConfirmSheet title={ask.title} body={ask.body} confirmLabel="Turn on" onConfirm={() => void confirmAsk()} onCancel={() => setAsk(null)} />}
-    </>
+      {confirmHide && (
+        <ConfirmSheet
+          title="Set up is still running"
+          body="Closing this window does not stop it. Set up keeps going, and you can open it again from the Sandbox section."
+          confirmLabel="Close window"
+          onConfirm={() => {
+            setConfirmHide(false);
+            close();
+          }}
+          onCancel={() => setConfirmHide(false)}
+        />
+      )}
+    </>,
+    root,
   );
 }

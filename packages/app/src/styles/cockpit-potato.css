@@ -381,13 +381,18 @@
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+/* The view fills the panel's width on a dark ground. Its height follows the 16:10 screen (62.5% of the width), capped at 46vh;
+   when the cap bites, the viewer inside the frame letterboxes the screen on the dark ground. */
+.cockpit .ck-potato-computer {
+  container-type: inline-size;
+}
 .cockpit .ck-potato-computer-view {
   position: relative;
-  border-top: 1px solid var(--sep);
-  background: var(--fill);
-  aspect-ratio: 16 / 10;
-  max-height: 46vh;
+  width: 100%;
+  height: min(46vh, 62.5cqw);
   min-height: 160px;
+  border-top: 1px solid var(--sep);
+  background: #0a0a0b;
 }
 .cockpit .ck-potato-computer-frame {
   position: absolute;
@@ -395,7 +400,7 @@
   width: 100%;
   height: 100%;
   border: 0;
-  background: var(--bg-raised);
+  background: #0a0a0b;
 }
 .cockpit .ck-potato-computer-note {
   position: absolute;
@@ -407,8 +412,8 @@
   gap: 10px;
   padding: 12px;
   text-align: center;
-  color: var(--label-2);
-  background: var(--fill);
+  color: rgba(245, 245, 247, 0.64);
+  background: transparent;
   pointer-events: none;
 }
 .cockpit .ck-potato-computer-note .ck-btn {

@@ -4,7 +4,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fakeSandboxTransport, type FakeSandboxSeed, type FakeSandboxTransport } from '../../../lib/potato-sandbox';
+import { emptyInstall, fakeSandboxTransport, type FakeSandboxSeed, type FakeSandboxTransport } from '../../../lib/potato-sandbox';
 import { buttonByText, click, hasText, settle } from '../test-utils';
 import { SandboxWizard } from './SandboxWizard';
 
@@ -32,7 +32,8 @@ async function mount(seed: FakeSandboxSeed = {}) {
     root!.render(<SandboxWizard transport={fake} onClose={onClose} />);
   });
   await settle(6);
-  return { fake, onClose, host: host! };
+  // The wizard is in a portal at the document root, so its parts are found from the body.
+  return { fake, onClose, host: document.body };
 }
 
 const input = (h: HTMLElement, name: string) => h.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
@@ -387,11 +388,47 @@ describe('closing', () => {
   });
 
   it('Escape closes it before set up starts', async () => {
-    const { onClose, host: h } = await mount();
+    const { onClose } = await mount();
     await act(async () => {
-      h.querySelector('.st-scrim')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape while a set up runs asks first; Cancel keeps the window, Close window hides it', async () => {
+    const running = { ...emptyInstall(), state: 'running' as const, percent: 20, index: 1, of: 5, title: 'Downloading Ubuntu' };
+    const { onClose, host: h } = await mount({ status: { state: 'installing', install: running } });
+    const esc = async () =>
+      act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      });
+    await esc();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(hasText(h, 'Set up is still running')).toBe(true);
+    await click(buttonByText(h, 'Cancel'));
+    expect(hasText(h, 'Set up is still running')).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    await esc();
+    await click(buttonByText(h, 'Close window'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Tab inside the dialog and gives the focus back to the button that opened it', async () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const { host: h } = await mount();
+    const dialog = h.querySelector<HTMLElement>('[role="dialog"]')!;
+    const items = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])')];
+    items[items.length - 1].focus();
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    });
+    expect(document.activeElement).toBe(items[0]);
+    await act(async () => root!.unmount());
+    root = undefined;
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
   });
 
   it('shows why when the recipes cannot be read', async () => {
@@ -404,6 +441,6 @@ describe('closing', () => {
       root!.render(<SandboxWizard transport={fake} onClose={() => undefined} />);
     });
     await settle(6);
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('The sandbox files that ship with the app are missing.');
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe('The sandbox files that ship with the app are missing.');
   });
 });

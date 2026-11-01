@@ -44,12 +44,26 @@
 }
 
 /* ---------- the wizard ---------- */
+/* A real modal: the scrim is a fixed layer over the whole window, the sheet is centred and scrolls inside (.sbx-body). */
+.settings .st-scrim.sbx-scrim {
+  position: fixed;
+  z-index: 90;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+}
 .settings .st-sheet.sbx-sheet {
   display: flex;
   flex-direction: column;
   width: 560px;
-  max-height: min(86vh, 720px);
+  max-width: 100%;
+  max-height: 85vh;
   padding: 0;
+  overflow: hidden;
+  outline: none;
+}
+.settings .st-scrim:not(.sbx-scrim) {
+  position: fixed;
+  z-index: 100;
 }
 .settings .sbx-head {
   display: flex;
