@@ -124,6 +124,8 @@ export const SettingsSchema = z.object({
   potato_sandbox_enabled: z.boolean().optional(),
   /** Chat over the Agent Client Protocol (Settings › General › Labs): agents driven through a protocol instead of their terminal screen. Off unless chosen, and also the kill switch. Rust: acp. */
   acp_chat_enabled: z.boolean().optional(),
+  /** My computers (Settings › General › Labs): share one mouse and keyboard between your computers. Off unless chosen. Rust: settings_store (desk). */
+  desk_enabled: z.boolean().optional(),
   /** Simple mode: the cockpit with fewer buttons and plain words, for people who do not write code. Off unless chosen. */
   simple_mode: z.boolean().optional(),
   /** How the New agent page greets you ("What's up next, <name>?"). Empty or absent: no name. Never derived from the computer. */

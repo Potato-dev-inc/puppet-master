@@ -1,0 +1,42 @@
+/* "My computers" page shell (Labs). Cockpit tokens only, so light and dark mode follow the app. */
+.cockpit .ck-desk {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(880px, 100%);
+  margin: 0 auto;
+  padding: 28px 24px 24px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.cockpit .ck-desk-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-desk-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-desk-line {
+  margin: 0;
+  font-size: 13px;
+  color: var(--label-2);
+}
+.cockpit .ck-desk-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  border: 1px dashed var(--sep);
+  border-radius: 10px;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--label-3);
+  text-align: center;
+}
+.cockpit .ck-desk-empty p {
+  margin: 0;
+}
