@@ -406,3 +406,39 @@ fn the_error_cards_are_plain() {
         assert!(!message.to_lowercase().contains("wsl"), "the person sees 'Linux', not 'wsl': {message}");
     }
 }
+
+#[test]
+fn a_use_that_begins_between_the_idle_decision_and_the_stop_prevents_the_stop() {
+    // Holds the start lock (what a start or a stop takes) so the idle check is blocked just before its stop, then a
+    // bot action begins its use while the check waits. The check must see that use and not stop.
+    let (guest, lifecycle) = rig();
+    let m = 60_000;
+    lifecycle.ensure_ready(0).unwrap();
+    let starts = lifecycle.hold_starts_for_test();
+    std::thread::scope(|s| {
+        let check = s.spawn(|| lifecycle.idle_check(99 * m));
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let action = lifecycle.begin_use();
+        drop(starts);
+        let stopped = check.join().unwrap().unwrap();
+        assert!(!stopped, "a bot action began before the stop: the distro must stay up");
+        drop(action);
+    });
+    assert_eq!(lifecycle.phase(), Phase::Ready);
+    assert!(guest.holder_alive());
+}
+
+#[test]
+fn a_person_who_holds_the_screen_keeps_the_sandbox_up_past_the_idle_minutes() {
+    let (guest, lifecycle) = rig();
+    let m = 60_000;
+    lifecycle.ensure_ready(0).unwrap();
+    // the person's link or lease runs until 20 minutes; no bot action at all
+    lifecycle.hold_for_person(20 * m);
+    assert!(!lifecycle.idle_check(30 * m).unwrap(), "15 idle minutes counted from the person's hold, not from start");
+    assert!(!lifecycle.idle_check(34 * m).unwrap());
+    assert_eq!(lifecycle.phase(), Phase::Ready);
+    // after the hold ends, the idle minutes run from its end
+    assert!(lifecycle.idle_check(36 * m).unwrap());
+    assert!(!guest.holder_alive());
+}
