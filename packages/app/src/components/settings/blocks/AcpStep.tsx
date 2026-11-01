@@ -36,6 +36,7 @@ export function AcpStep({
   onNext,
   onCancel,
   intro,
+  hideNotes,
 }: {
   /** Looks for candidates (help text only). `null`: this screen cannot look. */
   detect: (() => Promise<AcpDetectResult>) | null;
@@ -43,6 +44,8 @@ export function AcpStep({
   detectKey: string;
   /** The sentence under the title; the default fits the wizard. */
   intro?: string;
+  /** The caller says why nothing was found; the two built-in notes stay hidden. */
+  hideNotes?: boolean;
   draft: AcpDraft;
   onDraft: (d: AcpDraft) => void;
   nextLabel: string;
@@ -69,8 +72,10 @@ export function AcpStep({
     }
     void detect()
       .then((d) => {
-        const first = d.candidates[0];
-        finish(first ? { detected: d, pick: 0, fields: fieldsFromCandidate(first) } : { detected: d });
+        // The best guess first: a high-confidence one, else the first.
+        const at = Math.max(0, d.candidates.findIndex((c) => c.confidence === 'high'));
+        const first = d.candidates[at];
+        finish(first ? { detected: d, pick: at, fields: fieldsFromCandidate(first) } : { detected: d });
       })
       .catch((e) => finish({ detectError: splitError(e).message }));
     return () => {
@@ -104,12 +109,12 @@ export function AcpStep({
       ) : (
         <fieldset className="mt-3">
           <legend className="text-xs font-medium">What the wizard found</legend>
-          {draft.detectError && (
+          {!hideNotes && draft.detectError && (
             <p data-testid="acp-detect-error" className="mt-1 text-xs text-pm-muted">
               Could not look for it: {draft.detectError} You can still enter it yourself.
             </p>
           )}
-          {!draft.detectError && candidates.length === 0 && (
+          {!hideNotes && !draft.detectError && candidates.length === 0 && (
             <p data-testid="acp-no-candidates" className="mt-1 text-xs text-pm-muted">
               Nothing in the help text looked like a chat command. Enter it yourself.
             </p>

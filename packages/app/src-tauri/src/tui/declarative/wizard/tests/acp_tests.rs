@@ -219,3 +219,37 @@ fn the_acp_wizard_code_names_no_agent() {
         assert!(!shipped.contains(name), "wizard/acp.rs names an agent ({name})");
     }
 }
+
+// ---- the real `opencode --help` shape: ASCII art first, an `acp` row among the commands -------------------
+
+const ART_HELP: &str = "\u{2800}                                \u{2584}     \n\u{2588}\u{2580}\u{2580}\u{2588} \u{2588}\u{2580}\u{2580}\u{2588} \u{2588}\u{2580}\u{2580}\u{2588} \u{2588}\u{2580}\u{2580}\u{2584} \u{2588}\u{2580}\u{2580}\u{2580} \u{2588}\u{2580}\u{2580}\u{2588} \u{2588}\u{2580}\u{2580}\u{2588} \u{2588}\u{2580}\u{2580}\u{2588}\n\u{2588}  \u{2588} \u{2588}  \u{2588} \u{2588}\u{2580}\u{2580}\u{2580} \u{2588}  \u{2588} \u{2588}    \u{2588}  \u{2588} \u{2588}  \u{2588} \u{2588}\u{2580}\u{2580}\u{2580}\n\u{2580}\u{2580}\u{2580}\u{2580} \u{2588}\u{2580}\u{2580}\u{2580} \u{2580}\u{2580}\u{2580}\u{2580} \u{2580}  \u{2580} \u{2580}\u{2580}\u{2580}\u{2580} \u{2580}\u{2580}\u{2580}\u{2580} \u{2580}\u{2580}\u{2580}\u{2580} \u{2580}\u{2580}\u{2580}\u{2580}\n\nCommands:\n  opencode completion          generate shell completion script\n  opencode acp                 start ACP (Agent Client Protocol) server\n  opencode mcp                 manage MCP (Model Context Protocol) servers\n  opencode [project]           start opencode tui                                          [default]\n  opencode run [message..]     run opencode with a message\n\nOptions:\n  -h, --help          show help                                                            [boolean]\n  -v, --version       show version number                                                  [boolean]\n";
+
+#[test]
+fn help_with_ascii_art_and_a_program_prefixed_row_gives_one_high_candidate() {
+    for name in ["opencode", "opencode.cmd", "OpenCode.exe"] {
+        let d = detect_in_texts(name, &[ART_HELP]);
+        assert_eq!(d.candidates.len(), 1, "{name}: {d:?}");
+        assert_eq!(d.candidates[0].args, ["acp"]);
+        assert!(d.candidates[0].high);
+        assert!(d.mentions_protocol);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn detect_program_reads_help_through_a_cmd_shim_without_a_session() {
+    use crate::tui::declarative::wizard::acp::detect_program;
+    let tree = Tree::new("acp-detect-cmd");
+    let dir = tree.root.join("shimbin");
+    std::fs::create_dir_all(&dir).unwrap();
+    let body = ART_HELP.lines().map(|l| format!("echo({}", l.replace('[', "^[").replace(']', "^]").replace('(', "^(").replace(')', "^)"))).collect::<Vec<_>>().join("\r\n");
+    std::fs::write(dir.join("shimagent.cmd"), format!("@echo off\r\n{body}\r\n")).unwrap();
+    let wizard = tree.wizard_with({
+        let dir = dir.clone();
+        move |e| e.path_dirs = Some(vec![dir.clone()])
+    });
+    let out = detect_program(&wizard, "shimagent").expect("detect");
+    assert!(out["candidates"].as_array().unwrap().is_empty(), "the fake prints no `shimagent acp` row: {out}");
+    assert_eq!(out["mentions_protocol"], true);
+    assert!(crate::tui::declarative::wizard::acp::detect_program(&wizard, "no-such-program-zz").is_err());
+}
