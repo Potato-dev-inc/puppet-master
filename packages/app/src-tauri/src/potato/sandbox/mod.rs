@@ -154,6 +154,8 @@ pub trait Sandbox: Send + Sync {
     /// Runs the page-browser tool inside the sandbox with `args` and returns what it printed.
     fn browser(&self, args: &[String]) -> SbxResult<String>;
     fn screen_target(&self) -> SbxResult<ScreenTarget>;
+    /// The person holds the screen (a link or a lease) until `until_ms`: the sandbox counts as in use until then.
+    fn person_holds(&self, _until_ms: i64) {}
 
     // ---- what the settings page needs (each has a default so a sandbox that cannot do it just does not) ----
 
@@ -385,6 +387,10 @@ impl Sandbox for WslSandbox {
         let out = self.wsl.exec(&self.name, GuestUser::Pm, &argv, None, BROWSER_TIMEOUT)?;
         self.lifecycle.touch(now_ms());
         Ok(out.stdout_text().chars().take(BROWSER_OUTPUT_CHARS).collect())
+    }
+
+    fn person_holds(&self, until_ms: i64) {
+        self.lifecycle.hold_for_person(until_ms);
     }
 
     fn screen_target(&self) -> SbxResult<ScreenTarget> {

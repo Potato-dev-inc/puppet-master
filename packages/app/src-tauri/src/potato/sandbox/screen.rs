@@ -282,6 +282,8 @@ impl From<LeaseError> for ScreenError {
 pub trait ScreenSource: Send + Sync {
     fn name(&self) -> String;
     fn target(&self) -> SbxResult<ScreenTarget>;
+    /// The person holds the screen until `until_ms` (see `Sandbox::person_holds`).
+    fn person_holds(&self, _until_ms: i64) {}
 }
 
 impl<T: Sandbox + ?Sized> ScreenSource for T {
@@ -291,6 +293,10 @@ impl<T: Sandbox + ?Sized> ScreenSource for T {
 
     fn target(&self) -> SbxResult<ScreenTarget> {
         Sandbox::screen_target(self)
+    }
+
+    fn person_holds(&self, until_ms: i64) {
+        Sandbox::person_holds(self, until_ms)
     }
 }
 
@@ -516,6 +522,11 @@ impl ScreenHub {
             Some(l) if l.holder == Holder::Person => {
                 let id = l.id.clone();
                 lease.renew(&id, now)?;
+                let until = lease.current(now).map_or(now, |l| l.expires_ms);
+                drop(lease);
+                if let Ok(source) = self.source() {
+                    source.person_holds(until);
+                }
                 Ok(())
             }
             _ => Err(ScreenError::LeaseLost),
@@ -567,6 +578,8 @@ impl ScreenHub {
         let (source, target) = self.target()?;
         let secrets = target.passwords.clone().ok_or(ScreenError::NotRunning)?;
         let now = self.now_ms();
+        // A link is a screen the person is about to use: the sandbox stays up for its life (an hour at most).
+        source.person_holds(now + LINK_TTL_MS);
         let fence = {
             let lease = self.lease.lock();
             match (mode, lease.current(now)) {
