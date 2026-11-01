@@ -626,6 +626,7 @@ pub fn run() {
             commands::potato_state,
             commands::potato_messages,
             commands::potato_send,
+            commands::potato_send_files,
             commands::potato_bot_add,
             commands::potato_set_persona,
             commands::potato_bot_start,
