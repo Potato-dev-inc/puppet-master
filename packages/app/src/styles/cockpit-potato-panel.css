@@ -1,0 +1,156 @@
+/* The bot panel on the right of the Potato Bot page: its header, tabs and the Computer tab (the bot's sandbox
+   screen). Its width is set by the page (--potato-panel-w), never narrower than 320 px and never so wide that the thread
+   drops under 320 px. Grayscale tokens only. */
+
+/* ---------- panel ---------- */
+.cockpit .ck-potato-panel {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: var(--potato-panel-w, 384px);
+  min-width: 320px;
+  max-width: max(320px, calc(100% - var(--potato-list-shown, 240px) - 320px));
+  min-height: 0;
+  background: var(--bg-side);
+  border-left: 1px solid var(--sep);
+}
+.cockpit .ck-potato-botpanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+.cockpit .ck-potato-panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 10px 0 16px;
+}
+.cockpit .ck-potato-panel-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-potato-panel-tabs {
+  flex: none;
+  padding: 0 16px 12px;
+}
+.cockpit .ck-potato-panel-body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 16px 16px;
+}
+.cockpit .ck-potato-panel-empty {
+  margin: 0;
+  padding: 8px 0;
+  line-height: 1.5;
+}
+.cockpit .ck-potato-soon {
+  padding: 24px 0;
+  text-align: center;
+}
+.cockpit .ck-potato-soon-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+/* ---------- Computer tab (the bot's sandbox screen) ---------- */
+.cockpit .ck-potato-computer {
+  flex: none;
+  margin: 0;
+  border: 1px solid var(--sep);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+  overflow: hidden;
+}
+.cockpit .ck-potato-computer-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 12px;
+}
+.cockpit .ck-potato-computer-title {
+  /* The tab already says "Computer": the heading stays for screen readers only. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.cockpit .ck-potato-computer-state {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin: 0;
+  color: var(--label-2);
+  line-height: 1.4;
+}
+.cockpit .ck-potato-computer-state.is-needs_you,
+.cockpit .ck-potato-computer-state.is-you {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-potato-computer-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cockpit .ck-potato-computer-reason {
+  margin: 0;
+  padding: 0 12px 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+/* The view fills the panel's width on a dark ground. Its height follows the 16:10 screen (62.5% of the width), capped at 46vh;
+   when the cap bites, the viewer inside the frame letterboxes the screen on the dark ground. */
+.cockpit .ck-potato-computer {
+  container-type: inline-size;
+}
+.cockpit .ck-potato-computer-view {
+  position: relative;
+  width: 100%;
+  height: min(46vh, 62.5cqw);
+  min-height: 160px;
+  border-top: 1px solid var(--sep);
+  background: var(--bg);
+}
+.cockpit .ck-potato-computer-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--bg);
+}
+.cockpit .ck-potato-computer-note {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  text-align: center;
+  color: var(--label-2);
+  background: transparent;
+  pointer-events: none;
+}
+.cockpit .ck-potato-computer-note .ck-btn {
+  pointer-events: auto;
+}

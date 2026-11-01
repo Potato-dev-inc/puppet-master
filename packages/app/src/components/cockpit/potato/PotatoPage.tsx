@@ -1,16 +1,21 @@
-// The Potato Bot page in the cockpit's main area (spec section 4): a 240 px list of bots next to the open thread.
+// The Potato Bot page in the cockpit's main area (spec section 4): three regions. The bot list on the left, the open
+// thread in the middle and, when the person opens it, the bot panel on the right (Computer, Routines, Advanced).
 // It is reachable only while the Labs switch is on (the caller renders it only then). A bot is a companion, so
 // "New bot" opens the companion sheet and turns what it makes into a bot.
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { AvatarId, CompanionTransport, CompanionView } from '../../../lib/companion';
 import { plainError, type PotatoState, type PotatoTransport } from '../../../lib/potato';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { usePotatoThread } from '../../../hooks/usePotato';
 import { CompanionSetupSheet } from '../companion/CompanionSetupSheet';
-import { ConversationList } from './ConversationList';
+import { DEFAULT_TAB, type PanelTab } from '../../../lib/potato-panel';
+import { BotList } from './BotList';
+import { BotPanel } from './BotPanel';
+import { PotatoLayout } from './PotatoLayout';
 import { ThreadView } from './ThreadView';
 import { pickOpenBot } from './model';
-import '../../../styles/cockpit-potato.css';
+import { usePotatoKeys } from './potato-keys';
+import { usePotatoLayout } from './usePotatoLayout';
 
 export interface PotatoPageProps {
   state: PotatoState;
@@ -41,6 +46,12 @@ export function PotatoPage(props: PotatoPageProps) {
   const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport } = props;
   const [sheetOpen, setSheetOpen] = useState(false);
   const open = pickOpenBot(state.bots, openBotId);
+  const layout = usePotatoLayout();
+  // The tab each bot's panel was last on (not remembered between runs).
+  const [tabs, setTabs] = useState<Record<string, PanelTab>>({});
+  const tab: PanelTab = (open && tabs[open.id]) || DEFAULT_TAB;
+  const setTab = useCallback((id: string, next: PanelTab) => setTabs((was) => ({ ...was, [id]: next })), []);
+  usePotatoKeys({ toggleList: layout.toggleList, togglePanel: layout.togglePanel });
   const { messages } = usePotatoThread(transport, open?.id ?? null, version, open?.unread ?? 0);
 
   const byId = useMemo(() => new Map((companions ?? []).map((c) => [c.id, c])), [companions]);
@@ -57,40 +68,69 @@ export function PotatoPage(props: PotatoPageProps) {
     }
   };
 
+  const through = !!open && (state.settings.brain === 'agents' || open.brainState === 'agents');
+  const panelOpen = layout.panelOpen && !!open;
+
+  const list = (
+    <BotList
+      bots={state.bots}
+      avatars={avatars}
+      openId={open?.id ?? null}
+      onOpen={onOpenBot}
+      onNew={() => setSheetOpen(true)}
+      candidates={candidates}
+      onUseCompanion={(id) => void makeBot(id)}
+      mini={layout.listMini}
+      onToggleMini={layout.toggleList}
+    />
+  );
+  const thread = open ? (
+    <ThreadView
+      key={open.id}
+      bot={open}
+      messages={messages}
+      settings={state.settings}
+      avatar={avatars.get(open.id) ?? 'mochi'}
+      agentLabel={byId.get(open.id)?.agentLabel ?? 'its agent'}
+      transport={transport}
+      onOpenSettings={onOpenSettings}
+      onNotify={onNotify}
+      onChanged={onChanged}
+      companionPaneId={byId.get(open.id)?.paneId ?? null}
+      onOpenCompanion={onOpenCompanion}
+      onOpenPane={onOpenPane}
+      paneExists={paneExists}
+      screen={screenTransport}
+      panel={{
+        open: panelOpen,
+        computerShown: panelOpen && tab === 'computer',
+        onToggle: layout.togglePanel,
+        onOpenComputer: () => {
+          setTab(open.id, 'computer');
+          layout.setPanelOpen(true);
+        },
+      }}
+    />
+  ) : (
+    <div className="ck-potato-blank" aria-hidden="true" />
+  );
+  const panel = panelOpen && open ? (
+    <BotPanel
+      key={open.id}
+      bot={open}
+      avatar={avatars.get(open.id) ?? 'mochi'}
+      tab={tab}
+      onTab={(next) => setTab(open.id, next)}
+      onClose={() => layout.setPanelOpen(false)}
+      screen={screenTransport}
+      through={through}
+      onNotify={onNotify}
+    />
+  ) : null;
+
   return (
-    <div className="ck-potato-page">
-      <ConversationList
-        bots={state.bots}
-        avatars={avatars}
-        openId={open?.id ?? null}
-        onOpen={onOpenBot}
-        onNew={() => setSheetOpen(true)}
-        candidates={candidates}
-        onUseCompanion={(id) => void makeBot(id)}
-      />
-      <div className="ck-potato-main">
-        {open ? (
-          <ThreadView
-            key={open.id}
-            bot={open}
-            messages={messages}
-            settings={state.settings}
-            avatar={avatars.get(open.id) ?? 'mochi'}
-            agentLabel={byId.get(open.id)?.agentLabel ?? 'its agent'}
-            transport={transport}
-            onOpenSettings={onOpenSettings}
-            onNotify={onNotify}
-            onChanged={onChanged}
-            companionPaneId={byId.get(open.id)?.paneId ?? null}
-            onOpenCompanion={onOpenCompanion}
-            onOpenPane={onOpenPane}
-            paneExists={paneExists}
-            screen={screenTransport}
-          />
-        ) : (
-          <div className="ck-potato-blank" aria-hidden="true" />
-        )}
-      </div>
+    <>
+      <PotatoLayout layout={layout} list={list} thread={thread} panel={panel} />
       {sheetOpen && (
         <CompanionSetupSheet
           transport={companionTransport}
@@ -102,6 +142,6 @@ export function PotatoPage(props: PotatoPageProps) {
           }}
         />
       )}
-    </div>
+    </>
   );
 }
