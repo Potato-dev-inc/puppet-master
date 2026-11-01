@@ -863,3 +863,70 @@ fn a_brain_started_while_paused_for_the_limit_gets_the_pause_before_any_message(
     assert_eq!(items.first().map(|i| i["type"].clone()), Some(json!("pause")), "{items:?}");
     assert!(items.iter().any(|i| i["type"] == "send" && i["text"] == "waiting"), "{items:?}");
 }
+
+/// About one cent of output: 9_091 tokens at 1_100 nano-dollars each.
+fn one_cent_usage() -> Value {
+    json!({"v":1,"type":"usage","model":"deepseek-flash","promptTokens":0,"completionTokens":9_091,"cacheHitTokens":0,"cacheMissTokens":0})
+}
+
+/// Forty cents of history (warned, not paused), so each queued send is estimated at about one cent.
+fn near_the_cap(rig: &Rig) {
+    for _ in 0..40 {
+        rig.post(vec![one_cent_usage()]);
+    }
+}
+
+#[test]
+fn queued_sends_near_the_cap_reserve_their_estimate_so_only_those_that_fit_are_accepted() {
+    let rig = Rig::ready("reserve");
+    near_the_cap(&rig);
+    let mut accepted = 0;
+    for i in 0..20 {
+        if let Ok(out) = rig.svc.send("nimbus", &format!("queued {i}")) {
+            if out.delivered {
+                accepted += 1;
+            } else {
+                assert_eq!(out.state, BrainState::DailyLimit);
+            }
+        }
+    }
+    // 50 cents limit, 40.0004 used; each send is held for about 1.00001 cents: nine fit, the tenth would pass 50
+    assert_eq!(accepted, 9, "{:?}", rig.notes());
+    assert!(rig.notes().last().unwrap().contains("has used today's limit"));
+}
+
+#[test]
+fn a_reservation_is_released_when_its_send_fails_so_the_next_one_fits() {
+    let rig = Rig::ready("release");
+    near_the_cap(&rig);
+    let first = rig.svc.send("nimbus", "first").unwrap();
+    assert!(first.delivered);
+    for i in 0..8 {
+        assert!(rig.svc.send("nimbus", &format!("more {i}")).unwrap().delivered);
+    }
+    assert!(!rig.svc.send("nimbus", "one too many").unwrap().delivered, "the cap is full");
+    // the brain fails the first send: its reservation goes, and one more send fits
+    rig.post(vec![json!({"v":1,"type":"error","code":"internal","inReplyTo": first.id})]);
+    assert!(rig.svc.send("nimbus", "after the failure").unwrap().delivered);
+}
+
+#[test]
+fn brain_started_turns_stop_at_twenty_a_day_and_person_messages_do_not_count() {
+    let rig = Rig::ready("turns");
+    let routine = |i: u32| {
+        rig.advance(61_000); // the send window is a minute
+        rig.svc.send_as("nimbus", &format!("routine {i}"), Origin::Routine { title: "nightly", context: None })
+    };
+    for i in 0..20 {
+        assert!(routine(i).unwrap().delivered, "turn {i} is within the cap");
+    }
+    let refused = routine(20);
+    assert!(refused.is_err(), "the 21st brain-started turn is refused");
+    assert_eq!(rig.notes().last().unwrap(), "Nimbus has started 20 things on its own today. It will wait until tomorrow.");
+    // the person can still write
+    rig.advance(61_000);
+    assert!(rig.svc.send("nimbus", "still here").unwrap().delivered);
+    // the next day the brain may start turns again
+    rig.advance(86_400_000);
+    assert!(routine(21).unwrap().delivered);
+}
