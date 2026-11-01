@@ -139,19 +139,36 @@ fn a_lease_ends_after_15_minutes_without_use_and_the_action_is_lease_lost() {
 }
 
 #[test]
-fn a_newer_run_reclaims_the_screen_and_the_older_run_is_lease_lost() {
+fn a_second_bot_run_cannot_take_a_live_lease_but_can_after_it_expires_or_ends() {
+    let mut screen = ScreenLease::new();
+    let first = screen.take_for_bot("fish", "run-1", T0).unwrap();
+    assert_eq!(screen.take_for_bot("rival", "run-2", T0 + 5), Err(LeaseError::BusyWithBot("fish".into())));
+    assert_eq!(screen.take_for_bot("fish", "run-3", T0 + 5), Err(LeaseError::BusyWithBot("fish".into())));
+    assert!(screen.check(&first, T0 + 6).is_ok(), "the working run keeps its lease");
+    assert_eq!(screen.highest_fence(), 1, "no new fence was made");
+    assert!(LeaseError::BusyWithBot("fish".into()).message().contains("busy with fish"));
+    // when its lease ran out, the next run takes over
+    assert!(screen.take_for_bot("rival", "run-2", T0 + LEASE_TTL_MS + 1).is_ok());
+    // or when the run ended
+    screen.end_run("run-2", T0 + LEASE_TTL_MS + 2);
+    assert!(screen.take_for_bot("fish", "run-4", T0 + LEASE_TTL_MS + 3).is_ok());
+}
+
+#[test]
+fn an_older_run_whose_lease_ran_out_is_lease_lost_when_a_newer_run_takes_over() {
     let mut screen = ScreenLease::new();
     let old = screen.take_for_bot("fish", "run-1", T0).unwrap();
-    let new = screen.take_for_bot("fish", "run-2", T0 + 5).unwrap();
+    let new = screen.take_for_bot("fish", "run-2", T0 + LEASE_TTL_MS + 5).unwrap();
+    let (old_check, new_check) = (T0 + LEASE_TTL_MS + 6, T0 + LEASE_TTL_MS + 6);
     assert_eq!((old.as_str(), new.as_str()), ("run-1:1", "run-2:2"));
-    assert_eq!(screen.check(&old, T0 + 6), Err(LeaseError::LeaseLost));
-    assert!(screen.check(&new, T0 + 6).is_ok());
+    assert_eq!(screen.check(&old, old_check), Err(LeaseError::LeaseLost));
+    assert!(screen.check(&new, new_check).is_ok());
     // the older run's finalizer cannot release the newer run's lease
     assert!(!screen.release(&old));
-    assert!(screen.check(&new, T0 + 7).is_ok());
+    assert!(screen.check(&new, new_check + 1).is_ok());
     // the owner of the live lease can
     assert!(screen.release(&new));
-    assert_eq!(screen.banner(T0 + 8), Banner::Free);
+    assert_eq!(screen.banner(new_check + 2), Banner::Free);
     // releasing when nobody holds is fine
     assert!(screen.release("run-9:1"));
 }
@@ -324,8 +341,12 @@ fn a_new_run_drops_the_card_of_an_older_one() {
     let mut screen = ScreenLease::new();
     let id = screen.take_for_bot("fish", "run-1", T0).unwrap();
     screen.ask_for_help(&id, "stuck", T0).unwrap();
-    screen.take_for_bot("fish", "run-2", T0 + 5).unwrap();
-    assert!(screen.card(T0 + 6).is_none());
+    // run-1 is parked on its card: another run is turned away and the card stays
+    assert!(screen.take_for_bot("fish", "run-2", T0 + 5).is_err());
+    assert!(screen.card(T0 + 6).is_some());
+    // once the lease and the card ran out, a new run starts clean
+    screen.take_for_bot("fish", "run-2", T0 + NEEDS_YOU_TTL_MS + 5).unwrap();
+    assert!(screen.card(T0 + NEEDS_YOU_TTL_MS + 6).is_none());
 }
 
 #[test]
@@ -339,7 +360,7 @@ fn only_the_bot_holding_the_lease_can_ask() {
 fn error_codes_are_wire_words() {
     assert_eq!(LeaseError::LeaseLost.code(), LEASE_LOST);
     assert_eq!(LEASE_LOST, "LEASE_LOST");
-    for error in [LeaseError::PersonHasControl, LeaseError::NoSuchCard, LeaseError::NotTheHolder] {
+    for error in [LeaseError::PersonHasControl, LeaseError::BusyWithBot("x".into()), LeaseError::NoSuchCard, LeaseError::NotTheHolder] {
         assert!(error.code().starts_with("LEASE_"));
     }
 }
