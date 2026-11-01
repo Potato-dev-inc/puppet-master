@@ -2,6 +2,7 @@
 //! that writes none Puppet Master can read, from the pane's own text (`screen`).
 //! Approvals are not in those files; they stay with the screen reader. An agent that serves its session over a
 //! local HTTP API is read from there (`api`), and from its screen while the API cannot be reached.
+//! A chat an agent pushes to us over a protocol (`pushed`, the ACP lane) has no file and no screen.
 //! `tail` follows the file as it grows, `items` turns its lines into `ChatItem`s, `source` finds a pane's
 //! file, `screen` reads the chat off the screen and `watch` keeps one reader per open pane and sends what it reads.
 
@@ -20,6 +21,7 @@ pub mod items;
 pub mod model;
 pub mod opening;
 pub mod phone;
+pub mod pushed;
 pub mod screen;
 mod screen_first;
 pub mod source;
@@ -35,5 +37,6 @@ pub use home_path::home_to_tilde;
 pub use opening::Opening;
 pub use model::{cut, ChatItem, SessionFormat, TurnOutcome};
 pub use source::{plain_path, LaunchFacts, LinuxFacts, Located, PaneFacts, SessionSource};
+pub use pushed::{Feed, PushedChanges, PushedPos, PushedSource};
 pub use screen::{read_pane, ScreenRead};
 pub use watch::{Hold, ItemObserver, PaneLookup, Sink, Watchers};

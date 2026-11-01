@@ -3,6 +3,7 @@
 //! (the order matters where a literal path such as `/panes/wait` overlaps a parameterised one).
 
 mod accounts;
+mod acp_chat;
 mod attention;
 pub(super) mod definitions;
 pub(super) mod health;
@@ -107,6 +108,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| attention::handle(cx))
         .or_else(|| companions::handle(cx))
         .or_else(|| chats::handle(cx))
+        .or_else(|| acp_chat::handle(cx))
         .or_else(|| panes::handle(cx))
         .or_else(|| plans::handle(cx))
         .or_else(|| potato_screen::handle(cx))

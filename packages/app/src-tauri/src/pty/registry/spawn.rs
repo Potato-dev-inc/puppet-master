@@ -283,6 +283,7 @@ pub fn spawn_pane(
         title: None,
         parent_pane_id: None,
         place: linux.as_ref().map(crate::wsl::place::pane_place),
+        lane: None,
     };
 
     let pane = PaneState {

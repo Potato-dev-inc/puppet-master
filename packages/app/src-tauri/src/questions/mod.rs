@@ -29,10 +29,13 @@ pub const ISSUE_KIND_PUSH: &str = "issue_push";
 /// the fix. Only the person answers them (see `PERSON_ONLY_KINDS`).
 pub const CI_KIND_FIX: &str = "ci_fix";
 pub const CI_KIND_PUSH: &str = "ci_push";
+/// Kind of the card for an agent's own permission request in a chat session over ACP (`acp::chat::cards`): its choices
+/// are the options the agent offered ("allow once", "allow for session", "reject"...). Only the person answers it.
+pub const ACP_KIND_PERMISSION: &str = "acp_permission";
 /// Cards only the person can answer: never an agent, never a companion, never a chat channel. A plain
 /// loopback request may not answer or dismiss them (`routes.rs`), and a chat answer is refused in
 /// `attention::answer`. Answered from the desktop window (Tauri command) or a paired phone only.
-pub const PERSON_ONLY_KINDS: &[&str] = &["budget", ISSUE_KIND_START, ISSUE_KIND_PUSH, CI_KIND_FIX, CI_KIND_PUSH];
+pub const PERSON_ONLY_KINDS: &[&str] = &["budget", ISSUE_KIND_START, ISSUE_KIND_PUSH, CI_KIND_FIX, CI_KIND_PUSH, ACP_KIND_PERMISSION];
 /// A usage-limit card (raised by Puppet Master, never through `ask_user`) outlives an hour: a limit
 /// can last a working day.
 pub const MAX_LIMIT_TIMEOUT_S: u64 = 24 * 3600;
@@ -431,6 +434,8 @@ impl QuestionStore {
                 crate::issue_intake::live::on_resolved(&resolution.question);
                 // A card about a failed CI check: start the fix, push it, stop watching.
                 crate::ci_fix::live::on_resolved(&resolution.question);
+                // A permission question of a chat session: the choice goes back to the agent.
+                crate::acp::chat::on_question_resolved(&resolution.question);
             }
         }
         result
@@ -518,6 +523,8 @@ impl QuestionStore {
             crate::issue_intake::live::on_resolved(&resolution.question);
             // Dismissing a CI card says "not now" / "don't push".
             crate::ci_fix::live::on_resolved(&resolution.question);
+            // Dismissing a permission question of a chat session says no.
+            crate::acp::chat::on_question_resolved(&resolution.question);
         }
         Ok(resolution)
     }

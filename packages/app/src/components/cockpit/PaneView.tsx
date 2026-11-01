@@ -38,6 +38,9 @@ import { helperOfLabel } from '../../lib/pane-helpers';
 import { placeLabel, placeTooltip } from '../../lib/wsl-place';
 import { isProseStream, transcriptSpeaker } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
+import { AcpChatDock } from '../chat/AcpChatDock';
+import { ACP_BADGE, ACP_LANE } from '../../lib/acpChat';
+import '../../styles/cockpit-acp.css';
 import { BudgetChip } from './BudgetChip';
 import { MissionProgress } from './mission/MissionProgress';
 import { missionOfPane, useMissions } from '../../lib/missions';
@@ -150,6 +153,8 @@ export function PaneView({
   // The Live Room status the cockpit shares; the chip shows only for a pane that is in the room.
   const liveStatus = useContext(LiveStatusContext);
   const agentType = pane?.info.agent_type ?? '';
+  // A chat session over ACP has no terminal behind it: its Chat tab is the pane.
+  const isAcp = pane?.info.lane === ACP_LANE;
   const chatAllowed = listing.agents.find((a) => a.id === agentType)?.kind !== 'shell';
 
   useEffect(() => {
@@ -160,6 +165,11 @@ export function PaneView({
     setSaveTeam(false);
     setDockIx(0);
   }, [paneId]);
+
+  // A chat session opens on its Chat tab (it has no terminal to show).
+  useEffect(() => {
+    if (isAcp) setTab('chat');
+  }, [paneId, isAcp]);
 
   // A search result opens this pane's Chat (the chat itself scrolls to the message).
   const jump = useChatJump(paneId);
@@ -268,7 +278,8 @@ export function PaneView({
     waiting,
     idle: pane.status === 'idle',
     running: pane.status === 'running',
-    covered: asking,
+    // A chat session over ACP asks through its own cards (AcpChatDock): the screen has nothing to add.
+    covered: asking || isAcp,
     fallbackText: prompt?.summary || prompt?.risk?.headline,
     onOpenTerminal: () => setTab('terminal'),
   };
@@ -280,8 +291,9 @@ export function PaneView({
   const askingPanes = new Set(c.asked.questions.map((q) => q.pane_id).filter((id): id is string => !!id));
   const startedHelpers = chatHelpers(c.registry.paneList, paneId, (p) => c.names.get(p.info.id) ?? p.info.agent_type, askingPanes);
   const chatDock =
-    dockNow || helperAsks.length > 0 ? (
+    dockNow || helperAsks.length > 0 || isAcp ? (
       <>
+        {isAcp && <AcpChatDock c={c} paneId={paneId} paneName={name} />}
         <HelperQuestions c={c} ids={helperAsks} />
         {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={cycleDock} />}
       </>
@@ -316,6 +328,11 @@ export function PaneView({
           )}
         </div>
         <UntestedChip agent={info.agent_type} />
+        {isAcp && (
+          <span className="ck-lane-chip" data-testid="pane-lane" title="This agent runs as a chat over the Agent Client Protocol, not in a terminal.">
+            {ACP_BADGE}
+          </span>
+        )}
         <LiveChip paneId={paneId} status={liveStatus} />
         <BudgetChip paneId={paneId} refreshKey={pane.status} onNotify={c.notify} />
         <div className="ck-pane-state">
@@ -394,7 +411,10 @@ export function PaneView({
               <MissionProgress mission={mission} onChanged={missions.reload} onOpenPane={(id) => c.select(id)} onNotify={c.notify} />
             </div>
           )}
-          {tab === 'terminal' && (
+          {tab === 'terminal' && isAcp && (
+            <Empty title="This is a chat session" body="It runs as a chat, so there is no terminal to show. Everything it says and asks is on the Chat tab." />
+          )}
+          {tab === 'terminal' && !isAcp && (
             <div className="ck-term-wrap" key={paneId}>
               {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={cycleDock} />}
               <div className="ck-term-slot">
@@ -407,7 +427,7 @@ export function PaneView({
           )}
           {tab === 'chat' && chatAllowed && (
             <div className="ck-scroll ck-fade-in" key="chat">
-              <SessionChatPanel paneId={paneId} dock={chatDock} screenAsk={screenAsk} helpers={startedHelpers} reply={{ blockedReason: composerBlock(pane, !chatAllowed) }} onOpenPane={(id) => c.select(id)} />
+              <SessionChatPanel paneId={paneId} dock={chatDock} screenAsk={screenAsk} helpers={startedHelpers} reply={{ blockedReason: composerBlock(pane, !chatAllowed, isAcp) }} onOpenPane={(id) => c.select(id)} />
             </div>
           )}
           {tab === 'changes' && worktree && (

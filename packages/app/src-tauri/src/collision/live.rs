@@ -543,6 +543,7 @@ mod tests {
             title: title.map(Into::into),
             parent_pane_id: None,
             place: None,
+            lane: None,
         }
     }
 

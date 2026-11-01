@@ -1,0 +1,56 @@
+{"update":{"content":{"text":"ok","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"1","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" —","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" Honey","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" never","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"*Conversation interrupted*","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"I","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" can","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"’t","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" write","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" files","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" in","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" this","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" session","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" because","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" the","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" workspace","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" is","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" mounted","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" read","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"-only","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":".","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" I","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"’ll","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" check","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" whether","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" a","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" file","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"-writing","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" tool","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" is","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" available","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" before","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" I","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" stop","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":".","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"\n\n","type":"text"},"messageId":"rs_049e703844a2345f016ae71508cfe481918d8705cbc71d2c1d","sessionUpdate":"agent_thought_chunk"}}
+{"update":{"content":{"text":"**Attempting file creation**","type":"text"},"messageId":"rs_049e703844a2345f016ae71508cfe481918d8705cbc71d2c1d","sessionUpdate":"agent_thought_chunk"}}
+{"update":{"_meta":{"dev.openab/backgroundTool":false,"dev.openab/taskEpoch":"024d33bc-44bb-4a07-99ea-683d03545e88","dev.openab/taskToken":"<redacted>"},"content":[{"_meta":{"kind":"add"},"newText":"ok\n","oldText":null,"path":"D:\\pm-hunt\\demo-a\\spike.txt","type":"diff"}],"kind":"edit","sessionUpdate":"tool_call","status":"in_progress","title":"Editing files","toolCallId":"exec-133eccce-5ec4-446c-a14e-406ab0bde24b"}}
+{"update":{"_meta":{"dev.openab/backgroundTool":false,"dev.openab/taskEpoch":"024d33bc-44bb-4a07-99ea-683d03545e88","dev.openab/taskToken":"<redacted>"},"sessionUpdate":"tool_call_update","status":"failed","toolCallId":"exec-133eccce-5ec4-446c-a14e-406ab0bde24b"}}
+{"update":{"content":{"text":"I","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" couldn","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"’t","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" create","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" `","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"sp","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"ike","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":".txt","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"`;","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" the","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" file","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":"-writing","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" attempt","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" was","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":" rejected","type":"text"},"sessionUpdate":"agent_message_chunk"}}
+{"update":{"content":{"text":".","type":"text"},"sessionUpdate":"agent_message_chunk"}}

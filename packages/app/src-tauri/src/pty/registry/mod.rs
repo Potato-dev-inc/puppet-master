@@ -26,10 +26,12 @@ mod pane_io;
 pub(crate) use pane_io::snapshot_text;
 mod linux;
 mod spawn;
+mod virtual_pane;
 
 pub use command::*;
 pub use pane_io::*;
 pub use spawn::*;
+pub use virtual_pane::{insert_virtual_pane, VirtualPaneHandles, VirtualPaneSpec};
 
 const SCROLLBACK_CAP: usize = 10_000;
 /// Default quiet window before a running pane reads idle; a profile may shorten it (`TuiProfile::idle_after`).
@@ -89,6 +91,11 @@ pub struct PaneInfo {
     /// field is then left out of the JSON, so their JSON stays byte-identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<crate::wsl::model::PanePlace>,
+    /// How the pane runs when it is not a terminal: `"acp"` is a chat session over the Agent Client Protocol
+    /// (`crate::acp::chat`, no process of its own in the registry). Terminal panes keep `None` and the field is left
+    /// out of their JSON, so it stays byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane: Option<String>,
 }
 
 /// Internal handle — owns the PTY master and the reader thread handle.
@@ -397,6 +404,7 @@ impl PaneRegistry {
             title: None,
             parent_pane_id: None,
             place: None,
+            lane: None,
         };
         PaneState {
             info,

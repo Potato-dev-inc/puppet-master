@@ -35,10 +35,13 @@ struct Reply {
     /// Drop the list held and show `items` instead.
     reset: bool,
     items: Vec<ChatItem>,
+    /// For a chat the agent pushes (the ACP lane): the session behind it (phase, "stopping", what waits on the person).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session: Option<Value>,
 }
 
 fn unavailable(reason: &str) -> Reply {
-    Reply { available: false, reason: Some(reason.to_string()), source: None, waiting_for: None, rev: 0, reset: false, items: Vec::new() }
+    Reply { available: false, reason: Some(reason.to_string()), source: None, waiting_for: None, rev: 0, reset: false, items: Vec::new(), session: None }
 }
 
 /// The phone does not draw diffs, so a tool call's input (up to 8000 characters each) stays on the desktop.
@@ -71,6 +74,7 @@ fn read_with(watchers: &Watchers, pane_id: &str, opening: Option<&Opening>, sinc
                     rev: delta.rev,
                     reset: delta.reset,
                     items: delta.items.into_iter().map(lean).collect(),
+                    session: opening.state(),
                 },
             }
         }

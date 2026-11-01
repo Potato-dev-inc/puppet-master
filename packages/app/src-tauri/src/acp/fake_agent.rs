@@ -18,9 +18,13 @@
 //! | `hang` | says nothing and ignores cancel |
 //! | `flood N` | N chunks as fast as it can |
 //! | `fsreq` | stray response with an unknown id, then asks the client to read a file using the SAME id as the prompt |
+//! | `rich` | text, a file edit (diff, path), a plan, a usage update, a thought, a command, text; `end_turn` |
+//! | `crashtool` | a tool call that starts, then the process exits with code 3 (a tool left open) |
 //! | `empty` | `end_turn` with no output |
 //! | `weird` | an update of a kind nobody knows, then text |
 //! | anything else | echoes the text |
+//!
+//! `_session/steering` is answered `injected` while a prompt runs, else `promptRequired` (the option `steer=1` advertises it).
 //!
 //! Options (`PM_FAKE_ACP=load=0;resume=1;lose=1;auth=1;deaf_ms=3000;deaf_after_new_ms=5000;fail_init_once=1;grandchild=1`) change
 //! what the handshake and session calls do. `PM_FAKE_ACP_STORE` is a folder where sessions are remembered
@@ -89,6 +93,8 @@ impl Opts {
 struct Shared {
     out: Mutex<std::io::Stdout>,
     cancel: AtomicBool,
+    /// A prompt is being answered (for `_session/steering`).
+    running: AtomicBool,
     responses: Mutex<HashMap<u64, mpsc::Sender<Value>>>,
     next_request: AtomicU64,
     opts: Opts,
@@ -150,6 +156,7 @@ pub fn run_agent() {
     let shared = Arc::new(Shared {
         out: Mutex::new(std::io::stdout()),
         cancel: AtomicBool::new(false),
+        running: AtomicBool::new(false),
         responses: Mutex::new(HashMap::new()),
         next_request: AtomicU64::new(1000),
         opts,
@@ -212,7 +219,8 @@ fn handle_request(shared: &Arc<Shared>, method: &str, id: &Value, params: Value)
                         "sessionCapabilities": session_caps,
                         "mcpCapabilities": {"http": true, "sse": false}
                     },
-                    "authMethods": [{"id": "login", "name": "Sign in"}]
+                    "authMethods": [{"id": "login", "name": "Sign in"}],
+                    "_meta": {"steering": {"supported": opts.flag("steer", false)}}
                 }),
             );
             let deaf = opts.number("deaf_ms");
@@ -258,9 +266,20 @@ fn handle_request(shared: &Arc<Shared>, method: &str, id: &Value, params: Value)
             let value = params.get("value").and_then(Value::as_str).unwrap_or("a").to_string();
             shared.reply(id, json!({"configOptions": config_options(&value)}));
         }
+        "_session/steering" => {
+            let session_id = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_string();
+            if shared.running.load(Ordering::SeqCst) {
+                let text = params.pointer("/prompt/0/text").and_then(Value::as_str).unwrap_or_default().to_string();
+                shared.reply(id, json!({"outcome": "injected"}));
+                shared.chunk(&session_id, &format!("steered:{text} "));
+            } else {
+                shared.reply(id, json!({"outcome": "promptRequired"}));
+            }
+        }
         "session/prompt" => {
             // Reset here, not in the worker: a cancel that arrives right behind the prompt must survive.
             shared.cancel.store(false, Ordering::SeqCst);
+            shared.running.store(true, Ordering::SeqCst);
             let shared = shared.clone();
             let id = id.clone();
             std::thread::spawn(move || run_prompt(&shared, &id, &params));
@@ -284,6 +303,11 @@ fn spawn_grandchild(store: &Path) {
 }
 
 fn run_prompt(shared: &Arc<Shared>, id: &Value, params: &Value) {
+    run_prompt_inner(shared, id, params);
+    shared.running.store(false, Ordering::SeqCst);
+}
+
+fn run_prompt_inner(shared: &Arc<Shared>, id: &Value, params: &Value) {
     let session_id = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_string();
     let text = params.pointer("/prompt/0/text").and_then(Value::as_str).unwrap_or_default().to_string();
     let mut words = text.split_whitespace();
@@ -348,6 +372,39 @@ fn run_prompt(shared: &Arc<Shared>, id: &Value, params: &Value) {
             shared.update(&session_id, json!({"sessionUpdate": "tool_call_update", "toolCallId": "w1", "status": if allowed { "completed" } else { "failed" }}));
             shared.chunk(&session_id, &format!("chose:{option}"));
             done("end_turn");
+        }
+        "rich" => {
+            shared.chunk(&session_id, "Looking at it. ");
+            shared.update(&session_id, json!({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking about it"}}));
+            shared.update(
+                &session_id,
+                json!({"sessionUpdate": "tool_call", "toolCallId": "e1", "title": "Write notes.txt", "kind": "edit", "status": "pending",
+                       "locations": [{"path": "C:\\work\\notes.txt"}],
+                       "content": [{"type": "diff", "path": "C:\\work\\notes.txt", "oldText": null, "newText": "hello\n"}]}),
+            );
+            shared.update(&session_id, json!({"sessionUpdate": "tool_call_update", "toolCallId": "e1", "status": "completed"}));
+            shared.update(
+                &session_id,
+                json!({"sessionUpdate": "plan", "entries": [
+                    {"content": "Write the notes", "priority": "high", "status": "completed"},
+                    {"content": "Run the tests", "priority": "medium", "status": "in_progress"}]}),
+            );
+            shared.update(&session_id, json!({"sessionUpdate": "tool_call", "toolCallId": "x1", "title": "Run tests", "kind": "execute", "status": "in_progress"}));
+            shared.update(
+                &session_id,
+                json!({"sessionUpdate": "tool_call_update", "toolCallId": "x1", "status": "completed",
+                       "content": [{"type": "content", "content": {"type": "text", "text": "```\n3 passed\n```"}}]}),
+            );
+            shared.update(&session_id, json!({"sessionUpdate": "usage_update", "used": 1200, "size": 200000}));
+            shared.chunk(&session_id, "All done.");
+            done("end_turn");
+        }
+        "crashtool" => {
+            shared.update(&session_id, json!({"sessionUpdate": "tool_call", "toolCallId": "c1", "title": "Run build", "kind": "execute", "status": "in_progress"}));
+            shared.chunk(&session_id, "starting ");
+            std::thread::sleep(Duration::from_millis(50));
+            eprintln!("fake agent: boom (pretending to crash)");
+            std::process::exit(3);
         }
         "crash" => {
             shared.chunk(&session_id, "partial ");

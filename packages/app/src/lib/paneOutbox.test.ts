@@ -42,6 +42,12 @@ describe('composerBlock', () => {
     expect(composerBlock({ status: 'error' }, false)).toBe('The agent is not running. Open Terminal.');
     expect(composerBlock(undefined, false)).toBe('This pane is not open any more.');
   });
+
+  it('keeps the box on for a chat session whose agent stopped: the next message starts it again', () => {
+    expect(composerBlock({ status: 'error' }, false, true)).toBeNull();
+    expect(composerBlock({ status: 'error' }, true, true)).toBe('Chat replies need an agent pane.');
+    expect(composerBlock(undefined, false, true)).toBe('This pane is not open any more.');
+  });
 });
 
 describe('withSent and errorText', () => {

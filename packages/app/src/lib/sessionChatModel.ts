@@ -73,9 +73,9 @@ export type NoticeItem = Extract<ChatItem, { kind: 'notice' }>;
 /**
  * Where a pane's chat is read from: the agent's own session file, the agent's local session API (an agent that serves
  * its session; the terminal's text is read while the API does not answer), or the terminal's text (an agent with
- * neither).
+ * neither), or an agent that pushes its conversation over a protocol (`acp`, a chat session: no file, no screen).
  */
-export type ChatSource = 'file' | 'api' | 'screen';
+export type ChatSource = 'file' | 'api' | 'screen' | 'acp';
 
 /** `session_chat_open` answer: whether this pane has a chat we can read, where from, and the items so far. */
 export interface SessionChatSnapshot {

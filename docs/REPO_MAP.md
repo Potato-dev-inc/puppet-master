@@ -919,7 +919,7 @@ and no chat app (`potato/guard_tests.rs`); a chat app's code would live only in 
 Tests: `cargo test --lib potato` (protocol, auth, rules, keeper, env, store, cost, service, helpers, sandbox, guards) and `cargo test --features dev-fake-tui --test fake_tui_e2e potato:: -- --test-threads=1`.
 
 
-### 3.20 ACP lane (`acp/`, A1 core: no UI and no chat items yet; Labs key `acp_chat_enabled`, default off)
+### 3.20 ACP lane (`acp/`: A1 core + A2 chat; Labs key `acp_chat_enabled`, default off)
 
 Drive an agent through the Agent Client Protocol (JSON-RPC over the stdio of a Node adapter) instead of its terminal screen. The terminal stays a full way to run every agent: the per-agent choice "Terminal | Chat (ACP)" (`acp/lane.rs`, default Terminal) is stored but nothing reads it yet (A3/A4). Design inputs: the ACP lane spec and the Nuphos study (design ideas only, no code copied) and the Windows spike. Transport and the dozen message types are our own, with no ACP crate (why: `acp/mod.rs` header; the schema crate turns on `serde_json/preserve_order` app-wide and broke 7 pinned tests).
 
@@ -935,6 +935,21 @@ Drive an agent through the Agent Client Protocol (JSON-RPC over the stdio of a N
 | `acp/config.rs`, `acp/pin.rs`, `acp/handshake.rs` | agent spawn config as data (also the schema of the future `[acp]` TOML table; the Codex entry lives here and nowhere else), adapter version + SHA-256 pin check, `initialize` (v1 only, no `fs`, no terminal) |
 | `acp/lane.rs`, `commands/acp_lane.rs` | the stored per-agent lane; `agent_lane_get` / `agent_lane_set` (desktop only) |
 | `acp/fake_agent.rs`, `acp/tests.rs`, `acp/guard_tests.rs` | a fake ACP agent (the unit-test exe re-runs itself as the agent), end-to-end tests on real processes and pipes, source guards (generic code names no agent; only `answer_permission` selects an option) |
+
+**A2, the chat (`acp/chat/`).** A session's events become `ChatItem`s that the desktop chat, the phone and `GET /panes/{id}/chat?since=` read unchanged; the agent's permission questions become question cards; Stop becomes `session/cancel`.
+
+| Where | What |
+|---|---|
+| `acp/chat/mapper.rs` | pure `Mapper`: `session/update` -> `ChatItem` v2. Chunks of one message grow one `Assistant` (stable id `a<turn>.<n>`), `tool_call`/`_update` -> `ToolCall` (kind, title, files, diff as `old_string`/`new_string`) + `ToolResult`, `plan` -> `Plan`, `usage_update` -> `Usage`, title/model/compaction -> `Notice`/`Session`, stop reason -> `TurnEnd` (+ duration, + an error `Notice`); thoughts are skipped (no thinking item); history replay (`h` ids) only into an empty chat; a crash settles open tools and ends the turn once |
+| `acp/chat/mod.rs` | `AcpChat` (one per chat pane, registry `get`/`all`): sink of the session's events, `send`/`steer`/`cancel`, `readiness`, `state()` (phase, `stopping`, permissions, commands, config options), `terminal_input` (Ctrl+C/Esc stop the turn, a line is a message), `close`. It is also the pane's `PushedSource` |
+| `acp/chat/cards.rs` | a `PermissionWait` -> a question (kind `acp_permission`, person-only, 24 h, the agent's own options as choices, no default); `Card::rejection` for a dismissed card. `AcpChat::reconcile_cards` raises a card again if it timed out while the agent still waits; `card_resolved` (called from `questions::answer/dismiss` through `on_question_resolved`) sends the chosen option, dismiss = the agent's reject option (else cancel) |
+| `acp/chat/start.rs`, `api.rs` | `check_gate` (Labs on + ACP definition + the agent's choice is Chat or the caller asks), `start` (adapter started first, then the pane; a failure leaves nothing and says `fallback: terminal`), `start_gated`; `api::{start,state,cancel}` behind the bridge routes |
+| `session_chat/pushed.rs` | `Feed` (ordered, upsert by id, generations) + `PushedSource` + the pane -> source registry; `Opening::Pushed` / `Opening::for_pane` (source name `acp`); `Watchers::open_pushed` follows it every 120 ms; the phone answer gets a `session` field |
+| `pty/registry/virtual_pane.rs` | a pane with no PTY (null master/child): listed like any pane, `PaneInfo.lane = "acp"`, status from the session snapshot, closing it stops the session. `pty/registry/pane_io.rs::write_input` routes input to `acp::chat::terminal_input` first, so every existing stop path (interrupt, panic stop, phone key) cancels the turn |
+| `pane_outbox/chat.rs` (+ `Host::steer`, `live.rs`) | the Chat tab's message box over a chat session: waits while a turn runs (the outbox queue), goes in as a prompt when ready, or is steered into the running turn (`AcpSession::steer`, `_session/steering`) when the agent takes that |
+| `commands/acp_chat.rs`, `bridge/routes/acp_chat.rs` | `acp_chat_start/cancel/state`, `LiveChatHost` (events `pty://status`, `acp-chat-state`, questions changed); `POST /acp/sessions`, `GET /acp/sessions/{pane}`, `POST /acp/sessions/{pane}/cancel` (phone: `type` for cancel; not in the MCP catalog) |
+| UI | `lib/acpChat.ts`, `hooks/useAcpChatState.ts`, `components/chat/AcpChatDock.tsx` (question cards + "Working… / Stopping…" strip with Stop), the `Chat (ACP)` badge and default Chat tab in `PaneView.tsx`, `styles/cockpit-acp.css` |
+| Tests | `acp/chat/golden_tests.rs` (real Codex/Claude traffic in `acp/chat/fixtures`, goldens in `acp/chat/golden`, `PM_UPDATE_GOLDEN=1` rewrites), `acp/chat/tests.rs` (fake agent: stream, permission round trip, reload/phone reconnect, expiry, cancel, steer, queue, crash, close), `AcpChatDock.test.tsx`, `PaneView.acp.test.tsx`, `acpChat.test.ts` |
 
 Tests: `cargo test --lib acp`. No real agent is ever started by a test.
 
