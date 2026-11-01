@@ -42,6 +42,7 @@ import { clearSplitMemory, readSplitMemory, restorableSplit, writeSplitMemory } 
 import { useCompanions } from './hooks/useCompanions';
 import { tauriCompanionTransport } from './lib/companion';
 import { usePotatoState, readOpenBot, writeOpenBot } from './hooks/usePotato';
+import { cockpitApi } from './lib/cockpit-api';
 import { tauriPotatoTransport } from './lib/potato';
 import { tauriScreenTransport } from './lib/potatoScreen';
 import { tauriSandboxTransport } from './lib/potato-sandbox';
@@ -139,6 +140,30 @@ export default function CockpitApp() {
     writeOpenBot(id);
   };
   const openPotato = () => setView('potato');
+  // Tray (cockpit://view): "Open Inbox" shows the Inbox; "Talk to Fish" opens the Potato page on the given bot.
+  // The ref keeps the listener subscribed once while always calling the latest handlers.
+  const viewHandlers = useRef({ select: c.select, openPotatoBot });
+  viewHandlers.current = { select: c.select, openPotatoBot };
+  useEffect(() => {
+    let disposed = false;
+    let off: (() => void) | undefined;
+    void cockpitApi
+      .onView((e) => {
+        if (e.view === 'inbox') {
+          viewHandlers.current.select(null);
+          setView('inbox');
+          setInboxVisit((n) => n + 1);
+        } else if (e.view === 'potato') {
+          if (e.bot) viewHandlers.current.openPotatoBot(e.bot);
+          setView('potato');
+        }
+      })
+      .then((u) => (disposed ? u() : (off = u)));
+    return () => {
+      disposed = true;
+      off?.();
+    };
+  }, []);
   // My computers (Labs `desk_enabled`): off, the row is gone and the page is unreachable.
   const deskOn = useDeskEnabled();
   // The page on screen: its bot list owns Ctrl/Cmd+K (search), so the palette stays shut here.
