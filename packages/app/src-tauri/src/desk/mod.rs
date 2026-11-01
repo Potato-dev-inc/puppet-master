@@ -14,12 +14,13 @@
 //! - Everything the engine does to the PC goes through [`host::DeskHost`]. Tests use `MockHost` only; in a test
 //!   build the real host is replaced by a stub, so no test can install a hook or move the real cursor.
 //!
-//! Layout: `host` (the OS trait), `engine` (thread, commands, snapshot, hops, hotkeys, saved settings),
+//! Layout: `link` (the link to other computers: DL-7 and DL-9), `host` (the OS trait), `engine` (thread, commands, snapshot, hops, hotkeys, saved settings),
 //! `os` (Windows host and a stub), `commands` (the Tauri commands).
 
 pub mod commands;
 pub mod engine;
 pub mod host;
+pub mod link;
 pub mod os;
 
 #[cfg(test)]

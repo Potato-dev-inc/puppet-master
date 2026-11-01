@@ -100,11 +100,12 @@ fn p2p_is_not_reachable_from_the_bridge_mcp_or_the_phone() {
 /// each of which must add itself to the allowed list here, on purpose).
 #[test]
 fn only_known_files_use_the_p2p_module() {
-    let allowed = ["lib.rs", "pairing_commands.rs"];
+    let allowed = ["lib.rs", "pairing_commands.rs", "desk_soak.rs"];
     let pattern = Regex::new(r"\bp2p::|crate::p2p\b|\bmod p2p\b").unwrap();
     for file in files(&tauri_src(), &["rs"]) {
         let rel = file.strip_prefix(tauri_src()).unwrap().to_string_lossy().replace('\\', "/");
-        if rel.starts_with("p2p/") || allowed.contains(&rel.as_str()) {
+        // The desk link (My computers, DL-7 and DL-9) is the first capability built on the link layer.
+        if rel.starts_with("p2p/") || rel.starts_with("desk/link/") || allowed.contains(&rel.as_str()) {
             continue;
         }
         let text = code_only(&read(&file));

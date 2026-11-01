@@ -663,6 +663,9 @@ impl PairManager {
         let _busy = BusyGuard(self.clone());
         self.changed();
         let result = self.run_join(&peer, &code).await;
+        if result.is_ok() {
+            self.p2p.addrs().remember(peer.id, &peer.direct);
+        }
         self.with(|s| s.joining = None);
         match &result {
             Ok(name) => self.say(&format!("Paired with {name}. Nothing is shared yet: turn on what you want below.")),

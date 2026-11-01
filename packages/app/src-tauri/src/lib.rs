@@ -108,6 +108,7 @@ mod settings_patch;
 mod shell_env;
 mod startup_timing;
 mod desk;
+pub mod desk_soak;
 mod p2p;
 mod pairing_commands;
 mod review_desk;
@@ -539,6 +540,10 @@ pub fn run() {
             commands::issue_intake_poll_now,
             desk::commands::desk_snapshot,
             desk::commands::desk_command,
+            desk::link::commands::desk_link_view,
+            desk::link::commands::desk_link_set_side,
+            desk::link::commands::desk_link_pause,
+            desk::link::commands::desk_link_panic,
             pairing_commands::pair_view,
             pairing_commands::pair_host_start,
             pairing_commands::pair_host_cancel,

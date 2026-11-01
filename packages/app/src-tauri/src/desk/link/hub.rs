@@ -1,0 +1,605 @@
+// Behaviour from desktoplab (github.com/v7ren/desktoplab), commit 6e5360e, MIT.
+// (hop-engine runtime: control machine wiring, remote injection, panic and pause; PLAN.md N3.1 event-driven loop.)
+//! The hub: the one owner of "who has the mouse". Link tasks and the capture thread send it messages; it decides and
+//! answers through each link's queues. It never awaits a stream and it has no sleep: it wakes for a message, for the
+//! 10 ms edge look (only while a computer is linked), or for the 250 ms upkeep.
+//!
+//! Two roles at once, per computer pair:
+//! - **Holding the mouse** (`remote`): the pointer left through an edge. Input is captured here (the host hides and
+//!   holds the pointer) and sent to the other computer: keys and buttons on the control stream, motion as datagrams.
+//!   Back home on `Return`, on panic (Ctrl+Alt+Esc), on pause (Scroll Lock), on 250 ms of silence, or when the link ends.
+//! - **Being controlled** (`controlled`): the other computer's input is injected. Every key and button pressed is
+//!   remembered and released when control ends for any reason, the link breaks, or the peer goes quiet.
+
+use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
+use std::time::Duration;
+
+use desk_core::{translate_hid, ControlEvent, ControlMachine, HostOs, ModifierMap, ScrollNorm, Side};
+use desk_proto::{Datagram, OsKind, StreamMsg};
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::{interval, MissedTickBehavior};
+
+use crate::p2p::capability;
+use crate::p2p::endpoint::{Link, NodeId};
+use crate::p2p::session::{DialLedger, Reach, Sessions};
+
+use super::geometry::{edge_hit, entry_point, from_milli, inward, milli, parse_side, pushing_back, side_name};
+use super::remote::{Capture, Inject};
+use super::{clip_link, io, Inner, CLOSE_REPLACED, CLOSE_STOPPED};
+use crate::desk::host::DisplayInfo;
+
+/// How often the pointer is looked at while a computer is linked.
+const EDGE_POLL: Duration = Duration::from_millis(10);
+/// Upkeep: dials, switches, screens.
+const UPKEEP: Duration = Duration::from_millis(250);
+/// The pointer must rest on the edge for this many looks (20 ms) before it crosses: brushing past does not count.
+const DWELL_LOOKS: u32 = 2;
+/// Most keys remembered as held on the controlled side.
+const MAX_HELD: usize = 256;
+
+pub struct InstallReq {
+    pub peer: NodeId,
+    pub link: Arc<dyn Link>,
+    pub link_id: u64,
+    pub dialed: bool,
+    pub os: OsKind,
+    pub ctl: mpsc::UnboundedSender<StreamMsg>,
+    pub dg: mpsc::Sender<Datagram>,
+    pub reply: oneshot::Sender<bool>,
+}
+
+pub enum Msg {
+    Handshaking { peer: NodeId, on: bool },
+    Install(Box<InstallReq>),
+    Frame { peer: NodeId, link_id: u64, msg: StreamMsg },
+    Motion { peer: NodeId, link_id: u64, dx: i32, dy: i32 },
+    Stalled { peer: NodeId, link_id: u64 },
+    Ended { peer: NodeId, link_id: u64 },
+    Capture(Capture),
+    DialResult { peer: NodeId, ok: bool },
+    Pause(bool),
+    Panic,
+    Kick,
+    Shutdown,
+}
+
+struct Live {
+    #[allow(dead_code)]
+    link_id: u64,
+    link: Arc<dyn Link>,
+    ctl: mpsc::UnboundedSender<StreamMsg>,
+    dg: mpsc::Sender<Datagram>,
+    os: OsKind,
+    motion_seq: u32,
+}
+
+/// The pointer is on `peer`.
+struct Remote {
+    peer: NodeId,
+    /// Where the pointer comes back to when nothing says otherwise: inside the edge it left through.
+    home: (i32, i32),
+    side: Side,
+}
+
+/// `peer` is using this computer.
+struct Controlled {
+    peer: NodeId,
+    /// The edge of this computer's screens the pointer came in through.
+    entry: Side,
+    keys: BTreeSet<u16>,
+    buttons: BTreeSet<u8>,
+}
+
+#[derive(Default)]
+struct Chords {
+    down: BTreeSet<u16>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Chord {
+    Panic,
+    Pause,
+}
+
+const HID_ESC: u16 = 0x29;
+const HID_SCROLL_LOCK: u16 = 0x47;
+
+impl Chords {
+    /// Ctrl+Alt+Esc is the panic key, Scroll Lock the pause key. Matched on the raw keys, so it works whatever
+    /// else is held, and whichever side of the keyboard the modifiers are on.
+    fn on_key(&mut self, hid: u16, down: bool) -> Option<Chord> {
+        if !down {
+            self.down.remove(&hid);
+            return None;
+        }
+        self.down.insert(hid);
+        let ctrl = self.down.contains(&0xE0) || self.down.contains(&0xE4);
+        let alt = self.down.contains(&0xE2) || self.down.contains(&0xE6);
+        if hid == HID_ESC && ctrl && alt {
+            Some(Chord::Panic)
+        } else if hid == HID_SCROLL_LOCK {
+            Some(Chord::Pause)
+        } else {
+            None
+        }
+    }
+}
+
+fn host_os(os: OsKind) -> HostOs {
+    match os {
+        OsKind::Macos => HostOs::Macos,
+        OsKind::Windows | OsKind::Other => HostOs::Windows,
+    }
+}
+
+pub struct Hub {
+    inner: Arc<Inner>,
+    tx: mpsc::UnboundedSender<Msg>,
+    sessions: Sessions,
+    live: HashMap<NodeId, Live>,
+    ledger: DialLedger,
+    control: ControlMachine,
+    remote: Option<Remote>,
+    controlled: Option<Controlled>,
+    paused: bool,
+    chords: Chords,
+    displays: Vec<DisplayInfo>,
+    edge_candidate: Option<(NodeId, u32)>,
+    upkeeps: u64,
+    error: Option<String>,
+}
+
+impl Hub {
+    pub fn new(inner: Arc<Inner>, tx: mpsc::UnboundedSender<Msg>) -> Self {
+        Self {
+            inner,
+            tx,
+            sessions: Sessions::new(),
+            live: HashMap::new(),
+            ledger: DialLedger::new(),
+            control: ControlMachine::new(),
+            remote: None,
+            controlled: None,
+            paused: false,
+            chords: Chords::default(),
+            displays: Vec::new(),
+            edge_candidate: None,
+            upkeeps: 0,
+            error: None,
+        }
+    }
+
+    pub async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Msg>) {
+        let mut poll = interval(EDGE_POLL);
+        poll.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut upkeep = interval(UPKEEP);
+        upkeep.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        self.refresh_displays();
+        loop {
+            tokio::select! {
+                msg = rx.recv() => match msg {
+                    Some(Msg::Shutdown) | None => break,
+                    Some(m) => self.on_msg(m),
+                },
+                _ = poll.tick(), if !self.live.is_empty() => self.poll_edge(),
+                _ = upkeep.tick() => self.upkeep(),
+            }
+        }
+        self.teardown();
+    }
+
+    fn ms(&self) -> u64 {
+        self.inner.now_ms()
+    }
+
+    fn refresh_displays(&mut self) {
+        if let Ok(d) = self.inner.host.displays() {
+            self.displays = d;
+        }
+    }
+
+    fn fail(&mut self, what: &str) {
+        self.error = Some(what.to_string());
+    }
+
+    // ---- messages ----------------------------------------------------------------------------------------
+
+    fn on_msg(&mut self, msg: Msg) {
+        match msg {
+            Msg::Handshaking { peer, on } => {
+                if on {
+                    self.sessions.handshake_started(&peer);
+                } else {
+                    self.sessions.handshake_ended(&peer);
+                }
+            }
+            Msg::Install(req) => self.on_install(*req),
+            Msg::Frame { peer, link_id, msg } => {
+                if self.sessions.is_current(&peer, link_id) {
+                    self.on_frame(peer, msg);
+                }
+            }
+            Msg::Motion { peer, link_id, dx, dy } => {
+                if self.sessions.is_current(&peer, link_id) {
+                    self.on_motion(peer, dx, dy);
+                }
+            }
+            Msg::Stalled { peer, link_id } => {
+                if self.sessions.is_current(&peer, link_id) {
+                    self.session_lost(&peer);
+                }
+            }
+            Msg::Ended { peer, link_id } => {
+                if self.sessions.link_ended(&peer, link_id) {
+                    self.live.remove(&peer);
+                    self.session_lost(&peer);
+                }
+            }
+            Msg::Capture(c) => self.on_capture(c),
+            Msg::DialResult { peer, ok } => {
+                let now = self.ms();
+                if ok {
+                    self.ledger.succeeded(&peer);
+                } else {
+                    self.ledger.failed(&peer, now);
+                }
+            }
+            Msg::Pause(p) => {
+                self.paused = p;
+                if p {
+                    self.stop_all();
+                }
+            }
+            Msg::Panic => self.stop_all(),
+            Msg::Kick => self.upkeep(),
+            Msg::Shutdown => {}
+        }
+        self.publish();
+    }
+
+    fn on_install(&mut self, req: InstallReq) {
+        let local = self.inner.p2p.node_id().unwrap_or(NodeId([0; 32]));
+        if !self.inner.labs() || !self.inner.input_allowed(&req.peer) {
+            req.link.close(CLOSE_STOPPED, "bye");
+            let _ = req.reply.send(false);
+            return;
+        }
+        let (action, replaced) = self.sessions.install(&req.peer, req.link_id, req.dialed, &local, self.ms());
+        use crate::p2p::session::InstallAction::*;
+        match action {
+            RejectNew => {
+                let _ = req.reply.send(false);
+            }
+            Accept | ReplaceExisting => {
+                if replaced.is_some() {
+                    // A session on the old link ends: everything held on it is let go before the new one starts.
+                    self.session_lost(&req.peer);
+                    if let Some(old) = self.live.remove(&req.peer) {
+                        old.link.close(CLOSE_REPLACED, "bye");
+                    }
+                }
+                self.live.insert(
+                    req.peer,
+                    Live { link_id: req.link_id, link: req.link, ctl: req.ctl, dg: req.dg, os: req.os, motion_seq: 0 },
+                );
+                self.ledger.succeeded(&req.peer);
+                let _ = req.reply.send(true);
+            }
+        }
+    }
+
+    // ---- the edge ----------------------------------------------------------------------------------------
+
+    fn poll_edge(&mut self) {
+        if self.paused || self.remote.is_some() || self.controlled.is_some() || !self.inner.labs() {
+            self.edge_candidate = None;
+            return;
+        }
+        let Ok(pos) = self.inner.host.cursor_pos() else { return };
+        let mut hit = None;
+        for peer in self.live.keys() {
+            let side = self.inner.side_of(peer);
+            if let Some(t) = edge_hit(&self.displays, pos, side) {
+                hit = Some((*peer, side, t));
+                break;
+            }
+        }
+        let Some((peer, side, t)) = hit else {
+            self.edge_candidate = None;
+            return;
+        };
+        let looks = match self.edge_candidate {
+            Some((p, n)) if p == peer => n + 1,
+            _ => 1,
+        };
+        self.edge_candidate = Some((peer, looks));
+        if looks >= DWELL_LOOKS && self.cross_to(peer, side, t, pos) {
+            self.edge_candidate = None;
+            self.publish();
+        }
+    }
+
+    fn cross_to(&mut self, peer: NodeId, side: Side, t: f64, pos: (i32, i32)) -> bool {
+        if !self.inner.input_allowed(&peer) || self.inner.host.buttons_held() {
+            return false;
+        }
+        let Some(live) = self.live.get(&peer) else { return false };
+        let tx = self.tx.clone();
+        let sink: super::remote::CaptureSink = Arc::new(move |c| {
+            let _ = tx.send(Msg::Capture(c));
+        });
+        if let Err(e) = self.inner.host.start_capture(sink) {
+            self.fail(&format!("Could not take the mouse: {e}"));
+            return false;
+        }
+        let home = inward(pos, side);
+        self.inner.set_emergency(true, home);
+        let entry = side.opposite();
+        let (nx, ny) = match entry {
+            Side::Left => (0, milli(t)),
+            Side::Right => (1000, milli(t)),
+            Side::Top => (milli(t), 0),
+            Side::Bottom => (milli(t), 1000),
+        };
+        let _ = live.ctl.send(StreamMsg::Enter { monitor_id: side_name(entry).to_string(), nx_milli: nx, ny_milli: ny });
+        self.control.handle(ControlEvent::CrossTo { peer: desk_core::DeviceId(peer.to_hex()), button_held: false });
+        self.remote = Some(Remote { peer, home, side });
+        self.error = None;
+        clip_link::spawn_send(&self.inner, peer);
+        true
+    }
+
+    // ---- holding the mouse -------------------------------------------------------------------------------
+
+    fn on_capture(&mut self, c: Capture) {
+        let Some(r) = &self.remote else { return };
+        let peer = r.peer;
+        let Some(live) = self.live.get_mut(&peer) else { return };
+        match c {
+            Capture::Key { hid, down } => {
+                match self.chords.on_key(hid, down) {
+                    Some(Chord::Panic) => return self.stop_all(),
+                    Some(Chord::Pause) => {
+                        self.paused = true;
+                        return self.stop_all();
+                    }
+                    None => {}
+                }
+                self.control.handle(if down { ControlEvent::KeyDown(hid) } else { ControlEvent::KeyUp(hid) });
+                let _ = live.ctl.send(StreamMsg::Key { hid, down });
+            }
+            Capture::Button { button, down } => {
+                self.control.handle(if down { ControlEvent::ButtonDown(button) } else { ControlEvent::ButtonUp(button) });
+                let _ = live.ctl.send(StreamMsg::Button { button, down });
+            }
+            Capture::Wheel { dx, dy } => {
+                let (dx, dy) = desk_core::normalize_wheel(ScrollNorm::default(), dx, dy);
+                let _ = live.ctl.send(StreamMsg::Wheel { dx, dy });
+            }
+            Capture::Motion { dx, dy } => {
+                live.motion_seq = live.motion_seq.wrapping_add(1);
+                // A full queue drops motion; it never waits.
+                let _ = live.dg.try_send(Datagram::Motion { seq: live.motion_seq, dx, dy, sent_us: self.inner.now_ms() * 1000 });
+            }
+        }
+    }
+
+    /// Back to this computer. `arrival` is where the pointer appears; without it, where it left.
+    fn go_home(&mut self, arrival: Option<(i32, i32)>) {
+        let Some(r) = self.remote.take() else { return };
+        let peer = r.peer;
+        // The machine keeps the phase in step; what must happen does not depend on what it thinks.
+        let _ = self.control.handle(ControlEvent::CrossHome);
+        if let Some(l) = self.live.get(&peer) {
+            let _ = l.ctl.send(StreamMsg::ReleaseAll);
+        }
+        self.inner.host.stop_capture();
+        self.chords = Chords::default();
+        let target = arrival.unwrap_or(r.home);
+        if let Err(e) = self.inner.host.move_cursor(target.0, target.1) {
+            self.fail(&format!("Could not move the pointer back: {e}"));
+        }
+        self.inner.set_emergency(false, r.home);
+    }
+
+    /// Panic and pause: the pointer is here, nothing is held anywhere, on both computers.
+    fn stop_all(&mut self) {
+        self.go_home(None);
+        if let Some(c) = self.controlled.as_ref().map(|c| c.peer) {
+            // The other computer holds the mouse: tell it to come home too.
+            if let Some(l) = self.live.get(&c) {
+                let _ = l.ctl.send(StreamMsg::Leave);
+            }
+            self.release_controlled();
+        }
+    }
+
+    /// The session with `peer` is over (link ended, replaced, or gone quiet): let go of everything tied to it.
+    fn session_lost(&mut self, peer: &NodeId) {
+        if self.remote.as_ref().is_some_and(|r| &r.peer == peer) {
+            self.go_home(None);
+        }
+        if self.controlled.as_ref().is_some_and(|c| &c.peer == peer) {
+            self.release_controlled();
+        }
+    }
+
+    // ---- being controlled --------------------------------------------------------------------------------
+
+    fn on_frame(&mut self, peer: NodeId, msg: StreamMsg) {
+        match msg {
+            StreamMsg::Enter { monitor_id, nx_milli, ny_milli } => self.on_enter(peer, &monitor_id, nx_milli, ny_milli),
+            StreamMsg::Key { hid, down } => {
+                let from = self.live.get(&peer).map_or(HostOs::Windows, |l| host_os(l.os));
+                let hid = translate_hid(ModifierMap::default(), from, host_os(io::os_here()), hid);
+                self.inject_held(peer, Inject::Key { hid, down }, |c| {
+                    if down {
+                        if c.keys.len() < MAX_HELD {
+                            c.keys.insert(hid);
+                        }
+                    } else {
+                        c.keys.remove(&hid);
+                    }
+                });
+            }
+            StreamMsg::Button { button, down } => self.inject_held(peer, Inject::Button { button, down }, |c| {
+                if down {
+                    c.buttons.insert(button);
+                } else {
+                    c.buttons.remove(&button);
+                }
+            }),
+            StreamMsg::Wheel { dx, dy } => self.inject_held(peer, Inject::Wheel { dx, dy }, |_| {}),
+            StreamMsg::ReleaseAll | StreamMsg::Leave => {
+                let leave = matches!(msg, StreamMsg::Leave);
+                if self.controlled.as_ref().is_some_and(|c| c.peer == peer) {
+                    self.release_controlled();
+                }
+                // "Leave" from the computer we hold: it refuses, or its pointer came home on its own.
+                if leave && self.remote.as_ref().is_some_and(|r| r.peer == peer) {
+                    self.go_home(None);
+                }
+            }
+            StreamMsg::Return { t_milli } => {
+                if self.remote.as_ref().is_some_and(|r| r.peer == peer) {
+                    let side = self.remote.as_ref().map_or(Side::Right, |r| r.side);
+                    self.refresh_displays();
+                    let arrival = entry_point(&self.displays, side, from_milli(t_milli));
+                    self.go_home(arrival);
+                }
+            }
+            // Hello again, layout, clipboard on the wrong stream, drag: not part of this link.
+            _ => {}
+        }
+    }
+
+    fn on_enter(&mut self, peer: NodeId, monitor_id: &str, nx: u16, ny: u16) {
+        let refuse = |hub: &Hub| {
+            if let Some(l) = hub.live.get(&peer) {
+                let _ = l.ctl.send(StreamMsg::Leave);
+            }
+        };
+        let busy = self.remote.is_some() || self.controlled.as_ref().is_some_and(|c| c.peer != peer);
+        let Some(entry) = parse_side(monitor_id) else { return refuse(self) };
+        if self.paused || busy || !self.inner.labs() || !self.inner.input_allowed(&peer) {
+            return refuse(self);
+        }
+        if self.controlled.is_some() {
+            self.release_controlled();
+        }
+        self.refresh_displays();
+        let t = match entry {
+            Side::Left | Side::Right => from_milli(ny),
+            Side::Top | Side::Bottom => from_milli(nx),
+        };
+        let Some(at) = entry_point(&self.displays, entry, t) else { return refuse(self) };
+        if let Err(e) = self.inner.host.move_cursor(at.0, at.1) {
+            self.fail(&format!("Could not place the pointer: {e}"));
+            return refuse(self);
+        }
+        self.controlled = Some(Controlled { peer, entry, keys: BTreeSet::new(), buttons: BTreeSet::new() });
+        self.error = None;
+    }
+
+    fn inject_held(&mut self, peer: NodeId, ev: Inject, note: impl FnOnce(&mut Controlled)) {
+        let Some(c) = self.controlled.as_mut().filter(|c| c.peer == peer) else { return };
+        note(c);
+        if let Err(e) = self.inner.host.inject(ev) {
+            self.fail(&format!("Could not use the keyboard or mouse: {e}"));
+        }
+    }
+
+    fn on_motion(&mut self, peer: NodeId, dx: i32, dy: i32) {
+        let Some(entry) = self.controlled.as_ref().filter(|c| c.peer == peer).map(|c| c.entry) else { return };
+        if let Err(e) = self.inner.host.inject(Inject::Move { dx, dy }) {
+            self.fail(&format!("Could not move the pointer: {e}"));
+            return;
+        }
+        let Ok(pos) = self.inner.host.cursor_pos() else { return };
+        if let Some(t) = pushing_back(&self.displays, entry, pos, (dx, dy)) {
+            if let Some(l) = self.live.get(&peer) {
+                let _ = l.ctl.send(StreamMsg::Return { t_milli: milli(t) });
+            }
+            self.release_controlled();
+            clip_link::spawn_send(&self.inner, peer);
+        }
+    }
+
+    /// Key-up and button-up for everything pressed on behalf of the peer.
+    fn release_controlled(&mut self) {
+        let Some(c) = self.controlled.take() else { return };
+        for hid in c.keys {
+            let _ = self.inner.host.inject(Inject::Key { hid, down: false });
+        }
+        for button in c.buttons {
+            let _ = self.inner.host.inject(Inject::Button { button, down: false });
+        }
+        self.inner.host.release_injected();
+    }
+
+    // ---- upkeep ------------------------------------------------------------------------------------------
+
+    fn upkeep(&mut self) {
+        self.upkeeps += 1;
+        if !self.inner.labs() {
+            return;
+        }
+        if self.upkeeps % 4 == 0 {
+            self.refresh_displays();
+        }
+        self.inner.reconcile_later();
+        let now = self.ms();
+        // Dial every computer whose switch is on and that is not linked or being dialed.
+        let want: Vec<NodeId> = self.inner.trust.list().iter().map(|d| d.node).filter(|n| self.inner.input_allowed(n)).collect();
+        for peer in &want {
+            if self.sessions.reach(peer) == Reach::Offline && self.ledger.begin(peer, now) {
+                self.spawn_dial(*peer);
+            }
+        }
+        // A switch that went off, or a computer that was removed.
+        for (peer, live) in &self.live {
+            if !want.contains(peer) {
+                live.link.close(CLOSE_STOPPED, "bye");
+            }
+        }
+        for peer in self.ledger_forget(&want) {
+            self.ledger.forget(&peer);
+        }
+    }
+
+    fn ledger_forget(&self, want: &[NodeId]) -> Vec<NodeId> {
+        self.inner.trust.list().iter().map(|d| d.node).filter(|n| !want.contains(n)).collect()
+    }
+
+    fn spawn_dial(&self, peer: NodeId) {
+        let inner = self.inner.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let addr = inner.p2p.addrs().peer(peer);
+            match inner.p2p.dial(&addr, capability::DESK_INPUT).await {
+                Ok(link) => io::run_link(inner, peer, link, true).await,
+                Err(_) => {
+                    let _ = tx.send(Msg::DialResult { peer, ok: false });
+                }
+            }
+        });
+    }
+
+    // ---- the page ----------------------------------------------------------------------------------------
+
+    fn publish(&mut self) {
+        let reach: HashMap<NodeId, Reach> = self.inner.trust.list().iter().map(|d| (d.node, self.sessions.reach(&d.node))).collect();
+        self.inner.publish(reach, self.remote.as_ref().map(|r| r.peer), self.controlled.as_ref().map(|c| c.peer), self.paused, self.error.clone());
+    }
+
+    fn teardown(&mut self) {
+        self.go_home(None);
+        self.release_controlled();
+        self.inner.host.stop_capture();
+        for (_, l) in self.live.drain() {
+            l.link.close(CLOSE_STOPPED, "bye");
+        }
+        self.inner.publish(HashMap::new(), None, None, self.paused, None);
+    }
+}

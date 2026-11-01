@@ -65,7 +65,7 @@ fn desk_shipped_files() -> Vec<PathBuf> {
 /// list may reach the desk module, its commands, or its Labs switch.
 #[test]
 fn nothing_reachable_by_agents_mcp_or_the_phone_mentions_desk() {
-    let pattern = Regex::new(r"\bdesk::|crate::desk\b|\bmod desk\b|desk_snapshot|desk_command|\bdesk_enabled\b|desk-core|desk-proto|desk_core|desk_proto").unwrap();
+    let pattern = Regex::new(r"\bdesk::|crate::desk\b|\bmod desk\b|desk_snapshot|desk_command|\bdesk_enabled\b|desk-core|desk-proto|desk_core|desk_proto|desk_link_|DeskLink|desk/input|desk/clipboard").unwrap();
     let src = tauri_src();
     let pkgs = packages();
     let mut roots: Vec<PathBuf> = vec![
@@ -109,6 +109,58 @@ fn the_two_commands_are_the_only_desk_entry_points() {
     assert!(!commands.contains("pub fn "), "commands are async and go through Desk, which checks the Labs switch");
 }
 
+/// The link commands are desktop window commands too: registered once, none of them public functions.
+#[test]
+fn the_link_commands_are_desktop_window_commands_only() {
+    let lib = read(&tauri_src().join("lib.rs"));
+    for name in ["desk_link_view", "desk_link_set_side", "desk_link_pause", "desk_link_panic"] {
+        assert_eq!(lib.matches(&format!("desk::link::commands::{name}")).count(), 1, "{name}");
+    }
+    let commands = read(&tauri_src().join("desk").join("link").join("commands.rs"));
+    assert_eq!(commands.matches("#[tauri::command]").count(), 4);
+    assert!(!commands.contains("pub fn "));
+    // Every one goes through `link_ready`, which says FEATURE_OFF while Labs is off.
+    assert_eq!(commands.matches("link_ready(&app)?").count(), 4);
+}
+
+/// Nothing starts sharing by itself: the link starts only from the page's command (or a person's settings change),
+/// never from a tool, an agent, a timer at app start or a network message.
+#[test]
+fn nothing_but_the_page_starts_the_link() {
+    let mut starters = Vec::new();
+    for file in files(&tauri_src(), &["rs"]) {
+        let name = file.file_name().unwrap().to_string_lossy().to_string();
+        if name.ends_with("tests.rs") {
+            continue;
+        }
+        let rel = file.strip_prefix(tauri_src()).unwrap().to_string_lossy().replace('\\', "/");
+        let text = code_only(&read(&file));
+        if text.contains("link.start()") || text.contains(".link.start(") {
+            starters.push(rel);
+        }
+    }
+    // The page's commands, and the hand-run soak tool (a pretend PC, never the real one).
+    starters.sort();
+    assert_eq!(starters, vec!["desk_soak.rs".to_string(), "pairing_commands.rs".to_string()]);
+}
+
+/// A copy is never put into a log line: tracing calls in the link carry sizes only.
+#[test]
+fn the_link_never_logs_a_copy() {
+    let mut checked = 0;
+    for file in files(&tauri_src().join("desk").join("link"), &["rs"]) {
+        let name = file.file_name().unwrap().to_string_lossy().to_string();
+        if name == "tests.rs" || name == "mock.rs" {
+            continue;
+        }
+        for line in code_only(&read(&file)).lines().filter(|l| l.contains("tracing::")) {
+            checked += 1;
+            assert!(!line.contains('?') && !line.contains('%') && !line.contains("{:") && !line.contains("{}"), "{name}: a log line may carry sizes only: {line}");
+        }
+    }
+    assert!(checked >= 1, "the guard must see the log lines it guards");
+}
+
 /// This phase has no network code at all.
 #[test]
 fn desk_has_no_network_code() {
@@ -121,25 +173,24 @@ fn desk_has_no_network_code() {
     }
 }
 
-/// This phase reads and moves the pointer and listens for keys. It injects nothing and changes no process setting.
+/// Injecting input, capturing it and the clipboard live in two Windows files; nothing else may. Nobody registers a
+/// hotkey, changes a process-wide setting, blocks input, clips or hides the pointer.
 #[test]
-fn desk_injects_no_input_and_changes_no_process_setting() {
-    let banned = [
-        "SendInput",
-        "mouse_event",
-        "keybd_event",
-        "WH_MOUSE_LL",
-        "RegisterHotKey",
-        "SetProcessDpiAwarenessContext",
-        "SetProcessDPIAware",
-        "ClipCursor",
-        "ShowCursor",
-        "BlockInput",
-    ];
+fn input_injection_and_capture_live_in_two_files_only() {
+    let only_there = ["SendInput", "mouse_event", "keybd_event", "WH_MOUSE_LL", "WH_KEYBOARD_LL"];
+    let never = ["RegisterHotKey", "SetProcessDpiAwarenessContext", "SetProcessDPIAware", "ClipCursor", "ShowCursor", "BlockInput", "SetSystemCursor"];
+    let allowed = ["remote.rs", "capture.rs", "hook.rs"];
     for file in desk_shipped_files() {
         let text = code_only(&read(&file));
-        for word in banned {
+        let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let in_windows = file.to_string_lossy().replace('\\', "/").contains("/os/windows/");
+        for word in never {
             assert!(!text.contains(word), "{} uses {word}", file.display());
+        }
+        for word in only_there {
+            if !(in_windows && allowed.contains(&name)) {
+                assert!(!text.contains(word), "{} uses {word}: only the Windows host files may", file.display());
+            }
         }
     }
 }
@@ -147,10 +198,17 @@ fn desk_injects_no_input_and_changes_no_process_setting() {
 /// Tests never build the real Windows host or call the real default host.
 #[test]
 fn desk_tests_use_only_the_mock_host() {
-    for name in ["tests.rs", "guard_tests.rs"] {
-        let text = read(&tauri_src().join("desk").join(name));
+    for path in [vec!["tests.rs"], vec!["guard_tests.rs"], vec!["link", "tests.rs"]] {
+        let name = path.join("/");
+        let mut full = tauri_src().join("desk");
+        for part in &path {
+            full = full.join(part);
+        }
+        let text = read(&full);
         let code = code_only(&text);
         let real = ["Windows", "Host::new"].concat();
+        let real2 = ["Windows", "Remote"].concat();
+        assert!(!code_only(&text).contains(&real2), "{name} builds the real remote host");
         let os_win = ["os::", "windows"].concat();
         let dflt = ["default_", "host()"].concat();
         assert!(!code.contains(&real), "{name} builds the real host");
@@ -179,10 +237,26 @@ fn the_hook_is_installed_only_on_its_own_named_thread() {
     assert!(!callback.contains("recv") && !callback.contains("sleep") && !callback.contains(".send("));
 }
 
+/// The capture hooks run on a thread of their own, installed only after it starts, and their callbacks never wait.
+#[test]
+fn the_capture_hooks_are_installed_only_on_their_own_named_thread() {
+    let text = code_only(&read(&tauri_src().join("desk").join("os").join("windows").join("capture.rs")));
+    assert_eq!(text.matches("SetWindowsHookExW(").count(), 2, "one mouse hook and one keyboard hook");
+    let spawn = text.find("thread::Builder::new().name(\"desk-capture\"").expect("a named capture thread");
+    assert!(spawn < text.find("SetWindowsHookExW(").unwrap());
+    assert!(text.contains("GetMessageW"));
+    let callbacks = &text[text.find("unsafe extern \"system\" fn mouse_proc").unwrap()..];
+    assert!(!callbacks.contains(".lock()"), "capture callbacks use try_lock only");
+    assert!(!callbacks.contains("recv") && !callbacks.contains("sleep") && !callbacks.contains(".send("));
+}
+
 /// Files with behaviour taken from desktoplab say so on their first line.
 #[test]
 fn ported_files_carry_the_source_header() {
-    let ported = ["hotkeys.rs", "hops.rs", "config.rs", "hook.rs", "dpi.rs", "cursor.rs", "display.rs", "host.rs"];
+    let ported = [
+        "hotkeys.rs", "hops.rs", "config.rs", "hook.rs", "dpi.rs", "cursor.rs", "display.rs", "host.rs", "remote.rs", "capture.rs", "clipboard.rs",
+        "geometry.rs", "hub.rs", "io.rs", "wire.rs", "clip_link.rs",
+    ];
     let mut found = 0;
     for file in desk_shipped_files() {
         let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -191,5 +265,5 @@ fn ported_files_carry_the_source_header() {
             assert!(read(&file).starts_with("// Behaviour from desktoplab (github.com/v7ren/desktoplab), commit 6e5360e, MIT."), "{} lacks the header", file.display());
         }
     }
-    assert_eq!(found, ported.len());
+    assert!(found >= ported.len(), "only {found} ported files found");
 }

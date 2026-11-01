@@ -26,6 +26,8 @@ struct Hub {
     paths: HashMap<(NodeId, NodeId), watch::Sender<PathKind>>,
     default_relayed: bool,
     binds: usize,
+    /// Pairs whose datagrams are silently dropped (a pulled network cable).
+    holes: std::collections::HashSet<(NodeId, NodeId)>,
 }
 
 fn pair_key(a: NodeId, b: NodeId) -> (NodeId, NodeId) {
@@ -67,6 +69,20 @@ impl MemoryNet {
     /// New pairs of nodes start relayed instead of direct.
     pub fn default_to_relayed(&self, on: bool) {
         self.hub().default_relayed = on;
+    }
+
+    /// Datagrams between two nodes vanish (or come back): the cable is pulled. Streams are not touched.
+    pub fn blackhole(&self, a: NodeId, b: NodeId, on: bool) {
+        let mut hub = self.hub();
+        if on {
+            hub.holes.insert(pair_key(a, b));
+        } else {
+            hub.holes.remove(&pair_key(a, b));
+        }
+    }
+
+    fn blackholed(&self, a: NodeId, b: NodeId) -> bool {
+        self.hub().holes.contains(&pair_key(a, b))
     }
 
     /// Sets the path between two nodes, for links already open and for new ones.
@@ -134,7 +150,7 @@ impl Transport for MemTransport {
             let incoming = slot.incoming.clone();
             (incoming, MemoryNet::path_rx(&mut hub, self.id, peer.id))
         };
-        let (mine, theirs) = MemLink::pair(self.id, peer.id, alpn, path);
+        let (mine, theirs) = MemLink::pair(self.net.clone(), self.id, peer.id, alpn, path);
         incoming.send(theirs).map_err(|_| P2pError::Net("unreachable".into()))?;
         Ok(mine)
     }
@@ -151,6 +167,8 @@ impl Transport for MemTransport {
 }
 
 struct MemLink {
+    net: MemoryNet,
+    local: NodeId,
     peer: NodeId,
     alpn: Vec<u8>,
     path: watch::Receiver<PathKind>,
@@ -163,13 +181,15 @@ struct MemLink {
 
 impl MemLink {
     /// (the dialer's end, the acceptor's end)
-    fn pair(dialer: NodeId, acceptor: NodeId, alpn: &[u8], path: watch::Receiver<PathKind>) -> (Arc<MemLink>, Arc<MemLink>) {
+    fn pair(net: MemoryNet, dialer: NodeId, acceptor: NodeId, alpn: &[u8], path: watch::Receiver<PathKind>) -> (Arc<MemLink>, Arc<MemLink>) {
         let (bi_a_tx, bi_a_rx) = mpsc::unbounded_channel();
         let (bi_b_tx, bi_b_rx) = mpsc::unbounded_channel();
         let (dg_a_tx, dg_a_rx) = mpsc::unbounded_channel();
         let (dg_b_tx, dg_b_rx) = mpsc::unbounded_channel();
         let closed = Arc::new(watch::channel(None).0);
         let a = Arc::new(MemLink {
+            net: net.clone(),
+            local: dialer,
             peer: acceptor,
             alpn: alpn.to_vec(),
             path: path.clone(),
@@ -180,6 +200,8 @@ impl MemLink {
             closed: closed.clone(),
         });
         let b = Arc::new(MemLink {
+            net,
+            local: acceptor,
             peer: dialer,
             alpn: alpn.to_vec(),
             path,
@@ -254,6 +276,9 @@ impl Link for MemLink {
     async fn send_datagram(&self, data: Vec<u8>) -> Result<(), P2pError> {
         if self.is_closed() {
             return Err(P2pError::Closed);
+        }
+        if self.net.blackholed(self.local, self.peer) {
+            return Ok(());
         }
         self.dg_out.send(data).map_err(|_| P2pError::Closed)
     }

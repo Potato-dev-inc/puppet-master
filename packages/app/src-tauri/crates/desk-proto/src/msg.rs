@@ -134,6 +134,11 @@ pub enum StreamMsg {
     TransferRequest {
         token: u64,
     },
+    /// Puppet Master addition (kept last so older numbers do not move): the controlled computer's pointer pushed
+    /// back through the edge it came in by. `t_milli` is how far along that edge (0..=1000) the pointer was.
+    Return {
+        t_milli: u16,
+    },
 }
 
 pub fn fits_inline(len: usize) -> bool {
@@ -242,6 +247,7 @@ mod tests {
             StreamMsg::PairConfirm,
             StreamMsg::PairReject,
             StreamMsg::TransferRequest { token: 3 },
+            StreamMsg::Return { t_milli: 640 },
         ]
     }
 
@@ -253,6 +259,16 @@ mod tests {
             assert_eq!(n, frame.len());
             assert_eq!(back, msg);
         }
+    }
+
+    #[test]
+    fn return_was_added_last_so_older_numbers_did_not_move() {
+        // postcard numbers variants in order: the first variant is 0, and `Return` must come after `TransferRequest`.
+        let first = encode_frame(&StreamMsg::Hello { version: 1, device_id: String::new(), name: String::new(), os: OsKind::Windows }).unwrap();
+        assert_eq!(first[4], 0);
+        let transfer = encode_frame(&StreamMsg::TransferRequest { token: 0 }).unwrap();
+        let ret = encode_frame(&StreamMsg::Return { t_milli: 0 }).unwrap();
+        assert_eq!(ret[4], transfer[4] + 1);
     }
 
     #[test]

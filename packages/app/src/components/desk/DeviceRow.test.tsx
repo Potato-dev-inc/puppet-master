@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeviceRow, deviceStatus } from './DeviceRow';
 import type { PairDevice } from '../../lib/desk-pair';
+import type { LinkDevice } from '../../lib/desk-link';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,9 +24,12 @@ afterEach(() => {
   host.remove();
 });
 
-function render(device: Partial<PairDevice> = {}) {
-  const h = { onToggle: vi.fn(), onRemove: vi.fn() };
-  act(() => root.render(<ul><DeviceRow device={{ ...LAPTOP, ...device }} {...h} /></ul>));
+/** Test-only fixture. */
+const LINK: LinkDevice = { node: LAPTOP.node, name: 'Laptop', state: 'online', side: 'right', mouse_here: false, controls_me: false, input_on: true, clipboard_on: false };
+
+function render(device: Partial<PairDevice> = {}, link?: Partial<LinkDevice>) {
+  const h = { onToggle: vi.fn(), onRemove: vi.fn(), onSide: vi.fn() };
+  act(() => root.render(<ul><DeviceRow device={{ ...LAPTOP, ...device }} link={link ? { ...LINK, ...link } : undefined} {...h} /></ul>));
   return h;
 }
 const button = (label: string) => host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
@@ -38,6 +42,38 @@ describe('DeviceRow', () => {
     render({ online: false });
     expect(host.textContent).toContain('Laptop');
     expect(host.querySelector('[role="status"]')!.textContent).toBe('Offline');
+  });
+
+  it('takes its state from the link once the mouse switch is on: connected, connecting, offline', () => {
+    const status = () => host.querySelector('[role="status"]')!.textContent;
+    render({ allowed: ['desk/input'] }, { state: 'online' });
+    expect(status()).toBe('Connected');
+    expect(host.querySelector('.ck-desk-dot')!.className).toContain('is-on');
+    render({ allowed: ['desk/input'] }, { state: 'connecting' });
+    expect(status()).toBe('Connecting…');
+    render({ allowed: ['desk/input'] }, { state: 'offline' });
+    expect(status()).toBe('Offline');
+    expect(host.querySelector('.ck-desk-dot')!.className).not.toContain('is-on');
+  });
+
+  it('says Paired while the mouse switch is off, and says where the mouse is', () => {
+    render({}, { state: 'off', input_on: false });
+    expect(host.querySelector('[role="status"]')!.textContent).toBe('Paired');
+    render({ allowed: ['desk/input'] }, { state: 'online', mouse_here: true });
+    expect(host.querySelector('[role="status"]')!.textContent).toBe('Connected · Mouse is here');
+  });
+
+  it('lets the person say where the computer sits, only once the mouse switch is on', () => {
+    render();
+    expect(host.querySelector('select')).toBeNull();
+    const h = render({ allowed: ['desk/input'] }, { side: 'left' });
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Where Laptop sits"]')!;
+    expect(select.value).toBe('left');
+    act(() => {
+      select.value = 'top';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(h.onSide).toHaveBeenCalledWith('top');
   });
 
   it('shows the three switches, all off for a new computer', () => {

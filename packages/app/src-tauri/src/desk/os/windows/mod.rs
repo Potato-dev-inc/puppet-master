@@ -1,10 +1,15 @@
 // Behaviour from desktoplab (github.com/v7ren/desktoplab), commit 6e5360e, MIT.
 //! The real Windows host. Never constructed in a test build (see `os::default_host`).
 
+mod capture;
+mod clipboard;
 mod cursor;
 mod display;
 mod dpi;
 mod hook;
+mod remote;
+
+pub use remote::WindowsRemote;
 
 use std::sync::Mutex;
 

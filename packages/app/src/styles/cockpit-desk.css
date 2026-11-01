@@ -431,3 +431,19 @@
   align-items: center;
   gap: 10px;
 }
+
+/* Where a computer sits (left, right, above, below): a plain select in the same tokens as the buttons. */
+.cockpit .ck-desk-select {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 12px;
+}
+.cockpit .ck-desk-select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

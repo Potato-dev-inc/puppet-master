@@ -16,8 +16,9 @@
 //!
 //! Pairing (`pairing.rs`), the signed trust list (`trust.rs`) and "found nearby" (`discovery.rs`) are DL-6.
 //!
-//! Not here (on purpose): the desk link and input forwarding (DL-7), and anything
-//! that knows what a capability does.
+//! The rules two computers follow when they link (which of two connections survives, one dial per peer, how long a
+//! silence may last) are in `session.rs`. Not here (on purpose): what a capability does; the desk link and input
+//! forwarding are `desk/link`.
 
 // Nothing calls this yet: DL-6 (pairing) and DL-7 (desk link) are its first users.
 #![allow(dead_code)]
@@ -31,6 +32,7 @@ pub mod iroh_net;
 pub mod memory;
 pub mod discovery;
 pub mod pairing;
+pub mod session;
 pub mod trust;
 
 #[cfg(test)]
@@ -62,6 +64,26 @@ pub fn labs_on(public: &Value) -> bool {
     public.get(LABS_KEY).and_then(Value::as_bool).unwrap_or(false)
 }
 
+/// LAN addresses learned while pairing, so a paired computer can be dialed again without a ticket.
+#[derive(Default)]
+pub struct AddrBook {
+    map: Mutex<std::collections::HashMap<NodeId, Vec<std::net::SocketAddr>>>,
+}
+
+impl AddrBook {
+    pub fn remember(&self, node: NodeId, addrs: &[std::net::SocketAddr]) {
+        if addrs.is_empty() {
+            return;
+        }
+        self.map.lock().unwrap_or_else(|p| p.into_inner()).insert(node, addrs.to_vec());
+    }
+
+    pub fn peer(&self, node: NodeId) -> PeerAddr {
+        let direct = self.map.lock().unwrap_or_else(|p| p.into_inner()).get(&node).cloned().unwrap_or_default();
+        PeerAddr { id: node, direct }
+    }
+}
+
 struct Running {
     transport: Arc<dyn Transport>,
     spec: BindSpec,
@@ -76,6 +98,7 @@ pub struct P2p {
     perms: Arc<dyn Permissions>,
     refusals: RefusalLog,
     loopback_only: bool,
+    addrs: AddrBook,
     wanted: Mutex<BTreeSet<String>>,
     /// Serializes start / restart, which await.
     start_lock: tokio::sync::Mutex<()>,
@@ -93,6 +116,7 @@ impl P2p {
             perms,
             refusals: Arc::new(Mutex::new(Vec::new())),
             loopback_only: false,
+            addrs: AddrBook::default(),
             wanted: Mutex::new(BTreeSet::new()),
             start_lock: tokio::sync::Mutex::new(()),
             running: Mutex::new(None),
@@ -103,6 +127,11 @@ impl P2p {
     pub fn loopback_only(mut self, on: bool) -> Self {
         self.loopback_only = on;
         self
+    }
+
+    /// Where paired computers were last seen on this network (kept in memory only).
+    pub fn addrs(&self) -> &AddrBook {
+        &self.addrs
     }
 
     pub fn registry(&self) -> &Arc<Registry> {

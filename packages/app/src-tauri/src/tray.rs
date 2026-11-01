@@ -50,6 +50,16 @@ pub fn tooltip_for(live: bool, summary: String) -> String {
     }
 }
 
+/// The tooltip with the sharing state added: while My computers shares the mouse, the person must always be able
+/// to see that. Nothing is added when it is off.
+pub fn with_mouse_sharing(tooltip: String, sharing: bool) -> String {
+    if sharing {
+        format!("{tooltip} \u{b7} {}", crate::desk::link::TRAY_ON)
+    } else {
+        tooltip
+    }
+}
+
 /// How a refresh that asks at `since_last` after the previous one is handled.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Throttle {
@@ -557,7 +567,8 @@ mod runtime {
             Err(e) => tracing::warn!(error = %e, "tray menu rebuild failed"),
         }
         let summary = summary_line_with_focus(current_summary(app), crate::attention::focus::live::minutes_left());
-        let _ = tray.set_tooltip(Some(tooltip_for(crate::live_room::service::is_live(), summary)));
+        let tip = tooltip_for(crate::live_room::service::is_live(), summary);
+        let _ = tray.set_tooltip(Some(with_mouse_sharing(tip, crate::desk::link::sharing_on())));
         apply_dot(app, &tray, needs_dot(crate::attention::counts().blocking));
     }
 
@@ -1179,6 +1190,16 @@ mod tests {
         assert_eq!(items[3], Item::Separator);
         assert_eq!(items[4], Item::Action { id: "focus:end".into(), label: "End Focus (31 min left)".into(), enabled: true });
         assert_eq!(items[5], Item::Action { id: "focus:more".into(), label: "Add 15 minutes".into(), enabled: true });
+    }
+
+    #[test]
+    fn the_tooltip_says_when_the_mouse_is_shared() {
+        assert_eq!(with_mouse_sharing("Puppet Master".into(), false), "Puppet Master");
+        assert_eq!(with_mouse_sharing("Puppet Master".into(), true), "Puppet Master \u{b7} Mouse sharing is on");
+        assert_eq!(
+            with_mouse_sharing(tooltip_for(false, "Puppet Master \u{b7} 2 need you".into()), true),
+            "Puppet Master \u{b7} 2 need you \u{b7} Mouse sharing is on"
+        );
     }
 
     #[test]

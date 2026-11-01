@@ -991,6 +991,23 @@ A start page in the sidebar (top row "New agent", Ctrl/Cmd+N): a greeting, one b
 
 ---
 
+### 3.22 My computers (`desk/`, `desk/link/`, `p2p/`; Labs `desk_enabled`; test script `docs/features/my-computers-tests.md`)
+
+Desktop only: no bridge route, MCP tool, phone route or agent can reach it (`desk/guard_tests.rs`, `p2p/guard_tests.rs`).
+
+| Path | What |
+|---|---|
+| `desk/` (`engine/`, `host.rs`, `os/`) | DL-3: one-computer screen hops, hotkeys, `DeskHost` (Windows host in `os/windows/`, stub elsewhere and in every test build) |
+| `p2p/` | the PC link: `Transport`/`Link`, capabilities with a per-computer switch, pairing, signed trust list. `session.rs` = the pure link rules (which of two links survives: smaller id's dial, but a session older than 2 s is never replaced; one dial per peer with 1-10 s backoff; 250 ms silence = release keys, 3 s = dead) |
+| `desk/link/mod.rs` | DL-7/DL-9 service `DeskLink`: registers `desk/input` (`pm/desk/1`) and `desk/clipboard` (`pm/desk-clipboard/1`), `LinkView` for the page, tray flag, per-computer side (`desk/link.json`) |
+| `desk/link/hub.rs` | the one owner of "who has the mouse": edge look (10 ms, only while linked), holding the mouse (`remote`), being controlled (`controlled`), panic chord Ctrl+Alt+Esc, Scroll Lock pause, home on link loss or quit |
+| `desk/link/io.rs`, `wire.rs` | one link: handshake, writer tasks, heartbeat task (100 ms), watchdog (25 ms), typed streams (kind byte), control frame limit 16 KiB |
+| `desk/link/clip_link.rs`, `clipboard.rs` | text + image on crossing, 64 KiB chunks, 32 MiB cap checked by the receiver, echo suppression, never logged |
+| `desk/link/geometry.rs`, `remote.rs`, `mock.rs` | edges for two computers, the OS trait `RemoteHost` (inject, capture, clipboard), the pretend PC for tests |
+| `desk/os/windows/{remote,capture,clipboard}.rs` | SendInput, the mouse and keyboard capture hooks on their own thread, the real clipboard. Never built in a test |
+| `desk_soak.rs`, `examples/desk_soak.rs` | hand-run loopback soak on real sockets with a pretend PC |
+| `components/desk/`, `lib/desk-link.ts` | page: `LinkStatus` ("Mouse is on Laptop"), `DeviceRow` (online state, where it sits) |
+
 ## 4. "Where do I change X?"
 
 | Task | Start here | Also touch |
