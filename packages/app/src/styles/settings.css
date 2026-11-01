@@ -1168,7 +1168,7 @@
   padding: 8px 0;
 }
 .settings .st-mb-item + .st-mb-item {
-  border-top: 1px solid var(--separator);
+  border-top: 1px solid var(--sep);
 }
 .settings .st-mb-name {
   min-width: 0;
