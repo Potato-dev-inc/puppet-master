@@ -514,6 +514,22 @@ export const generalRows: RowDef[] = [
       />
     ),
   },
+  {
+    id: 'desk-labs',
+    label: 'My computers',
+    hint: 'Share one mouse and keyboard between your computers. Turn it on to show My computers in the left bar.',
+    keywords: 'my computers desk mouse keyboard share clipboard screens monitors hop labs early',
+    group: 'Labs',
+    labs: { name: 'My computers', about: 'Share one mouse and keyboard between your computers.' },
+    render: (env) => (
+      <SettingToggle
+        label="My computers"
+        description="Share one mouse and keyboard between your computers. Shows My computers in the left bar. Early: the first part works on one computer."
+        checked={env.settings.desk_enabled ?? false}
+        onChange={(value) => void env.patch({ desk_enabled: value })}
+      />
+    ),
+  },
   { id: 'team', label: 'Team', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', labs: { name: 'Team', about: 'Tell teammates when your agent pushes, and see when theirs does.' }, render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'live-room', label: 'Live Room', hint: 'Let people with a link watch a chat. Pick the relay address, how long and how many.', keywords: 'live room share stream watch link relay viewers broadcast default length', group: 'Live Room', render: (env) => <LiveRoomRow onSaved={env.markSaved} /> },
   { id: 'version', label: 'Version', hint: 'Check for updates and download the installer.', keywords: 'app version update release download install', group: 'About', render: (env) => <VersionRow env={env} /> },

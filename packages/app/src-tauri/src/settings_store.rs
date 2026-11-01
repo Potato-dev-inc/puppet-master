@@ -16,6 +16,7 @@ pub const DEV_LABS_KEYS: &[&str] = &[
     "potato_bot_enabled",
     "potato_sandbox_enabled",
     "acp_chat_enabled",
+    "desk_enabled",
 ];
 
 /// Tests turn the override on through this; it is off in every test unless a test sets it.
@@ -82,6 +83,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "potato_bot_enabled",
     "potato_sandbox_enabled",
     "acp_chat_enabled",
+    "desk_enabled",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -120,6 +122,8 @@ pub fn default_public_settings() -> Value {
         // Chat over the Agent Client Protocol (Labs): agents driven through a protocol instead of a terminal
         // screen. Off until chosen; it is also the kill switch (off closes every ACP session). Rust: acp.
         "acp_chat_enabled": false,
+        // My computers (Labs): share one mouse and keyboard between computers. Off until chosen.
+        "desk_enabled": false,
     })
 }
 
@@ -306,5 +310,14 @@ mod tests {
         TEST_DEV_LABS.store(false, Ordering::SeqCst);
         assert_eq!(on, std::env::var("PM_DEV_LABS").ok().as_deref() != Some("0"));
         assert!(!dev_labs_override_active());
+    }
+
+    #[test]
+    fn desk_labs_switch_is_off_by_default_patchable_and_on_in_dev_builds() {
+        assert!(DEV_LABS_KEYS.contains(&"desk_enabled"));
+        assert!(PATCHABLE_KEYS.contains(&"desk_enabled"));
+        assert_eq!(default_public_settings()["desk_enabled"], json!(false));
+        let on = with_dev_labs(&default_public_settings(), true);
+        assert_eq!(on["desk_enabled"], json!(true));
     }
 }
