@@ -39,7 +39,7 @@ import { placeLabel, placeTooltip } from '../../lib/wsl-place';
 import { isProseStream, transcriptSpeaker } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
 import { AcpChatDock } from '../chat/AcpChatDock';
-import { ACP_BADGE, ACP_LANE, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
+import { ACP_BADGE, ACP_LANE, isTerminalChatLane, tauriAcpChatApi, TERMINAL_CHAT_BADGE, type AcpChatApi } from '../../lib/acpChat';
 import { AcpConfigChips } from '../chat/AcpConfigChips';
 import { HandedToTerminal, HANDED_BLOCK } from '../chat/HandedToTerminal';
 import { HandOverSheet } from '../chat/HandOverSheet';
@@ -164,6 +164,8 @@ export function PaneView({
   const agentType = pane?.info.agent_type ?? '';
   // A chat session over ACP has no terminal behind it: its Chat tab is the pane.
   const isAcp = pane?.info.lane === ACP_LANE;
+  // A Chat (terminal) pane is a normal terminal pane: it opens on its Chat tab, and the Terminal tab stays one click away.
+  const isTerminalChat = isTerminalChatLane(pane?.info.lane);
   const chatAllowed = listing.agents.find((a) => a.id === agentType)?.kind !== 'shell';
   // A chat session: its state (settings, commands, "open in a terminal"). An ordinary pane may hold a chat conversation
   // that was handed to it: then it can hand it back.
@@ -183,10 +185,10 @@ export function PaneView({
     setDockIx(0);
   }, [paneId]);
 
-  // A chat session opens on its Chat tab (it has no terminal to show).
+  // A chat session opens on its Chat tab (it has no terminal to show). A Chat (terminal) pane opens there too.
   useEffect(() => {
-    if (isAcp) setTab('chat');
-  }, [paneId, isAcp]);
+    if (isAcp || isTerminalChat) setTab('chat');
+  }, [paneId, isAcp, isTerminalChat]);
 
   // A search result opens this pane's Chat (the chat itself scrolls to the message).
   const jump = useChatJump(paneId);
@@ -356,6 +358,11 @@ export function PaneView({
         {isAcp && (
           <span className="ck-lane-chip" data-testid="pane-lane" title="This agent runs as a chat over the Agent Client Protocol, not in a terminal.">
             {ACP_BADGE}
+          </span>
+        )}
+        {isTerminalChat && (
+          <span className="ck-lane-chip" data-testid="pane-lane" title="This agent runs in a terminal and its chat reads the session file. The Terminal tab shows the same run.">
+            {TERMINAL_CHAT_BADGE}
           </span>
         )}
         {canHandOver && (

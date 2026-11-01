@@ -33,7 +33,7 @@ afterEach(() => {
   host.remove();
 });
 
-async function render(api: { laneGet: () => Promise<AcpLaneView>; laneSet: (id: string, lane: 'terminal' | 'acp') => Promise<AcpLaneView> }) {
+async function render(api: { laneGet: () => Promise<AcpLaneView>; laneSet: (id: string, lane: string) => Promise<AcpLaneView> }) {
   await act(async () => root.render(<AgentLaneRows api={api} />));
   await act(async () => {
     await Promise.resolve();
@@ -58,9 +58,9 @@ describe('How to run', () => {
   });
 
   it('has one popup per agent, Terminal first and by default, and saves the choice', async () => {
-    const laneSet = vi.fn(async (id: string, lane: 'terminal' | 'acp'): Promise<AcpLaneView> => ({
+    const laneSet = vi.fn(async (id: string, lane: string): Promise<AcpLaneView> => ({
       labs_enabled: true,
-      agents: [agent({ id, lane, effective_lane: lane })],
+      agents: [agent({ id, lane: lane as 'terminal' | 'acp', effective_lane: lane as 'terminal' | 'acp' })],
     }));
     await render({ laneGet: async () => ({ labs_enabled: true, agents: [agent()] }), laneSet });
     expect(host.textContent).toContain('Codex');

@@ -5,7 +5,8 @@ import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
 import { shipApi, type GitState, type ShipApi } from '../../lib/ship-api';
 import { tauri } from '../../lib/tauri';
 import { useAcpLanes } from '../../hooks/useAcpLanes';
-import { addableChat, chatCapable, tauriAcpChatApi, type AcpAddable, type AcpChatApi } from '../../lib/acpChat';
+import { addableChat, chatCapable, startTerminalChat, tauriAcpChatApi, terminalChatCapable, type AcpAddable, type AcpChatApi } from '../../lib/acpChat';
+import { requestChatTab } from '../../lib/chatTab';
 import { AddChatDialog } from '../settings/blocks/AddChatDialog';
 import { tauriPickApi } from '../../lib/pick-for-me';
 import { isValidProjectPath } from '../../lib/project-path';
@@ -195,6 +196,7 @@ export function Sidebar({
   const laneView = useAcpLanes(menuOpen, acp);
   const chatAgents = chatCapable(laneView);
   const addableAgents = addableChat(laneView);
+  const terminalChatAgents = terminalChatCapable(laneView);
   const [setUpFor, setSetUpFor] = useState<AcpAddable | null>(null);
   // Missions (Preview, Labs): "+" → Start a mission… opens the start sheet for the menu's project.
   const missionsOn = useMissionsEnabled();
@@ -356,10 +358,17 @@ export function Sidebar({
                 }}
                 onClose={() => setMenuOpen(false)}
                 chat={
-                  chatAgents.length > 0 || addableAgents.length > 0
+                  chatAgents.length > 0 || addableAgents.length > 0 || terminalChatAgents.length > 0
                     ? {
                         agents: chatAgents,
                         canAdd: addableAgents,
+                        terminalChat: terminalChatAgents,
+                        onStartTerminal: async (agentId) => {
+                          if (!project) throw new Error('Pick a project folder first.');
+                          const paneId = await startTerminalChat(agentId, project.path);
+                          c.select(paneId);
+                          requestChatTab(paneId);
+                        },
                         onSetUp: (agent) => {
                           setMenuOpen(false);
                           setSetUpFor(agent);

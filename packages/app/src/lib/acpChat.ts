@@ -126,6 +126,10 @@ export interface TerminalChatAgent {
 
 /** `PaneInfo.lane` of a Chat (terminal) pane. */
 export const TERMINAL_CHAT_LANE = 'terminal_chat';
+/** The name of this way to run, in the switch and the "How to run" popup. Never the agent's product name, never "ACP". */
+export const TERMINAL_CHAT_WORD = 'Chat (terminal)';
+/** The grey badge on a Chat (terminal) pane's header. */
+export const TERMINAL_CHAT_BADGE = 'Chat (terminal)';
 
 export interface AcpLaneView {
   labs_enabled: boolean;
@@ -299,7 +303,7 @@ export interface AcpChatApi {
   /** Fires after every hand-over (no payload). */
   watchConversations: (cb: () => void) => Promise<UnlistenFn>;
   laneGet: () => Promise<AcpLaneView>;
-  laneSet: (agentId: string, lane: AcpLane) => Promise<AcpLaneView>;
+  laneSet: (agentId: string, lane: RunLaneWord) => Promise<AcpLaneView>;
   /** Start a chat session. `explicit`: the person picked Chat for this session, so the saved choice is not needed. */
   start: (agentId: string, folder: string, explicit?: boolean) => Promise<AcpStarted>;
   /** Read the agent's help text for how it starts as a chat. Runs nothing but help. */
@@ -511,4 +515,19 @@ export function laneChoiceFor(agent: Pick<AcpLaneAgent, 'effective_lane' | 'lane
 /** The agents the person can choose Chat for: Labs on, and not disabled. */
 export function chatCapable(view: AcpLaneView | null): AcpLaneAgent[] {
   return view && view.labs_enabled ? view.agents.filter((a) => !a.disabled) : [];
+}
+
+/** Is this pane a Chat (terminal) pane? Takes the raw `PaneInfo.lane` (its type only knows the ACP lane). */
+export function isTerminalChatLane(lane: string | null | undefined): boolean {
+  return lane === TERMINAL_CHAT_LANE;
+}
+
+/** The agents that can run as Chat (terminal): Labs on. An older backend sends none. */
+export function terminalChatCapable(view: AcpLaneView | null): TerminalChatAgent[] {
+  return view && view.labs_enabled && Array.isArray(view.terminal_chat) ? view.terminal_chat : [];
+}
+
+/** Start an agent as Chat (terminal) (`terminal_chat_start`): a normal terminal pane. Resolves to the new pane id. */
+export function startTerminalChat(agentId: string, cwd?: string): Promise<string> {
+  return call<string>('terminal_chat_start', { agent: agentId, cwd: cwd ?? null });
 }
