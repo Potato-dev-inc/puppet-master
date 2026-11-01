@@ -3,6 +3,7 @@
 // Start, and the app matches it against the recent list again (a path is never taken from here or from the bot).
 import { useState } from 'react';
 import { plainError } from '../../../lib/potato';
+import '../../../styles/cockpit-potato-cards.css';
 
 export interface HelperCardProps {
   name: string;

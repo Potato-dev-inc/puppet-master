@@ -1,9 +1,9 @@
-// The Computer panel in a bot's chat: the bot's sandbox screen in an iframe, who has it ("<Bot> is using it", "You have
+// The Computer panel (the Computer tab of the bot panel): the bot's sandbox screen in an iframe, who has it ("<Bot> is using it", "You have
 // control", "Needs you") and the buttons Take over / Hand back / Skip. Nothing is drawn while the Labs switches are off
 // (the app says so in the screen state). The iframe address carries the screen password in its fragment; it goes to the
 // iframe and nowhere else (never shown, logged or put in the page). Status comes from the viewer's postMessage, believed
 // only from the iframe's own window and origin. No colour.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { plainError } from '../../../lib/potato';
 import {
   headerWords,
@@ -16,6 +16,7 @@ import {
   type ScreenTransport,
   type ViewerMessage,
 } from '../../../lib/potatoScreen';
+import '../../../styles/cockpit-potato-panel.css';
 
 /** While the person works in the control view, the lease is kept alive this often (it lasts 15 minutes). */
 export const KEEP_EVERY_MS = 30_000;
@@ -29,9 +30,11 @@ export interface ComputerPanelProps {
   transport: ScreenTransport;
   /** Said when a button fails. */
   onNotify?: (text: string) => void;
+  /** Drawn instead of nothing while the Labs switches are off (the Computer tab explains itself). */
+  whenOff?: ReactNode;
 }
 
-export function ComputerPanel({ bot, transport, onNotify }: ComputerPanelProps) {
+export function ComputerPanel({ bot, transport, onNotify, whenOff = null }: ComputerPanelProps) {
   const [screen, setScreen] = useState<ScreenState | null>(null);
   const [open, setOpen] = useState(false);
   const [link, setLink] = useState<ScreenLink | null>(null);
@@ -145,7 +148,7 @@ export function ComputerPanel({ bot, transport, onNotify }: ComputerPanelProps) 
     }
   };
 
-  if (!enabled || !screen) return null;
+  if (!enabled || !screen) return <>{whenOff}</>;
 
   const note = linkProblem ?? (link ? viewerNote(viewer.status, viewer.reason) : open ? 'Connecting…' : null);
   const failed = linkProblem !== null || viewer.status === 'failed' || viewer.status === 'disconnected';

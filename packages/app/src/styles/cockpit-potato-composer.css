@@ -1,0 +1,7 @@
+/* The message box at the bottom of a thread. Grayscale tokens only. */
+
+/* ---------- message box ---------- */
+.cockpit .ck-potato-composer .ck-chat-composer-field {
+  max-height: 132px;
+  overflow-y: auto;
+}
