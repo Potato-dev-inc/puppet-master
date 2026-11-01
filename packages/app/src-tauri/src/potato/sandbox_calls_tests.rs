@@ -990,3 +990,26 @@ fn a_card_that_nobody_answers_ends_with_its_thirty_minutes() {
     assert!(f.port.lease.lock().card(f.now()).is_none());
     assert!(f.port.lease.lock().current(f.now()).is_none());
 }
+
+#[test]
+fn an_others_turn_is_refused_its_computer_call_and_nothing_reaches_the_sandbox() {
+    let f = Fixture::new("others-refused");
+    let mut ctx = f.ctx("nimbus");
+    ctx.trust = Trust::Others;
+    let refused = f.call_as(&ctx, "computer_observe", json!({})).unwrap_err();
+    assert_eq!(refused.code, "TOOL_NOT_ALLOWED");
+    assert!(f.fake.calls().is_empty(), "the sandbox was never touched: {:?}", f.fake.calls());
+    assert!(f.call_as(&ctx, "computer_click", json!({"x": 1, "y": 1})).is_err());
+    assert!(f.fake.calls().is_empty(), "no click either");
+}
+
+#[test]
+fn an_owner_turn_still_reaches_the_sandbox() {
+    let f = Fixture::new("owner-allowed");
+    for trust in [Trust::OwnerPc, Trust::OwnerRemote] {
+        let mut ctx = f.ctx("nimbus");
+        ctx.trust = trust;
+        assert!(f.call_as(&ctx, "computer_observe", json!({})).is_ok(), "{trust:?}");
+    }
+    assert_eq!(f.fake.calls(), vec![Recorded::Observe, Recorded::Observe]);
+}
