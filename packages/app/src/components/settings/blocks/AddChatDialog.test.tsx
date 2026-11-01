@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-// "Add chat (ACP)": detect -> pick -> confirm -> set with confirmed true; a refusal shows the backend's text; the
+// "Add chat (ACP)": detect -> best guess -> confirm (no typing) -> set with confirmed true; no guess / error / timeout -> form; a refusal shows the backend's text; the
 // Settings rows (add / remove / reason) and the "+" menu hint (only for agents that can get a chat, Labs on).
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AcpLaneAgent, AcpLaneView, OverlayDetect } from '../../../lib/acpChat';
 import { addableChat, normalizeLaneView } from '../../../lib/acpChat';
-import { AddChatDialog, commandLine, confirmSentence } from './AddChatDialog';
+import { AddChatDialog, commandLine, confirmSentence, DETECT_TIMEOUT_MS } from './AddChatDialog';
 import { AgentLaneRows } from './AgentLaneRows';
 import { NewAgentMenu } from '../../cockpit/NewAgentMenu';
 import type { AccountsApi } from '../../../lib/accounts';
@@ -51,42 +51,88 @@ async function open(api: Parameters<typeof AddChatDialog>[0]['api'], onAdded = v
   return { onAdded, onClose };
 }
 
+const setField = async (id: string, value: string) =>
+  act(async () => {
+    const el = q<HTMLInputElement | HTMLTextAreaElement>(id)!;
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
 describe('AddChatDialog', () => {
-  it('detect -> pick -> confirm -> set called with confirmed true', async () => {
-    const overlayDetect = vi.fn(async () => detected);
+  it('detects, picks the best guess and shows the confirm screen at once (nothing to type)', async () => {
+    const overlayDetect = vi.fn(async () => ({
+      ...detected,
+      // the medium one comes first: the high one must still win
+      candidates: [detected.candidates[1], detected.candidates[0]],
+    }));
     const overlaySet = vi.fn(async () => row({ overlay: true }));
     const { onAdded } = await open({ overlayDetect, overlaySet });
     expect(overlayDetect).toHaveBeenCalledWith('fake');
-    expect(document.body.textContent).toContain('fake-agent acp --quiet');
-    // pick the second guess
-    await click(document.querySelectorAll<HTMLInputElement>('input[type="radio"]')[1]);
-    await click(byText('Review'));
-    expect(q('[data-testid="add-chat-command"]')?.textContent).toBe('fake-bridge --stdio');
+    expect(overlayDetect).toHaveBeenCalledTimes(1);
+    expect(q('[data-testid="add-chat-confirm"]')).toBeTruthy();
+    expect(q('[data-testid="acp-step"]')).toBeNull();
+    expect(q('[data-testid="add-chat-command"]')?.textContent).toBe('fake-agent acp --quiet');
+    expect(q('[data-testid="add-chat-summary"]')?.textContent).toBe('Fake will start fake-agent acp --quiet for chat.');
     expect(document.body.textContent).toContain(confirmSentence('Fake'));
     expect(overlaySet).not.toHaveBeenCalled();
     await click(byText('Add chat'));
-    expect(overlaySet).toHaveBeenCalledWith('fake', { command: 'fake-bridge', args: ['--stdio'], env_allow: [] }, true);
+    expect(overlaySet).toHaveBeenCalledWith('fake', { command: 'fake-agent', args: ['acp', '--quiet'], env_allow: [] }, true);
     expect(onAdded).toHaveBeenCalledTimes(1);
   });
 
-  it('works with a command typed by hand and keeps the allowed names', async () => {
+  it('Change details opens the form pre-filled with the guess and Review comes back to confirm', async () => {
+    const overlaySet = vi.fn(async () => row());
+    await open({ overlayDetect: async () => detected, overlaySet });
+    await click(q('[data-testid="add-chat-change"]'));
+    expect(q('[data-testid="acp-step"]')).toBeTruthy();
+    expect(q<HTMLInputElement>('#acp-command')?.value).toBe('fake-agent');
+    expect(q<HTMLTextAreaElement>('#acp-args')?.value).toBe('acp\n--quiet');
+    expect(q('[data-testid="add-chat-note"]')).toBeNull();
+    await setField('#acp-args', 'serve\n--acp');
+    await click(byText('Review'));
+    expect(q('[data-testid="add-chat-command"]')?.textContent).toBe('fake-agent serve --acp');
+    await click(byText('Add chat'));
+    expect(overlaySet).toHaveBeenCalledWith('fake', { command: 'fake-agent', args: ['serve', '--acp'], env_allow: [] }, true);
+  });
+
+  it('finding nothing says so plainly and shows the form; a typed command works', async () => {
     const overlaySet = vi.fn(async () => row());
     await open({ overlayDetect: async () => ({ ok: true, command: 'x', candidates: [] }), overlaySet });
-    expect(q('[data-testid="acp-no-candidates"]')).toBeTruthy();
-    const set = async (id: string, value: string) =>
-      act(async () => {
-        const el = q<HTMLInputElement | HTMLTextAreaElement>(id)!;
-        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-        Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(el, value);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      });
-    await set('#acp-command', 'my-agent');
-    await set('#acp-args', 'serve\n--acp');
-    await set('#acp-env', 'MY_KEY');
+    expect(q('[data-testid="add-chat-confirm"]')).toBeNull();
+    expect(q('[data-testid="add-chat-note"]')?.textContent).toBe('Could not find how Fake offers chat. You can type it in.');
+    expect(q('[data-testid="acp-step"]')).toBeTruthy();
+    await setField('#acp-command', 'my-agent');
+    await setField('#acp-args', 'serve\n--acp');
+    await setField('#acp-env', 'MY_KEY');
     await click(byText('Review'));
     expect(commandLine({ command: 'my-agent', args: ['serve', '--acp'], env_allow: [] })).toBe('my-agent serve --acp');
     await click(byText('Add chat'));
     expect(overlaySet).toHaveBeenCalledWith('fake', { command: 'my-agent', args: ['serve', '--acp'], env_allow: ['MY_KEY'] }, true);
+  });
+
+  it('a failed look-up shows the message and the form', async () => {
+    await open({ overlayDetect: async () => Promise.reject(new Error('WIZARD_NOT_FOUND: `fake` was not found on PATH.')), overlaySet: vi.fn() });
+    expect(q('[data-testid="add-chat-reading"]')).toBeNull();
+    expect(q('[data-testid="add-chat-note"]')?.textContent).toContain('Could not find how Fake offers chat. You can type it in.');
+    expect(q('[data-testid="acp-step"]')).toBeTruthy();
+  });
+
+  it('gives up after 20 seconds so "Reading the help text..." can never hang', async () => {
+    vi.useFakeTimers();
+    try {
+      const overlayDetect = vi.fn(() => new Promise<OverlayDetect>(() => {}));
+      await open({ overlayDetect, overlaySet: vi.fn() });
+      expect(q('[data-testid="add-chat-reading"]')).toBeTruthy();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(DETECT_TIMEOUT_MS - 1)));
+      expect(q('[data-testid="add-chat-reading"]')).toBeTruthy();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(2)));
+      expect(q('[data-testid="add-chat-reading"]')).toBeNull();
+      expect(q('[data-testid="add-chat-note"]')?.textContent).toContain('You can type it in.');
+      expect(q('[data-testid="acp-step"]')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows the backend error text and stays open when it refuses', async () => {
@@ -94,7 +140,6 @@ describe('AddChatDialog', () => {
       throw new Error('ACP_OVERLAY_REFUSED: That program is a shell, which is not allowed.');
     });
     const { onAdded } = await open({ overlayDetect: async () => detected, overlaySet });
-    await click(byText('Review'));
     await click(byText('Add chat'));
     expect(q('[data-testid="add-chat-error"]')?.textContent).toBe('That program is a shell, which is not allowed.');
     expect(onAdded).not.toHaveBeenCalled();
@@ -104,7 +149,6 @@ describe('AddChatDialog', () => {
   it('Cancel on the confirm screen closes without saving', async () => {
     const overlaySet = vi.fn();
     const { onClose } = await open({ overlayDetect: async () => detected, overlaySet });
-    await click(byText('Review'));
     await click(byText('Cancel'));
     expect(onClose).toHaveBeenCalled();
     expect(overlaySet).not.toHaveBeenCalled();
@@ -141,7 +185,6 @@ describe('Settings How to run rows', () => {
     expect(document.body.textContent).toContain('It has no help text to read.');
     await click(document.querySelector('[aria-label="Add chat (ACP) for Fake"]'));
     await flush();
-    await click(byText('Review'));
     await click(byText('Add chat'));
     await flush();
     expect(overlaySet).toHaveBeenCalledWith('fake', expect.anything(), true);

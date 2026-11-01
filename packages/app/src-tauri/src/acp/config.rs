@@ -467,11 +467,25 @@ pub fn resolve_spawn(cfg: &AgentConfig, host: &dyn HostEnv, cwd: &Path) -> Resul
         env.push((name, value));
     }
     Ok(SpawnSpec {
-        program: OsString::from(expand(&cfg.command, host)),
+        program: program_for(&expand(&cfg.command, host), host),
         args: cfg.args.iter().map(|a| OsString::from(expand(a, host))).collect(),
         env,
         cwd: Some(cwd.to_path_buf()),
     })
+}
+
+/// A bare program name (no folder) is looked up on PATH the way a shell does (PATHEXT on Windows). Rust's own
+/// lookup only appends `.exe`, so an npm program installed as a `.cmd` shim would never start. A `.cmd` found
+/// here is run by the platform's batch handling, which refuses arguments it cannot quote safely (the arguments
+/// are fixed text from the table or the confirmed overlay). Not found: the name is kept and the spawn says so.
+fn program_for(command: &str, host: &dyn HostEnv) -> OsString {
+    let bare = !command.is_empty() && !command.contains(['/', '\\', ':']);
+    if bare {
+        if let Some(found) = host.which(command) {
+            return found.into_os_string();
+        }
+    }
+    OsString::from(command)
 }
 
 /// `_meta` for the session calls: the config's, or nothing.
@@ -946,11 +960,14 @@ mod tests {
             assert!(found.is_empty(), "{}: {found:?}", cfg.id);
         }
         assert!(find_builtin("codex").is_some() && find_builtin("claude").is_some());
+        let opencode = find_builtin("opencode").expect("opencode has its own [acp] table (its own `opencode acp`)");
+        assert_eq!(opencode.args, vec!["acp".to_string()]);
+        assert!(!opencode.disabled);
     }
 
     #[test]
     fn resume_commands_match_what_the_chat_history_already_uses() {
-        for id in ["codex", "claude"] {
+        for id in ["codex", "claude", "opencode"] {
             let cfg = find_builtin(id).unwrap();
             let profile = crate::tui::registry::registry().find(id).unwrap();
             let history = profile.session_history().expect("history");
@@ -996,6 +1013,21 @@ mod tests {
         let out = capture_stdout(Path::new(program), &args, &cwd, &env, Duration::from_secs(10));
         assert_eq!(out.map(|t| t.trim().to_string()), Some("hi".to_string()));
         assert!(capture_stdout(Path::new("definitely-not-a-program-xyz"), &[], &cwd, &[], Duration::from_secs(2)).is_none());
+    }
+
+    #[test]
+    fn a_bare_command_is_looked_up_on_path_so_a_cmd_shim_starts() {
+        let mut host = Host::new();
+        host.programs.insert("shimmed".into(), PathBuf::from(r"C:\npm\shimmed.cmd"));
+        let cfg = AgentConfig { id: "x".into(), command: "shimmed".into(), args: vec!["acp".into()], ..AgentConfig::default() };
+        let spec = resolve_spawn(&cfg, &host, Path::new(r"C:\work")).unwrap();
+        assert_eq!(spec.program, OsString::from(r"C:\npm\shimmed.cmd"));
+        assert_eq!(spec.args, vec![OsString::from("acp")], "the arguments stay fixed text");
+        // not found: the name stays, a folder form is never looked up
+        let none = AgentConfig { command: "nowhere".into(), ..cfg.clone() };
+        assert_eq!(resolve_spawn(&none, &host, Path::new(r"C:\work")).unwrap().program, OsString::from("nowhere"));
+        let path = AgentConfig { command: r"C:\x\shimmed".into(), ..cfg };
+        assert_eq!(resolve_spawn(&path, &host, Path::new(r"C:\work")).unwrap().program, OsString::from(r"C:\x\shimmed"));
     }
 
     #[test]

@@ -132,6 +132,13 @@ impl TuiProfile for OpenCode {
         crate::tui::pane_mcp::parse_pane_mcp_toml(include_str!("pane_mcp.toml"))
     }
 
+    /// The chat lane (`acp.toml`: OpenCode's own `opencode acp`, read by `crate::acp`).
+    fn acp_table(&self) -> Option<crate::acp::config::AgentConfig> {
+        static ACP: once_cell::sync::Lazy<Option<crate::acp::config::AgentConfig>> =
+            once_cell::sync::Lazy::new(|| crate::acp::config::from_toml_text("opencode", "OpenCode", include_str!("acp.toml")).ok());
+        ACP.clone()
+    }
+
     fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
         crate::agent_pack::skills_host_from_toml(SKILLS_HOST)
     }

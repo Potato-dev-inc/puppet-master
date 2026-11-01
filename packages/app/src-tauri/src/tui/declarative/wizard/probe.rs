@@ -185,7 +185,7 @@ pub fn normalise_volatile(text: &str) -> String {
     out.trim().to_string()
 }
 
-fn combined(out: &exec::RunOutput) -> String {
+pub(super) fn combined(out: &exec::RunOutput) -> String {
     let stdout = strip_log_lines(&exec::clean(&out.stdout));
     let stderr = strip_log_lines(&exec::clean(&out.stderr));
     match (stdout.trim().is_empty(), stderr.trim().is_empty()) {

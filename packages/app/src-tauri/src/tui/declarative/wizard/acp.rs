@@ -144,6 +144,37 @@ pub fn detect(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     })?
 }
 
+/// "Add chat" for an agent that is already installed: locate the program, read ONLY its help (`--help`, then
+/// `-h`, then `help`, stopping at the first that prints something) and analyse it. No wizard session, no
+/// subcommand probing (that took a dozen runs and ~12 s for a slow-starting CLI). Same answer shape as `acp_detect`.
+pub fn detect_program(wizard: &Wizard, command: &str) -> Result<Value, WizardError> {
+    use super::exec::{self, RunSpec};
+    use super::locate::{command_name, locate, probe_env, search_dirs};
+    use super::session::{make_work_dir, remove_work_dir};
+    let name = command_name(command)?;
+    let env = wizard.env();
+    let located = locate(&name, &search_dirs(&env))?;
+    let id = Wizard::new_id();
+    let work_dir = make_work_dir(&env.temp_root, &id)?;
+    let vars = probe_env();
+    let mut texts: Vec<String> = Vec::new();
+    for args in [["--help"], ["-h"], ["help"]] {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let mut spec = RunSpec::new(&located.path, &args, &work_dir);
+        spec.env = &vars;
+        spec.timeout = env.limits.probe_timeout;
+        spec.max_bytes = env.limits.probe_max_bytes;
+        let text = super::probe::combined(&exec::run(&spec));
+        let has_text = !text.trim().is_empty();
+        if has_text {
+            texts.push(exec::cut_bytes(&text, env.limits.probe_max_bytes));
+            break;
+        }
+    }
+    remove_work_dir(&work_dir);
+    Ok(detection_json(&name, &detect_in_texts(&name, &texts.iter().map(String::as_str).collect::<Vec<_>>())))
+}
+
 // ---- finish ----------------------------------------------------------------------------------------------
 
 struct AcpInput {

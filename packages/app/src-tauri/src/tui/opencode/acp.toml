@@ -1,0 +1,17 @@
+# OpenCode as a chat over ACP: OpenCode runs its own ACP server (`opencode acp`), no adapter to install.
+# This file is the `[acp]` table of the OpenCode profile. Facts checked on a real install (OpenCode 1.19.0,
+# Windows 11, npm `.cmd` shim, 2026-11-02): `opencode --help` lists `opencode acp  start ACP (Agent Client
+# Protocol) server`; `opencode acp` with `initialize` {protocolVersion: 1} answers protocolVersion 1,
+# agentInfo OpenCode 1.19.0, loadSession true, sessionCapabilities resume/list/fork/close; `session/new`
+# answers `ses_...`, the same id `opencode --session <id>` takes (so "Open in terminal" works). No flag needed.
+# Sign-in is the person's own (`opencode auth login`, stored by OpenCode itself); provider key variables of
+# the app's environment are not passed on unless listed in env_allow.
+command = "opencode"
+args = ["acp"]
+env_allow = []
+
+# Added to the normal terminal launch: `opencode --session <session id>`.
+resume_command = ["--session", "{session}"]
+
+[addon]
+signin_hint = "In the terminal that opens, run `opencode auth login`. Chat uses the same sign-in as the terminal."

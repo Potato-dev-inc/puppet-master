@@ -31,18 +31,10 @@ fn check_target(agent: &str) -> Result<String, String> {
     Ok(profile.id().to_string())
 }
 
-/// The fixed help probes of the agent's program, then the text analysis (`acp_detect`). Starts a temporary
-/// wizard session, runs nothing but the fixed probes, and always cancels the session.
+/// Locate the agent's program and read only its help text (`wizard::acp::detect_program`): no wizard session, no
+/// subcommand probing, so it answers in about one program start.
 fn detect_in(wizard: &crate::tui::declarative::wizard::Wizard, program: &str) -> Result<Value, String> {
-    use crate::tui::declarative::wizard::api;
-    let fail = |e: crate::tui::declarative::wizard::WizardError| format!("{}: {}", e.code, e.message);
-    let started = api::handle(wizard, "start", &json!({"command": program})).map_err(fail)?;
-    let session = started["session"].as_str().unwrap_or_default().to_string();
-    let result = api::handle(wizard, "probe", &json!({"session": session}))
-        .and_then(|_| api::handle(wizard, "acp_detect", &json!({"session": session})))
-        .map_err(fail);
-    let _ = api::handle(wizard, "cancel", &json!({"session": session}));
-    result
+    crate::tui::declarative::wizard::acp::detect_program(wizard, program).map_err(|e| format!("{}: {}", e.code, e.message))
 }
 
 /// How the agent's program offers the Agent Client Protocol: `{ok, command, candidates: [{command, args, evidence,
@@ -151,5 +143,18 @@ mod tests {
         assert!(check_target("no_such_agent_zz").is_err());
         assert!(overlay::program_of("no_such_agent_zz").is_none());
         assert!(!overlay::program_of(&target()).unwrap().is_empty());
+    }
+
+    /// Real run against the installed program: `PM_REAL_DETECT=opencode cargo test --lib real_detect -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn real_detect_on_this_machine() {
+        let program = std::env::var("PM_REAL_DETECT").unwrap_or_else(|_| "opencode".into());
+        let wizard = crate::tui::declarative::wizard::Wizard::app();
+        let started = std::time::Instant::now();
+        let out = detect_in(wizard, &program);
+        eprintln!("detect took {:?}: {out:#?}", started.elapsed());
+        let v = out.expect("detect ran");
+        assert!(!v["candidates"].as_array().unwrap().is_empty());
     }
 }
