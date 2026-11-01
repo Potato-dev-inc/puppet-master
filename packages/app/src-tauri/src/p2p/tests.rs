@@ -406,10 +406,10 @@ async fn the_node_key_never_touches_the_disk() {
     p2p.want(capability::FILES).await.unwrap();
 
     // The key is in the credential store, and only there.
-    let secret = keys.device_sign().unwrap().to_bytes();
+    let secret = keys.p2p_node().unwrap().to_bytes();
     let b64 = crate::team::crypto::b64(&secret);
     let hex: String = secret.iter().map(|b| format!("{b:02x}")).collect();
-    assert_eq!(backend.get("team/disk-test/device-sign").unwrap().as_deref(), Some(b64.as_str()));
+    assert_eq!(backend.get("team/disk-test/p2p-node").unwrap().as_deref(), Some(b64.as_str()));
 
     // Nothing printable carries it.
     let identity = DeviceIdentity::load(&keys).unwrap();
@@ -429,17 +429,42 @@ async fn the_node_key_never_touches_the_disk() {
 }
 
 #[test]
-fn identity_is_the_device_signing_key_of_the_keystore() {
+fn identity_is_its_own_node_key_bound_to_the_device_key() {
     let backend: Arc<dyn SecretBackend> = Arc::new(MemoryBackend::new());
     let keys = KeyStore::with_backend(backend, "same");
     let one = DeviceIdentity::load(&keys).unwrap();
     let two = DeviceIdentity::load(&keys).unwrap();
     assert_eq!(one.id(), two.id(), "one key per install");
-    assert_eq!(one.id().0, keys.device_sign().unwrap().verifying_key().to_bytes());
+    assert_ne!(one.id().0, keys.device_sign().unwrap().verifying_key().to_bytes(), "the node key is not the device key");
+    assert_eq!(one.id().0, keys.p2p_node().unwrap().verifying_key().to_bytes());
+    assert_ne!(one.secret_bytes(), keys.device_sign().unwrap().to_bytes());
 
     let other = KeyStore::with_backend(Arc::new(MemoryBackend::new()), "same");
     assert_ne!(DeviceIdentity::load(&other).unwrap().id(), one.id());
 
     let none = KeyStore::with_backend(Arc::new(MemoryBackend::unavailable()), "none");
     assert!(matches!(DeviceIdentity::load(&none), Err(P2pError::Identity(_))));
+}
+
+#[test]
+fn the_binding_verifies_with_the_device_key_and_fails_when_tampered() {
+    let keys = KeyStore::with_backend(Arc::new(MemoryBackend::new()), "bind");
+    let identity = DeviceIdentity::load(&keys).unwrap();
+    let b = identity.binding();
+    assert_eq!(b.node_id, identity.id());
+    assert_eq!(b.device_pub, keys.device_sign().unwrap().verifying_key().to_bytes());
+    assert!(b.verify());
+
+    let mut t = b.clone();
+    t.node_id = NodeId([5; 32]);
+    assert!(!t.verify(), "another node id");
+    let mut t = b.clone();
+    t.issued_at += 1;
+    assert!(!t.verify(), "another date");
+    let mut t = b.clone();
+    t.device_pub = DeviceIdentity::load(&KeyStore::with_backend(Arc::new(MemoryBackend::new()), "o")).unwrap().binding().device_pub;
+    assert!(!t.verify(), "another device");
+    let mut t = b;
+    t.signature[0] ^= 1;
+    assert!(!t.verify(), "bad signature");
 }

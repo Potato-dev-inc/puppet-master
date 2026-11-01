@@ -4,7 +4,7 @@ version = "0.2.1"
 description = "Puppet Master desktop app"
 authors = ["you"]
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.91"
 default-run = "puppet_master_app"
 
 [lib]
