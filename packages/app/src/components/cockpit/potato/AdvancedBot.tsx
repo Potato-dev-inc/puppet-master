@@ -49,7 +49,7 @@ export function AdvancedBot({ bot, transport, onChanged, onNotify }: AdvancedBot
       await transport.remove(bot.id, typed);
       setSheetOpen(false);
       onChanged?.();
-      onNotify?.(`${bot.name} was deleted.`);
+      onNotify?.(`${bot.name} is in Recently deleted for 7 days.`);
     } catch (e) {
       setError(plainError(e, 'Could not delete the bot.'));
     } finally {

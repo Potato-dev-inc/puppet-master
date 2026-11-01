@@ -45,7 +45,8 @@ export interface RoutinesTransport {
   list(botId: string): Promise<RoutineView[]>;
   create(botId: string, input: RoutineInput): Promise<RoutineView>;
   pause(routineId: string, paused: boolean): Promise<RoutineView>;
-  remove(routineId: string): Promise<void>;
+  /** Moves the routine to Recently deleted; resolves with the trash id (for Undo). */
+  remove(routineId: string): Promise<string>;
   runNow(routineId: string): Promise<RoutineRunOutcome>;
 }
 
@@ -56,7 +57,7 @@ export const tauriRoutinesTransport: RoutinesTransport = {
   list: (botId) => (isTauri() ? invoke<RoutineView[]>('potato_routines_list', { botId }) : Promise.resolve([])),
   create: (botId, input) => (isTauri() ? invoke<RoutineView>('potato_routine_create', { botId, input }) : Promise.reject(new Error(NOT_ON_DESKTOP))),
   pause: (routineId, paused) => (isTauri() ? invoke<RoutineView>('potato_routine_pause', { routineId, paused }) : Promise.reject(new Error(NOT_ON_DESKTOP))),
-  remove: (routineId) => (isTauri() ? invoke<void>('potato_routine_delete', { routineId }) : Promise.reject(new Error(NOT_ON_DESKTOP))),
+  remove: (routineId) => (isTauri() ? invoke<string>('potato_routine_delete', { routineId }) : Promise.reject(new Error(NOT_ON_DESKTOP))),
   runNow: (routineId) => (isTauri() ? invoke<RoutineRunOutcome>('potato_routine_run_now', { routineId }) : Promise.reject(new Error(NOT_ON_DESKTOP))),
 };
 
@@ -203,6 +204,7 @@ export function fakeRoutinesTransport(seed: RoutineView[] = [], fail?: string): 
       run('remove', [routineId], () => {
         const index = routines.findIndex((r) => r.id === routineId);
         if (index >= 0) routines.splice(index, 1);
+        return `trash-${routineId}`;
       }),
     runNow: (routineId) =>
       run('runNow', [routineId], () => {

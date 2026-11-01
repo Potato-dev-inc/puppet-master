@@ -11,6 +11,7 @@ use crate::potato::memory_notes::{self, Note};
 use crate::potato::notify::{self, Notify};
 use crate::potato::open_work::{self, HelperRow, Item};
 use crate::potato::service::Service;
+use crate::potato::trash;
 use crate::potato::store::StoreError;
 
 fn service() -> Result<Arc<Service>, String> {
@@ -68,10 +69,10 @@ pub async fn potato_memory_read(bot_id: String, path: String) -> Result<String, 
     run(move |s| memory_notes::read(s.root(), &bot_id, &path)).await
 }
 
-/// Deletes one note. The panel asks the person first.
+/// Deletes one note at once: it goes to Recently deleted (7 days). Returns the trash id, for "Undo".
 #[tauri::command]
-pub async fn potato_memory_delete(bot_id: String, path: String) -> Result<(), String> {
-    run(move |s| memory_notes::delete(s.root(), &bot_id, &path)).await
+pub async fn potato_memory_delete(bot_id: String, path: String) -> Result<String, String> {
+    run(move |s| trash::trash_note(s.root(), &bot_id, &path, chrono::Utc::now().timestamp_millis()).map(|item| item.id)).await
 }
 
 /// "Notify me" of one bot: `reply`, `needs_you` or `never`.
