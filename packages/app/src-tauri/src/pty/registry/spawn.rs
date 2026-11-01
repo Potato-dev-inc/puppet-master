@@ -27,6 +27,8 @@ fn finish_exit(
     }
     // Hook Lane: the pane's hook token stops working the moment the pane is gone.
     crate::agent_hooks::revoke(pane_id);
+    // A conversation that was handed to this pane goes back to the chat.
+    crate::commands::pane_ended(pane_id);
     *status.lock() = PaneStatus::Error;
     crate::event_log::append_system_event(SystemEvent::PaneStatusChanged {
         pane_id: PaneId(pane_id.to_string()),

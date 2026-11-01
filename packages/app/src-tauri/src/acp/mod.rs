@@ -13,6 +13,16 @@
 //!     `-- wire.rs, ring.rs             framing, id spaces, capped stderr ring
 //! ```
 //!
+//! On top of the core (A3):
+//!
+//! ```text
+//!   Conversations (conversations.rs)  record per conversation (record.rs), restart restore, who writes (writers.rs)
+//!     `-- hand-over (handover.rs)      "Open in terminal" / "Back to chat": one live writer, via PaneHost
+//! ```
+//!
+//! The agent tables come from the definitions: a code profile's `acp.toml` or a definition's `[acp]`
+//! (`config.rs`, docs/specs/agent-definitions).
+//!
 //! # Why our own transport and our own small types (no ACP crate)
 //!
 //! Both official crates were looked at and neither is used.
@@ -52,11 +62,14 @@
 pub mod chat;
 pub mod config;
 pub mod conn;
+pub mod conversations;
 pub mod error;
+pub mod handover;
 pub mod handshake;
 pub mod job;
 pub mod lane;
 pub mod pin;
+pub mod record;
 pub mod ring;
 pub mod session;
 pub mod state;
@@ -65,7 +78,10 @@ pub mod timers;
 pub mod types;
 pub mod wire;
 pub mod write_queue;
+pub mod writers;
 
+#[cfg(test)]
+mod conversation_tests;
 #[cfg(test)]
 mod fake_agent;
 #[cfg(test)]

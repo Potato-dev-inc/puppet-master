@@ -205,6 +205,20 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     handlers: [{ file: 'src/components/cockpit/rail/useRailLayout.ts', text: "e.key !== ']'" }],
   },
   {
+    id: 'potato-list',
+    group: 'Panes',
+    label: 'Potato Bot page: make the bot list small, or open it again',
+    keys: ['Ctrl+B'],
+    handlers: [{ file: 'src/components/cockpit/potato/potato-keys.ts', text: "e.key.toLowerCase() === 'b'" }],
+  },
+  {
+    id: 'potato-panel',
+    group: 'Panes',
+    label: 'Potato Bot page: show or hide the bot panel (Computer, Routines, Advanced)',
+    keys: ['Ctrl+Shift+B'],
+    handlers: [{ file: 'src/components/cockpit/potato/potato-keys.ts', text: 'isPanelShortcut' }],
+  },
+  {
     id: 'interrupt',
     group: 'Panes',
     label: 'Stop what the agent is doing (sends Ctrl+C to the focused pane)',

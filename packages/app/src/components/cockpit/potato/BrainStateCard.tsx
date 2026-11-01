@@ -2,6 +2,7 @@
 // limit, stopped, or the last error. A bot that can answer has no card.
 import { useState } from 'react';
 import { COPY, errorSentence, plainError, type BrainState } from '../../../lib/potato';
+import '../../../styles/cockpit-potato-cards.css';
 
 export interface BrainStateCardProps {
   name: string;

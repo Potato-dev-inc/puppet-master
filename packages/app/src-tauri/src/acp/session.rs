@@ -147,6 +147,10 @@ struct Core {
     closed: bool,
     /// `session/load` is replaying history: updates are not live work.
     loading: bool,
+    /// The next start restores with `session/load` (replays the history) before `session/resume`.
+    replay_next: bool,
+    /// Why this conversation may not start an adapter (another writer has it). Set by `hold`.
+    held: Option<String>,
     parked: BTreeMap<u64, Parked>,
     turn: Option<Turn>,
     desired_config: BTreeMap<String, Value>,
@@ -205,6 +209,7 @@ fn now_ms() -> u64 {
 impl AcpSession {
     pub fn new(cfg: Arc<AgentConfig>, host: Arc<dyn HostEnv>, params: SessionParams) -> Arc<AcpSession> {
         let mut state = SessionState::new();
+        state.set_cancel_reports_end_turn(cfg.quirks.cancel_reports_end_turn);
         if let Some(id) = &params.resume_session_id {
             state.adopt_session_id(id);
             state.commit();
@@ -222,6 +227,8 @@ impl AcpSession {
                 starting: false,
                 closed: false,
                 loading: false,
+                replay_next: false,
+                held: None,
                 parked: BTreeMap::new(),
                 turn: None,
                 desired_config: BTreeMap::new(),
@@ -359,6 +366,9 @@ impl AcpSession {
                 if core.closed {
                     return Err(AcpError::SessionClosed);
                 }
+                if let Some(why) = &core.held {
+                    return Err(AcpError::Held(why.clone()));
+                }
                 if core.is_running() {
                     return Ok(Readiness::AlreadyRunning);
                 }
@@ -483,6 +493,7 @@ impl AcpSession {
 
     fn open_session(&self, conn: &AcpConnection, caps: &AgentCaps, resume_id: Option<&str>) -> Result<(String, StartKind, SessionInfo), AcpError> {
         let cwd = self.cwd.to_string_lossy().into_owned();
+        let replay = self.with_core(|core, _| std::mem::take(&mut core.replay_next));
         let new_params = self.session_params(json!({ "cwd": cwd, "mcpServers": self.cfg.mcp_servers }));
         let Some(old_id) = resume_id else {
             let (id, info) = self.session_new(conn, caps, new_params)?;
@@ -490,7 +501,8 @@ impl AcpSession {
         };
 
         let mut reason = "the agent cannot restore a session".to_string();
-        for method in restore_order(self.cfg.resume, caps) {
+        let preference = if replay { ResumePreference::PreferLoad } else { self.cfg.resume };
+        for method in restore_order(preference, caps) {
             let params = self.session_params(json!({ "sessionId": old_id, "cwd": cwd, "mcpServers": self.cfg.mcp_servers }));
             match self.restore(conn, method, params) {
                 Ok(info) => return Ok((old_id.to_string(), if method == Restore::Resume { StartKind::Resumed } else { StartKind::Loaded }, info)),
@@ -803,6 +815,13 @@ impl AcpSession {
         }
     }
 
+    /// The next start brings the conversation back with `session/load`, which replays it (including turns
+    /// somebody else added to the agent's own session file meanwhile), instead of the cheaper
+    /// `session/resume`. Used after a hand-over and after an app restart, when the viewer has no history.
+    pub fn replay_on_next_start(&self) {
+        self.with_core(|core, _| core.replay_next = true);
+    }
+
     /// The person has seen the "history lost" notice.
     pub fn acknowledge_history_lost(&self) {
         self.with_core(|core, _| core.state.clear_history_lost());
@@ -855,6 +874,46 @@ impl AcpSession {
             }
             None => Ok(false),
         }
+    }
+
+    /// Stops the adapter (like [`AcpSession::sleep`]) and refuses to start one again until
+    /// [`AcpSession::release_hold`]: another writer (the terminal) has the conversation. Refused with
+    /// `Busy` while a turn runs, a question is open, or a start is under way. Returns once the adapter's
+    /// processes are gone (a short wait), so the next writer does not meet its file locks.
+    pub fn hold(&self, why: &str) -> Result<(), AcpError> {
+        let conn = self.with_core(|core, ev| {
+            if core.closed {
+                return Err(AcpError::SessionClosed);
+            }
+            if core.turn.is_some() || !core.parked.is_empty() || core.starting {
+                return Err(AcpError::Busy);
+            }
+            core.held = Some(why.to_string());
+            let Some(conn) = core.conn.take() else { return Ok(None) };
+            core.state.on_dormant();
+            core.idle_since = None;
+            ev.push(SessionEvent::Slept);
+            Ok(Some(conn))
+        })?;
+        if let Some(conn) = conn {
+            let pid = conn.pid();
+            conn.kill();
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while pid != 0 && crate::proc_util::pid_alive(pid) && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(25));
+            }
+        }
+        Ok(())
+    }
+
+    /// Lets the adapter start again (the other writer is gone).
+    pub fn release_hold(&self) {
+        self.with_core(|core, _| core.held = None);
+    }
+
+    /// Why the conversation may not start an adapter, if it may not.
+    pub fn held_by(&self) -> Option<String> {
+        self.core.lock().held.clone()
     }
 
     /// Ends the session for good: the adapter and everything under it are killed.
