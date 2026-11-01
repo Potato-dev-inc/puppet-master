@@ -66,6 +66,7 @@ pub mod conversations;
 pub mod error;
 pub mod handover;
 pub mod handshake;
+pub mod install;
 pub mod job;
 pub mod lane;
 pub mod pin;

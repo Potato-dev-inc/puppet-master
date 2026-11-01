@@ -54,3 +54,10 @@ package = "@agentclientprotocol/codex-acp"
 version = "1.1.4"
 entry = "{adapters}/codex/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
 sha256 = "7534a0ad3cc4c9affd0b2da5007fa53ea0f1d6fcd71b2c5ef202e2056a976a97"
+
+# Words for the install prompt and the sign-in card. The size is the measured folder (a real install, 2026-11-01), without the agent's own
+# program (the person's own installed program is used, see env_which). Sign-in is the agent's normal one, in a
+# terminal pane: this app never reads or copies a credential file.
+[addon]
+size_mb = 17
+signin_hint = "In the terminal that opens, choose Sign in with ChatGPT and follow the steps. Chat uses the same sign-in as the terminal."

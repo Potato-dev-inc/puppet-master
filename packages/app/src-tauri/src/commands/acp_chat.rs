@@ -86,3 +86,17 @@ pub async fn acp_chat_state(pane_id: String) -> Result<Value, String> {
         None => Value::Null,
     })
 }
+
+/// "I'm signed in — try again": sends the message the agent refused for want of a sign-in. Fails with the agent's own
+/// reason (and the sign-in card stays) when it still wants one.
+#[tauri::command]
+pub async fn acp_chat_retry_sign_in(pane_id: String) -> Result<(), String> {
+    let chat = chat::get(&pane_id).ok_or_else(|| format!("PANE_NOT_FOUND: {pane_id} is not a chat session"))?;
+    let result = tauri::async_runtime::spawn_blocking(move || chat.retry_after_sign_in()).await.map_err(|e| format!("ACP_START_FAILED: {e}"))?;
+    match result {
+        Ok(_) => Ok(()),
+        Err(chat::SendError::Refused(why)) => Err(format!("ACP_SIGN_IN_NEEDED: {why}")),
+        Err(chat::SendError::Busy) => Err("ACP_BUSY: The agent is working. Try again when the turn ends.".to_string()),
+        Err(chat::SendError::Gone) => Err("PANE_NOT_FOUND: The chat was closed.".to_string()),
+    }
+}
