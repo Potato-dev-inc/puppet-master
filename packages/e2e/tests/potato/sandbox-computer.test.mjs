@@ -156,7 +156,7 @@ export const run = guarded(async (t) => {
   await t.expect.eventually(async () => (await t.page.count('css=.ck-potato-overlay')) === 0, { message: 'the full window closes after I am done' });
   await t.expect.text('Not in use', { within: 'css=.ck-potato-computer' });
 
-  await t.step('The Routines tab lists the bot's routines (none yet) and offers a new one; a screenshot of it');
+  await t.step('The Routines tab lists the routines (none yet) and offers a new one; a screenshot of it');
   await t.click('exact=Routines', { within: 'css=.ck-potato-panel' });
   await t.expect.text('No routines yet.', { within: 'css=.ck-potato-panel' });
   await t.expect.visible('exact=New routine', { within: 'css=.ck-potato-panel' });
