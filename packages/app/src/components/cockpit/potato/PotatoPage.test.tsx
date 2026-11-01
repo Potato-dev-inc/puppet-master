@@ -177,11 +177,29 @@ describe('PotatoPage', () => {
     expect(onChanged).toHaveBeenCalledTimes(3);
   });
 
-  it('New bot opens the companion sheet', async () => {
+  it('New bot opens the starter picker, and "Set up by hand" opens the companion sheet', async () => {
     const transport = fakePotatoTransport({ bots: [bot()] });
     await mount(transport, [companion()]);
     await act(async () => buttonByText(host, 'New bot')!.click());
     await act(async () => {});
+    expect(document.body.textContent).toContain('Pick a starting point.');
+    await act(async () => buttonByText(document.body, 'Set up by hand')!.click());
+    await act(async () => {});
     expect(document.body.textContent).toContain('Make your companion');
+  });
+});
+
+describe('New bot opens the starter picker (F-2)', () => {
+  it('shows six starter cards, and a card makes its bot and opens it', async () => {
+    const transport = fakePotatoTransport({ bots: [] });
+    const onOpenBot = vi.fn();
+    await mount(transport, [companion()], onOpenBot);
+    await act(async () => buttonByText(host, 'New bot')!.click());
+    expect(host.querySelectorAll('article.ck-potato-starter')).toHaveLength(6);
+    await act(async () => host.querySelector<HTMLButtonElement>('article[data-starter="blank"] button.ck-potato-starter-make')!.click());
+    await act(async () => {});
+    expect(transport.calls.find((c) => c.method === 'addBot')).toBeDefined();
+    expect(onOpenBot).toHaveBeenCalledWith(expect.any(String));
+    expect(host.querySelectorAll('article.ck-potato-starter')).toHaveLength(0);
   });
 });

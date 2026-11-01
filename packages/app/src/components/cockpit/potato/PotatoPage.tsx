@@ -8,13 +8,16 @@ import { plainError, type PotatoState, type PotatoTransport } from '../../../lib
 import type { SandboxTransport } from '../../../lib/potato-sandbox';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { usePotatoThread } from '../../../hooks/usePotato';
-import type { BotSettingsTransport } from '../../../lib/potato-botsettings';
+import { tauriBotSettingsTransport, type BotSettingsTransport } from '../../../lib/potato-botsettings';
+import { tauriRoutinesTransport, type RoutinesTransport } from '../../../lib/potato-routines';
 import { CompanionSetupSheet } from '../companion/CompanionSetupSheet';
 import { DEFAULT_TAB, type PanelTab } from '../../../lib/potato-panel';
 import { BotList } from './BotList';
 import { ArtifactsPage } from './ArtifactsPage';
 import { BotPanel } from './BotPanel';
 import { PotatoLayout } from './PotatoLayout';
+import { SandboxWizardHost } from './SandboxWizardHost';
+import { StarterPicker } from './StarterPicker';
 import { ThreadView } from './ThreadView';
 import { pickOpenBot } from './model';
 import { usePotatoKeys } from './potato-keys';
@@ -47,11 +50,16 @@ export interface PotatoPageProps {
   screenTransport?: ScreenTransport;
   /** The sandbox's commands for the Computer tab's upkeep section and its set up card. Absent: neither is drawn. */
   sandboxTransport?: SandboxTransport;
+  /** The routines calls for a starter bot's routine. Absent: the app's own. */
+  routines?: RoutinesTransport;
 }
 
 export function PotatoPage(props: PotatoPageProps) {
-  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport, sandboxTransport, botSettings } = props;
+  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport, sandboxTransport, botSettings, routines } = props;
   const [sheetOpen, setSheetOpen] = useState(false);
+  // "New bot" opens the starter picker (F-2); "Set up by hand" in it opens the sheet. The computer's wizard opens over it.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   // The Artifacts page takes the thread's place while it is open; opening a bot gives the thread back.
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const open = pickOpenBot(state.bots, openBotId);
@@ -102,7 +110,7 @@ export function PotatoPage(props: PotatoPageProps) {
         setArtifactsOpen(false);
         onOpenBot(botId);
       }}
-      onNew={() => setSheetOpen(true)}
+      onNew={() => setPickerOpen(true)}
       candidates={candidates}
       onUseCompanion={(id) => void makeBot(id)}
       mini={layout.listMini}
@@ -129,7 +137,7 @@ export function PotatoPage(props: PotatoPageProps) {
       onOpenPane={onOpenPane}
       paneExists={paneExists}
       screen={screenTransport}
-      onNewBot={() => setSheetOpen(true)}
+      onNewBot={() => setPickerOpen(true)}
       panel={{
         open: panelOpen,
         computerShown: panelOpen && tab === 'computer',
@@ -172,6 +180,24 @@ export function PotatoPage(props: PotatoPageProps) {
   return (
     <>
       <PotatoLayout layout={layout} list={list} thread={thread} panel={panel} />
+      {pickerOpen && (
+        <StarterPicker
+          transports={{ companions: companionTransport, potato: transport, settings: botSettings ?? tauriBotSettingsTransport, routines: routines ?? tauriRoutinesTransport }}
+          onMade={(botId) => {
+            setPickerOpen(false);
+            onCompanionsChanged();
+            onChanged();
+            onOpenBot(botId);
+          }}
+          onSetUpComputer={sandboxTransport ? () => setWizardOpen(true) : undefined}
+          onSetUpByHand={() => {
+            setPickerOpen(false);
+            setSheetOpen(true);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+      {wizardOpen && sandboxTransport && <SandboxWizardHost transport={sandboxTransport} onClose={() => setWizardOpen(false)} />}
       {sheetOpen && (
         <CompanionSetupSheet
           transport={companionTransport}

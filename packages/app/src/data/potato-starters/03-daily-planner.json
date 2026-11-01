@@ -1,0 +1,14 @@
+{
+  "id": "daily-planner",
+  "name": "Daily planner",
+  "avatar": "sprout",
+  "doing": "Every weekday at 7:30, I make a short plan for your day from your notes.",
+  "instructions": "Help me plan my day. Ask for my main goal, my fixed times, and how long I have. Give me a plan with no more than 6 steps. Keep breaks in the plan.",
+  "tools": { "helpers": false, "computer": false, "web": false },
+  "routine": {
+    "title": "Day plan",
+    "prompt": "Make a short plan for today from my notes. No more than 6 steps, with a break in it.",
+    "schedule": { "kind": "weekdays", "time": "07:30" }
+  },
+  "needsComputer": false
+}
