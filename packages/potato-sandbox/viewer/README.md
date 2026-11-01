@@ -7,13 +7,14 @@ This folder holds the live screen viewer. It shows a sandbox desktop inside an i
 - `embed.html` - the page the iframe loads. It starts the noVNC client, shows the desktop, and reports its status to the parent page. It is view-only unless the URL asks for control.
 - `clipboard-bridge.js` - copy and paste between the host clipboard and the remote desktop.
 - `mobile-keyboard.js` - the touch keyboard, the Esc / Tab / Ctrl / arrow key bar, and the touch trackpad for phones.
-- `novnc/` - not in this folder yet. noVNC will be added later under its own MPL-2.0 licence. Do not copy noVNC files here by hand. The page reads noVNC from this one folder, set by the `NOVNC_BASE` constant in `embed.html`.
+- `novnc/` - the noVNC client library, vendored unmodified under its own MPL-2.0 licence (version in `novnc/README.md`). The page reads it from this one folder, set by the `NOVNC_BASE` constant in `embed.html`. Do not edit files in it.
 - `PORTED.md` - what was changed from the original Rakazo files.
 
 ## How the parent page talks to it
 
 1. Load the page in an iframe with URL parameters:
    - `?control=1` lets the person type and click. Without it the page is view-only. Adding `view_only=1` forces view-only even when `control=1` is set.
+   - `#vnc=<password>` (in the fragment, not the query) gives the VNC password. The page reads it once and removes it from the address bar. The sandbox has two passwords: the **view** password shows the screen and the server drops all input; the **control** password also allows mouse and keyboard (use it with `?control=1`). Without a password the page reports `failed` with reason `security`.
    - `?path=websockify` sets the websocket path. Only letters, digits, `_`, `.`, `/` and `-` are accepted. Anything else falls back to `websockify`.
 2. Allow the parent's origin. The serving layer fills in this tag in `embed.html`:
    `<meta name="pm-sbx-parent-origins" content="https://app.example.test">`

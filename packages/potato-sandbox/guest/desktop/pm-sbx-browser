@@ -3,11 +3,11 @@
 # Copyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;
 # see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: Google Chrome .deb only (no Chromium snap or Brave lookup);
 # one profile per bot (PM_SBX_BOT) under the pm home; Chrome's own sandbox stays on unless PM_SBX_CHROME_NO_SANDBOX=1;
-# --ozone-platform=x11 so Wayland is never used; debug port from PM_SBX_CDP_PORT (default 9222) bound to 127.0.0.1;
+# --ozone-platform=x11 so Wayland is never used; debug port from PM_SBX_CDP_PORT (default 9221 + display number, so 9320 on :99, where pm-sbx-page-browser looks) bound to 127.0.0.1;
 # the URL hand-off is one HTTP call with no retry loop; the Rakazo LD_PRELOAD and nss_wrapper handling is dropped (no nss_wrapper here);
 # policy comes from /etc/opt/chrome/policies/managed (pm-sbx-chrome-policy.json), not a per-browser file.
 #
-# Usage: pm-sbx-browser [url ...]. Env: PM_SBX_BOT (bot id, default "default"), PM_SBX_CDP_PORT, PM_SBX_BROWSER_PROFILE, PM_SBX_CHROME_NO_SANDBOX.
+# Usage: pm-sbx-browser [url ...]. Env: PM_SBX_BOT (bot id, default "default"), PM_SBX_CDP_PORT (default 9221 + display number), PM_SBX_BROWSER_PROFILE, PM_SBX_CHROME_NO_SANDBOX.
 
 set -u
 
@@ -15,7 +15,10 @@ BOT="${PM_SBX_BOT:-default}"
 if ! printf '%s\n' "$BOT" | grep -Eq '^[A-Za-z0-9_-]{1,64}$'; then
   echo "pm-sbx-browser: bad PM_SBX_BOT" >&2; exit 2
 fi
-CDP_PORT="${PM_SBX_CDP_PORT:-9222}"
+# Default debug port is 9221 + the display number (:99 -> 9320), the port pm-sbx-page-browser looks for.
+DISPLAY_NUM="${DISPLAY:-:99}"; DISPLAY_NUM="${DISPLAY_NUM#:}"; DISPLAY_NUM="${DISPLAY_NUM%%.*}"
+case "$DISPLAY_NUM" in ''|*[!0-9]*) DISPLAY_NUM=99 ;; esac
+CDP_PORT="${PM_SBX_CDP_PORT:-$((9221 + DISPLAY_NUM))}"
 if ! printf '%s\n' "$CDP_PORT" | grep -Eq '^[0-9]{4,5}$'; then
   echo "pm-sbx-browser: bad PM_SBX_CDP_PORT" >&2; exit 2
 fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/supervisor/src/egress-probe.ts.
 # Copyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;
-# see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: rewritten as a shell check for the WSL guest (no probe container); checks the WSL gateway and private resolvers on Windows ports, the metadata address and https://example.com; detects mirrored networking; reads the status file written by pm-sbx-egress.sh; writes a probe status file.
+# see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: rewritten as a shell check for the WSL guest (no probe container); checks the WSL gateway and private resolvers on Windows ports, the metadata address and https://example.com; detects mirrored networking (any private gateway is accepted as NAT); reads the status file written by pm-sbx-egress.sh; writes a probe status file.
 #
 # Checks that the walls set by pm-sbx-egress.sh really work. Run it after that script,
 # at boot:
@@ -15,9 +15,11 @@
 # Checks, in order:
 #   1. pm-sbx-egress.sh reported state=applied.
 #   2. Not mirrored networking: a separate WSL gateway exists, it is not one of this
-#      guest's own addresses, it is inside 172.16.0.0/12 (the WSL NAT range), and no
+#      guest's own addresses, it is a private address (RFC 1918: 10/8, 172.16/12, 192.168/16,
+#      or CGNAT 100.64/10; WSL picks its NAT subnet from any of these), and no
 #      guest address is listed in /etc/pm-sbx/host-addresses (optional, one IPv4 per line).
-#   3. TCP to the gateway, and to any private resolver, on ports 135, 445, 3389, 5357
+#   3. TCP to the gateway, and to any private resolver that is not a local address of this
+#      guest (WSL's 10.255.255.254 DNS tunnel is local), on ports 135, 445, 3389, 5357
 #      and one random high port: each must time out (dropped). A refusal or a quick
 #      error counts as a failure, because it means the host answered.
 #   4. TCP to 169.254.169.254:80 (cloud metadata) must time out.
@@ -95,6 +97,17 @@ is_blocked_v4() {
   return 1
 }
 
+# WSL's NAT subnet can be any private range (172.16/12 is common, 192.168/16 and 10/8 also happen).
+is_private_gateway() {
+  local cidr
+  for cidr in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
+    if ipv4_in_cidr "$1" "$cidr"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 default_gateways_v4() {
   { "$IP" -4 route show default 2>/dev/null || true; } |
     awk '$1 == "default" { for (i = 2; i < NF; i++) if ($i == "via") print $(i + 1) }' |
@@ -143,8 +156,8 @@ check_not_mirrored() {
         fail_probe "mirrored networking not supported: the default gateway $gw is this guest's own address"
       fi
     done
-    if ! ipv4_in_cidr "$gw" 172.16.0.0/12; then
-      fail_probe "mirrored networking not supported: the default gateway $gw is outside the WSL NAT range 172.16.0.0/12"
+    if ! is_private_gateway "$gw"; then
+      fail_probe "mirrored networking not supported: the default gateway $gw is not a private (RFC 1918 or CGNAT) address"
     fi
   done
   if [[ -r $HOST_ADDRESS_FILE ]]; then
@@ -184,13 +197,24 @@ expect_dropped() { # $1 = host, $2 = port
 }
 
 check_walls() {
-  local host port ns high
-  local -a targets=()
+  local host port ns high addr own
+  local -a targets=() locals=()
+  mapfile -t locals < <(local_ipv4)
   high=$((49152 + RANDOM % 16384))
   for host in "${GATEWAYS[@]}"; do
     targets+=("$host")
   done
   for ns in "${NAMESERVERS[@]}"; do
+    # WSL's DNS tunnel address (10.255.255.254) is configured on this guest's own lo, so a connect to it never leaves the
+    # guest: a quick "refused" there is the guest's own kernel, not the Windows host. Only resolvers that are really remote count.
+    own=0
+    for addr in "${locals[@]}"; do
+      if [[ $ns == "$addr" ]]; then own=1; fi
+    done
+    if ((own == 1)); then
+      log "note: resolver $ns is a local address of this guest; not probed"
+      continue
+    fi
     if is_blocked_v4 "$ns" && [[ " ${targets[*]} " != *" $ns "* ]]; then
       targets+=("$ns")
     fi

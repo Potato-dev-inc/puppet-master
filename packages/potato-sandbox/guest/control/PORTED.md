@@ -44,10 +44,10 @@ See the table row above. Usage: `pm-sbx-focus-or-launch [--wm-class CLASS] [--pr
 
 ## Known upstream behaviour kept on purpose
 
-- `_is_int_string` uses `str.isdigit`, which also accepts non-ASCII digit characters such as `"²"` that `int()` rejects. The brief said to keep the xdotool allowlist exactly, so it is unchanged. Consider switching it to the `ASCII_INT` regex in a later pass.
+- (Fixed in the integration pass.) `_is_int_string` used `str.isdigit`, which also accepts non-ASCII digit characters such as `"²"` that `int()` rejects. It now uses the `ASCII_INT` regex; `test_integers_are_ascii_digits_only` covers it. This is the one place the allowlist differs from upstream.
 
 ## Checks run
 
 - `python -I -m py_compile` on all three Python files: OK.
-- `python -I -m unittest discover -s <this folder> -p "test_*.py"`: 49 tests, OK.
+- `python -I -m unittest discover -s <this folder> -p "test_*.py"`: 50 tests, OK (49 + the ASCII digit test).
 - Allowlist functions diffed against upstream: identical.

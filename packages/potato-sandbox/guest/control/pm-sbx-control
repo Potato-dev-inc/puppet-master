@@ -186,15 +186,13 @@ def load_launchers(path):
     return {name: _launcher_from_json(name, spec) for name, spec in raw.items()}
 
 
-def _is_int_string(value):
-    if not value or value[0] == "-":
-        return value[1:].isdigit() if len(value) > 1 else False
-    return value.isdigit()
-
-
 # ASCII digits only: str.isdigit() also accepts characters such as "²" that int() rejects.
 ASCII_INT = re.compile(r"-?[0-9]+")
 ASCII_COUNT = re.compile(r"[0-9]+")
+
+
+def _is_int_string(value):
+    return ASCII_INT.fullmatch(value) is not None
 
 
 def _allowed_wheel(argv):

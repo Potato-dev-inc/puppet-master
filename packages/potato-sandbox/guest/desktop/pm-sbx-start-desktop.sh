@@ -3,16 +3,23 @@
 # Copyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;
 # see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: runs as user pm, not PID 1 (no signal trap, no
 # Docker, no supervisor loops, no Rakazo control service, no xdg portal daemons); display :99 at 1440x900; session (fluxbox or XFCE)
-# from /etc/pm-sbx/desktop.conf; x11vnc and websockify bind 127.0.0.1 only and the VNC password is required; start, stop and status
-# use PID files (never pkill by name); refuses to start unless WSLg is cut and the egress guard passed (/run/pm-no-wslg.done);
-# fluxbox config is written into the pm state folder, not via a HOME override; menu entries use pm-sbx-browser.
+# from /etc/pm-sbx/desktop.conf; x11vnc and websockify bind loopback only (x11vnc -localhost; the start fails if any listener on
+# our ports is not loopback) and a VNC password is required; start, stop and status use PID files (never pkill by name); refuses to
+# start unless the boot hook finished (/run/pm-sbx/boot.done), WSLg is cut and the egress probe passed; fluxbox config is written
+# into the pm state folder, not via a HOME override; menu entries use pm-sbx-browser; two separate VNC passwords (view and control)
+# on one x11vnc instead of Rakazo's view-only server.
 #
 # Usage, as user pm inside the distro:   pm-sbx-start-desktop [start|stop|status]
 # Optional env: PM_SBX_DISPLAY (:99), PM_SBX_GEOMETRY (1440x900), PM_SBX_VNC_PORT (5900), PM_SBX_NOVNC_PORT (6080),
+#               PM_SBX_CONTROL_PORT (47801; the control service starts only when /usr/local/bin/pm-sbx-control is installed),
 #               PM_SBX_STATE (~/.pm-sbx). The session is read from /etc/pm-sbx/desktop.conf (fluxbox by default).
-# Writes: $STATE/env (source it to join the session from outside), $STATE/pids/*.pid, $STATE/logs/*.log, $STATE/vnc/{plain,passwd}.
-# The VNC password is random and local. The host reads $STATE/vnc/plain through wsl when it needs to show the view.
-# Note: view-only VNC means input from the screen view is refused. Take-over input goes through the control service, not VNC.
+#               PM_SBX_WEB_DIR (folder websockify serves; default /usr/local/share/pm-sbx/viewer when it holds embed.html,
+#               else /usr/share/novnc), PM_SBX_BOOT_WAIT (seconds to wait for the boot hook, 90).
+# Writes: $STATE/env (source it to join the session from outside), $STATE/pids/*.pid, $STATE/logs/*.log,
+#         $STATE/vnc/{view.plain,control.plain,passwd}, $STATE/control.token (bearer token of the control service).
+# Two random local VNC passwords, one x11vnc. The VIEW password gives a screen that cannot send input (x11vnc drops it
+# server side). The CONTROL password gives mouse and keyboard (take-over). The host reads view.plain to show the screen and
+# control.plain only when a person takes over. Bot actions do not use VNC; they go through the control service.
 
 set -u
 
@@ -26,12 +33,15 @@ GEOM="${PM_SBX_GEOMETRY:-1440x900}"
 if ! printf '%s\n' "$GEOM" | grep -Eq '^[0-9]{3,5}x[0-9]{3,5}$'; then echo "bad PM_SBX_GEOMETRY" >&2; exit 2; fi
 VNC_PORT="${PM_SBX_VNC_PORT:-5900}"
 NOVNC_PORT="${PM_SBX_NOVNC_PORT:-6080}"
-for p in "$VNC_PORT" "$NOVNC_PORT"; do
+CONTROL_PORT="${PM_SBX_CONTROL_PORT:-47801}"
+BOOT_WAIT="${PM_SBX_BOOT_WAIT:-90}"
+case "$BOOT_WAIT" in ''|*[!0-9]*) echo "bad PM_SBX_BOOT_WAIT" >&2; exit 2 ;; esac
+for p in "$VNC_PORT" "$NOVNC_PORT" "$CONTROL_PORT"; do
   if ! printf '%s\n' "$p" | grep -Eq '^[0-9]{4,5}$' || [ "$p" -lt 1024 ] || [ "$p" -gt 65535 ]; then
     echo "bad port $p (use 1024-65535)" >&2; exit 2
   fi
 done
-[ "$VNC_PORT" != "$NOVNC_PORT" ] || { echo "VNC and noVNC ports must differ" >&2; exit 2; }
+[ "$VNC_PORT" != "$NOVNC_PORT" ] && [ "$VNC_PORT" != "$CONTROL_PORT" ] && [ "$NOVNC_PORT" != "$CONTROL_PORT" ] || { echo "VNC, noVNC and control ports must differ" >&2; exit 2; }
 
 STATE="${PM_SBX_STATE:-$HOME/.pm-sbx}"
 PIDS="$STATE/pids"
@@ -67,6 +77,7 @@ name_pattern() {
     session) session_bin ;;
     x11vnc) echo x11vnc ;;
     websockify) echo websockify ;;
+    control) echo pm-sbx-control ;;
   esac
 }
 alive_key() { alive_named "$(pid_of "$1")" "$(name_pattern "$1")"; }
@@ -76,15 +87,20 @@ wait_port() {
   die "port $1 ($2) did not open; see $LOGS/$2.log" 1
 }
 
-# Refuse to touch the display unless the boot hook has cut WSLg and the egress guard passed.
+# Refuse to touch the display unless the one boot hook (pm-sbx-boot.sh) finished clean: WSLg cut, egress walls applied, probe passed.
+# The hook is asynchronous (it takes tens of seconds because the probe waits for dropped connections), so wait for it.
+BOOT_DONE=/run/pm-sbx/boot.done
+BOOT_FAILED=/run/pm-sbx/boot.failed
+PROBE_STATUS=/run/pm-sbx/egress-probe.status
 gate() {
   i=0
-  while [ ! -f /run/pm-no-wslg.done ] && [ ! -f /run/pm-no-wslg.failed ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
-  [ -f /run/pm-no-wslg.failed ] && die "REFUSING: the egress guard failed at boot; see /var/log/pm-sbx/boot.log" 3
-  [ -f /run/pm-no-wslg.done ] || die "REFUSING: boot hardening has not finished (no /run/pm-no-wslg.done)" 3
+  while [ ! -f "$BOOT_DONE" ] && [ ! -f "$BOOT_FAILED" ] && [ "$i" -lt $((BOOT_WAIT * 10)) ]; do sleep 0.1; i=$((i + 1)); done
+  [ -f "$BOOT_FAILED" ] && die "REFUSING: the boot hook failed ($(sed -n 's/^reason=//p' "$BOOT_FAILED" 2>/dev/null | head -1)); see /var/log/pm-sbx/boot.log" 3
+  [ -f "$BOOT_DONE" ] || die "REFUSING: the boot hook has not finished (no $BOOT_DONE)" 3
   if grep -q ' /mnt/wslg' /proc/mounts || [ -e /mnt/wslg/runtime-dir/wayland-0 ] || [ -e /tmp/.X11-unix/X0 ]; then
     die "REFUSING: WSLg is reachable from this distro" 3
   fi
+  grep -qx 'state=passed' "$PROBE_STATUS" 2>/dev/null || die "REFUSING: the egress probe has not passed (see $PROBE_STATUS)" 3
 }
 
 stop_one() {
@@ -159,30 +175,79 @@ start_session() {
   fi
 }
 
+rand8() { head -c 512 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 8; }
+
+# Any listener on this port that is not loopback (for example *:5900 or [::]:5900) is a failure.
+wide_listener() {
+  ss -ltnH 2>/dev/null | awk '{print $4}' | grep -E ":$1\$" | grep -Fvx -e "127.0.0.1:$1" -e "[::1]:$1" | head -1
+}
+require_loopback() {
+  w=$(wide_listener "$1")
+  [ -z "$w" ] || die "REFUSING: $2 listens on $w, not loopback only" 3
+}
+
+# VNC authentication uses only the first 8 characters of a password. x11vnc reads two sections from the password file:
+# the lines before __BEGIN_VIEWONLY__ give full access (control), the lines after it give a screen that cannot send input.
+# The two passwords must differ, or the server could not tell which one was typed.
+make_vnc_passwords() {
+  if [ -s "$VNCDIR/view.plain" ] && [ -s "$VNCDIR/control.plain" ] && [ -s "$VNCDIR/passwd" ]; then return 0; fi
+  ctl=$(rand8)
+  view=$(rand8)
+  while [ "$view" = "$ctl" ] || [ "${#view}" -ne 8 ] || [ "${#ctl}" -ne 8 ]; do ctl=$(rand8); view=$(rand8); done
+  umask 077
+  printf '%s' "$ctl" >"$VNCDIR/control.plain"
+  printf '%s' "$view" >"$VNCDIR/view.plain"
+  printf '%s\n__BEGIN_VIEWONLY__\n%s\n' "$ctl" "$view" >"$VNCDIR/passwd"
+  chmod 600 "$VNCDIR/control.plain" "$VNCDIR/view.plain" "$VNCDIR/passwd"
+}
+
+# websockify serves the viewer folder when the app installed it, else the stock noVNC pages.
+web_dir() {
+  if [ -n "${PM_SBX_WEB_DIR:-}" ]; then echo "$PM_SBX_WEB_DIR"
+  elif [ -f /usr/local/share/pm-sbx/viewer/embed.html ]; then echo /usr/local/share/pm-sbx/viewer
+  else echo /usr/share/novnc; fi
+}
+
 start_vnc() {
   mkdir -p "$VNCDIR" && chmod 700 "$VNCDIR"
-  if [ ! -s "$VNCDIR/plain" ]; then
-    # VNC authentication uses only the first 8 characters of the password.
-    head -c 512 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 8 >"$VNCDIR/plain"
-    chmod 600 "$VNCDIR/plain"
-  fi
-  if [ ! -s "$VNCDIR/passwd" ]; then
-    x11vnc -storepasswd "$(cat "$VNCDIR/plain")" "$VNCDIR/passwd" >/dev/null 2>&1 || die "x11vnc could not write the password file" 1
-    chmod 600 "$VNCDIR/passwd"
-  fi
+  make_vnc_passwords
   if ! alive_key x11vnc; then
-    setsid nohup x11vnc -display "$DISPLAY_NAME" -listen 127.0.0.1 -rfbport "$VNC_PORT" -rfbauth "$VNCDIR/passwd" \
-      -viewonly -forever -shared -noxdamage -quiet -o "$LOGS/x11vnc.log" >/dev/null 2>&1 </dev/null &
+    # -localhost binds loopback only. (-listen 127.0.0.1 still opened [::]:5900 on the spike.) No -viewonly: the password
+    # typed decides view or control (see make_vnc_passwords).
+    setsid nohup x11vnc -display "$DISPLAY_NAME" -localhost -rfbport "$VNC_PORT" -passwdfile "$VNCDIR/passwd" \
+      -forever -shared -noxdamage -quiet -o "$LOGS/x11vnc.log" >/dev/null 2>&1 </dev/null &
     echo $! >"$(pidfile x11vnc)"
   fi
   wait_port "$VNC_PORT" x11vnc
+  require_loopback "$VNC_PORT" x11vnc
   if ! alive_key websockify; then
-    setsid nohup websockify --web /usr/share/novnc "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$VNC_PORT" \
-      >"$LOGS/websockify.log" 2>&1 </dev/null &
+    setsid nohup websockify --web "$(web_dir)" "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$VNC_PORT"       >"$LOGS/websockify.log" 2>&1 </dev/null &
     echo $! >"$(pidfile websockify)"
   fi
   wait_port "$NOVNC_PORT" websockify
-  log "VNC on 127.0.0.1:$VNC_PORT, noVNC on 127.0.0.1:$NOVNC_PORT (view only)"
+  require_loopback "$NOVNC_PORT" websockify
+  log "VNC on 127.0.0.1:$VNC_PORT, noVNC on 127.0.0.1:$NOVNC_PORT (view and control passwords in $VNCDIR)"
+}
+
+# The control service (screenshots, mouse, keyboard, app launch for the bot) on 127.0.0.1 with a bearer token read from a file.
+start_control() {
+  [ -x /usr/local/bin/pm-sbx-control ] || { log "control service not installed; skipping"; return 0; }
+  if [ ! -s "$STATE/control.token" ]; then
+    (umask 077; head -c 512 /dev/urandom | tr -dc 'a-f0-9' | head -c 32 >"$STATE/control.token")
+    chmod 600 "$STATE/control.token"
+  fi
+  if ! alive_key control; then
+    LAUNCHERS=""
+    [ -f /etc/pm-sbx/launchers.json ] && LAUNCHERS=/etc/pm-sbx/launchers.json
+    setsid nohup env PM_SBX_CONTROL_TOKEN_FILE="$STATE/control.token" PM_SBX_CONTROL_PORT="$CONTROL_PORT" \
+      PM_SBX_DISPLAY="$DISPLAY_NAME" ${LAUNCHERS:+PM_SBX_LAUNCHERS_FILE="$LAUNCHERS"} \
+      ${DBUS:+DBUS_SESSION_BUS_ADDRESS="$DBUS"} \
+      python3 -I /usr/local/bin/pm-sbx-control >"$LOGS/control.log" 2>&1 </dev/null &
+    echo $! >"$(pidfile control)"
+  fi
+  wait_port "$CONTROL_PORT" control
+  require_loopback "$CONTROL_PORT" control
+  log "control service on 127.0.0.1:$CONTROL_PORT (token in $STATE/control.token)"
 }
 
 write_env() {
@@ -206,11 +271,13 @@ do_start() {
   start_xvfb
   start_session
   start_vnc
+  start_control
   write_env
   echo "DESKTOP_READY session=$SESSION display=$DISPLAY_NAME seconds=$(( $(date +%s) - T0 ))"
 }
 
 do_stop() {
+  stop_one control pm-sbx-control
   stop_one websockify websockify
   stop_one x11vnc x11vnc
   stop_one session "$(session_bin)"
@@ -219,11 +286,15 @@ do_stop() {
 }
 
 do_status() {
-  for key in xvfb session x11vnc websockify; do
+  for key in xvfb session x11vnc websockify control; do
     if alive_key "$key"; then echo "$key running (pid $(pid_of "$key"))"; else echo "$key stopped"; fi
   done
   port_listening "$VNC_PORT" && echo "vnc 127.0.0.1:$VNC_PORT listening" || echo "vnc 127.0.0.1:$VNC_PORT not listening"
   port_listening "$NOVNC_PORT" && echo "novnc 127.0.0.1:$NOVNC_PORT listening" || echo "novnc 127.0.0.1:$NOVNC_PORT not listening"
+  port_listening "$CONTROL_PORT" && echo "control 127.0.0.1:$CONTROL_PORT listening" || echo "control 127.0.0.1:$CONTROL_PORT not listening"
+  for pt in "$VNC_PORT" "$NOVNC_PORT" "$CONTROL_PORT"; do
+    w=$(wide_listener "$pt"); [ -z "$w" ] || echo "WARNING: non-loopback listener $w"
+  done
 }
 
 case "$ACTION" in
