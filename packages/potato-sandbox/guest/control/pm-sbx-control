@@ -1,0 +1,534 @@
+#!/usr/bin/env python3
+# Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/computer/control.py.
+# Copyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;
+# see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: renamed to pm-sbx; token read from a file
+# (PM_SBX_CONTROL_TOKEN_FILE) with a constant-time compare that requires "Bearer "; binds 127.0.0.1 on a port from
+# env (default 47801); launch allowlist from a JSON file instead of rakazo-browser/xterm; xdg-open form dropped; no
+# native C capture (import(1) fallback only, no damage rect); all steps validated before any runs; /v1/screenshot
+# added; child env pins WAYLAND/GDK/QT per sandbox rules; default display :99. See PORTED.md.
+"""Token-authenticated desktop control for the Potato sandbox guest (loopback only).
+
+Endpoints (POST, JSON, Authorization: Bearer <token>):
+  /v1/desktop     {"display", "steps": [{"argv": [...]} | {"waitMs": n}], "settleMs", "observe"}
+  /v1/screenshot  {"display"}
+
+Only argv lists are executed, never through a shell. Argv shapes are
+allowlisted: xdotool forms (key, mousemove, mouseup, type, click) and
+focus-or-launch of a launcher named in the launcher JSON file.
+"""
+
+import base64
+import dataclasses
+import hmac
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import NamedTuple
+
+BIND_HOST = "127.0.0.1"
+DEFAULT_PORT = 47801
+DEFAULT_DISPLAY = ":99"
+MAX_BODY_BYTES = 256 * 1024
+MAX_ARGV = 32
+MAX_ARG_LEN = 16_384
+MAX_STEPS = 64
+MIN_TOKEN_LEN = 16
+CONTROL_TIMEOUT_SEC = 10
+CAPTURE_TIMEOUT_SEC = 10
+# The focus wrapper bounds each wmctrl call at 5 s and may also wait out a browser
+# forward. Wait for it to exit so a slow listing is not reported as success.
+BROWSER_OPEN_POLL_SEC = 2.4
+FOCUS_COMPLETION_SEC = 5 + BROWSER_OPEN_POLL_SEC + 5 + 1
+FOCUS_OR_LAUNCH = "pm-sbx-focus-or-launch"
+PROFILE_PREFIX = "PM_SBX_BROWSER_PROFILE="
+PROFILE_RE = re.compile(r"/home/pm/\.browser-profiles/chromium-bot-[a-f0-9]{32}")
+DISPLAY_RE = re.compile(r":[0-9]+")
+LAUNCHER_NAME_RE = re.compile(r"[a-z][a-z0-9-]{0,31}")
+WM_CLASS_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
+WINDOW_ID_RE = re.compile(r"[0-9]+")
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+CHILD_ENV_PINS = {
+    "XDG_RUNTIME_DIR": "/tmp/pm-runtime",
+    "GDK_BACKEND": "x11",
+    "QT_QPA_PLATFORM": "xcb",
+}
+
+DISPLAY_LOCKS = {}
+DISPLAY_LOCKS_GUARD = threading.Lock()
+
+
+class ConfigError(Exception):
+    """Startup configuration is unusable; the server does not start."""
+
+
+class RequestError(Exception):
+    """The request is malformed or outside the allowlist (HTTP 400)."""
+
+
+class Launcher(NamedTuple):
+    path: str
+    wm_class: str
+    browser_profile: bool
+
+
+# Defaults when PM_SBX_LAUNCHERS_FILE is not set. Paths are the Ubuntu 24.04 packages.
+DEFAULT_LAUNCHERS = {
+    "chrome": Launcher("/usr/bin/google-chrome", "google-chrome", True),
+    "terminal": Launcher("/usr/bin/xterm", "xterm", False),
+    "files": Launcher("/usr/bin/pcmanfm", "pcmanfm", False),
+    "editor": Launcher("/usr/bin/mousepad", "mousepad", False),
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class Settings:
+    token: str
+    port: int
+    default_display: str
+    launchers: dict
+    focus_wrapper: str
+
+
+def display_lock(display):
+    with DISPLAY_LOCKS_GUARD:
+        lock = DISPLAY_LOCKS.get(display)
+        if lock is None:
+            lock = threading.Lock()
+            DISPLAY_LOCKS[display] = lock
+        return lock
+
+
+def valid_display(display):
+    return isinstance(display, str) and DISPLAY_RE.fullmatch(display) is not None
+
+
+def read_token_file(path):
+    if not path:
+        raise ConfigError("PM_SBX_CONTROL_TOKEN_FILE is not set")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            token = handle.read().strip()
+    except OSError as error:
+        raise ConfigError(f"cannot read the control token file: {error.strerror or error}") from None
+    if len(token) < MIN_TOKEN_LEN or any(ch.isspace() for ch in token):
+        raise ConfigError("the control token file must hold one token of at least 16 non-space characters")
+    try:
+        if os.stat(path).st_mode & 0o077:
+            print("pm-sbx-control: warning: the token file is readable by other users", file=sys.stderr)
+    except OSError:
+        pass
+    return token
+
+
+def authorized(header_value, token):
+    """Constant-time check of an Authorization header against the token."""
+    if not token or not isinstance(header_value, str) or not header_value.startswith("Bearer "):
+        return False
+    try:
+        presented = header_value[len("Bearer "):].encode("utf-8")
+    except UnicodeError:
+        return False
+    return hmac.compare_digest(presented, token.encode("utf-8"))
+
+
+def parse_port(text):
+    try:
+        port = int(text)
+    except (TypeError, ValueError):
+        raise ConfigError("PM_SBX_CONTROL_PORT must be an integer") from None
+    if not 1 <= port <= 65535:
+        raise ConfigError("PM_SBX_CONTROL_PORT must be between 1 and 65535")
+    return port
+
+
+def _launcher_from_json(name, spec):
+    if not LAUNCHER_NAME_RE.fullmatch(name):
+        raise ConfigError(f"launcher name {name!r} is not a lowercase name")
+    if not isinstance(spec, dict):
+        raise ConfigError(f"launcher {name!r} must be an object")
+    path = spec.get("path")
+    # The guest is always POSIX: an absolute path starts with "/" on every host that runs the tests.
+    if not isinstance(path, str) or not path.startswith("/") or "\0" in path or len(path) > 1024:
+        raise ConfigError(f"launcher {name!r} needs an absolute path")
+    default_class = path.rsplit("/", 1)[-1]
+    wm_class = spec.get("wm_class", default_class)
+    if not isinstance(wm_class, str) or not WM_CLASS_RE.fullmatch(wm_class):
+        raise ConfigError(f"launcher {name!r} has an invalid wm_class")
+    browser_profile = spec.get("browser_profile", False)
+    if not isinstance(browser_profile, bool):
+        raise ConfigError(f"launcher {name!r} browser_profile must be true or false")
+    return Launcher(path, wm_class, browser_profile)
+
+
+def load_launchers(path):
+    """Launcher allowlist: built-in defaults, or the JSON file named by PM_SBX_LAUNCHERS_FILE.
+
+    JSON form: {"launchers": {"chrome": {"path": "/usr/bin/google-chrome",
+                                         "wm_class": "google-chrome", "browser_profile": true}}}
+    """
+    if not path:
+        return dict(DEFAULT_LAUNCHERS)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except OSError as error:
+        raise ConfigError(f"cannot read the launcher file: {error.strerror or error}") from None
+    except ValueError:
+        raise ConfigError("the launcher file is not valid JSON") from None
+    raw = data.get("launchers") if isinstance(data, dict) else None
+    if not isinstance(raw, dict) or not raw:
+        raise ConfigError("the launcher file needs a non-empty \"launchers\" object")
+    return {name: _launcher_from_json(name, spec) for name, spec in raw.items()}
+
+
+# ASCII digits only: str.isdigit() also accepts characters such as "²" that int() rejects.
+ASCII_INT = re.compile(r"-?[0-9]+")
+ASCII_COUNT = re.compile(r"[0-9]+")
+
+
+def _is_int_string(value):
+    return ASCII_INT.fullmatch(value) is not None
+
+
+def _allowed_wheel(argv):
+    """A wheel scroll: click --repeat N with the up (4), down (5), left (6) or right (7) button."""
+    return (
+        len(argv) == 4
+        and argv[0] == "click"
+        and argv[1] == "--repeat"
+        and ASCII_COUNT.fullmatch(argv[2]) is not None
+        and 1 <= int(argv[2]) <= 20
+        and argv[3] in ("4", "5", "6", "7")
+    )
+
+
+def allowed_xdotool_argv(argv):
+    """Only the xdotool forms the desktop actions emit (key, mousemove, mouseup, type, click)."""
+    if len(argv) < 4 or argv[2] != "xdotool":
+        return False
+    op = argv[3]
+    if op == "key":
+        return len(argv) == 6 and argv[4] == "--clearmodifiers" and argv[5] != ""
+    if op == "mousemove":
+        if len(argv) == 7 and argv[4] == "--" and _is_int_string(argv[5]) and _is_int_string(argv[6]):
+            return True
+        if (
+            len(argv) == 11
+            and argv[4] == "--"
+            and ASCII_INT.fullmatch(argv[5])
+            and ASCII_INT.fullmatch(argv[6])
+            and _allowed_wheel(argv[7:])
+        ):
+            return True
+        return (
+            len(argv) == 9
+            and argv[4] == "--"
+            and _is_int_string(argv[5])
+            and _is_int_string(argv[6])
+            and argv[7] in ("mousedown", "click")
+            and argv[8] in ("1", "3")
+        )
+    if op == "mouseup":
+        return len(argv) == 5 and argv[4] in ("1", "3")
+    if op == "type":
+        return len(argv) == 7 and argv[4] == "--clearmodifiers" and argv[5] == "--"
+    if op == "click":
+        return len(argv) == 7 and _allowed_wheel(argv[3:])
+    return False
+
+
+def control_command_index(argv):
+    """Locate the executable after the optional supervisor-owned browser profile."""
+    return 3 if len(argv) > 2 and isinstance(argv[2], str) and argv[2].startswith(PROFILE_PREFIX) else 2
+
+
+def allowed_control_argv(argv, display, launchers):
+    """Only supervisor-shaped argv for the locked display.
+
+    Launch form: ["env", "DISPLAY=:N", ("PM_SBX_BROWSER_PROFILE=<path>",) "pm-sbx-focus-or-launch", NAME, ARG?]
+    """
+    if not isinstance(argv, list) or not (3 <= len(argv) <= MAX_ARGV):
+        return False
+    if any(not isinstance(value, str) or len(value) > MAX_ARG_LEN or "\0" in value for value in argv):
+        return False
+    if argv[0] != "env" or argv[1] != f"DISPLAY={display}":
+        return False
+    index = control_command_index(argv)
+    if index >= len(argv):
+        return False
+    command = argv[index]
+    if index == 3:
+        profile = argv[2].removeprefix(PROFILE_PREFIX)
+        if PROFILE_RE.fullmatch(profile) is None or command != FOCUS_OR_LAUNCH:
+            return False
+    if command == "xdotool":
+        return allowed_xdotool_argv(argv)
+    if command == FOCUS_OR_LAUNCH:
+        if len(argv) not in (index + 2, index + 3):
+            return False
+        entry = launchers.get(argv[index + 1])
+        if entry is None:
+            return False
+        if index == 3 and not entry.browser_profile:
+            return False
+        if len(argv) == index + 3 and (not argv[index + 2] or argv[index + 2].startswith("-")):
+            return False
+        return True
+    return False
+
+
+def build_launch_argv(argv, settings):
+    """Translate a validated launch step into the focus wrapper's argv (no shell, no env prefix)."""
+    index = control_command_index(argv)
+    entry = settings.launchers[argv[index + 1]]
+    profile = argv[2].removeprefix(PROFILE_PREFIX) if index == 3 else ""
+    command = [sys.executable, "-I", settings.focus_wrapper, "--wm-class", entry.wm_class]
+    if profile:
+        command += ["--profile", profile]
+    if entry.browser_profile:
+        command += ["--wait", str(BROWSER_OPEN_POLL_SEC)]
+    command += ["--", entry.path]
+    if len(argv) == index + 3:
+        command.append(argv[index + 2])
+    return command
+
+
+def child_env(display):
+    env = dict(os.environ)
+    env.pop("WAYLAND_DISPLAY", None)
+    env.update(CHILD_ENV_PINS)
+    env["DISPLAY"] = display
+    return env
+
+
+def run_control_argv(argv, display, settings):
+    """Run one validated argv step. Called with the display lock held."""
+    env = child_env(display)
+    if argv[control_command_index(argv)] == FOCUS_OR_LAUNCH:
+        command = build_launch_argv(argv, settings)
+        timeout = FOCUS_COMPLETION_SEC
+    else:
+        command = argv
+        timeout = CONTROL_TIMEOUT_SEC
+    try:
+        result = subprocess.run(
+            command, env=env, timeout=timeout, stdin=subprocess.DEVNULL, capture_output=True
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("computer action timed out") from error
+    except OSError as error:
+        raise RuntimeError("computer action failed") from error
+    if result.returncode:
+        raise RuntimeError("computer action failed")
+
+
+def png_size(data):
+    if len(data) < 24 or data[:8] != PNG_SIGNATURE or data[12:16] != b"IHDR":
+        raise RuntimeError("screen capture failed")
+    return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+
+def capture(display):
+    """One PNG frame of the root window plus cursor and active-window hints.
+
+    Fallback capture only (no native helper): import(1) from ImageMagick. The
+    result never carries a damage rectangle.
+    """
+    env = child_env(display)
+
+    def query(argv):
+        try:
+            result = subprocess.run(
+                argv, env=env, capture_output=True, text=True,
+                stdin=subprocess.DEVNULL, timeout=CONTROL_TIMEOUT_SEC,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return result.stdout.strip()
+
+    cursor = query(["xdotool", "getmouselocation", "--shell"])
+    window = query(["xdotool", "getactivewindow"])
+    if not WINDOW_ID_RE.fullmatch(window or ""):
+        window = ""
+    title = query(["xdotool", "getwindowname", window]) if window else ""
+    try:
+        image = subprocess.run(
+            ["import", "-define", "png:compression-level=3", "-window", "root", "png:-"],
+            env=env, capture_output=True, stdin=subprocess.DEVNULL, timeout=CAPTURE_TIMEOUT_SEC,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError("screen capture failed") from error
+    if image.returncode:
+        raise RuntimeError("screen capture failed")
+    width, height = png_size(image.stdout)
+    fields = dict(line.split("=", 1) for line in cursor.splitlines() if "=" in line)
+    observation = {
+        "image": base64.b64encode(image.stdout).decode("ascii"),
+        "mimeType": "image/png",
+        "width": width,
+        "height": height,
+    }
+    try:
+        observation["cursor"] = {"x": int(fields["X"]), "y": int(fields["Y"])}
+    except (KeyError, ValueError):
+        pass
+    if window:
+        observation["activeWindow"] = {"id": window, **({"title": title} if title else {})}
+    return observation
+
+
+def _int_field(body, key, default, low, high):
+    value = body.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RequestError(f"{key} must be an integer")
+    return max(low, min(value, high))
+
+
+def plan_steps(body, settings):
+    """Validate the whole request before any step runs, so a bad step runs nothing."""
+    display = body.get("display", settings.default_display)
+    if not valid_display(display):
+        raise RequestError("invalid display")
+    steps = body.get("steps", [])
+    if not isinstance(steps, list) or len(steps) > MAX_STEPS:
+        raise RequestError("invalid steps")
+    planned = []
+    for step in steps:
+        if not isinstance(step, dict):
+            raise RequestError("invalid step")
+        if "waitMs" in step:
+            planned.append(("wait", _int_field(step, "waitMs", 0, 0, 5000)))
+            continue
+        argv = step.get("argv")
+        if not allowed_control_argv(argv, display, settings.launchers):
+            raise RequestError("unsupported computer action")
+        planned.append(("argv", argv))
+    settle_ms = _int_field(body, "settleMs", 0, 0, 5000)
+    observe = bool(body.get("observe", True))
+    return display, planned, settle_ms, observe
+
+
+def run_desktop(settings, body):
+    display, planned, settle_ms, observe = plan_steps(body, settings)
+    with display_lock(display):
+        for kind, value in planned:
+            if kind == "wait":
+                time.sleep(value / 1000)
+            else:
+                run_control_argv(value, display, settings)
+        if settle_ms:
+            time.sleep(settle_ms / 1000)
+        response = {"completed": len(planned)}
+        if observe:
+            response["observation"] = capture(display)
+    return response
+
+
+def run_screenshot(settings, body):
+    display = body.get("display", settings.default_display)
+    if not valid_display(display):
+        raise RequestError("invalid display")
+    with display_lock(display):
+        return {"observation": capture(display)}
+
+
+def make_handler(settings):
+    class ControlHandler(BaseHTTPRequestHandler):
+        server_version = "pm-sbx-control"
+        sys_version = ""
+
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            if not authorized(self.headers.get("Authorization", ""), settings.token):
+                self._send_json(401, {"error": "unauthorized"})
+                return
+            routes = {
+                "/v1/desktop": run_desktop,
+                "/v1/screenshot": run_screenshot,
+            }
+            route = routes.get(self.path)
+            if route is None:
+                self._send_json(404, {"error": "not found"})
+                return
+            try:
+                response = route(settings, self._read_json())
+            except RequestError as error:
+                self._send_json(400, {"error": str(error)})
+                return
+            except RuntimeError as error:
+                self._send_json(500, {"error": str(error)})
+                return
+            except Exception:
+                self._send_json(500, {"error": "internal error"})
+                return
+            self._send_json(200, response)
+
+        def _read_json(self):
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                raise RequestError("invalid content length") from None
+            if length < 0 or length > MAX_BODY_BYTES:
+                raise RequestError("request body too large")
+            try:
+                body = json.loads(self.rfile.read(length))
+            except ValueError:
+                raise RequestError("invalid json") from None
+            if not isinstance(body, dict):
+                raise RequestError("request body must be a JSON object")
+            return body
+
+        def _send_json(self, status, payload):
+            encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            try:
+                self.wfile.write(encoded)
+            except OSError:
+                pass
+
+    return ControlHandler
+
+
+def load_settings(env):
+    default_focus = os.path.join(os.path.dirname(os.path.abspath(__file__)), FOCUS_OR_LAUNCH)
+    default_display = env.get("PM_SBX_DISPLAY", DEFAULT_DISPLAY)
+    if not valid_display(default_display):
+        raise ConfigError("PM_SBX_DISPLAY must look like :99")
+    return Settings(
+        token=read_token_file(env.get("PM_SBX_CONTROL_TOKEN_FILE", "")),
+        port=parse_port(env.get("PM_SBX_CONTROL_PORT", str(DEFAULT_PORT))),
+        default_display=default_display,
+        launchers=load_launchers(env.get("PM_SBX_LAUNCHERS_FILE", "")),
+        focus_wrapper=env.get("PM_SBX_FOCUS_OR_LAUNCH", default_focus),
+    )
+
+
+def main(env=None):
+    try:
+        settings = load_settings(os.environ if env is None else env)
+    except ConfigError as error:
+        print(f"pm-sbx-control: {error}", file=sys.stderr)
+        return 2
+    server = ThreadingHTTPServer((BIND_HOST, settings.port), make_handler(settings))
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

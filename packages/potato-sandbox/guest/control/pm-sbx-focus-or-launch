@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+# Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/computer/rakazo-focus-or-launch.
+# Copyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;
+# see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: renamed; the WM_CLASS table and the
+# RAKAZO_BROWSER_PROFILE env/recorded-file lookup became --wm-class / --profile / --wait flags (the caller owns the
+# launcher table); browser profile is passed as --user-data-dir; argparse instead of hand parsing.
+"""Raise an app's existing window by WM_CLASS, else spawn its launcher.
+
+The control daemon only forwards allowlisted launchers here. A matched window
+is raised instead of spawning a duplicate. Arguments still reach the launcher
+first (a browser forwards a URL into its live window) but that launch is not
+waited out: a GUI that stays up must not block the raise. The wrapper then
+exits, so a slow wmctrl listing is not reported as success before focus runs.
+
+Usage:
+  pm-sbx-focus-or-launch [--wm-class CLASS] [--profile DIR] [--wait SEC] -- LAUNCHER [ARGS...]
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+
+WMCTRL_TIMEOUT_SEC = 5
+DEFAULT_LAUNCH_WAIT_SEC = 0.2
+# Browsers forward a URL into a live window after their profile scan; the caller
+# passes --wait for them (control.py uses 2.4 s for browser launchers).
+
+
+def default_wm_class(launcher):
+    """WM_CLASS component when the caller gives none; X11 instance defaults to the binary basename."""
+    return launcher.rsplit("/", 1)[-1].lower()
+
+
+def class_matches(field, wanted):
+    """True when wanted equals one complete instance or class component."""
+    return wanted.lower() in field.lower().split(".")
+
+
+def window_profile(pid):
+    """Chromium --user-data-dir for a window PID, or None when it cannot be read."""
+    if not str(pid).isdigit():
+        return None
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as handle:
+            raw = handle.read()
+    except OSError:
+        return None
+    args = [arg for arg in raw.split(b"\0") if arg]
+    for index, arg in enumerate(args):
+        if arg.startswith(b"--user-data-dir="):
+            return arg.split(b"=", 1)[1].decode("utf-8", "surrogateescape")
+        if arg == b"--user-data-dir" and index + 1 < len(args):
+            return args[index + 1].decode("utf-8", "surrogateescape")
+    return None
+
+
+def matching_window(listing, wanted, profile=None):
+    """First `wmctrl -lxp` row (id desktop pid wm_class host title) for the class.
+
+    When a browser profile is requested and any candidate exposes one, only that
+    profile matches. Windows whose profile cannot be read stay eligible only if
+    no candidate exposes a profile.
+    """
+    candidates = []
+    for line in listing.splitlines():
+        fields = line.split(None, 5)
+        if len(fields) < 4 or not class_matches(fields[3], wanted):
+            continue
+        candidates.append((fields[0], fields[2]))
+    if not candidates:
+        return ""
+    if not profile:
+        return candidates[0][0]
+    saw_profile = False
+    for window_id, pid in candidates:
+        owner = window_profile(pid)
+        if owner is None:
+            continue
+        saw_profile = True
+        if owner == profile:
+            return window_id
+    if saw_profile:
+        return ""
+    return candidates[0][0]
+
+
+def run_launcher(launcher, args, wait_sec):
+    """Start a launcher without adopting its lifetime.
+
+    The exit code is returned when the process ends within the launch bound.
+    None means it is still running, which is a live GUI rather than a failure.
+    """
+    # Detach stdio so a GUI that stays up cannot hold the caller's pipes open.
+    child = subprocess.Popen(
+        [launcher, *args],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        return child.wait(timeout=wait_sec)
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def activate(window):
+    try:
+        result = subprocess.run(["wmctrl", "-ia", window], timeout=WMCTRL_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        raise SystemExit(1) from None
+    raise SystemExit(result.returncode)
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="pm-sbx-focus-or-launch",
+        description="Raise an app's existing window by WM_CLASS, else spawn its launcher.",
+    )
+    parser.add_argument("--wm-class", default="", help="WM_CLASS component to match (default: launcher basename)")
+    parser.add_argument("--profile", default="", help="browser --user-data-dir to match and pass on launch")
+    parser.add_argument("--wait", type=float, default=DEFAULT_LAUNCH_WAIT_SEC, help="seconds to wait for a fast exit")
+    parser.add_argument("launcher")
+    parser.add_argument("args", nargs="*")
+    return parser
+
+
+def main(argv):
+    options = build_parser().parse_args(argv)
+    launcher = options.launcher
+    wanted = options.wm_class or default_wm_class(launcher)
+    wait_sec = max(0.0, min(options.wait, 10.0))
+    try:
+        listing = subprocess.run(
+            ["wmctrl", "-lxp"], capture_output=True, text=True, timeout=WMCTRL_TIMEOUT_SEC
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        listing = ""
+    profile = options.profile or None
+    window = matching_window(listing, wanted, profile)
+    launch_args = ([f"--user-data-dir={profile}"] if profile else []) + list(options.args)
+    try:
+        if not window:
+            code = run_launcher(launcher, launch_args, wait_sec)
+            raise SystemExit(0 if code is None else code)
+        if options.args:
+            code = run_launcher(launcher, launch_args, wait_sec)
+            if code:
+                raise SystemExit(code)
+    except OSError as error:
+        print(f"pm-sbx-focus-or-launch: cannot start launcher: {error.strerror or error}", file=sys.stderr)
+        raise SystemExit(127) from None
+    activate(window)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

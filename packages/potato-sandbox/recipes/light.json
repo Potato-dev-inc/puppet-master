@@ -1,0 +1,15 @@
+{
+  "_header": "Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, files infra/sandboxes/computer/fluxbox.init, fluxbox.apps, fluxbox.menu and start.sh (fluxbox section).\nCopyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;\nsee packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: fluxbox comes from Ubuntu's package (Rakazo ships it from Debian); its config is written by pm-sbx-start-desktop into the pm user's state folder instead of HOME tricks; menu entries point at our browser and terminal; the Rakazo window-rule file is dropped (fullMaximization covers it).",
+  "id": "light",
+  "title": "Light desktop (fluxbox)",
+  "description": "A small, fast window manager. A thin bar at the bottom and a right-click menu. Uses the least memory. This is the default desktop.",
+  "exclusive": "desktop",
+  "session": "fluxbox",
+  "pre": [],
+  "apt": [
+    "fluxbox"
+  ],
+  "debs": [],
+  "post": [],
+  "options": []
+}

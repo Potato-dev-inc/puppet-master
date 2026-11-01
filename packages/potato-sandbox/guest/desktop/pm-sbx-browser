@@ -1,0 +1,120 @@
+#!/bin/bash
+# Ported from Rakazo (https://github.com/elie222/rakazo), commit f48fa5c7, file infra/sandboxes/computer/rakazo-browser (launch flags, one profile per bot, stale-lock and crash-state cleanup, reuse of a live browser by URL hand-off).
+# Copyright 2026 Rakazo contributors. Licensed under the Apache License, Version 2.0;
+# see packages/potato-sandbox/LICENSE-APACHE-2.0. Changed by Puppet Master: Google Chrome .deb only (no Chromium snap or Brave lookup);
+# one profile per bot (PM_SBX_BOT) under the pm home; Chrome's own sandbox stays on unless PM_SBX_CHROME_NO_SANDBOX=1;
+# --ozone-platform=x11 so Wayland is never used; debug port from PM_SBX_CDP_PORT (default 9221 + display number, so 9320 on :99, where pm-sbx-page-browser looks) bound to 127.0.0.1;
+# the URL hand-off is one HTTP call with no retry loop; the Rakazo LD_PRELOAD and nss_wrapper handling is dropped (no nss_wrapper here);
+# policy comes from /etc/opt/chrome/policies/managed (pm-sbx-chrome-policy.json), not a per-browser file.
+#
+# Usage: pm-sbx-browser [url ...]. Env: PM_SBX_BOT (bot id, default "default"), PM_SBX_CDP_PORT (default 9221 + display number), PM_SBX_BROWSER_PROFILE, PM_SBX_CHROME_NO_SANDBOX.
+
+set -u
+
+BOT="${PM_SBX_BOT:-default}"
+if ! printf '%s\n' "$BOT" | grep -Eq '^[A-Za-z0-9_-]{1,64}$'; then
+  echo "pm-sbx-browser: bad PM_SBX_BOT" >&2; exit 2
+fi
+# Default debug port is 9221 + the display number (:99 -> 9320), the port pm-sbx-page-browser looks for.
+DISPLAY_NUM="${DISPLAY:-:99}"; DISPLAY_NUM="${DISPLAY_NUM#:}"; DISPLAY_NUM="${DISPLAY_NUM%%.*}"
+case "$DISPLAY_NUM" in ''|*[!0-9]*) DISPLAY_NUM=99 ;; esac
+CDP_PORT="${PM_SBX_CDP_PORT:-$((9221 + DISPLAY_NUM))}"
+if ! printf '%s\n' "$CDP_PORT" | grep -Eq '^[0-9]{4,5}$'; then
+  echo "pm-sbx-browser: bad PM_SBX_CDP_PORT" >&2; exit 2
+fi
+PROFILE="${PM_SBX_BROWSER_PROFILE:-${HOME:-/home/pm}/.pm-sbx/browser/$BOT}"
+BIN=/opt/google/chrome/chrome
+if [ ! -x "$BIN" ]; then
+  echo "pm-sbx-browser: Google Chrome is not installed (expected $BIN)" >&2; exit 1
+fi
+mkdir -p "$PROFILE" || exit 1
+
+# SingletonLock is a symlink named "<host>-<pid>". Only a live browser process that owns this profile counts.
+lock_pid() {
+  lock=$(readlink "$PROFILE/SingletonLock" 2>/dev/null) || return 1
+  pid=${lock##*-}
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$pid"
+}
+
+live_browser() {
+  pid=$(lock_pid) || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  cmd=$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null) || return 1
+  case "$cmd" in *"--user-data-dir=$PROFILE"*) ;; *) return 1 ;; esac
+  case "$cmd" in *" --type="*) return 1 ;; esac
+  printf '%s\n' "$pid"
+}
+
+debug_port() {
+  tr '\0' '\n' <"/proc/$1/cmdline" 2>/dev/null | sed -n 's/^--remote-debugging-port=//p' | head -1
+}
+
+# Opens one URL in the running browser through its debug port (one request, no retry loop).
+hand_off() {
+  python3 -I - "$1" "$2" <<'PY'
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+port, url = sys.argv[1], sys.argv[2]
+# /json/new takes the address as-is. A scheme-less host would open about:blank, so fix it the way the omnibox does.
+if "://" not in url and not url.startswith(("about:", "chrome:", "data:", "file:", "javascript:", "view-source:")):
+    url = "file://" + url if url.startswith("/") else "http://" + url
+path = "/json/new?" + urllib.parse.quote(url, safe="")
+for method in ("PUT", "GET"):
+    req = urllib.request.Request("http://127.0.0.1:%s%s" % (port, path), method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            sys.exit(0 if resp.status == 200 else 1)
+    except urllib.error.HTTPError as err:
+        if err.code in (400, 404, 405):
+            continue
+        sys.exit(1)
+    except OSError:
+        sys.exit(1)
+sys.exit(1)
+PY
+}
+
+LIVE=$(live_browser) || LIVE=""
+if [ -n "$LIVE" ]; then
+  port=$(debug_port "$LIVE")
+  if [ -z "$port" ]; then
+    echo "pm-sbx-browser: the running browser has no debug port" >&2; exit 1
+  fi
+  for url in "$@"; do
+    case "$url" in --*) continue ;; esac
+    hand_off "$port" "$url" || { echo "pm-sbx-browser: could not open $url in the running browser" >&2; exit 1; }
+  done
+  exit 0
+fi
+
+# No live browser owns the profile: clear the locks a crash left and reset the crash flags (keeps the account sign-in).
+rm -f "$PROFILE/SingletonLock" "$PROFILE/SingletonCookie" "$PROFILE/SingletonSocket" 2>/dev/null
+find "$PROFILE" -maxdepth 2 \( -name Preferences -o -name 'Local State' \) -type f -exec sed -i -E \
+  -e 's/"exit_type"[[:space:]]*:[[:space:]]*"Crashed"/"exit_type":"Normal"/g' \
+  -e 's/"exited_cleanly"[[:space:]]*:[[:space:]]*false/"exited_cleanly":true/g' {} + 2>/dev/null || true
+
+FLAGS=(
+  --ozone-platform=x11
+  --disable-gpu
+  --enable-unsafe-swiftshader
+  --disable-dev-shm-usage
+  --no-first-run
+  --no-default-browser-check
+  --disable-session-crashed-bubble
+  --hide-crash-restore-bubble
+  --password-store=basic
+  --restore-last-session
+  --start-maximized
+  --remote-debugging-address=127.0.0.1
+  "--remote-debugging-port=$CDP_PORT"
+  "--user-data-dir=$PROFILE"
+)
+if [ "${PM_SBX_CHROME_NO_SANDBOX:-0}" = 1 ]; then
+  FLAGS+=(--no-sandbox)
+fi
+
+exec "$BIN" "${FLAGS[@]}" "$@"

@@ -1,0 +1,3 @@
+# Guest files run inside Linux: always LF, even on a Windows checkout.
+* text=auto eol=lf
+*.png binary

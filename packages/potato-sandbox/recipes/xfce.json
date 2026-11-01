@@ -1,0 +1,23 @@
+{
+  "_source": "Puppet Master spike setup-desktop.sh (not a Rakazo file): the XFCE parts that were tested in the spike, minus the apps that base.json already provides (mousepad) and minus thunar (base uses pcmanfm, so the desktop has one file manager).",
+  "id": "xfce",
+  "title": "XFCE desktop",
+  "description": "A full desktop with a panel, a settings app, notifications and a terminal. Heavier than the light desktop, but many people know it. Use it when a task needs settings windows or a familiar panel.",
+  "exclusive": "desktop",
+  "session": "xfce4",
+  "pre": [],
+  "apt": [
+    "xfce4-session",
+    "xfwm4",
+    "xfce4-panel",
+    "xfdesktop4",
+    "xfce4-settings",
+    "xfce4-terminal",
+    "xfce4-notifyd",
+    "adwaita-icon-theme",
+    "gnome-themes-extra"
+  ],
+  "debs": [],
+  "post": [],
+  "options": []
+}
