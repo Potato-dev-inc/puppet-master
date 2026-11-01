@@ -29,6 +29,15 @@ export const run = guarded(async (t) => {
   await t.expect.visible('exact=Fish', { within: 'css=.ck-potato-list' });
   await t.expect.visible('exact=Potato');
 
+  await t.step('A new bot opens with its first message and choices, and no "Say hello" line; "/" lists the commands');
+  await t.expect.visible('css=[aria-label^="Start with "]');
+  await t.expect.noText('Say hello to Fish.');
+  await t.page.fill('Message Fish', '/');
+  const first = process.env.E2E_SCREENSHOT_FIRST || path.join(t.outDir, 'potato-first-message.png');
+  await t.page.screenshot(first);
+  t.log('screenshot: ' + first);
+  await t.page.fill('Message Fish', '');
+
   await t.step('Send "hello"');
   await t.page.fill('Message Fish', 'hello');
   await t.press('Enter');
