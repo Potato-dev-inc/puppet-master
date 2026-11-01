@@ -25,6 +25,11 @@ export interface Msg {
   reasoning?: string;
   /** tool result only */
   toolCallId?: string;
+  /**
+   * tool result only: pictures the tool returned (a screenshot). They are only ever
+   * attached for a model that can see; a provider that cannot carry them ignores them.
+   */
+  images?: Array<{ mimeType: string; data: string }>;
 }
 
 /**

@@ -132,3 +132,26 @@ fn the_usage_file_is_one_per_month_and_a_damaged_one_is_never_overwritten() {
     // a missing month reads as empty
     assert_eq!(day_of(&root, "2027-01-05", "nimbus").unwrap().cost_nano(), 0);
 }
+
+#[test]
+fn sandbox_actions_are_counted_per_bot_and_day_and_a_call_past_the_cap_is_refused_whole() {
+    let root = temp("actions");
+    let spend = |day: &str, bot: &str, n: u32, cap: u32| spend_sandbox_actions(&root, day, bot, n, cap).unwrap();
+    assert_eq!(spend("2026-11-01", "a", 4, 10), ActionsSpent { used: 4, cap: 10, allowed: true });
+    // 7 more would be 11: refused, not counted
+    assert_eq!(spend("2026-11-01", "a", 7, 10), ActionsSpent { used: 4, cap: 10, allowed: false });
+    assert_eq!(spend("2026-11-01", "a", 6, 10), ActionsSpent { used: 10, cap: 10, allowed: true });
+    assert!(!spend("2026-11-01", "a", 1, 10).allowed);
+    // another bot, another day
+    assert_eq!(spend("2026-11-01", "b", 1, 10).used, 1);
+    assert_eq!(spend("2026-11-02", "a", 1, 10).used, 1);
+    // read back from the file, next to the money
+    assert_eq!(day_of(&root, "2026-11-01", "a").unwrap().sandbox_actions, 10);
+    // the cap is kept inside its limits
+    assert_eq!(spend("2026-11-03", "a", 1, 1).cap, MIN_SANDBOX_ACTIONS);
+    assert_eq!(spend("2026-11-03", "a", 1, 99_999).cap, MAX_SANDBOX_ACTIONS);
+    // the money is untouched by the count, and an old usage file with no such field reads as zero
+    assert_eq!(day_of(&root, "2026-11-01", "a").unwrap().cost_nano(), 0);
+    std::fs::write(month_path(&root, "2026-12-01"), "{\"v\":1,\"days\":{\"2026-12-01\":{\"a\":{\"surfaces\":{},\"warned\":true,\"limitHit\":false}}}}").unwrap();
+    assert_eq!(day_of(&root, "2026-12-01", "a").unwrap().sandbox_actions, 0);
+}

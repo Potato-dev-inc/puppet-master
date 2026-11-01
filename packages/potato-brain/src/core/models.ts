@@ -61,3 +61,50 @@ export async function listModels(source: ModelSource, signal?: AbortSignal): Pro
 
   return ids.sort((a, b) => a.localeCompare(b));
 }
+
+/**
+ * Models that can look at a picture. A tool result may carry a screenshot only for these; for any other
+ * model (DeepSeek, today's default, has no vision) the sandbox tools answer in words. The match is by
+ * the start of the model name, lower case, longest first; a name that is not listed cannot see (the safe
+ * answer: words always work, a picture sent to a model that cannot read it is a failed request).
+ */
+const VISION_PREFIXES: ReadonlyArray<string> = [
+  "gpt-4o",
+  "gpt-4.1",
+  "gpt-4.5",
+  "gpt-5",
+  "o3",
+  "o4",
+  "claude-",
+  "gemini-",
+  "qwen-vl",
+  "qwen2-vl",
+  "qwen2.5-vl",
+  "qwen3-vl",
+  "kimi-k2.5",
+  "kimi-vl",
+  "glm-4v",
+  "glm-4.5v",
+  "glm-4.6v",
+  "llama-4",
+  "pixtral",
+  "mistral-small-3",
+  "grok-4",
+];
+
+/** Names that start like a seeing model but are not one. Listed first, they win. */
+const TEXT_ONLY_PREFIXES: ReadonlyArray<string> = ["deepseek"];
+
+/**
+ * Can this model read a screenshot? `FISHD_VISION=on|off` overrides the table (for a model that is
+ * not listed yet, or to switch pictures off).
+ */
+export function modelSeesImages(model: string, override: string | undefined = process.env.FISHD_VISION): boolean {
+  const forced = (override ?? "").trim().toLowerCase();
+  if (forced === "on" || forced === "1" || forced === "true") return true;
+  if (forced === "off" || forced === "0" || forced === "false") return false;
+  const name = model.trim().toLowerCase().replace(/^[^/]*\//, "");
+  if (name === "") return false;
+  if (TEXT_ONLY_PREFIXES.some((p) => name.startsWith(p))) return false;
+  return VISION_PREFIXES.some((p) => name.startsWith(p));
+}

@@ -21,6 +21,8 @@ pub const MAX_SEGMENTS: usize = 6;
 pub const MAX_SEGMENT_CHARS: usize = 2000;
 pub const MAX_TASK: usize = 600;
 pub const MAX_PROJECT: usize = 120;
+/// The longest `args` of a `sandbox_call` (its JSON text). Bigger is refused with an error result, never run.
+pub const MAX_SANDBOX_ARGS_BYTES: usize = 24 * 1024;
 /// The longest the inbox long-poll holds a request.
 pub const MAX_WAIT_MS: u64 = 25_000;
 
@@ -84,6 +86,10 @@ pub enum Event {
     Usage { model: String, prompt_tokens: u64, completion_tokens: u64, cache_hit_tokens: u64, cache_miss_tokens: u64 },
     HelperRequest { request_id: String, conversation_id: String, task: String, project: Option<String> },
     Error { code: ErrorCode, conversation_id: Option<String>, in_reply_to: Option<String> },
+    /// The brain asks for one use of the bot's computer. Answered later with a `sandbox_result` inbox item.
+    /// `image` says the model can look at a picture (so the answer may carry one). `args` is checked by the
+    /// dispatcher, not here: a call that does not make sense still gets an error result, so the brain never waits.
+    SandboxCall { call_id: String, conversation_id: String, tool: String, args: Value, image: bool },
     /// A type this version does not know (a later surface's `inbound`, or anything newer). Ignored.
     Unknown(String),
 }
@@ -167,6 +173,13 @@ pub fn parse_event(value: &Value) -> Option<Event> {
             code: ErrorCode::parse(value.get("code").and_then(Value::as_str).unwrap_or("")),
             conversation_id: text(value, "conversationId", 200),
             in_reply_to: text(value, "inReplyTo", 128),
+        },
+        "sandbox_call" => Event::SandboxCall {
+            call_id: text(value, "callId", 128).filter(|s| !s.is_empty())?,
+            conversation_id: text(value, "conversationId", 200)?,
+            tool: text(value, "tool", 40)?,
+            args: value.get("args").filter(|a| a.is_object()).cloned().unwrap_or_else(|| json!({})),
+            image: value.get("image").and_then(Value::as_bool).unwrap_or(false),
         },
         other => Event::Unknown(other.chars().take(40).collect()),
     })
@@ -320,6 +333,30 @@ pub fn persona_item(pack: &str) -> Value {
 /// `summary` must already be redacted.
 pub fn helper_update_item(request_id: &str, status: HelperStatus, summary: &str) -> Value {
     item("helper_update", json!({ "requestId": request_id, "status": status.as_str(), "summary": cut(summary, MAX_SUMMARY) }))
+}
+
+/// Tells a brain what its computer can do right now. Added to a `send` item as `capabilities`; an older brain
+/// ignores the field. `sandbox: true` means the Labs switches are on and the sandbox tools will be answered.
+pub fn with_capabilities(mut item: Value, sandbox: bool) -> Value {
+    if let Value::Object(map) = &mut item {
+        map.insert("capabilities".into(), json!({ "sandbox": sandbox }));
+    }
+    item
+}
+
+/// The answer to a `sandbox_call`. `result` is JSON the dispatcher already cleaned.
+pub fn sandbox_result_ok(call_id: &str, result: Value) -> Value {
+    item("sandbox_result", json!({ "callId": call_id, "ok": true, "result": result }))
+}
+
+/// A refused or failed `sandbox_call`: a short code and one plain sentence. `needs_you` says the person has the
+/// screen, so the bot should wait for it or say so.
+pub fn sandbox_result_err(call_id: &str, code: &str, message: &str, needs_you: bool) -> Value {
+    let mut error = json!({ "code": code, "message": cut(message, 400) });
+    if needs_you {
+        error["needsYou"] = json!(true);
+    }
+    item("sandbox_result", json!({ "callId": call_id, "ok": false, "error": error }))
 }
 
 pub fn pause_item(reason: PauseReason) -> Value {

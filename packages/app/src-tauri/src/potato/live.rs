@@ -10,7 +10,7 @@
 //! - `stop_all(grace)` is for the panic button and for the app's exit.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -22,16 +22,23 @@ use super::auth;
 use super::env::HostEnv;
 use super::helpers::{CompanionAgent, Folder, Hands, RunState, Started};
 use super::protocol::HelperStatus;
+use super::sandbox_calls::Port;
 use super::service::{BotProfile, Host, Service};
 use super::sidecar::RealLauncher;
 use crate::agent_runs::AgentRunRequest;
 use crate::companion::broad::Places;
 
 pub const LABS_KEY: &str = "potato_bot_enabled";
+/// The Sandbox Labs switch. It does nothing unless Potato Bot is on too.
+pub const SANDBOX_LABS_KEY: &str = "potato_sandbox_enabled";
 pub const CHANGED_EVENT: &str = "potato://changed";
 
 static SERVICE: OnceLock<Arc<Service>> = OnceLock::new();
 static BRIDGE_PORT: AtomicU16 = AtomicU16::new(0);
+/// The Sandbox Labs switch and the sandbox, kept here until the service exists (settings are applied once at
+/// startup, possibly before it).
+static SANDBOX_LABS: AtomicBool = AtomicBool::new(false);
+static SANDBOX_PORT: Mutex<Option<Port>> = Mutex::new(None);
 
 pub fn service() -> Option<Arc<Service>> {
     SERVICE.get().cloned()
@@ -46,8 +53,28 @@ pub fn labs_on(public: &Value) -> bool {
     public.get(LABS_KEY).and_then(Value::as_bool).unwrap_or(false)
 }
 
+/// The Sandbox Labs switch in a settings value: on only when it is exactly `true`.
+pub fn sandbox_labs_on(public: &Value) -> bool {
+    public.get(SANDBOX_LABS_KEY).and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Wires the sandbox (with the screen lease it shares with the Computer panel) to the bots' tools. Until it is
+/// called no brain is told it has a computer. The wizard and the settings page call it when the sandbox exists.
+#[allow(dead_code)]
+pub fn install_sandbox(port: Option<Port>) {
+    *SANDBOX_PORT.lock() = port.clone();
+    if let Some(service) = service() {
+        service.set_sandbox_port(port);
+    }
+}
+
 /// Called with the public settings whenever they change (and once at startup, from the saved file).
 pub fn apply_settings(public: &Value) {
+    let sandbox = sandbox_labs_on(public);
+    SANDBOX_LABS.store(sandbox, Ordering::SeqCst);
+    if let Some(service) = service() {
+        service.set_sandbox_enabled(sandbox);
+    }
     let on = labs_on(public);
     match service() {
         Some(service) => service.set_enabled(on),
@@ -228,6 +255,14 @@ pub fn start(app: Option<AppHandle>, registry: Option<Arc<Mutex<crate::pty::Pane
     if SERVICE.set(service.clone()).is_err() {
         return None;
     }
+    service.set_sandbox_enabled(SANDBOX_LABS.load(Ordering::SeqCst));
+    #[cfg(feature = "dev-fake-tui")]
+    if SANDBOX_PORT.lock().is_none() {
+        // The stand-in computer for the dev build: a static picture, recorded actions, no WSL.
+        let fake: Arc<dyn super::sandbox::Sandbox> = Arc::new(super::sandbox::FakeSandbox::new());
+        *SANDBOX_PORT.lock() = Some(Port { sandbox: fake, lease: Arc::new(Mutex::new(super::sandbox::lease::ScreenLease::new())) });
+    }
+    service.set_sandbox_port(SANDBOX_PORT.lock().clone());
     if let Some(hands) = hands {
         service.set_hands(hands);
     }

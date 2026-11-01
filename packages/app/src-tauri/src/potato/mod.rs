@@ -19,6 +19,8 @@
 //! - `sandbox`: the bot's small Linux computer (a WSL 2 distro the app owns): the one `wsl.exe` door, install,
 //!   lazy start and idle stop, the control client and the screen lease (piece S1; the screen links, brain tools and
 //!   settings page come later)
+//! - `sandbox_calls`: the bot's computer as the brain's tools use it (`computer_*`, `browser_*`): the checks, the screen
+//!   lease, the day's action cap, and the answer
 //! - `wire_names`: names the brain package fixes that are also other names (the one reasoned exception to the
 //!   "no agent names in generic code" guard)
 //!
@@ -36,6 +38,7 @@ pub mod wire_names;
 pub mod protocol;
 pub mod rules;
 pub mod sandbox;
+pub mod sandbox_calls;
 pub mod service;
 pub mod sidecar;
 pub mod store;
@@ -56,6 +59,8 @@ mod keeper_tests;
 mod protocol_tests;
 #[cfg(test)]
 mod rules_tests;
+#[cfg(test)]
+mod sandbox_calls_tests;
 #[cfg(test)]
 mod service_tests;
 #[cfg(test)]

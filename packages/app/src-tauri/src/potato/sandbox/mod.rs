@@ -8,6 +8,7 @@
 //! - `lifecycle`: lazy start, idle stop, readiness checks (waits for the guest's boot verdict), the secrets push
 //! - `secrets`: the control token and the two VNC passwords, made by the app, in memory only
 //! - `control`: the HTTP client of the guest's control service
+//! - `browser`: the page tool's arguments, the checks on what the model wrote (web addresses, action lists) and its answer
 //! - `lease`: who holds the screen (a mirror of the brain's `screen-lease.ts` plus expiry and run binding)
 //!
 //! The `Sandbox` trait is what the rest of the app talks to. `WslSandbox` is the real one; `FakeSandbox`
@@ -21,6 +22,7 @@
 // The callers (screen links, brain tools, the wizard and settings page) land in the next pieces.
 #![allow(dead_code)]
 
+pub mod browser;
 pub mod control;
 pub mod install;
 pub mod lease;
@@ -514,6 +516,8 @@ impl Sandbox for FakeSandbox {
     }
 }
 
+#[cfg(test)]
+mod browser_tests;
 #[cfg(test)]
 mod control_tests;
 #[cfg(test)]

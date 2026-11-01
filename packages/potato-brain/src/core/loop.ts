@@ -16,6 +16,10 @@ import type { ShareItem } from "../persona/share.ts";
 import { applySelf, emptySelf, planDue, renderSelf, tickSelf } from "../persona/self.ts";
 import type { SelfPatch, SelfState } from "../persona/self.ts";
 import { writeCheckpoint } from "../memory/checkpoint.ts";
+import { advanceToolCallLoopGuard, loopGuardStopText } from "../lifted/tool-loop.ts";
+import type { ToolCallStreak } from "../lifted/tool-loop.ts";
+import { pruneSandboxMessages } from "./sandbox-tools.ts";
+import type { SeenResult } from "./sandbox-tools.ts";
 import type { MemoryPort, PersonPatch } from "../memory/vaultMemory.ts";
 
 export interface TurnResult {
@@ -44,8 +48,31 @@ export interface TurnResult {
  */
 export interface ExtraTool {
   spec: ToolSpec;
-  run(args: Record<string, unknown>, ctx: { turn: number; where: string | undefined }): string;
+  /**
+   * `"sandbox"`: offered only on a turn where the app said the bot has a computer (`TurnOptions.sandbox`), and
+   * run under the tool-loop guard and the context trimming. No gate: offered on every turn.
+   */
+  gate?: "sandbox";
+  /** May wait (a sandbox tool waits for the app's answer). A thrown error becomes a plain failure text. */
+  run(
+    args: Record<string, unknown>,
+    ctx: { turn: number; where: string | undefined; model: string },
+  ): string | ToolOutput | Promise<string | ToolOutput>;
 }
+
+/** What a tool returns when it is more than a line of text. */
+export interface ToolOutput {
+  text: string;
+  /** pictures for a model that can see; a provider that cannot carry them drops them */
+  images?: Array<{ mimeType: string; data: string }>;
+  /** the screen frame the result shows, so an unchanged frame does not keep its picture twice */
+  frameId?: string;
+  isError?: boolean;
+}
+
+/** Tool rounds in one turn; a turn that has a computer needs more (it works step by step). */
+const TOOL_ROUNDS = 4;
+const SANDBOX_TOOL_ROUNDS = 20;
 
 /** `no_memory` keeps the vault, the people files and the notes out of reach. */
 export type ToolLevel = "full" | "no_memory";
@@ -89,6 +116,17 @@ function closenessBand(value: number): string {
   if (value < 60) return "算認識";
   if (value < 80) return "熟";
   return "很熟";
+}
+
+/** The arguments a model wrote for a call; anything that is not an object is no arguments. */
+function parseArgs(call: ToolCall): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(call.arguments || "{}") as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // fall through
+  }
+  return {};
 }
 
 function addUsage(a: Usage, b: Usage): Usage {  return {
@@ -248,6 +286,8 @@ export interface TurnOptions {
   context?: string;
   /** one line of fact from the host, shown in the tip (for example a helper result) */
   note?: string;
+  /** the app said this bot has a computer: offer the tools whose gate is `"sandbox"` */
+  sandbox?: boolean;
 }
 
 export interface HeardInput {
@@ -332,6 +372,7 @@ export class Agent {
   private strictPrefix: boolean;
   private extraTools: ExtraTool[];
   private toolLevel: ToolLevel = "full";
+  private turnSandbox = false;
   /** counts every turn that starts, failed ones too; turnIndex counts finished ones */
   private turnSerial = 0;
   private offered = new Set<string>();
@@ -494,7 +535,8 @@ export class Agent {
       if (tool.name === "share") return this.shareDir !== undefined;
       return true;
     });
-    return [...builtIn, ...this.extraTools.map((tool) => tool.spec)];
+    const extra = this.extraTools.filter((tool) => tool.gate !== "sandbox" || this.turnSandbox);
+    return [...builtIn, ...extra.map((tool) => tool.spec)];
   }
 
   /**
@@ -517,7 +559,13 @@ export class Agent {
       cacheMissTokens: 0,
     };
 
-    for (let round = 0; round < 4; round++) {
+    const hasComputer = tools.some((tool) => this.isSandboxTool(tool.name));
+    const rounds = hasComputer ? SANDBOX_TOOL_ROUNDS : TOOL_ROUNDS;
+    // What the computer's tools returned this turn, so old page state can be trimmed (sandbox-tools.ts).
+    const seen = new Map<string, SeenResult>();
+    let streak: ToolCallStreak = { key: undefined, count: 0 };
+
+    for (let round = 0; round < rounds; round++) {
       const res = await this.provider.chat({
         messages: msgs,
         maxTokens: this.maxTokens,
@@ -545,9 +593,37 @@ export class Agent {
         },
       ];
       for (const call of calls) {
-        const output = this.runTool(call);
-        msgs = [...msgs, { role: "tool", toolCallId: call.id, content: output }];
+        const extra = this.offered.has(call.name) ? this.extraTools.find((tool) => tool.spec.name === call.name) : undefined;
+        if (!extra) {
+          msgs = [...msgs, { role: "tool", toolCallId: call.id, content: this.runTool(call) }];
+          continue;
+        }
+        const args = parseArgs(call);
+        if (extra.gate === "sandbox") {
+          // The same call with the same input again and again is a stuck loop, not progress: stop the turn.
+          const step = advanceToolCallLoopGuard(streak, call.name, args);
+          streak = step.streak;
+          if (step.stuck) return { text: loopGuardStopText(call.name, step.streak), usage, model };
+        }
+        const out = await this.runExtra(extra, args, model);
+        msgs = [
+          ...msgs,
+          {
+            role: "tool",
+            toolCallId: call.id,
+            content: out.text,
+            ...(out.images && out.images.length > 0 ? { images: out.images } : {}),
+          },
+        ];
+        if (extra.gate === "sandbox") {
+          seen.set(call.id, {
+            name: call.name,
+            ...(out.frameId ? { frameId: out.frameId } : {}),
+            ...(out.isError ? { isError: true } : {}),
+          });
+        }
       }
+      if (seen.size > 0) msgs = pruneSandboxMessages(msgs, seen);
     }
 
     const final = await this.provider.chat({
@@ -559,21 +635,24 @@ export class Agent {
     return { text: final.text, usage: addUsage(usage, final.usage), model: final.model || model };
   }
 
-  private runTool(call: ToolCall): string {
-    let args: Record<string, unknown> = {};
+  private isSandboxTool(name: string): boolean {
+    return this.extraTools.some((tool) => tool.gate === "sandbox" && tool.spec.name === name);
+  }
+
+  /** A host tool. It may wait; if it throws, the model hears a plain failure, never the error's own text. */
+  private async runExtra(tool: ExtraTool, args: Record<string, unknown>, model: string): Promise<ToolOutput> {
     try {
-      const parsed = JSON.parse(call.arguments || "{}") as unknown;
-      if (parsed && typeof parsed === "object") args = parsed as Record<string, unknown>;
+      const out = await tool.run(args, { turn: this.turnSerial, where: this.activeWhere ?? this.where, model });
+      return typeof out === "string" ? { text: out } : out;
     } catch {
-      args = {};
+      return { text: "That tool failed.", isError: true };
     }
+  }
+
+  private runTool(call: ToolCall): string {
+    const args = parseArgs(call);
 
     if (!this.offered.has(call.name)) return `不認識的工具：${call.name}`;
-
-    const extra = this.extraTools.find((tool) => tool.spec.name === call.name);
-    if (extra) {
-      return extra.run(args, { turn: this.turnSerial, where: this.activeWhere ?? this.where });
-    }
 
     if (call.name === "share") {
       if (!this.shareDir) return "現在沒有東西可以分享。";
@@ -763,6 +842,7 @@ export class Agent {
     const where = opts.where ?? this.where;
     this.activeWhere = where;
     this.toolLevel = opts.tools ?? "full";
+    this.turnSandbox = opts.sandbox === true;
     this.turnSerial++;
     const memoryOpen = this.toolLevel === "full";
     this.selfState = tickSelf(
