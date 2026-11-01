@@ -643,6 +643,19 @@ pub fn run() {
             commands::potato_screen_hand_back,
             commands::potato_screen_skip,
             commands::potato_screen_keep,
+            commands::potato_sandbox_status,
+            commands::potato_sandbox_menu,
+            commands::potato_sandbox_detect,
+            commands::potato_sandbox_install,
+            commands::potato_sandbox_cancel_install,
+            commands::potato_sandbox_dismiss_install,
+            commands::potato_sandbox_start,
+            commands::potato_sandbox_stop,
+            commands::potato_sandbox_reset,
+            commands::potato_sandbox_remove,
+            commands::potato_sandbox_set_idle,
+            commands::potato_sandbox_linux_ask,
+            commands::potato_sandbox_linux_enable,
         ])
         .setup(|app| {
             // Before the first window: an older version's desktop service worker would serve its UI.

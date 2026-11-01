@@ -21,6 +21,8 @@
 //!   settings page come later)
 //! - `sandbox_calls`: the bot's computer as the brain's tools use it (`computer_*`, `browser_*`): the checks, the screen
 //!   lease, the day's action cap, and the answer
+//! - `sandbox_host`: the app's one sandbox (the real one or a stand-in), the idle-stop setting and its tick, the Labs
+//!   switch (`potato_sandbox_enabled`); the settings page talks to it through `commands/potato_sandbox.rs`
 //! - `wire_names`: names the brain package fixes that are also other names (the one reasoned exception to the
 //!   "no agent names in generic code" guard)
 //!
@@ -39,6 +41,7 @@ pub mod protocol;
 pub mod rules;
 pub mod sandbox;
 pub mod sandbox_calls;
+pub mod sandbox_host;
 pub mod service;
 pub mod sidecar;
 pub mod store;

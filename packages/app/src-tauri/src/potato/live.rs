@@ -85,6 +85,7 @@ pub fn apply_settings(public: &Value) {
     if let Some(service) = service() {
         service.set_sandbox_enabled(sandbox);
     }
+    super::sandbox_host::apply_settings(public);
     let on = labs_on(public);
     match service() {
         Some(service) => service.set_enabled(on),
@@ -97,6 +98,8 @@ pub fn stop_all(grace: Duration) {
     if let Some(service) = service() {
         service.stop_all(grace);
     }
+    // The bot's small Linux computer leaves with the app too.
+    super::sandbox_host::stop_on_exit();
 }
 
 pub fn root() -> PathBuf {
@@ -260,6 +263,9 @@ fn ask_model(key: &str) -> Result<(), String> {
 
 /// Installs the service (once) and starts its supervisor thread.
 pub fn start(app: Option<AppHandle>, registry: Option<Arc<Mutex<crate::pty::PaneRegistry>>>) -> Option<Arc<Service>> {
+    if let Some(app) = app.clone() {
+        super::sandbox_host::set_app(app);
+    }
     let hands = app.clone().zip(registry).map(|(app, registry)| Arc::new(LiveHands { app, registry }));
     let service = Service::new(root(), Arc::new(LiveHost { app }), Arc::new(RealLauncher::new()), auth::brains().clone());
     if SERVICE.set(service.clone()).is_err() {

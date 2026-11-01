@@ -1,0 +1,10 @@
+# Puppet Master (not a Rakazo file). Applies the Zorin look once, the first time the XFCE session starts.
+[Desktop Entry]
+Type=Application
+Name=Zorin look
+Comment=Sets the Zorin theme, icons, font and wallpaper once
+Exec=/usr/local/bin/pm-sbx-zorin-look
+Terminal=false
+OnlyShowIn=XFCE;
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

@@ -138,6 +138,81 @@
           "post": []
         }
       ]
+    },
+    {
+      "id": "extras",
+      "title": "Extras",
+      "description": "Small tools that many projects use. Pick any number. Nothing is picked by default.",
+      "kind": "multi",
+      "default": [],
+      "choices": [
+        {
+          "id": "tmux",
+          "title": "tmux",
+          "description": "Keep several terminal panes in one window.",
+          "pre": [],
+          "apt": [
+            "tmux"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "sqlite",
+          "title": "SQLite",
+          "description": "The sqlite3 command line for small databases.",
+          "pre": [],
+          "apt": [
+            "sqlite3"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "postgres-client",
+          "title": "PostgreSQL client",
+          "description": "psql, to talk to a Postgres server.",
+          "pre": [],
+          "apt": [
+            "postgresql-client"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "httpie",
+          "title": "HTTPie",
+          "description": "A friendly command line for trying web APIs.",
+          "pre": [],
+          "apt": [
+            "httpie"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "shellcheck",
+          "title": "ShellCheck",
+          "description": "Finds mistakes in shell scripts.",
+          "pre": [],
+          "apt": [
+            "shellcheck"
+          ],
+          "debs": [],
+          "post": []
+        },
+        {
+          "id": "ffmpeg",
+          "title": "FFmpeg",
+          "description": "Converts audio and video files.",
+          "pre": [],
+          "apt": [
+            "ffmpeg"
+          ],
+          "debs": [],
+          "post": []
+        }
+      ]
     }
   ]
 }

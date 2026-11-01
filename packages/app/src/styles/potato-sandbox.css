@@ -1,0 +1,224 @@
+/* Potato Bot's sandbox: the Settings row and the setup wizard. Monochrome: only the settings window's grey tokens
+   (--label, --fill, --sep, --primary-bg), no hue. Everything sits inside `.settings`, so it takes that window's tokens. */
+
+/* ---------- the row ---------- */
+.settings .sbx-status {
+  display: grid;
+  gap: 10px;
+}
+.settings .sbx-status-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.settings .sbx-status-line small {
+  color: var(--label-3);
+}
+.settings .sbx-state {
+  font-weight: 600;
+}
+.settings .sbx-state[data-state='running']::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--label);
+  vertical-align: 1px;
+}
+.settings .sbx-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.settings .sbx-buttons .st-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+.settings .sbx-typed {
+  width: 100%;
+  margin-top: 12px;
+}
+
+/* ---------- the wizard ---------- */
+.settings .st-sheet.sbx-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  max-height: min(86vh, 720px);
+  padding: 0;
+}
+.settings .sbx-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 18px 20px 0;
+}
+.settings .sbx-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings .sbx-count {
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.settings .sbx-sub {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label-2);
+}
+.settings .sbx-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 20px 4px;
+}
+.settings .sbx-body p {
+  margin: 0 0 10px;
+}
+.settings .sbx-hint {
+  color: var(--label-3);
+  font-size: 12px;
+}
+.settings .sbx-actions {
+  margin: 0;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--sep);
+}
+.settings .sbx-actions-inline {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.settings .sbx-fieldset {
+  min-width: 0;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+.settings .sbx-fieldset legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.settings .sbx-choices {
+  display: grid;
+  gap: 6px;
+}
+.settings .sbx-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 160ms var(--ease), border-color 160ms var(--ease);
+}
+.settings .sbx-choice:hover {
+  background: var(--fill);
+}
+.settings .sbx-choice.is-on {
+  background: var(--fill);
+  border-color: var(--label-4);
+}
+.settings .sbx-choice:focus-within {
+  box-shadow: var(--focus);
+}
+.settings .sbx-choice input {
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--primary-bg);
+}
+.settings .sbx-choice-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.settings .sbx-choice-title {
+  font-weight: 500;
+}
+.settings .sbx-choice small {
+  color: var(--label-3);
+  font-size: 12px;
+}
+
+.settings .sbx-summary {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.settings .sbx-summary > div {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 10px;
+}
+.settings .sbx-summary dt {
+  color: var(--label-3);
+}
+.settings .sbx-summary dd {
+  margin: 0;
+}
+.settings .sbx-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.settings .sbx-check input {
+  margin-top: 3px;
+  accent-color: var(--primary-bg);
+}
+
+/* ---------- progress ---------- */
+.settings .sbx-progress {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.settings .sbx-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--fill-active);
+}
+.settings .sbx-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--primary-bg);
+  transition: width 400ms var(--ease);
+}
+.settings .sbx-progress-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings .sbx-step-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings .sbx-percent,
+.settings .sbx-step-count {
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings .sbx-bar > span,
+  .settings .sbx-choice {
+    transition: none;
+  }
+}

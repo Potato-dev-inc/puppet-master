@@ -71,6 +71,7 @@ answers them.
   charged at the highest price). At 80% a note appears; at 100% the bot stops until local midnight or until you raise the limit.
 - 20 messages per minute per bot; 600 reply tokens (1500 with reasoning); at most 4 tool rounds per turn.
 - Phase 1 has one home, the desktop app. A chat app (Discord, Telegram) is a later phase.
+- A small private Linux computer the bot can use (the sandbox) is a separate Labs feature with its own settings and setup wizard: [`potato-sandbox.md`](potato-sandbox.md).
 
 ## Where it is in the code
 
