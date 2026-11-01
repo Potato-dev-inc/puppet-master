@@ -352,6 +352,9 @@ pub struct Message {
     /// A helper result row: the pane the helper worked in, for its "Open" button.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
+    /// A reply's estimated cost in nano-dollars. Not in the conversation file: `service` adds it when listing (`reply_cost.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_nano: Option<u64>,
 }
 
 impl Message {
@@ -366,6 +369,7 @@ impl Message {
             request_id: None,
             project: None,
             pane_id: None,
+            cost_nano: None,
         }
     }
 }

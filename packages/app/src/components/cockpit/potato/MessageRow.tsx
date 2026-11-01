@@ -79,7 +79,7 @@ export function MessageRow({ row, botId, botName, agentLabel, transport, onChang
       <div className={`ck-potato-bubble ck-potato-bubble--${row.side}${row.side === 'bot' ? ' ck-potato-bubble--md' : ''}`} title={formatWhen(m.at, now)}>
         {row.side === 'bot' ? <ChatMarkdown text={m.text} onOpenLink={openLink} /> : m.text}
       </div>
-      <HoverActions text={m.text} onReply={() => emitQuote(botId, m.text)}>
+      <HoverActions text={m.text} onReply={() => emitQuote(botId, m.text)} costNano={m.costNano}>
         {row.side === 'bot' && <SpeakButton id={m.id} text={m.text} voice={voice} />}
         <SaveAsFile botId={botId} messageId={m.id} files={transport.artifacts} />
       </HoverActions>

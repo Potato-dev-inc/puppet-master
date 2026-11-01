@@ -45,6 +45,7 @@ pub mod artifacts;
 pub mod auth;
 pub mod bot_settings;
 pub mod cost;
+pub mod reply_cost;
 pub mod env;
 pub mod fallback;
 pub mod helpers;
@@ -81,6 +82,8 @@ mod auth_tests;
 mod bot_settings_tests;
 #[cfg(test)]
 mod cost_tests;
+#[cfg(test)]
+mod reply_cost_tests;
 #[cfg(test)]
 mod env_tests;
 #[cfg(test)]
