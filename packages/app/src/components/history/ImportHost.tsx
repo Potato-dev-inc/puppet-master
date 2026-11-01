@@ -66,9 +66,27 @@ export function ImportHost({ c, api = chatImportApi }: { c: PaneHost; api?: Impo
       });
   };
 
+  // "Continue as chat" is offered only when the api has it; the backend refuses when Labs is off or the agent has no chat.
+  const onContinueChat = api.continueAsChat
+    ? (agent: string, session: string) => {
+        if (starting.current) return;
+        starting.current = true;
+        api
+          .continueAsChat?.(agent, session)
+          .then((paneId) => {
+            c.select(paneId);
+            close();
+          })
+          .catch((error: unknown) => c.notify(`Could not open the chat: ${error instanceof Error ? error.message : String(error)}`))
+          .finally(() => {
+            starting.current = false;
+          });
+      }
+    : undefined;
+
   return (
     <>
-      <ImportedChatSheet request={request} api={api} onContinue={onContinue} onClose={close} />
+      <ImportedChatSheet request={request} api={api} onContinue={onContinue} onContinueChat={onContinueChat} onClose={close} />
       <BringChatsHost api={api} />
     </>
   );

@@ -199,6 +199,7 @@ pub fn run() {
             commands::chat_import_clear,
             commands::chat_import_open,
             commands::chat_import_resume_plan,
+            commands::chat_import_continue_as_chat,
             commands::chat_export_html,
             commands::chat_export_markdown,
             commands::chat_export_save,

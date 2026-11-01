@@ -42,10 +42,12 @@ export interface ImportedChatSheetProps {
   api?: Pick<ImportApi, 'open' | 'resumePlan'>;
   /** Called with the plan when the person picks "Continue in a pane" (only when the plan says ok). */
   onContinue: (plan: ResumePlan) => void;
+  /** Called when the person picks "Continue as chat" (a chat session over ACP). Without it the button is not drawn. */
+  onContinueChat?: (agent: string, session: string) => void;
   onClose: () => void;
 }
 
-export function ImportedChatSheet({ request, api = chatImportApi, onContinue, onClose }: ImportedChatSheetProps) {
+export function ImportedChatSheet({ request, api = chatImportApi, onContinue, onContinueChat, onClose }: ImportedChatSheetProps) {
   const { agent, session, itemId, nonce } = request;
   const titleId = useId();
   // The banner shows the agent's display name from the registry ("Claude Code"), never its id ("claude").
@@ -93,17 +95,30 @@ export function ImportedChatSheet({ request, api = chatImportApi, onContinue, on
   const title = ready && loaded.chat.meta.title ? loaded.chat.meta.title : 'Old chat';
 
   const continueButton = (
-    <button
-      type="button"
-      className="ck-btn ck-btn--secondary history-viewer-continue"
-      disabled={!canContinue}
-      title={continueReason ?? undefined}
-      onClick={() => {
-        if (plan?.ok) onContinue(plan);
-      }}
-    >
-      Continue in a pane
-    </button>
+    <>
+      {onContinueChat && (
+        <button
+          type="button"
+          className="ck-btn ck-btn--secondary history-viewer-continue"
+          disabled={!canContinue}
+          title={continueReason ?? undefined}
+          onClick={() => onContinueChat(agent, session)}
+        >
+          Continue as chat
+        </button>
+      )}
+      <button
+        type="button"
+        className="ck-btn ck-btn--secondary history-viewer-continue"
+        disabled={!canContinue}
+        title={continueReason ?? undefined}
+        onClick={() => {
+          if (plan?.ok) onContinue(plan);
+        }}
+      >
+        Continue in a pane
+      </button>
+    </>
   );
 
   return (
