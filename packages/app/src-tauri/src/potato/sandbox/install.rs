@@ -204,15 +204,36 @@ pub fn write_tar_entry(out: &mut Vec<u8>, name: &str, data: &[u8]) -> std::io::R
 pub enum Desktop {
     /// The light desktop (fluxbox).
     Light,
-    /// XFCE, the Zorin-like look.
+    /// XFCE, the plain Ubuntu look.
     Xfce,
+    /// XFCE with the Zorin look (themes, icons, wallpaper and font from the Zorin PPA). Not Zorin's own desktop.
+    Zorin,
 }
 
 impl Desktop {
+    /// The desktop recipe (the one with a session).
     pub fn recipe_id(self) -> &'static str {
         match self {
             Desktop::Light => "light",
-            Desktop::Xfce => "xfce",
+            Desktop::Xfce | Desktop::Zorin => "xfce",
+        }
+    }
+
+    /// Every recipe this choice installs, desktop first (the look needs XFCE already there).
+    pub fn recipe_ids(self) -> Vec<&'static str> {
+        match self {
+            Desktop::Zorin => vec!["xfce", "zorin-look"],
+            other => vec![other.recipe_id()],
+        }
+    }
+
+    /// The wizard's word for it: `light`, `ubuntu` or `zorin`.
+    pub fn parse(word: &str) -> Option<Self> {
+        match word {
+            "light" => Some(Desktop::Light),
+            "ubuntu" => Some(Desktop::Xfce),
+            "zorin" => Some(Desktop::Zorin),
+            _ => None,
         }
     }
 }
@@ -236,7 +257,7 @@ impl InstallOptions {
     }
 
     fn chosen(&self) -> Vec<&str> {
-        let mut ids = vec![self.desktop.recipe_id()];
+        let mut ids = self.desktop.recipe_ids();
         ids.extend(self.addons.iter().map(String::as_str));
         ids
     }

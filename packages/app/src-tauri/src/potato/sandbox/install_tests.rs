@@ -170,6 +170,52 @@ fn the_recipe_command_line_is_built_from_the_choices() {
 }
 
 #[test]
+fn the_zorin_look_is_xfce_plus_the_look_recipe_and_the_look_comes_after_the_desktop() {
+    let mut zorin = InstallOptions::new(main_name(), Desktop::Zorin);
+    zorin.addons.push("coding".into());
+    zorin.options.push(("coding.pkg".into(), "npm".into()));
+    assert!(zorin.validate().is_ok());
+    assert_eq!(zorin.recipe_args(), vec!["--recipe", "xfce", "--recipe", "zorin-look", "--recipe", "coding", "--opt", "coding.pkg=npm"]);
+    assert_eq!(Desktop::Zorin.recipe_id(), "xfce", "the desktop (session) recipe is XFCE");
+    // an option of the look is a choice of a recipe that is chosen
+    zorin.options.push(("zorin-look.x".into(), "1".into()));
+    assert!(zorin.validate().is_ok());
+    // the look never comes with the light desktop
+    assert_eq!(Desktop::Light.recipe_ids(), vec!["light"]);
+    assert!(InstallOptions::new(main_name(), Desktop::Light).addons.is_empty());
+    let mut light = InstallOptions::new(main_name(), Desktop::Light);
+    light.options.push(("zorin-look.x".into(), "1".into()));
+    assert!(light.validate().is_err(), "an option of a recipe that is not chosen");
+}
+
+#[test]
+fn the_wizard_words_for_the_look_are_parsed() {
+    assert_eq!(Desktop::parse("ubuntu"), Some(Desktop::Xfce));
+    assert_eq!(Desktop::parse("zorin"), Some(Desktop::Zorin));
+    assert_eq!(Desktop::parse("light"), Some(Desktop::Light));
+    assert_eq!(Desktop::parse("Zorin OS"), None);
+    assert_eq!(Desktop::parse(""), None);
+}
+
+#[test]
+fn the_shipped_recipes_name_the_files_they_install_and_the_look_requires_xfce() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("potato-sandbox");
+    let look: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("recipes").join("zorin-look.json")).unwrap()).unwrap();
+    assert_eq!(look["id"], "zorin-look");
+    assert_eq!(look["requires"], "xfce");
+    // the pin that keeps xfdesktop4 (spike item 5): the PPA is low priority, the four look packages are not
+    let pre = look["pre"].to_string();
+    assert!(pre.contains("Pin-Priority: 100") && pre.contains("Pin-Priority: 600") && pre.contains("LP-PPA-zorinos-stable"));
+    let apt: Vec<&str> = look["apt"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(apt, vec!["zorin-desktop-themes", "zorin-icon-themes", "zorin-os-wallpapers-18", "fonts-inter-zorin-os"]);
+    // the files its post lines copy are shipped with the guest files
+    let files = GuestFiles::new(&root).list().unwrap();
+    for needed in ["desktop/pm-sbx-zorin-look.sh", "desktop/pm-sbx-zorin-look.desktop", "recipes/zorin-look.json"] {
+        assert!(files.iter().any(|(name, _)| name == needed), "{needed} is not in the guest archive");
+    }
+}
+
+#[test]
 fn progress_lines_are_read_strictly() {
     assert_eq!(parse_progress_line("PROGRESS 3/12 Installing packages"), Some(ApplyLine { done: 3, total: 12, text: "Installing packages".into() }));
     assert_eq!(parse_progress_line("PROGRESS 12/12 Done\r"), Some(ApplyLine { done: 12, total: 12, text: "Done".into() }));

@@ -213,6 +213,31 @@ class ScriptContract(unittest.TestCase):
                 self.assertNotIn("$view", line)
                 self.assertNotIn("$(cat", line)
 
+    def test_the_light_desktop_never_shows_the_wallpaper_error_popup(self):
+        # fluxbox runs `fbsetbg` at every start; the stock script pops up "Something went wrong while setting the wallpaper"
+        # when no wallpaper tool is installed. The start script writes a style overlay with no background, and a stand-in fbsetbg.
+        body = function_text(self.start, "write_fluxbox_config")
+        self.assertIn("session.styleOverlay: $FBDIR/overlay", body)
+        self.assertIn("background: none", body)
+        self.assertIn("rootCommand: xsetroot -solid", body)
+        stub = body[body.index('"$FBDIR/bin/fbsetbg" <<'):]
+        self.assertIn("xsetroot -solid", stub)
+        self.assertIn("exit 0", stub)
+        self.assertNotIn("xmessage", body)
+        launch = [line for line in self.start.splitlines() if "fluxbox -rc" in line]
+        self.assertEqual(len(launch), 1)
+        self.assertIn('PATH="$FBDIR/bin:$PATH"', launch[0], "the stand-in goes first on fluxbox's PATH")
+
+    def test_the_stand_in_fbsetbg_parses_and_exits_zero(self):
+        body = function_text(self.start, "write_fluxbox_config")
+        opener = '"$FBDIR/bin/fbsetbg" <<' + "'EOF'"
+        start = body.index(opener) + len(opener) + 1
+        script = body[start:body.index(chr(10) + 'EOF', start) + 1]
+        self.assertTrue(script.startswith("#!/bin/sh"))
+        if BASH:
+            result = subprocess.run([BASH, "-n"], input=script, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

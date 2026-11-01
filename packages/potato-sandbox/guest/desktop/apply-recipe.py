@@ -173,6 +173,9 @@ def validate_recipe(rid, data):
     exclusive = data.get("exclusive")
     if exclusive is not None and not isinstance(exclusive, str):
         raise UsageError("%s.exclusive: must be a string or null" % rid)
+    requires = data.get("requires")
+    if requires is not None and (not isinstance(requires, str) or not ID_RE.match(requires)):
+        raise UsageError("%s.requires: must be a recipe id or null" % rid)
     session = data.get("session")
     if session is not None:
         if session not in SESSIONS:
@@ -327,7 +330,7 @@ def list_recipes(recipes_dir):
             options.append(entry)
         out.append({"id": rid, "title": recipe["title"], "description": recipe["description"],
                     "always": rid == ALWAYS, "exclusive": recipe.get("exclusive"),
-                    "session": recipe.get("session"), "options": options})
+                    "session": recipe.get("session"), "requires": recipe.get("requires"), "options": options})
     return out
 
 
@@ -528,6 +531,10 @@ def plan_units(args):
         chosen_all[rid] = chosen
         if recipe.get("session"):
             session = recipe["session"]
+    for rid in requested:
+        needs = load_recipe(args.recipes_dir, rid).get("requires")
+        if needs and needs not in requested:
+            raise UsageError("%s needs the %s recipe" % (rid, needs))
     if session:
         units.append({"key": "desktop-conf", "title": "Desktop session (%s)" % session, "session": session,
                       "pre": [], "apt": [], "debs": [], "post": []})

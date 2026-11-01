@@ -19,6 +19,8 @@
 //! - `sandbox`: the bot's small Linux computer (a WSL 2 distro the app owns): the one `wsl.exe` door, install,
 //!   lazy start and idle stop, the control client and the screen lease (piece S1; the screen links, brain tools and
 //!   settings page come later)
+//! - `sandbox_host`: the app's one sandbox (the real one or a stand-in), the idle-stop setting and its tick, the Labs
+//!   switch (`potato_sandbox_enabled`); the settings page talks to it through `commands/potato_sandbox.rs`
 //! - `wire_names`: names the brain package fixes that are also other names (the one reasoned exception to the
 //!   "no agent names in generic code" guard)
 //!
@@ -36,6 +38,7 @@ pub mod wire_names;
 pub mod protocol;
 pub mod rules;
 pub mod sandbox;
+pub mod sandbox_host;
 pub mod service;
 pub mod sidecar;
 pub mod store;
