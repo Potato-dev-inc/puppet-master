@@ -1,7 +1,7 @@
 //! The extra detail a chat item can carry for a richer view: what a tool was called with, which files it touches
 //! and the agent's task list. Generic: each agent's session reader decides which tools are writes or helpers.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::model::MAX_OUTPUT_CHARS;
@@ -14,7 +14,7 @@ const PATH_KEYS: [&str; 3] = ["file_path", "notebook_path", "path"];
 
 /// What a `ToolCall` carries besides its one-line summary. Every field is left out of the JSON when empty, so
 /// older viewers see the same items as before.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolDetail {
     /// The tool's input JSON with each string cut and the whole kept near `MAX_INPUT_CHARS`.
@@ -22,13 +22,13 @@ pub struct ToolDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<Value>,
     /// Files the call touches, in order, without repeats.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub paths: Vec<String>,
     /// The call changes the files in `paths` (an edit or a write, not a read).
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(skip_serializing_if = "is_false", default)]
     pub writes: bool,
     /// The call starts a helper agent (a sub-agent thread) rather than doing the work itself.
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(skip_serializing_if = "is_false", default)]
     pub helper: bool,
 }
 
@@ -49,7 +49,7 @@ impl ToolDetail {
 }
 
 /// One entry of the agent's task list.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanItem {
     /// The task's text. Empty in an update that only changes the status.
@@ -62,7 +62,7 @@ pub struct PlanItem {
     pub task_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
     Pending,

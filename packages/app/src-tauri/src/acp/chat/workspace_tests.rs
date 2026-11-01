@@ -242,6 +242,8 @@ fn after_a_restart_the_conversation_is_a_chat_pane_that_loads_when_it_is_read() 
     // The app ends: its sessions go; the records and the agent's own session files stay.
     rig.chat.retire();
     rig.conversations.forget_session(&id);
+    // A chat saved by an older build has no journal: it is rebuilt from the agent's own session, as before.
+    let _ = std::fs::remove_file(rig.conversations.journal_path(&id));
 
     let app = conversations_in(&rig.dir, &rig.opts);
     let report = app.restore_lazily(&rig.panes);
@@ -437,4 +439,145 @@ fn the_lane_word_and_the_saved_choice_pick_the_way() {
     use crate::acp::lane::RunLane;
     assert_eq!(surface::wants(Some("acp"), RunLane::Terminal, true, true), Ok(surface::Want::Chat { fallback: false }));
     assert_eq!(surface::wants(None, RunLane::Acp, true, true), Ok(surface::Want::Chat { fallback: true }));
+}
+
+// ---- P-29: never lose a word --------------------------------------------------------------------------------------
+
+fn journal_of(rig: &Rig) -> PathBuf {
+    rig.conversations.journal_path(&rig.id())
+}
+
+/// The app starts again on the same data folder; the old run is gone (its adapter stopped). Returns the new chat.
+fn next_run(rig: &Rig, opts: &str) -> (Conversations, Arc<AcpChat>) {
+    rig.conversations.forget_session(&rig.id());
+    let app = conversations_in(&rig.dir, opts);
+    app.restore_lazily(&rig.panes);
+    let deps = deps_for(&rig.dir, &app);
+    super::restore_panes(&deps);
+    let chat = get(&rig.id()).expect("the chat is back");
+    (app, chat)
+}
+
+#[test]
+fn a_kill_in_the_middle_of_a_turn_loses_nothing_and_offers_continue() {
+    let rig = Rig::new("");
+    let id = rig.id();
+    rig.say("stream 2");
+    // A long turn; kill the app once some of it is on screen.
+    rig.chat.send("slow").expect("the turn starts");
+    assert!(wait_until(30, || rig.texts().iter().any(|t| t.contains("s12 "))), "the turn did not get going");
+    std::thread::sleep(Duration::from_millis(400));
+    // What the disk holds at this moment is all a killed process leaves.
+    let on_disk = std::fs::read(journal_of(&rig)).unwrap();
+    let seen_before_kill = crate::acp::journal::load(&journal_of(&rig));
+    rig.chat.retire();
+    // The kill also cut the last line in half.
+    let mut cut = on_disk.clone();
+    cut.extend_from_slice(br#"{"v":1,"at":1,"item":{"kind":"assistant","id":"a2.1","te"#);
+    std::fs::write(journal_of(&rig), cut).unwrap();
+
+    let (app, chat) = next_run(&rig, "");
+    let items = chat.items();
+    // Every item the disk had is back, in order, before anything started.
+    assert!(!chat.session().is_live(), "restoring starts nothing");
+    let ids: Vec<String> = items.iter().map(|i| i.id().to_string()).collect();
+    for item in &seen_before_kill.items {
+        assert!(ids.contains(&item.id().to_string()), "{} is missing after the kill: {ids:?}", item.id());
+    }
+    let texts: Vec<String> = items.iter().filter_map(|i| serde_json::to_value(i).unwrap().get("text").and_then(Value::as_str).map(str::to_string)).collect();
+    assert!(texts.contains(&"stream 2".to_string()) && texts.contains(&"slow".to_string()));
+    assert!(texts.iter().any(|t| t.contains("s12 ")), "the words of the turn that was running are there: {texts:?}");
+    // The turn is closed and says why.
+    assert!(texts.contains(&crate::acp::chat::INTERRUPTED.to_string()), "{texts:?}");
+    assert!(items.iter().any(|i| matches!(i, crate::session_chat::ChatItem::TurnEnd { id, outcome: crate::session_chat::TurnOutcome::Interrupted, .. } if id == "end:2")), "{ids:?}");
+    assert_eq!(chat.state()["interruptedTurn"], true);
+
+    // "Continue" is the person's click: a normal message. The new turn is numbered after the old ones.
+    chat.send("Continue where you left off.").expect("a message goes in");
+    assert!(wait_until(30, || chat.items().iter().any(|i| i.id() == "end:3")), "{:?}", chat.items().iter().map(|i| i.id().to_string()).collect::<Vec<_>>());
+    assert_eq!(chat.state()["interruptedTurn"], false);
+    let after: Vec<String> = chat.items().iter().map(|i| i.id().to_string()).collect();
+    for id in &ids {
+        assert!(after.contains(id), "{id} was replaced by the new turn: {after:?}");
+    }
+    chat.retire();
+    app.forget_session(&id);
+}
+
+#[test]
+fn a_second_restart_keeps_the_interruption_and_the_continue_offer() {
+    let rig = Rig::new("");
+    rig.chat.send("slow").expect("the turn starts");
+    assert!(wait_until(30, || rig.texts().iter().any(|t| t.contains("s5 "))));
+    std::thread::sleep(Duration::from_millis(300));
+    let on_disk = std::fs::read(journal_of(&rig)).unwrap();
+    rig.chat.retire();
+    std::fs::write(journal_of(&rig), on_disk).unwrap();
+    let (app, first) = next_run(&rig, "");
+    assert_eq!(first.state()["interruptedTurn"], true);
+    let n = first.items().len();
+    first.retire();
+    app.forget_session(&rig.id());
+    let (app2, second) = next_run(&rig, "");
+    assert_eq!(second.items().len(), n, "no interruption notice is added twice");
+    assert_eq!(second.state()["interruptedTurn"], true);
+    second.retire();
+    app2.forget_session(&rig.id());
+}
+
+#[test]
+fn a_failed_restart_keeps_the_history_the_record_and_the_journal() {
+    let rig = Rig::new("");
+    let id = rig.id();
+    rig.say("stream 2");
+    rig.chat.retire();
+    let before_file = std::fs::read(journal_of(&rig)).unwrap();
+    let record_before = rig.conversations.record(&id).unwrap();
+
+    // The next run cannot start the agent at all.
+    rig.conversations.forget_session(&id);
+    let dir = rig.dir.clone();
+    let mut cfg = agents("", &dir).0["fake"].as_ref().clone();
+    cfg.command = "this-program-does-not-exist-p29".into();
+    let broken: Arc<dyn AgentSource> = Arc::new(Agents(BTreeMap::from([("fake".to_string(), Arc::new(cfg))])));
+    let env: Arc<dyn HostEnv> = Arc::new(Env { root: dir.clone() });
+    let app = Conversations::new(RecordStore::at(dir.join("conversations.json")), Arc::new(Supervisor::new(SupervisorConfig::default())), env, broken);
+    app.restore_lazily(&rig.panes);
+    let deps = deps_for(&dir, &app);
+    super::restore_panes(&deps);
+    let chat = get(&id).expect("the chat is back");
+    let shown = chat.items();
+    assert!(!shown.is_empty(), "the history shows although the agent cannot start");
+
+    for _ in 0..2 {
+        let error = chat.restart().expect_err("the agent cannot start");
+        assert!(!error.to_string().is_empty(), "the error is something the person can read");
+        assert!(chat.items().starts_with(&shown), "a failed restart takes nothing out of the chat (it may add its error)");
+    }
+    assert!(std::fs::read(journal_of(&rig)).unwrap().starts_with(&before_file), "the journal only grew: nothing before the failure was changed or cut");
+    let record_after = app.record(&id).unwrap();
+    assert_eq!(record_after.session_id, record_before.session_id);
+    assert_eq!(record_after.last_known_state, LastState::Live);
+    chat.retire();
+}
+
+#[test]
+fn when_the_agent_cannot_bring_the_conversation_back_the_words_stay_and_a_note_says_so() {
+    let rig = Rig::new("");
+    rig.say("stream 2");
+    rig.chat.retire();
+    let (app, chat) = next_run(&rig, "lose=1");
+    let before = chat.items();
+    assert!(before.iter().any(|i| matches!(i, crate::session_chat::ChatItem::User { text, .. } if text == "stream 2")));
+    chat.send("stream 1").expect("a message goes in");
+    assert!(wait_until(30, || chat.items().iter().any(|i| i.id() == "end:2")), "{:?}", chat.items().iter().map(|i| i.id().to_string()).collect::<Vec<_>>());
+    let after = chat.items();
+    for item in &before {
+        if !matches!(item, crate::session_chat::ChatItem::Session { .. }) {
+            assert!(after.contains(item) || after.iter().any(|a| a.id() == item.id()), "{} was lost", item.id());
+        }
+    }
+    assert!(after.iter().any(|i| matches!(i, crate::session_chat::ChatItem::Notice { text, .. } if text.contains("could not be brought back"))));
+    chat.retire();
+    app.forget_session(&rig.id());
 }

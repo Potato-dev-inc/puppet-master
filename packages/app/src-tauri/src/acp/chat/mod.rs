@@ -48,6 +48,7 @@ use serde_json::{json, Value};
 
 use super::conversations::Conversations;
 use super::error::AcpError;
+use super::journal::Journal;
 use super::session::{AcpSession, Resolution, SessionEvent, SteerOutcome};
 use super::state::{Phase, Snapshot};
 use super::writers::Writer;
@@ -65,6 +66,8 @@ pub const LANE: &str = "acp";
 /// Said when raw terminal input reaches a pane that has no terminal.
 pub const NOT_A_TERMINAL: &str = "This pane is a chat session, not a terminal. Send a message instead.";
 const WAITING: &str = "Starting the chat. Nothing to show yet.";
+/// The notice (and the strip text) for a turn the app did not see end. The view offers "Continue" next to it.
+pub const INTERRUPTED: &str = "The app closed during this turn.";
 
 /// What the app does for a chat session beyond keeping its items: the pane's status events, the state the windows
 /// show, and telling the windows that questions changed. The live app implements it with Tauri events and the
@@ -159,6 +162,10 @@ pub struct AcpChat {
     /// The MCP session of the agent that started this chat through the agent tools, if an agent did. Such an agent
     /// may steer, answer (when allowed), stop and close it; no other agent may. `None`: the person started it.
     started_by: Mutex<Option<String>>,
+    /// The append-only journal of this chat (`journal.rs`): every item is written as it arrives. `None` without a saved conversation.
+    journal: Option<Journal>,
+    /// The app closed during a turn (found in the journal at start); cleared when a new turn starts. The view offers "Continue".
+    interrupted: AtomicBool,
 }
 
 static CHATS: Lazy<Mutex<HashMap<String, Arc<AcpChat>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
@@ -248,7 +255,8 @@ fn control_only(text: &str) -> bool {
 
 impl AcpChat {
     pub(crate) fn build(pane_id: &str, label: &str, session: Arc<AcpSession>, host: Arc<dyn ChatHost>, conversations: Option<Conversations>) -> Arc<AcpChat> {
-        Arc::new(AcpChat {
+        let journal = conversations.as_ref().map(|c| Journal::at(c.journal_path(pane_id)));
+        let chat = Arc::new(AcpChat {
             pane_id: pane_id.to_string(),
             agent_id: session.agent_id().to_string(),
             label: label.to_string(),
@@ -267,7 +275,11 @@ impl AcpChat {
             agent_answering: AtomicBool::new(false),
             waking: AtomicBool::new(false),
             started_by: Mutex::new(None),
-        })
+            journal,
+            interrupted: AtomicBool::new(false),
+        });
+        chat.restore_from_journal();
+        chat
     }
 
     /// A terminal pane has the conversation (hand-over).
@@ -332,11 +344,63 @@ impl AcpChat {
 
     fn push(&self, items: Vec<crate::session_chat::ChatItem>) {
         for item in items {
+            if let Some(journal) = &self.journal {
+                journal.append(&item);
+            }
             self.feed.upsert(item);
         }
         if let Some(handles) = self.handles.lock().as_ref() {
             *handles.last_output.lock() = Instant::now();
         }
+    }
+
+    /// Fills the chat from its journal (an earlier run of the app). A turn the journal shows as started and never ended
+    /// is closed here: its open tool calls are settled, it ends as interrupted, and a notice says "The app closed during
+    /// this turn." (the view then offers "Continue", which is the person's click). Only reads the journal; it never
+    /// deletes or shortens it.
+    fn restore_from_journal(&self) {
+        let Some(journal) = &self.journal else { return };
+        let mut items = journal.load_or_previous().items;
+        if items.is_empty() {
+            return;
+        }
+        let at = now_iso();
+        let mut added = Vec::new();
+        let open_turn = items.iter().fold(None, |open: Option<u64>, item| match item {
+            crate::session_chat::ChatItem::User { id, .. } => match id.strip_prefix('u').and_then(|n| n.parse::<u64>().ok()) {
+                Some(n) => Some(n),
+                None => open,
+            },
+            crate::session_chat::ChatItem::TurnEnd { .. } => None,
+            _ => open,
+        });
+        if let Some(turn) = open_turn {
+            use crate::session_chat::{ChatItem, TurnOutcome};
+            let resulted: std::collections::HashSet<String> =
+                items.iter().filter_map(|i| if let ChatItem::ToolResult { call_id, .. } = i { Some(call_id.clone()) } else { None }).collect();
+            for item in &items {
+                if let ChatItem::ToolCall { call_id, .. } = item {
+                    if !resulted.contains(call_id) {
+                        added.push(ChatItem::ToolResult { id: format!("r:{call_id}"), at: Some(at.clone()), call_id: call_id.clone(), ok: false, output: "Stopped before it finished.".into() });
+                    }
+                }
+            }
+            added.push(ChatItem::TurnEnd { id: format!("end:{turn}"), at: Some(at.clone()), outcome: TurnOutcome::Interrupted, duration_ms: None });
+            added.push(ChatItem::Notice { id: format!("n:interrupted:{turn}"), at: Some(at), notice_kind: "interrupted".into(), text: INTERRUPTED.to_string(), url: None });
+        }
+        for item in &items {
+            self.feed.upsert(item.clone());
+        }
+        for item in &added {
+            journal.append(item);
+            self.feed.upsert(item.clone());
+        }
+        items.extend(added);
+        self.mapper.lock().resume_after(&items);
+        // Still waiting for "Continue" if the last interruption notice stands after the person's last message.
+        let last_notice = items.iter().rposition(|i| i.id().starts_with("n:interrupted:"));
+        let last_user = items.iter().rposition(|i| matches!(i, crate::session_chat::ChatItem::User { id, .. } if id.strip_prefix('u').is_some_and(|n| n.parse::<u64>().is_ok())));
+        self.interrupted.store(last_notice.is_some_and(|n| last_user.is_none_or(|u| n > u)), Ordering::SeqCst);
     }
 
     // ---- events ------------------------------------------------------------------------------------------
@@ -354,6 +418,7 @@ impl AcpChat {
                 self.host.state_changed(&self.pane_id, &self.state());
             }
             SessionEvent::TurnStarted { turn } => {
+                self.interrupted.store(false, Ordering::SeqCst);
                 let text = self.pending_user.lock().take();
                 let mut mapper = self.mapper.lock();
                 let items = mapper.turn_started(*turn, text.as_deref(), now, &at);
@@ -673,6 +738,9 @@ impl AcpChat {
             }
         }
         self.session.close();
+        if let Some(journal) = &self.journal {
+            journal.flush();
+        }
         match &self.conversations {
             Some(conversations) => conversations.forget_session(self.session.key()),
             None => {
@@ -699,6 +767,10 @@ impl AcpChat {
 
     /// The chat starts over: what it shows is about to be rebuilt from a replay of the agent's own session.
     fn start_over(&self) {
+        if let Some(journal) = &self.journal {
+            journal.reset();
+        }
+        self.interrupted.store(false, Ordering::SeqCst);
         self.feed.clear();
         *self.mapper.lock() = Mapper::new();
         self.pending_user.lock().take();
@@ -845,6 +917,7 @@ impl AcpChat {
             "conversation": self.conversations.as_ref().map(|_| self.pane_id.clone()),
             "inTerminal": in_terminal,
             "agentAnswering": self.agent_answering(),
+            "interruptedTurn": self.interrupted.load(Ordering::SeqCst),
             "signIn": { "needed": self.sign_in_needed(), "hint": self.session.config().addon.signin_hint },
         })
     }
