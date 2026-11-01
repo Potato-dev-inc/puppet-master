@@ -10,7 +10,17 @@
  *        {"v":1,"events":[<event>...]}, at most 32 events and 64 KB.
  *
  * Every request carries X-PM-Potato-Token. Every item and event carries
- * "v":1; an unknown "type" is ignored. A conversation id has its surface in
+ * "v":1; an unknown "type" is ignored (both ways: an older brain ignores
+ * "sandbox_result" and the "capabilities" field, an older app ignores
+ * "sandbox_call").
+ *
+ * The bot's computer: a "send" says capabilities.sandbox, and on such a turn
+ * the six sandbox tools are offered. A tool call is the event
+ *   {"type":"sandbox_call","callId","conversationId","tool","args","image"}
+ * and its answer an inbox item
+ *   {"type":"sandbox_result","callId","ok":true,"result":{...}}  or
+ *   {"type":"sandbox_result","callId","ok":false,"error":{"code","message","needsYou"?}}.
+ * The app judges everything (switches, lease, trust, cap); the brain waits. A conversation id has its surface in
  * front ("app:dm:<bot>"), and there is one Agent per conversation id, all of
  * them on one shared vault and one shared mood.
  *
@@ -23,6 +33,8 @@ import type { ErrorCode } from "../core/errors.ts";
 import { helperTool } from "../core/helper-tool.ts";
 import type { HelperRequest } from "../core/helper-tool.ts";
 import type { Agent, ExtraTool, ToolLevel, TurnResult } from "../core/loop.ts";
+import { readReply, sandboxTools, CALL_TIMEOUT_MS } from "../core/sandbox-tools.ts";
+import type { SandboxReply, SandboxToolName } from "../core/sandbox-tools.ts";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -38,6 +50,9 @@ export const LIMITS = {
   queuedEvents: 500,
   handledIds: 200,
   pendingHelpers: 100,
+  pendingCalls: 8,
+  /** the app refuses bigger args; saying so here saves the wait */
+  callArgsBytes: 24 * 1024,
 } as const;
 
 export type Trust = "owner_pc" | "owner_remote" | "others";
@@ -69,8 +84,17 @@ export interface PotatoChannelOptions {
   retryMs?: number;
   retryMaxMs?: number;
   newId?: () => string;
+  /** how long a sandbox call may wait for its result */
+  callTimeoutMs?: number;
+  /** values to keep out of what the model reads from the computer (this brain's keys and token) */
+  secrets?: () => readonly string[];
   /** plain status lines: never message text, never the url or the token */
   log?: (line: string) => void;
+}
+
+interface PendingCall {
+  resolve: (reply: SandboxReply) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 interface PendingHelper {
@@ -137,6 +161,7 @@ export class PotatoChannel {
   private retryMs: number;
   private retryMaxMs: number;
   private newId: () => string;
+  private callTimeoutMs: number;
   private log: (line: string) => void;
 
   private agents = new Map<string, Agent>();
@@ -144,6 +169,9 @@ export class PotatoChannel {
   private flushing: Promise<void> | null = null;
   private turns: Promise<void> = Promise.resolve();
   private pending = new Map<string, PendingHelper>();
+  private calls = new Map<string, PendingCall>();
+  /** conversation id -> the app said this bot has a computer (the last send for it) */
+  private computer = new Map<string, boolean>();
   private handled: string[] = [];
   private ownerName: string | null = null;
   private paused: PauseReason | null = null;
@@ -166,6 +194,7 @@ export class PotatoChannel {
     this.retryMs = opts.retryMs ?? 1000;
     this.retryMaxMs = opts.retryMaxMs ?? 10_000;
     this.newId = opts.newId ?? (() => `h-${randomUUID().slice(0, 8)}`);
+    this.callTimeoutMs = opts.callTimeoutMs ?? CALL_TIMEOUT_MS;
     this.log = opts.log ?? (() => {});
   }
 
@@ -188,6 +217,7 @@ export class PotatoChannel {
   async stop(): Promise<void> {
     this.stopped = true;
     this.abort.abort();
+    this.failCalls("SHUTDOWN", "The brain is stopping.");
     await this.done?.catch(() => {});
     await this.turns.catch(() => {});
     await this.flushNow();
@@ -364,6 +394,7 @@ export class PotatoChannel {
     this.exited = true;
     this.stopped = true;
     this.abort.abort();
+    this.failCalls("SHUTDOWN", "The brain is stopping.");
     this.opts.onExit?.(code);
   }
 
@@ -377,6 +408,9 @@ export class PotatoChannel {
         return;
       case "helper_update":
         this.onHelperUpdate(raw);
+        return;
+      case "sandbox_result":
+        this.onSandboxResult(raw);
         return;
       case "persona": {
         const pack = str(raw["pack"], 64);
@@ -406,6 +440,7 @@ export class PotatoChannel {
   private async shutdown(): Promise<void> {
     this.stopped = true;
     this.abort.abort();
+    this.failCalls("SHUTDOWN", "The brain is stopping.");
     await Promise.race([this.turns.catch(() => {}), new Promise((r) => setTimeout(r, 800))]);
     await Promise.race([this.flushNow(), new Promise((r) => setTimeout(r, 800))]);
     this.finish(0);
@@ -423,9 +458,58 @@ export class PotatoChannel {
       newId: this.newId,
       emit: (req: HelperRequest) => this.onHelperRequest(req),
     });
-    const agent = this.opts.agentFor(conversationId, [tool]);
+    // Offered only on a turn the app said has a computer (the tools carry a gate).
+    const computer = sandboxTools({
+      call: (name, args, image) => this.callSandbox(conversationId, name, args, image),
+      ...(this.opts.secrets ? { secrets: this.opts.secrets } : {}),
+    });
+    const agent = this.opts.agentFor(conversationId, [tool, ...computer]);
     this.agents.set(conversationId, agent);
     return agent;
+  }
+
+  // ---- the bot's computer -----------------------------------------------
+
+  /** Sends one sandbox_call and waits for the app's answer. Never rejects: every failure is an error reply. */
+  private callSandbox(
+    conversationId: string,
+    tool: SandboxToolName,
+    args: Record<string, unknown>,
+    image: boolean,
+  ): Promise<SandboxReply> {
+    const fail = (code: string, message: string): SandboxReply => ({ ok: false, error: { code, message } });
+    if (this.stopped) return Promise.resolve(fail("SHUTDOWN", "The brain is stopping."));
+    if (this.calls.size >= LIMITS.pendingCalls) return Promise.resolve(fail("SANDBOX_BUSY", "Too many computer calls are waiting."));
+    if (Buffer.byteLength(JSON.stringify(args)) > LIMITS.callArgsBytes) {
+      return Promise.resolve(fail("BAD_ARGS", "That is too much to send in one call. Split it into smaller calls."));
+    }
+    const callId = `s-${randomUUID().slice(0, 8)}`;
+    return new Promise<SandboxReply>((resolve) => {
+      const timer = setTimeout(() => {
+        this.calls.delete(callId);
+        resolve(fail("SANDBOX_TIMEOUT", "The computer did not answer in time."));
+      }, this.callTimeoutMs);
+      this.calls.set(callId, { resolve, timer });
+      this.emit({ type: "sandbox_call", callId, conversationId, tool, args, image });
+    });
+  }
+
+  private onSandboxResult(m: Json): void {
+    const callId = str(m["callId"], 128);
+    if (!callId) return;
+    const call = this.calls.get(callId);
+    if (!call) return;
+    clearTimeout(call.timer);
+    this.calls.delete(callId);
+    call.resolve(readReply(m));
+  }
+
+  private failCalls(code: string, message: string): void {
+    for (const [id, call] of this.calls) {
+      clearTimeout(call.timer);
+      this.calls.delete(id);
+      call.resolve({ ok: false, error: { code, message } });
+    }
   }
 
   private onHelperRequest(req: HelperRequest): void {
@@ -465,12 +549,17 @@ export class PotatoChannel {
     const tools: ToolLevel = m["tools"] === "full" ? "full" : "no_memory";
     const context = str(m["context"], LIMITS.context) ?? "";
     if (trust !== "others") this.ownerName = name;
+    // Missing or false: no computer on this turn (an older app says nothing).
+    const caps = m["capabilities"];
+    const sandbox = isRecord(caps) && caps["sandbox"] === true;
+    this.computer.set(conversationId, sandbox);
 
     this.enqueue(() =>
       this.runTurn({
         conversationId,
         replyTo: id,
         trust,
+        sandbox,
         tools,
         text,
         speaker: { id: safeId(fromId), name },
@@ -503,6 +592,7 @@ export class PotatoChannel {
         conversationId: ask.conversationId,
         replyTo: requestId,
         trust: ask.trust,
+        sandbox: this.computer.get(ask.conversationId) ?? false,
         tools: ask.tools,
         text: "",
         reason: `helper ${status}`,
@@ -518,6 +608,8 @@ export class PotatoChannel {
     replyTo: string;
     trust: Trust;
     tools: ToolLevel;
+    /** the app said this bot has a computer on this turn */
+    sandbox?: boolean;
     text: string;
     speaker?: { id: string; name: string };
     context?: string;
@@ -539,6 +631,7 @@ export class PotatoChannel {
       const result = await agent.turn(t.text, {
         where: t.conversationId,
         tools: t.tools,
+        ...(t.sandbox ? { sandbox: true } : {}),
         owner: t.trust !== "others",
         group: t.conversationId.includes(":ch:"),
         ...(t.speaker ? { speaker: t.speaker } : {}),

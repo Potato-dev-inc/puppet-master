@@ -15,12 +15,14 @@ import {
   type PotatoTransport,
   type TalkPersona,
 } from '../../../lib/potato';
+import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { Avatar } from '../../companion/Avatar';
 import { SessionChatPanel } from '../../chat/SessionChatPanel';
 import { BrainStateCard } from './BrainStateCard';
 import { HelperCard } from './HelperCard';
 import { MoodChip } from './MoodChip';
 import { PersonaSwitch } from './PersonaSwitch';
+import { ComputerPanel } from './ComputerPanel';
 import { TypingRow } from './TypingRow';
 import { canWrite, runButton, threadRows } from './model';
 
@@ -50,12 +52,14 @@ export interface ThreadViewProps {
   onOpenPane?: (paneId: string) => void;
   /** Whether that pane is still there; the button is shown only then. Default: yes. */
   paneExists?: (paneId: string) => boolean;
+  /** The Computer panel's way to the app. Absent: no panel. The panel draws nothing while the Labs switches are off. */
+  screen?: ScreenTransport;
   /** Passed in so a test can pin the clock. */
   now?: number;
 }
 
 export function ThreadView(props: ThreadViewProps) {
-  const { bot, messages, settings, avatar, agentLabel, transport, onOpenSettings, onNotify, onChanged, companionPaneId, onOpenCompanion, onOpenPane, paneExists, now = Date.now() } = props;
+  const { bot, messages, settings, avatar, agentLabel, transport, onOpenSettings, onNotify, onChanged, companionPaneId, onOpenCompanion, onOpenPane, paneExists, screen, now = Date.now() } = props;
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -163,6 +167,7 @@ export function ThreadView(props: ThreadViewProps) {
   return (
     <section className="ck-potato-thread" aria-label={`Chat with ${bot.name}`}>
       {head}
+      {screen && <ComputerPanel bot={{ id: bot.id, name: bot.name }} transport={screen} onNotify={onNotify} />}
       <div
         className="ck-scroll ck-potato-body"
         ref={scroller}

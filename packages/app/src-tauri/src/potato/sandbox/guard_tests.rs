@@ -147,6 +147,8 @@ fn the_secrets_values_are_read_in_two_files_only() {
             "control.rs" => assert_eq!(reads, 1, "control.rs reads the token for the one header"),
             // the push into the distro (one line: token, view, control) and the check that the two passwords differ
             "secrets.rs" => assert_eq!(reads, 2, "secrets.rs reads the values for the push and for the difference check"),
+            // the one fragment of the iframe address (`fragment_password`): never a query, a log line or a path
+            "screen.rs" => assert_eq!(reads, 1, "screen.rs reads a password for the fragment of the iframe address only"),
             _ => assert_eq!(reads, 0, "{name} reads a secret"),
         }
     }
@@ -220,15 +222,26 @@ fn the_client_talks_to_loopback_only() {
 
 #[test]
 fn only_the_button_makes_a_consent() {
+    const BUTTON_COMMAND: &str = "commands/potato_sandbox.rs";
     for (name, code) in all_files() {
         if name == "potato/sandbox/wsl.rs" {
             continue;
         }
+        if name == BUTTON_COMMAND {
+            // The command bound to the settings page's confirm dialog: one Consent, one call, nothing else.
+            assert_eq!(code.matches("the_person_pressed_the_button").count(), 1, "{name} makes exactly one Consent");
+            assert_eq!(code.matches("enable_windows_feature").count(), 1, "{name} turns the feature on in one place");
+            assert!(code.contains("take_linux_feature_ask"), "{name} must check the confirm dialog's token before the Consent");
+            let token_at = code.find("take_linux_feature_ask").unwrap();
+            let consent_at = code.find("the_person_pressed_the_button").unwrap();
+            assert!(token_at < consent_at, "{name}: the token is checked before the Consent is made");
+            continue;
+        }
         assert!(
             !code.contains("the_person_pressed_the_button"),
-            "{name} makes a Consent; only the command bound to the person's button may (it is added with the settings page)"
+            "{name} makes a Consent; only the command bound to the person's button ({BUTTON_COMMAND}) may"
         );
-        assert!(!code.contains("enable_windows_feature") || name.starts_with("commands/"), "{name} turns on the Linux feature");
+        assert!(!code.contains("enable_windows_feature"), "{name} turns on the Linux feature");
     }
     // an install and a start never reach for it
     for (name, code) in sandbox_files() {

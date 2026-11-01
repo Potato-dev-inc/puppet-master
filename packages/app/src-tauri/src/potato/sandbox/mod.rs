@@ -8,7 +8,10 @@
 //! - `lifecycle`: lazy start, idle stop, readiness checks (waits for the guest's boot verdict), the secrets push
 //! - `secrets`: the control token and the two VNC passwords, made by the app, in memory only
 //! - `control`: the HTTP client of the guest's control service
+//! - `browser`: the page tool's arguments, the checks on what the model wrote (web addresses, action lists) and its answer
 //! - `lease`: who holds the screen (a mirror of the brain's `screen-lease.ts` plus expiry and run binding)
+//! - `screen`: the sealed screen links (HMAC, one hour, generation, lease) and the hub the Computer panel talks to;
+//!   `screen_live`: the app's one hub, its keeper thread and its Tauri events
 //!
 //! The `Sandbox` trait is what the rest of the app talks to. `WslSandbox` is the real one; `FakeSandbox`
 //! serves a static picture and records what it was asked (tests and the `dev-fake-tui` build).
@@ -21,10 +24,15 @@
 // The callers (screen links, brain tools, the wizard and settings page) land in the next pieces.
 #![allow(dead_code)]
 
+pub mod browser;
 pub mod control;
+pub mod detect;
 pub mod install;
 pub mod lease;
 pub mod lifecycle;
+pub mod screen;
+pub mod screen_live;
+pub mod manager;
 pub mod secrets;
 pub mod wsl;
 
@@ -144,6 +152,21 @@ pub trait Sandbox: Send + Sync {
     /// Runs the page-browser tool inside the sandbox with `args` and returns what it printed.
     fn browser(&self, args: &[String]) -> SbxResult<String>;
     fn screen_target(&self) -> SbxResult<ScreenTarget>;
+
+    // ---- what the settings page needs (each has a default so a sandbox that cannot do it just does not) ----
+
+    /// Asks a running `install` to stop at its next step. Nothing running: nothing happens.
+    fn cancel_install(&self) {}
+    /// Whether Windows' Linux feature answers. A sandbox that does not need it always says yes.
+    fn linux_feature(&self) -> bool {
+        true
+    }
+    /// The idle stop setting. Returns the number that is used (it is kept between 1 and 240).
+    fn set_idle_minutes(&self, minutes: u32) -> u32 {
+        lifecycle::clamp_idle_minutes(minutes)
+    }
+    /// Called by the app every half minute: stops the sandbox when it has been idle long enough.
+    fn idle_tick(&self) {}
 }
 
 fn now_ms() -> i64 {
@@ -301,6 +324,24 @@ impl Sandbox for WslSandbox {
             passwords: self.lifecycle.screen_secrets(),
         })
     }
+
+    fn cancel_install(&self) {
+        WslSandbox::cancel_install(self);
+    }
+
+    fn linux_feature(&self) -> bool {
+        self.wsl.is_available()
+    }
+
+    fn set_idle_minutes(&self, minutes: u32) -> u32 {
+        self.lifecycle.set_idle_minutes(minutes);
+        self.lifecycle.idle_minutes()
+    }
+
+    fn idle_tick(&self) {
+        // A failed stop is tried again at the next tick.
+        let _ = self.lifecycle.idle_check(now_ms());
+    }
 }
 
 // ---- the fake ------------------------------------------------------------------------------------
@@ -329,6 +370,12 @@ struct FakeState {
     generation: u64,
     fail_next: Option<SandboxError>,
     browser_reply: String,
+    /// Answers to the next `browser` calls, first in first out; then `browser_reply`.
+    browser_queue: Vec<String>,
+    /// `None`: the default. Set by `set_idle_minutes`.
+    idle_minutes: Option<u32>,
+    no_linux_feature: bool,
+    cancelled: bool,
 }
 
 /// A sandbox with no WSL: it serves one static picture and records every call. Starts out installed and
@@ -356,6 +403,22 @@ impl FakeSandbox {
 
     pub fn set_browser_reply(&self, reply: &str) {
         self.state.lock().browser_reply = reply.to_string();
+    }
+
+    /// The next `browser` calls answer with these, in order (then the usual reply).
+    pub fn queue_browser_replies(&self, replies: &[&str]) {
+        self.state.lock().browser_queue = replies.iter().map(|r| r.to_string()).collect();
+    }
+
+    /// A PC without Windows' Linux feature: `install` fails with the "needs Windows' Linux feature" error.
+    pub fn without_linux_feature(self) -> Self {
+        self.state.lock().no_linux_feature = true;
+        self
+    }
+
+    /// True after `cancel_install` was called.
+    pub fn was_cancelled(&self) -> bool {
+        self.state.lock().cancelled
     }
 
     pub fn calls(&self) -> Vec<Recorded> {
@@ -430,12 +493,16 @@ impl Sandbox for FakeSandbox {
             (true, false) => State::Stopped,
             (true, true) => State::Running,
         };
-        Ok(Status { state: which, reason: None, name: self.name.to_string(), idle_minutes: lifecycle::DEFAULT_IDLE_MINUTES })
+        let idle_minutes = state.idle_minutes.unwrap_or(lifecycle::DEFAULT_IDLE_MINUTES);
+        Ok(Status { state: which, reason: None, name: self.name.to_string(), idle_minutes })
     }
 
     fn install(&self, options: &InstallOptions, progress: &mut dyn FnMut(Progress)) -> SbxResult<()> {
         let mut state = self.enter(Recorded::Install)?;
         options.validate()?;
+        if state.no_linux_feature {
+            return Err(InstallError::NeedsWindowsFeature.into());
+        }
         if state.installed {
             return Err(InstallError::AlreadyInstalled.into());
         }
@@ -506,18 +573,37 @@ impl Sandbox for FakeSandbox {
 
     fn browser(&self, args: &[String]) -> SbxResult<String> {
         self.use_screen(Recorded::Browser(args.to_vec()))?;
-        Ok(self.state.lock().browser_reply.clone())
+        let mut state = self.state.lock();
+        Ok(if state.browser_queue.is_empty() { state.browser_reply.clone() } else { state.browser_queue.remove(0) })
     }
 
     fn screen_target(&self) -> SbxResult<ScreenTarget> {
         Ok(ScreenTarget { view_port: lifecycle::DEFAULT_VIEW_PORT, generation: self.state.lock().generation, passwords: None })
     }
+
+    fn cancel_install(&self) {
+        self.state.lock().cancelled = true;
+    }
+
+    fn linux_feature(&self) -> bool {
+        !self.state.lock().no_linux_feature
+    }
+
+    fn set_idle_minutes(&self, minutes: u32) -> u32 {
+        let used = lifecycle::clamp_idle_minutes(minutes);
+        self.state.lock().idle_minutes = Some(used);
+        used
+    }
 }
 
 #[cfg(test)]
+mod browser_tests;
+#[cfg(test)]
 mod control_tests;
 #[cfg(test)]
-mod fakes_tests;
+mod detect_tests;
+#[cfg(test)]
+pub(crate) mod fakes_tests;
 #[cfg(test)]
 mod guard_tests;
 #[cfg(test)]
@@ -529,6 +615,10 @@ mod lease_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
+mod manager_tests;
+#[cfg(test)]
 mod sandbox_tests;
+#[cfg(test)]
+mod screen_tests;
 #[cfg(test)]
 mod wsl_tests;

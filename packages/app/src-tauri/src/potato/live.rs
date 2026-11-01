@@ -10,7 +10,7 @@
 //! - `stop_all(grace)` is for the panic button and for the app's exit.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -22,19 +22,34 @@ use super::auth;
 use super::env::HostEnv;
 use super::helpers::{CompanionAgent, Folder, Hands, RunState, Started};
 use super::protocol::HelperStatus;
+use super::sandbox_calls::Port;
 use super::service::{BotProfile, Host, Service};
 use super::sidecar::RealLauncher;
 use crate::agent_runs::AgentRunRequest;
 use crate::companion::broad::Places;
 
 pub const LABS_KEY: &str = "potato_bot_enabled";
+/// The Sandbox Labs switch. It does nothing unless Potato Bot is on too.
+pub const SANDBOX_LABS_KEY: &str = "potato_sandbox_enabled";
 pub const CHANGED_EVENT: &str = "potato://changed";
 
 static SERVICE: OnceLock<Arc<Service>> = OnceLock::new();
 static BRIDGE_PORT: AtomicU16 = AtomicU16::new(0);
+/// The Sandbox Labs switch and the sandbox, kept here until the service exists (settings are applied once at
+/// startup, possibly before it).
+static SANDBOX_LABS: AtomicBool = AtomicBool::new(false);
+static SANDBOX_PORT: Mutex<Option<Port>> = Mutex::new(None);
 
 pub fn service() -> Option<Arc<Service>> {
     SERVICE.get().cloned()
+}
+
+/// The address of the bridge on this computer (`http://127.0.0.1:<port>`), once it is listening.
+pub fn bridge_base() -> Option<String> {
+    match BRIDGE_PORT.load(Ordering::SeqCst) {
+        0 => None,
+        port => Some(format!("http://127.0.0.1:{port}")),
+    }
 }
 
 pub fn set_bridge_port(port: u16) {
@@ -46,8 +61,37 @@ pub fn labs_on(public: &Value) -> bool {
     public.get(LABS_KEY).and_then(Value::as_bool).unwrap_or(false)
 }
 
+/// The Sandbox Labs switch in a settings value: on only when it is exactly `true`.
+pub fn sandbox_labs_on(public: &Value) -> bool {
+    public.get(SANDBOX_LABS_KEY).and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Wires the sandbox (with the screen lease it shares with the Computer panel) to the bots' tools. Until it is
+/// called no brain is told it has a computer. Only `sandbox_host::sync` calls it: it makes the port from the one
+/// sandbox and the screen hub's one lease, and calls it with `None` when the Labs switch is off or nothing is set up.
+pub fn install_sandbox(port: Option<Port>) {
+    *SANDBOX_PORT.lock() = port.clone();
+    if let Some(service) = service() {
+        service.set_sandbox_port(port);
+    }
+}
+
+/// The sandbox the bots' tools use right now, if one is wired in (tests look at what the host wired).
+#[cfg(test)]
+pub fn sandbox_port() -> Option<Port> {
+    SANDBOX_PORT.lock().clone()
+}
+
 /// Called with the public settings whenever they change (and once at startup, from the saved file).
 pub fn apply_settings(public: &Value) {
+    // The Computer (the sandbox screen) follows both switches.
+    super::sandbox::screen_live::apply_settings(public);
+    let sandbox = sandbox_labs_on(public);
+    SANDBOX_LABS.store(sandbox, Ordering::SeqCst);
+    if let Some(service) = service() {
+        service.set_sandbox_enabled(sandbox);
+    }
+    super::sandbox_host::apply_settings(public);
     let on = labs_on(public);
     match service() {
         Some(service) => service.set_enabled(on),
@@ -60,6 +104,8 @@ pub fn stop_all(grace: Duration) {
     if let Some(service) = service() {
         service.stop_all(grace);
     }
+    // The bot's small Linux computer leaves with the app too.
+    super::sandbox_host::stop_on_exit();
 }
 
 pub fn root() -> PathBuf {
@@ -108,16 +154,8 @@ impl Host for LiveHost {
 
     fn resources(&self) -> Option<PathBuf> {
         #[cfg(not(test))]
-        {
-            use tauri::{path::BaseDirectory, Manager};
-            if let Some(dir) = self
-                .app
-                .as_ref()
-                .and_then(|app| app.path().resolve("potato-brain", BaseDirectory::Resource).ok())
-                .filter(|dir| dir.is_dir())
-            {
-                return Some(dir);
-            }
+        if let Some(dir) = self.app.as_ref().and_then(|app| super::resource_dirs::installed(app, "potato-brain", "brain.mjs")) {
+            return Some(dir);
         }
         // A dev build has no installed resource folder: the generated one in the source tree.
         let staged = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources").join("potato-brain");
@@ -223,11 +261,16 @@ fn ask_model(key: &str) -> Result<(), String> {
 
 /// Installs the service (once) and starts its supervisor thread.
 pub fn start(app: Option<AppHandle>, registry: Option<Arc<Mutex<crate::pty::PaneRegistry>>>) -> Option<Arc<Service>> {
+    if let Some(app) = app.clone() {
+        super::sandbox_host::set_app(app);
+    }
     let hands = app.clone().zip(registry).map(|(app, registry)| Arc::new(LiveHands { app, registry }));
     let service = Service::new(root(), Arc::new(LiveHost { app }), Arc::new(RealLauncher::new()), auth::brains().clone());
     if SERVICE.set(service.clone()).is_err() {
         return None;
     }
+    service.set_sandbox_enabled(SANDBOX_LABS.load(Ordering::SeqCst));
+    service.set_sandbox_port(SANDBOX_PORT.lock().clone());
     if let Some(hands) = hands {
         service.set_hands(hands);
     }

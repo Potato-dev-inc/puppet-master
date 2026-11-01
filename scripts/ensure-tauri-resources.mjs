@@ -14,6 +14,7 @@ const pwaAssets = join(pwaDist, 'assets');
 const viteDist = join(root, 'packages/app/dist');
 const binDir = join(root, 'packages/app/src-tauri/resources/bin');
 const brainDir = join(root, 'packages/app/src-tauri/resources/potato-brain');
+const sandboxDir = join(root, 'packages/app/src-tauri/resources/potato-sandbox');
 const binName = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared';
 const cloudflaredSource = join(root, 'node_modules/cloudflared/bin', binName);
 
@@ -90,10 +91,39 @@ function ensurePotatoBrain() {
   console.error('[ensure-tauri-resources] potato-brain bundle failed — wrote a stub for tauri dev');
 }
 
+// The Potato Bot sandbox files (guest scripts, recipes, the screen viewer) are a plain copy of packages/potato-sandbox.
+// A missing piece means a stale or partial copy, so it is staged again; the copy is quick.
+function ensurePotatoSandbox() {
+  const ready =
+    existsSync(join(sandboxDir, 'guest')) &&
+    existsSync(join(sandboxDir, 'recipes', 'base.json')) &&
+    existsSync(join(sandboxDir, 'viewer', 'embed.html')) &&
+    existsSync(join(sandboxDir, 'viewer', 'novnc'));
+  if (ready) {
+    return;
+  }
+  const result = spawnSync(process.execPath, [join(root, 'scripts', 'bundle-potato-sandbox.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+  if (result.status === 0) {
+    return;
+  }
+  // Placeholder so the resource globs match and tauri dev still starts; the app then finds the source tree instead.
+  mkdirSync(join(sandboxDir, 'guest'), { recursive: true });
+  mkdirSync(join(sandboxDir, 'recipes'), { recursive: true });
+  mkdirSync(join(sandboxDir, 'viewer', 'novnc'), { recursive: true });
+  for (const part of ['guest', 'recipes', 'viewer', 'viewer/novnc']) {
+    writeFileSync(join(sandboxDir, part, 'stub.txt'), 'stub\n', 'utf-8');
+  }
+  console.error('[ensure-tauri-resources] potato-sandbox staging failed — wrote a stub for tauri dev');
+}
+
 export function ensureTauriResources() {
   ensurePwaDist();
   ensureCloudflaredBin();
   ensurePotatoBrain();
+  ensurePotatoSandbox();
 }
 
 const invokedDirectly =

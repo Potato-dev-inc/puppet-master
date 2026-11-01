@@ -282,3 +282,41 @@ test("no pack names a company, a model or an agent", () => {
     assert.ok(!banned.test(text), `${file} names a brand`);
   }
 });
+
+test("the fake brain: 'computer: <tool>' sends one sandbox_call and finishes from the sandbox_result", async () => {
+  const bridge = await startMockBridge("tok-fake3");
+  const env = cleanEnv({ PM_POTATO_URL: bridge.url, PM_POTATO_TOKEN: "tok-fake3", PM_FAKE_WAIT_MS: "60" });
+  const child = spawn(process.execPath, [FAKE], { env, stdio: "ignore" });
+  try {
+    await bridge.waitFor((e) => e["type"] === "hello");
+    const from = { id: "owner", name: "Pat", trust: "owner_pc" };
+    const base = { type: "send", conversationId: "app:dm:b", surface: "app", from, tools: "full" };
+
+    // no computer on this turn: no call, a plain answer
+    bridge.push({ ...base, id: "n", text: "computer: computer_observe" });
+    const none = await bridge.waitFor((e) => e["type"] === "reply" && e["inReplyTo"] === "n");
+    assert.deepEqual(none["segments"], ["Fish has no computer."]);
+    assert.equal(bridge.events.filter((e) => e["type"] === "sandbox_call").length, 0);
+
+    // a computer: one call, and the reply waits for the result (the inbox keeps being read meanwhile)
+    bridge.push({ ...base, id: "y", text: 'computer: ask_person_for_screen {"reason":"a code"}', capabilities: { sandbox: true } });
+    const sent = await bridge.waitFor((e) => e["type"] === "sandbox_call");
+    assert.equal(sent["tool"], "ask_person_for_screen");
+    assert.deepEqual(sent["args"], { reason: "a code" });
+    assert.equal(sent["conversationId"], "app:dm:b");
+    assert.equal(bridge.events.some((e) => e["type"] === "reply" && e["inReplyTo"] === "y"), false, "no answer before the result");
+    bridge.push({ type: "sandbox_result", callId: sent["callId"], ok: true, result: { activeWindow: "Fake desktop" } });
+    const done = await bridge.waitFor((e) => e["type"] === "reply" && e["inReplyTo"] === "y");
+    assert.deepEqual(done["segments"], ["Fish used ask_person_for_screen: ok, saw Fake desktop"]);
+
+    // a refusal is told with its code
+    bridge.push({ ...base, id: "z", text: "computer: computer_act", capabilities: { sandbox: true } });
+    const second = await bridge.waitFor((e) => e["type"] === "sandbox_call" && e["tool"] === "computer_act");
+    bridge.push({ type: "sandbox_result", callId: second["callId"], ok: false, error: { code: "LEASE_HELD_BY_PERSON", message: "x", needsYou: true } });
+    const refused = await bridge.waitFor((e) => e["type"] === "reply" && e["inReplyTo"] === "z");
+    assert.deepEqual(refused["segments"], ["Fish used computer_act: failed LEASE_HELD_BY_PERSON (needs you)"]);
+  } finally {
+    child.kill();
+    await bridge.close();
+  }
+});

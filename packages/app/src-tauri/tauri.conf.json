@@ -32,7 +32,8 @@
       "resources/potato-brain/*",
       "resources/potato-brain/persona/*",
       "resources/potato-brain/persona/packs/fish/*",
-      "resources/potato-brain/persona/packs/potato/*"
+      "resources/potato-brain/persona/packs/potato/*",
+      "resources/potato-sandbox/**/*"
     ],
     "icon": [
       "icons/32x32.png",

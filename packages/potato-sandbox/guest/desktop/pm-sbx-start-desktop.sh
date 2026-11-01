@@ -161,6 +161,7 @@ write_fluxbox_config() {
 EOF
   cat >"$FBDIR/init" <<EOF
 session.menuFile: $FBDIR/menu
+session.styleOverlay: $FBDIR/overlay
 session.screen0.rootCommand: xsetroot -solid #111113
 session.screen0.toolbar.visible: true
 session.screen0.toolbar.height: 28
@@ -171,6 +172,22 @@ session.screen0.fullMaximization: true
 session.screen0.window.focus.alpha: 255
 session.overlay.menuDelay: 0
 EOF
+  # The style says "set this wallpaper" at every start. Fluxbox does that by running `fbsetbg`, and the stock script pops up
+  # "Something went wrong while setting the wallpaper" when no wallpaper tool is installed (the sandbox has none). Two fixes:
+  # the overlay turns the style's background off and keeps a plain colour, and a small `fbsetbg` that only sets that colour
+  # (and never fails) goes first on fluxbox's PATH, in case anything still asks for it.
+  cat >"$FBDIR/overlay" <<'EOF'
+background: none
+rootCommand: xsetroot -solid #111113
+EOF
+  mkdir -p "$FBDIR/bin"
+  cat >"$FBDIR/bin/fbsetbg" <<'EOF'
+#!/bin/sh
+# Stand-in for fluxbox's fbsetbg: a plain dark background, no pop-up, always exit 0.
+xsetroot -solid '#111113' >/dev/null 2>&1
+exit 0
+EOF
+  chmod 0755 "$FBDIR/bin/fbsetbg"
 }
 
 start_session() {
@@ -181,7 +198,7 @@ start_session() {
     if [ "$SESSION" = fluxbox ]; then
       write_fluxbox_config
       xsetroot -solid "#111113" >/dev/null 2>&1 || true
-      setsid nohup dbus-launch --exit-with-session fluxbox -rc "$FBDIR/init" >"$LOGS/session.log" 2>&1 </dev/null &
+      setsid nohup env PATH="$FBDIR/bin:$PATH" dbus-launch --exit-with-session fluxbox -rc "$FBDIR/init" >"$LOGS/session.log" 2>&1 </dev/null &
     else
       setsid nohup dbus-launch --exit-with-session xfce4-session >"$LOGS/session.log" 2>&1 </dev/null &
     fi

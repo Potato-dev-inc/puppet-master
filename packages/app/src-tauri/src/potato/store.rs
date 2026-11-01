@@ -187,11 +187,13 @@ pub struct Settings {
     /// The persona a new bot starts with.
     pub default_persona: String,
     pub daily_limit_cents: u32,
+    /// How many actions on its sandbox computer one bot may take in a day.
+    pub sandbox_actions_per_day: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { v: STORE_VERSION, brain: BrainKind::Deepseek, default_persona: "fish".into(), daily_limit_cents: super::cost::DEFAULT_LIMIT_CENTS }
+        Settings { v: STORE_VERSION, brain: BrainKind::Deepseek, default_persona: "fish".into(), daily_limit_cents: super::cost::DEFAULT_LIMIT_CENTS, sandbox_actions_per_day: super::cost::DEFAULT_SANDBOX_ACTIONS }
     }
 }
 
@@ -203,6 +205,7 @@ pub fn load_settings(root: &Path) -> StoreResult<Settings> {
     let settings: Option<Settings> = read_json(&settings_path(root), "settings.json")?;
     let mut settings = settings.unwrap_or_default();
     settings.daily_limit_cents = super::cost::clamp_limit_cents(settings.daily_limit_cents);
+    settings.sandbox_actions_per_day = super::cost::clamp_sandbox_actions(settings.sandbox_actions_per_day);
     if !valid_pack(&settings.default_persona) {
         settings.default_persona = "fish".into();
     }
@@ -213,6 +216,7 @@ pub fn save_settings(root: &Path, settings: &Settings) -> StoreResult<()> {
     let mut settings = settings.clone();
     settings.v = STORE_VERSION;
     settings.daily_limit_cents = super::cost::clamp_limit_cents(settings.daily_limit_cents);
+    settings.sandbox_actions_per_day = super::cost::clamp_sandbox_actions(settings.sandbox_actions_per_day);
     if !valid_pack(&settings.default_persona) {
         return Err(StoreError::new("POTATO_PERSONA_INVALID", "Pick Fish or Potato."));
     }

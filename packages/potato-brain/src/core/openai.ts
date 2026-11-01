@@ -46,6 +46,33 @@ function toWire(msg: Msg): Record<string, unknown> {
   return wire;
 }
 
+/**
+ * The messages as the endpoint takes them. A tool message cannot hold a picture, so the pictures of a run of
+ * tool messages follow it as one user message (the usual way to show a model a screenshot a tool took).
+ */
+export function toWireAll(messages: Msg[]): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  let pictures: Array<{ mimeType: string; data: string }> = [];
+  const flush = (): void => {
+    if (pictures.length === 0) return;
+    out.push({
+      role: "user",
+      content: [
+        { type: "text", text: "The picture from the tool result above:" },
+        ...pictures.map((p) => ({ type: "image_url", image_url: { url: `data:${p.mimeType};base64,${p.data}` } })),
+      ],
+    });
+    pictures = [];
+  };
+  for (const msg of messages) {
+    if (msg.role !== "tool") flush();
+    out.push(toWire(msg));
+    if (msg.role === "tool" && msg.images) pictures.push(...msg.images);
+  }
+  flush();
+  return out;
+}
+
 interface WireToolCall {
   id?: unknown;
   function?: { name?: unknown; arguments?: unknown };
@@ -105,7 +132,7 @@ export class OpenAICompatProvider implements Provider {
         },
         body: JSON.stringify({
           model,
-          messages: req.messages.map(toWire),
+          messages: toWireAll(req.messages),
           ...(req.tools && req.tools.length > 0
             ? {
                 tools: req.tools.map((tool) => ({

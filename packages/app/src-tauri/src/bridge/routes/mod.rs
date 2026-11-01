@@ -24,6 +24,9 @@ mod operations;
 mod pairing;
 mod plans;
 pub(super) mod potato_brain;
+pub(super) mod potato_screen;
+#[cfg(test)]
+pub(super) mod potato_screen_tests;
 mod review_desk;
 pub(super) mod panes;
 pub(super) mod previews;
@@ -106,6 +109,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| chats::handle(cx))
         .or_else(|| panes::handle(cx))
         .or_else(|| plans::handle(cx))
+        .or_else(|| potato_screen::handle(cx))
 }
 
 /// The agent-run API (`run_agent`, `wait_agents`, ...) owns its own routes.

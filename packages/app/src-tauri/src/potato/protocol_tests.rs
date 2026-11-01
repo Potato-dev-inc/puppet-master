@@ -201,3 +201,54 @@ fn the_fake_brain_writes_the_names_this_side_reads() {
         assert!(script.contains(name), "the fake brain no longer says {name}");
     }
 }
+
+#[test]
+fn a_sandbox_call_parses_and_a_broken_one_is_dropped_alone() {
+    assert_eq!(
+        event(json!({"v":1,"type":"sandbox_call","callId":"s-1","conversationId":"app:dm:nimbus","tool":"computer_act","args":{"actions":[{"kind":"wait"}]},"image":true})),
+        Some(Event::SandboxCall {
+            call_id: "s-1".into(),
+            conversation_id: "app:dm:nimbus".into(),
+            tool: "computer_act".into(),
+            args: json!({"actions":[{"kind":"wait"}]}),
+            image: true
+        })
+    );
+    // no image field: false; args missing or not an object: an empty object (the dispatcher answers with an error)
+    assert_eq!(
+        event(json!({"v":1,"type":"sandbox_call","callId":"s-2","conversationId":"c","tool":"computer_observe"})),
+        Some(Event::SandboxCall { call_id: "s-2".into(), conversation_id: "c".into(), tool: "computer_observe".into(), args: json!({}), image: false })
+    );
+    assert!(matches!(event(json!({"v":1,"type":"sandbox_call","callId":"s-3","conversationId":"c","tool":"x","args":[1]})), Some(Event::SandboxCall { args, .. }) if args == json!({})));
+    // an id, a conversation and a tool are needed; the call id is not empty
+    for broken in [
+        json!({"v":1,"type":"sandbox_call","conversationId":"c","tool":"t"}),
+        json!({"v":1,"type":"sandbox_call","callId":"","conversationId":"c","tool":"t"}),
+        json!({"v":1,"type":"sandbox_call","callId":"a","tool":"t"}),
+        json!({"v":1,"type":"sandbox_call","callId":"a","conversationId":"c"}),
+        json!({"v":2,"type":"sandbox_call","callId":"a","conversationId":"c","tool":"t"}),
+    ] {
+        assert_eq!(event(broken.clone()), None, "{broken}");
+    }
+    // in a post it costs only itself
+    let parsed = parse_post(&post(vec![json!({"v":1,"type":"sandbox_call"}), json!({"v":1,"type":"typing","conversationId":"c","on":true})])).unwrap();
+    assert_eq!(parsed.len(), 1);
+}
+
+#[test]
+fn the_result_items_and_the_capabilities_are_what_the_brain_reads() {
+    let ok = sandbox_result_ok("s-1", json!({"width":160}));
+    assert_eq!(ok, json!({"v":1,"type":"sandbox_result","callId":"s-1","ok":true,"result":{"width":160}}));
+    let err = sandbox_result_err("s-2", "LEASE_HELD_BY_PERSON", "wait", true);
+    assert_eq!(err, json!({"v":1,"type":"sandbox_result","callId":"s-2","ok":false,"error":{"code":"LEASE_HELD_BY_PERSON","message":"wait","needsYou":true}}));
+    let plain = sandbox_result_err("s-3", "BAD_ARGS", "no", false);
+    assert!(plain["error"].get("needsYou").is_none());
+    let long = sandbox_result_err("s-4", "X", &"m".repeat(1000), false);
+    assert_eq!(long["error"]["message"].as_str().unwrap().chars().count(), 400);
+    // a send keeps every field it had and gains `capabilities`
+    let with = with_capabilities(send_item(&SendFacts { id: "m", conversation_id: "app:dm:a", surface: "app", from_id: "owner", from_name: "you", trust: Trust::OwnerPc, text: "hi", context: None, tools: Tools::Full }), true);
+    assert_eq!(with["capabilities"], json!({"sandbox": true}));
+    assert_eq!(with["type"], "send");
+    assert_eq!(with["text"], "hi");
+    assert_eq!(with_capabilities(json!({"v":1,"type":"persona","pack":"fish"}), false)["capabilities"]["sandbox"], false);
+}

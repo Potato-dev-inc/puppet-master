@@ -18,7 +18,9 @@
 //!   holder's (taken over, expired, released) is `LEASE_LOST`;
 //! - the person's take-over takes a new, higher fence. A bot never takes the screen from the person: it
 //!   waits for "I'm done" or "Skip" (hand back), then takes a new lease;
-//! - "Needs you" is the bot asking the person to step in: a card that lasts 30 minutes.
+//! - "Needs you" is the bot asking the person to step in: a card that lasts 30 minutes. A bot asks and then ends its turn
+//!   ("I need a code from you"), so a run that ends with its card open keeps its lease and its card ("parked") until the
+//!   person answers (take over, Skip), the card runs out, or the same run starts working again in its next turn.
 //!
 //! Pure: times are passed in as epoch milliseconds, so tests use no clock.
 
@@ -182,6 +184,8 @@ pub struct ScreenLease {
     high_fence: u64,
     card: Option<NeedsYou>,
     cards_made: u64,
+    /// The run that asked ended its turn with the card open: both wait for the person (see `end_run`).
+    parked: bool,
 }
 
 impl ScreenLease {
@@ -202,6 +206,7 @@ impl ScreenLease {
         self.high_fence = fence;
         self.last_id = Some(id.clone());
         self.current = Some(Lease { id: id.clone(), holder, run_id: run_id.to_string(), expires_ms: now_ms + LEASE_TTL_MS, displaced });
+        self.parked = false;
         id
     }
 
@@ -213,6 +218,10 @@ impl ScreenLease {
                 Holder::Person => return Err(LeaseError::PersonHasControl),
                 Holder::Bot(owner) if owner == bot && lease.run_id == run_id => {
                     let id = lease.id.clone();
+                    // The run is working again (a new turn): it is not waiting for the person any more.
+                    if std::mem::take(&mut self.parked) {
+                        self.card = None;
+                    }
                     self.renew(&id, now_ms)?;
                     return Ok(id);
                 }
@@ -234,6 +243,7 @@ impl ScreenLease {
             None => self.card.as_ref().map(|c| Displaced { bot: c.bot.clone(), run_id: c.run_id.clone() }),
         };
         self.card = None;
+        self.parked = false;
         let id = self.grant(Holder::Person, PERSON_OWNER, now_ms, displaced.clone());
         (id, displaced)
     }
@@ -273,14 +283,23 @@ impl ScreenLease {
         true
     }
 
-    /// The run ended (finished, failed or stopped): its lease and its card go.
-    pub fn end_run(&mut self, run_id: &str) {
+    /// The run ended (finished, failed or stopped): its lease and its card go. Except a run that ended its turn with a card
+    /// open and its lease still live: it is waiting for the person, so both stay (parked) until the person answers, the
+    /// card runs out, or the run takes the screen again.
+    pub fn end_run(&mut self, run_id: &str, now_ms: i64) {
+        let waiting = self.card(now_ms).is_some_and(|c| c.run_id == run_id)
+            && self.live(now_ms).is_some_and(|l| l.run_id == run_id && matches!(l.holder, Holder::Bot(_)));
+        if waiting {
+            self.parked = true;
+            return;
+        }
         if self.current.as_ref().is_some_and(|l| l.run_id == run_id && matches!(l.holder, Holder::Bot(_))) {
             self.current = None;
         }
         if self.card.as_ref().is_some_and(|c| c.run_id == run_id) {
             self.card = None;
         }
+        self.parked = false;
     }
 
     /// "I'm done": the person gives the screen back. Returns the run that was using it, so its loop can
@@ -322,7 +341,10 @@ impl ScreenLease {
     /// "Skip": the person turns the card down. The bot keeps its lease and is told to move on.
     pub fn skip(&mut self, card_id: &str) -> Result<NeedsYou, LeaseError> {
         match self.card.take() {
-            Some(card) if card.card_id == card_id => Ok(card),
+            Some(card) if card.card_id == card_id => {
+                self.parked = false;
+                Ok(card)
+            }
             other => {
                 self.card = other;
                 Err(LeaseError::NoSuchCard)
@@ -339,6 +361,7 @@ impl ScreenLease {
         let mut events = Vec::new();
         if self.card.as_ref().is_some_and(|c| now_ms >= c.expires_ms) {
             if let Some(card) = self.card.take() {
+                self.parked = false;
                 events.push(LeaseEvent::NeedsYouExpired { card_id: card.card_id, bot: card.bot, run_id: card.run_id });
             }
         }

@@ -119,6 +119,22 @@ pub enum Decision {
     Send { trust: Trust, tools: Tools, folder_rule: FolderRule },
 }
 
+/// Which kinds of tool a turn may use. Decided from the trust of the turn, which Puppet Master set when it sent the
+/// message; the brain cannot raise it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToolAccess {
+    /// Local helpers (`ask_helper`): real work on the person's computer.
+    pub helpers: bool,
+    /// The bot's own sandbox computer (`computer_*`, `browser_*`).
+    pub sandbox: bool,
+}
+
+/// The person (at the PC or paired) may use both. Anyone else may use ONLY the sandbox, which is away from
+/// the person's files: it can never start a helper.
+pub fn tool_access(trust: Trust) -> ToolAccess {
+    ToolAccess { helpers: trust.is_owner(), sandbox: true }
+}
+
 pub fn decide(facts: &Facts, config: &Config, caps: &Caps) -> Decision {
     if caps.disabled {
         return Decision::Drop(Why::Disabled);

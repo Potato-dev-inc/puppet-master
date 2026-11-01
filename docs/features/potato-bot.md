@@ -71,6 +71,7 @@ answers them.
   charged at the highest price). At 80% a note appears; at 100% the bot stops until local midnight or until you raise the limit.
 - 20 messages per minute per bot; 600 reply tokens (1500 with reasoning); at most 4 tool rounds per turn.
 - Phase 1 has one home, the desktop app. A chat app (Discord, Telegram) is a later phase.
+- A small private Linux computer the bot can use (the sandbox) is a separate Labs feature with its own settings and setup wizard: [`potato-sandbox.md`](potato-sandbox.md).
 
 ## Where it is in the code
 
@@ -81,3 +82,39 @@ The brain: `packages/potato-brain/`.
 
 Tests: `cargo test --lib potato`; `npx vitest run src/components/cockpit/potato src/components/settings`; e2e
 `potato.dm-reply` and `potato.dm-reply-and-helper` (`npm run e2e -- --only "potato.*" --no-video --headless`).
+
+
+## The Computer panel (Preview, needs the sandbox)
+
+With both Labs switches on (`potato_bot_enabled` and `potato_sandbox_enabled`) a bot's chat has a **Computer** bar under its header. With
+either switch off the bar is not drawn and every screen route answers 404.
+
+- The words say who has the screen: `Fish is using it`, `You have control`, `Needs you`, or `Not in use`.
+- **Show** opens the bot's screen (view only). **Take over** gives you the mouse and keyboard; **Hand back** gives the screen back;
+  **Skip** turns a `Needs you` card down. **Retry** appears when the screen could not connect.
+- A link to the screen lasts one hour, dies when the sandbox restarts, and a control link closes the second you lose the screen.
+- The screen password never shows on the page. It travels only in the address of the frame, after a `#`, which no server or log sees.
+- A paired phone can watch (view). Control from a phone needs your yes on this PC first; that yes is not built yet, so a phone gets
+  `PHONE_NEEDS_DESKTOP_YES`.
+
+Code: `potato/sandbox/screen.rs`, `bridge/routes/potato_screen.rs`, `components/cockpit/potato/ComputerPanel.tsx`.
+
+## The bot's computer (preview, off by default)
+
+A bot can have a small Linux computer of its own, a sandbox (a WSL 2 distro the app makes), with a screen, a mouse and a keyboard. It is away from your files. It needs two Labs switches: **Potato Bot** and **Sandbox** (`potato_sandbox_enabled`). Until a sandbox is set up and both are on, no bot is told it has a computer.
+
+The bot gets six tools: `computer_observe` and `computer_act` (up to 24 ordered actions: click, move, drag, type, key, scroll, wait, focus an app), and `browser_navigate`, `browser_snapshot` and `browser_act` (the page browser: web addresses and element refs, up to 24 actions), and `ask_person_for_screen {reason}` for when it is stuck. Puppet Master checks every call; the brain only asks.
+
+- **Protocol (v1, version safe).** A `send` item carries `capabilities: {sandbox: true|false}`. The brain offers the tools only on a turn that says true. A call is the brain event `sandbox_call {callId, conversationId, tool, args, image}`; the answer is the inbox item `sandbox_result {callId, ok, result | error {code, message, needsYou?}}`. An older brain ignores the field and the item; an older app ignores the event. The trust of a call is the one Puppet Master recorded when it sent the turn; the call cannot claim another.
+- **Who may use it.** The person (at the PC or paired) may use the computer and local helpers. Anyone else may use ONLY the computer, never a helper (`rules::tool_access`).
+- **The screen.** The bot holds the screen lease while it works (15 minutes from its last use, ended when it answers). If the person has the screen the call is `LEASE_HELD_BY_PERSON` (with `needsYou: true`: the bot says it is waiting). If the person took over and handed back, the next call is `LEASE_LOST` once ("look again before you act").
+- **Asking for help.** `ask_person_for_screen {reason}` (a login, a code sent to your phone, a check the bot cannot pass) raises the **Needs you** card on the Computer panel for 30 minutes, with **Take over** and **Skip**. The card stays after the bot ends its turn (the bot says what it needs and stops), until you answer it, it runs out, or the bot starts working again in its next turn. It costs no actions and runs no program. If you already have the screen it says so and raises nothing. **Skip** turns the card down and the bot goes on; **Take over** gives you the screen, and the bot is told to wait.
+- **Web addresses.** `http` and `https` only, no name or password in the address, and only public hosts: not `localhost`, not a private, loopback, link-local or shared address in any spelling, not a name with no dot, `.local`, `.internal` and the like. A page inside the sandbox can be opened only by a test or dev build.
+- **No saved logins, cards or pay tokens** in the page tools.
+- **Daily cap.** 500 actions per bot per day (a setting, `sandboxActionsPerDay`, 10 to 5000). A call that would pass the cap is refused whole. The count is kept next to the money in `usage/YYYY-MM.json`.
+- **A model that cannot see** (DeepSeek, today's default) gets words: the page text of the front Chrome tab, or a short note with the front window and whether the screen changed. A model that can see (the table in `core/models.ts`, or `FISHD_VISION=on`) gets the picture.
+- **What comes back is data.** The brain fences it, hides keys in it, cuts long results, trims old page state, and stops a turn that makes the same call six times in a row.
+
+One sandbox, one lease: `potato/sandbox_host.rs` owns the app's sandbox and, whenever it is set up, started, stopped, reset or removed, gives it to the Computer panel (`ScreenHub::set_source`) and to these tools (`live::install_sandbox(Port {sandbox, lease})`) with the screen hub's own lease table. Labs off, or no sandbox set up: both get nothing, so no tool is offered and the panel is hidden.
+
+Code: `potato/sandbox_calls.rs` (the dispatcher), `potato/sandbox/browser.rs` (the page tool's arguments and the checks), `packages/potato-brain/src/core/sandbox-tools.ts` (the tools). Tests: `cargo test --lib potato`; `node --test test/sandbox-*.test.ts` in `packages/potato-brain`.
