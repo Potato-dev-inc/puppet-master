@@ -1,19 +1,58 @@
 // The agent's own text (a session file) as formatted text: headings, bold, code, lists, quotes, rules and tables.
 // The tree comes from lib/chatMarkdown; every piece is a React element with text children, so no HTML from the
 // message is ever created. Links show their text and keep the address in `title`; they are not clickable.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { parseChatMarkdown, type Align, type Block, type Inline, type ListBlock } from '../../lib/chatMarkdown';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { parseChatMarkdown, type Align, type Block, type Inline, type ListBlock, type ListItem } from '../../lib/chatMarkdown';
 import '../../styles/chat-copy.css';
 
 export interface ChatMarkdownProps {
   text: string;
+  /** Given, an http(s) link is a real link that hands its address here (the app's external-link helper) instead of
+   *  navigating. Absent, links stay inert text with the address in `title`. Other schemes are never links. */
+  onOpenLink?: (url: string) => void;
 }
+
+const OpenLink = createContext<((url: string) => void) | undefined>(undefined);
+
+const WEB_URL = /^https?:\/\/[^\s<>"']+$/i;
 
 /** How long the button says "Copied". */
 const COPIED_MS = 1500;
 
-export function ChatMarkdown({ text }: ChatMarkdownProps) {
-  return <div className="ck-chat-md min-w-0 break-words ck-chat-text">{renderBlocks(safeParse(text))}</div>;
+export function ChatMarkdown({ text, onOpenLink }: ChatMarkdownProps) {
+  return (
+    <OpenLink.Provider value={onOpenLink}>
+      <div className="ck-chat-md min-w-0 break-words ck-chat-text">{renderBlocks(safeParse(text))}</div>
+    </OpenLink.Provider>
+  );
+}
+
+/** A link: inert text, or (when the page gave an opener and the address is http or https) a real anchor that hands the
+ *  address to the opener. The anchor never navigates on its own. */
+function LinkNode({ url, children }: { url: string; children: ReactNode }) {
+  const open = useContext(OpenLink);
+  if (!open || !WEB_URL.test(url)) {
+    return (
+      <span className="ck-chat-md-link" title={url}>
+        {children}
+      </span>
+    );
+  }
+  return (
+    <a
+      className="ck-chat-md-link ck-chat-md-link--live"
+      href={url}
+      title={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => {
+        e.preventDefault();
+        open(url);
+      }}
+    >
+      {children}
+    </a>
+  );
 }
 
 function safeParse(text: string): Block[] {
@@ -89,13 +128,42 @@ function CodeBlock({ lang, text }: { lang: string; text: string }) {
   );
 }
 
+/** A done-mark at the start of an item (a tick, then the words): the same look as a ticked task. */
+const DONE_MARK = /^[\u2713\u2714]\uFE0F?\s+/;
+
+/** What an item shows: ticked or not (a task item, or text that starts with a tick), and the inlines after the mark. */
+function itemMark(item: ListItem): { checked: boolean | null; children: Inline[] } {
+  if (item.checked !== undefined) return { checked: item.checked, children: item.children };
+  const first = item.children[0];
+  if (first && first.kind === 'text' && DONE_MARK.test(first.text)) {
+    return { checked: true, children: [{ kind: 'text', text: first.text.replace(DONE_MARK, '') }, ...item.children.slice(1)] };
+  }
+  return { checked: null, children: item.children };
+}
+
 function renderList(list: ListBlock, key?: number): ReactNode {
-  const items = list.items.map((item, k) => (
-    <li key={k}>
-      {renderInlines(item.children)}
-      {item.sub && renderList(item.sub)}
-    </li>
-  ));
+  const marks = list.items.map(itemMark);
+  const checklist = !list.ordered && marks.some((m) => m.checked !== null);
+  const items = list.items.map((item, k) => {
+    const { checked, children } = marks[k];
+    if (!checklist) {
+      return (
+        <li key={k}>
+          {renderInlines(children)}
+          {item.sub && renderList(item.sub)}
+        </li>
+      );
+    }
+    return (
+      <li key={k} className="ck-chat-md-task" data-checked={checked === null ? undefined : String(checked)}>
+        <span className="ck-chat-md-box" role="img" aria-label={checked ? 'Done' : 'Not done'} />
+        <span className="ck-chat-md-task-body">
+          {renderInlines(children)}
+          {item.sub && renderList(item.sub)}
+        </span>
+      </li>
+    );
+  });
   if (list.ordered) {
     return (
       <ol key={key} start={list.start !== 1 ? list.start : undefined} className="ck-chat-md-list ck-chat-md-ol">
@@ -103,7 +171,7 @@ function renderList(list: ListBlock, key?: number): ReactNode {
       </ol>
     );
   }
-  return <ul key={key} className="ck-chat-md-list ck-chat-md-ul">{items}</ul>;
+  return <ul key={key} className={`ck-chat-md-list ck-chat-md-ul${checklist ? ' ck-chat-md-checklist' : ''}`}>{items}</ul>;
 }
 
 function alignClass(align: Align): string | undefined {
@@ -163,9 +231,9 @@ function renderInline(node: Inline, key: number): ReactNode {
       return <em key={key}>{renderInlines(node.children)}</em>;
     case 'link':
       return (
-        <span key={key} className="ck-chat-md-link" title={node.url}>
+        <LinkNode key={key} url={node.url}>
           {renderInlines(node.children)}
-        </span>
+        </LinkNode>
       );
   }
 }

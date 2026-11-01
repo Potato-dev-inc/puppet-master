@@ -1,14 +1,16 @@
-// One bot's thread (spec section 4), put together from its parts: the header, the "Needs you" banner, the message list,
-// a card when the bot cannot answer, and the message box. Your bubbles are filled, the bot's are outlined. No colour.
+// One bot's thread (spec section 4), put together from its parts: the header, the "Needs you" banner, the first-run
+// greeting and choice card (a new bot only), the message list, a card when the bot cannot answer, and the message box. Your bubbles are filled, the bot's are outlined. No colour.
 // The computer itself lives in the bot panel (BotPanel); the thread only says when the bot needs the person there.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AvatarId } from '../../../lib/companion';
 import { COPY, plainError, type PotatoBotView, type PotatoMessage, type PotatoSettings, type PotatoTransport, type TalkPersona } from '../../../lib/potato';
+import { firstRunDone, isNewBot, markFirstRunDone } from '../../../lib/potato-firstrun';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { SessionChatPanel } from '../../chat/SessionChatPanel';
 import { BrainStateCard } from './BrainStateCard';
 import { Composer } from './Composer';
 import { ComputerBanner, bannerDue } from './ComputerBanner';
+import { FirstMessage } from './FirstMessage';
 import { ThreadHeader } from './ThreadHeader';
 import { Transcript } from './Transcript';
 import { useScreenState } from './useScreenState';
@@ -52,15 +54,28 @@ export interface ThreadViewProps {
   screen?: ScreenTransport;
   /** The bot panel next to the thread. Absent: no panel button and no banner button. */
   panel?: ThreadPanel;
+  /** `/new` in the message box: start the new-bot flow. Absent: the command is not offered. */
+  onNewBot?: () => void;
   /** Passed in so a test can pin the clock. */
   now?: number;
 }
 
 export function ThreadView(props: ThreadViewProps) {
-  const { bot, messages, settings, avatar, agentLabel, transport, onOpenSettings, onNotify, onChanged, companionPaneId, onOpenCompanion, onOpenPane, paneExists, screen, panel, now = Date.now() } = props;
+  const { bot, messages, settings, avatar, agentLabel, transport, onOpenSettings, onNotify, onChanged, companionPaneId, onOpenCompanion, onOpenPane, paneExists, screen, panel, onNewBot, now = Date.now() } = props;
   const [follow, setFollow] = useState(0);
   const through = settings.brain === 'agents' || bot.brainState === 'agents';
   const screenState = useScreenState(through ? undefined : screen);
+  // A new bot (no messages yet) opens with the scripted first message. Once it has been used, the marker keeps it gone.
+  const newBot = isNewBot(bot, messages);
+  const [firstDone, setFirstDone] = useState(() => firstRunDone(bot.id));
+  useEffect(() => {
+    if (newBot) return;
+    markFirstRunDone(bot.id);
+    setFirstDone(true);
+  }, [newBot, bot.id]);
+  const showFirst = newBot && !firstDone;
+  // "Use the computer" is offered only while the sandbox Labs switch is on.
+  const computerOn = screenState?.enabled === true;
 
   const run = async (call: () => Promise<unknown>, failed: string) => {
     try {
@@ -69,6 +84,10 @@ export function ThreadView(props: ThreadViewProps) {
     } catch (error) {
       onNotify(plainError(error, failed));
     }
+  };
+  const pickFirst = (text: string) => {
+    setFollow((n) => n + 1);
+    return run(() => transport.send(bot.id, text), 'Could not send that.');
   };
 
   const head = (
@@ -114,6 +133,7 @@ export function ThreadView(props: ThreadViewProps) {
       {panel && bannerDue(screenState, bot.id, panel.computerShown) && (
         <ComputerBanner botName={bot.name} reason={screenState?.reason ?? null} onOpen={panel.onOpenComputer} />
       )}
+      {showFirst && <FirstMessage name={bot.name} persona={bot.talkPersona} computerOn={computerOn} onPick={pickFirst} />}
       <Transcript
         bot={bot}
         messages={messages}
@@ -123,6 +143,7 @@ export function ThreadView(props: ThreadViewProps) {
         onOpenPane={onOpenPane}
         paneExists={paneExists}
         followToken={follow}
+        hideEmpty={showFirst}
         now={now}
       />
 
@@ -142,7 +163,14 @@ export function ThreadView(props: ThreadViewProps) {
         onOpenSettings={onOpenSettings}
       />
 
-      <Composer bot={bot} transport={transport} onChanged={onChanged} onNotify={onNotify} onSent={() => setFollow((n) => n + 1)} />
+      <Composer
+        bot={bot}
+        transport={transport}
+        onChanged={onChanged}
+        onNotify={onNotify}
+        onSent={() => setFollow((n) => n + 1)}
+        actions={{ onNewBot, onOpenComputer: panel?.onOpenComputer }}
+      />
     </section>
   );
 }

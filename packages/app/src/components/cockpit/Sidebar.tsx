@@ -408,7 +408,7 @@ export function Sidebar({
             aria-current={potatoOpen ? 'true' : undefined}
             onClick={onOpenPotato}
           >
-            <span className="ck-row-glyph ck-row-glyph--icon">
+            <span className="ck-row-glyph ck-row-glyph--icon ck-row-glyph--potato">
               <IconChat />
             </span>
             <span className="ck-row-main">

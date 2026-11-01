@@ -1,9 +1,9 @@
 name: CI
 
+# Manual only (founder 2026-11-01): checks run locally on the dev PC before merging
+# (D:/pm-night/local-ci.sh mirrors these jobs). Use "Run workflow" on GitHub to run them there.
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read

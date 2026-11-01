@@ -56,8 +56,20 @@
   display: flex;
   flex-direction: column;
 }
+/* The list and the floating "Jump to latest" button over its bottom edge. */
+.cockpit .ck-potato-body-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .cockpit .ck-potato-body {
   padding: 16px 20px 8px;
+}
+.cockpit .ck-potato-empty {
+  margin: 24px 0 0;
+  text-align: center;
 }
 .cockpit .ck-potato-rows {
   margin: 0;
@@ -106,8 +118,14 @@
 .cockpit .ck-potato-line:first-child {
   margin-top: 0;
 }
+/* Yours sit on the right; the toolbar comes before the bubble, so reversing the row puts it on the left. */
+.cockpit .ck-potato-line {
+  align-items: flex-start;
+  gap: 6px;
+}
 .cockpit .ck-potato-line--you {
-  justify-content: flex-end;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
 }
 .cockpit .ck-potato-bubble {
   max-width: min(560px, 78%);
@@ -129,6 +147,286 @@
   color: var(--label);
   border: 1px solid var(--sep);
 }
+/* The bot's words are Markdown: block spacing is the Markdown's own, so the bubble keeps line breaks off. */
+.cockpit .ck-potato-bubble--md {
+  white-space: normal;
+  min-width: 0;
+}
+.cockpit .ck-potato-bubble--md .ck-chat-md {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cockpit .ck-potato-bubble--md .ck-chat-md-pre {
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+.cockpit .ck-potato-bubble--md .ck-chat-md-code-wrap {
+  margin: 2px 0;
+}
+
+/* ---------- hover toolbar: Copy, Reply ---------- */
+.cockpit .ck-potato-actions {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--sep);
+  border-radius: 9px;
+  background: var(--bg-float);
+  box-shadow: var(--raise-hi);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  opacity: 0;
+  transform: translateY(2px);
+  pointer-events: none;
+  transition:
+    opacity 150ms var(--ease),
+    transform 150ms var(--ease);
+}
+.cockpit .ck-potato-line:hover .ck-potato-actions,
+.cockpit .ck-potato-line:focus-within .ck-potato-actions {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.cockpit .ck-potato-action {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--ease),
+    color 150ms var(--ease);
+}
+.cockpit .ck-potato-action:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.cockpit .ck-potato-action:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+@media (hover: none) {
+  .cockpit .ck-potato-actions {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  .cockpit .ck-potato-action {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+}
+
+/* ---------- the lines between messages ---------- */
+.cockpit .ck-potato-sep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--label-3);
+  list-style: none;
+}
+.cockpit .ck-potato-sep--day {
+  gap: 10px;
+  margin-top: 16px;
+  font-weight: 600;
+  color: var(--label-2);
+}
+.cockpit .ck-potato-sep--day::before,
+.cockpit .ck-potato-sep--day::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--sep);
+}
+.cockpit .ck-potato-sep--time {
+  margin-top: 6px;
+}
+.cockpit .ck-potato-sep:first-child {
+  margin-top: 0;
+}
+/* "New": a rule with the word on it, a little stronger than the others. */
+.cockpit .ck-potato-sep--unread {
+  gap: 10px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-potato-sep--unread::before,
+.cockpit .ck-potato-sep--unread::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--label-4);
+}
+
+/* ---------- tool activity: one folded line per run ---------- */
+.cockpit .ck-potato-activity {
+  margin-top: 8px;
+  list-style: none;
+}
+.cockpit .ck-potato-activity-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 8px 3px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--label-3);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--ease),
+    color 150ms var(--ease);
+}
+.cockpit .ck-potato-activity-head:hover {
+  background: var(--fill-hover);
+  color: var(--label-2);
+}
+.cockpit .ck-potato-activity-head:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-potato-chevron {
+  display: inline-grid;
+  place-items: center;
+  transition: transform 150ms var(--ease);
+}
+.cockpit .ck-potato-chevron[data-open] {
+  transform: rotate(90deg);
+}
+.cockpit .ck-potato-activity-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-potato-steps {
+  margin: 4px 0 0 10px;
+  padding: 0 0 0 12px;
+  border-left: 1px solid var(--sep);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-potato-step {
+  display: grid;
+  grid-template-columns: 16px auto 1fr;
+  align-items: baseline;
+  column-gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--label-2);
+}
+.cockpit .ck-potato-step-mark {
+  display: inline-grid;
+  place-items: center;
+  align-self: center;
+  color: var(--label-3);
+}
+.cockpit .ck-potato-step.is-failed {
+  color: var(--label);
+}
+.cockpit .ck-potato-step.is-failed .ck-potato-step-mark {
+  color: var(--label);
+}
+.cockpit .ck-potato-step.is-failed .ck-potato-step-label {
+  font-weight: 600;
+}
+.cockpit .ck-potato-step-text {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-potato-step-sum {
+  color: var(--label-3);
+}
+.cockpit .ck-potato-step-details {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--label-3);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cockpit .ck-potato-step-details:hover {
+  color: var(--label);
+}
+.cockpit .ck-potato-step-raw {
+  grid-column: 2 / -1;
+  max-height: 160px;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--label-2);
+  font: 11px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Jump to latest ---------- */
+.cockpit .ck-potato-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--sep);
+  border-radius: 14px;
+  background: var(--bg-float);
+  box-shadow: var(--float-shadow);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  color: var(--label);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cockpit .ck-potato-jump:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-potato-jump:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-potato-actions,
+  .cockpit .ck-potato-action,
+  .cockpit .ck-potato-activity-head,
+  .cockpit .ck-potato-chevron {
+    transition: none;
+  }
+}
+
 .cockpit .ck-potato-note {
   margin: 10px auto 2px;
   padding: 0 8px;

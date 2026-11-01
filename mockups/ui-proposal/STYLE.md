@@ -1,5 +1,10 @@
 # UI proposal — style spec (v2)
 
+> **Update 2026-11-01 (theme v4): the token values below are superseded.** The dark surfaces are layered warm charcoal
+> (`#1b1a19`, `#211f1e`, `#292725`) instead of near-black, and there is ONE accent, Potato orange, for focus, the active
+> row marker, the composer send button, Needs you and the Potato Bot identity (about 1 to 5 percent of the pixels). The
+> "no hue" ban now reads "no hue except the accent". Current values, uses and contrast numbers: `docs/design/theme.md`.
+
 Direction: **monochrome, minimalist, tool-like** (think Cursor / Codex / Linear density), **finished like Apple**
 (macOS System Settings, iOS grouped lists, SF typography, hairlines, restraint). This replaces the coloured
 Liquid Glass look in DESIGN.md for these mockups.

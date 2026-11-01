@@ -17,6 +17,8 @@ import { bot, buttonByText, msg, note, typeInto, you } from './test-helpers';
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  // Each bot keeps its unsent text in localStorage; one test must not leave a draft for the next.
+  window.localStorage.clear();
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
