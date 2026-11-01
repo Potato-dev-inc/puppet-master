@@ -12,6 +12,7 @@
 //! - `keeper`: the pure state machine of one brain process (lazy start, idle stop, crash backoff)
 //! - `sidecar`: the IO of the process (finding Node, starting hidden, stopping the whole tree)
 //! - `store`: the files in `<app data>/potato/` (bots, settings, conversations, persona seeding)
+//! - `artifacts`: the files a bot made or received (versions by name, previews, "Save as file", download, delete)
 //! - `cost`: pricing the tokens the brain reports and judging them against the daily limit
 //! - `log`: the 200-line log ring, every line cleaned
 //! - `helpers`: Start / Change folder / Not now, the caps, and watching a helper until it ends
@@ -31,6 +32,7 @@
 //! Keys and tokens live only in the OS credential store and in the brain's environment. Nothing here
 //! names an agent or a chat app: a chat app's code would live only in `potato/surfaces/<app>/`.
 
+pub mod artifacts;
 pub mod auth;
 pub mod cost;
 pub mod env;
@@ -50,6 +52,8 @@ pub mod sidecar;
 pub mod store;
 pub mod window_guard;
 
+#[cfg(test)]
+mod artifacts_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]

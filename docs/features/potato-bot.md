@@ -84,6 +84,17 @@ Tests: `cargo test --lib potato`; `npx vitest run src/components/cockpit/potato 
 `potato.dm-reply` and `potato.dm-reply-and-helper` (`npm run e2e -- --only "potato.*" --no-video --headless`).
 
 
+## Artifacts (Preview)
+
+Files a bot made or received are kept under `<app data>/potato/artifacts/<bot>/` (`index.json` plus one file per version;
+the same name again is a new version). A chat message can be saved as a Markdown file: hover a message and press
+**Save as file**. The **Artifacts** button in the bot list's header opens the page: filters by bot, kind and name, a list or a
+grid, and a preview. Text and Markdown show as plain text; an HTML file runs in a frame with `sandbox=""` (no scripts, no
+same-origin) and a policy that blocks network loads; PDFs and other files are downloaded or shown in their folder. Rust:
+`potato/artifacts.rs`, commands `commands/potato_artifacts.rs`; UI: `ArtifactsPage.tsx`, `ArtifactPreview.tsx`,
+`ArtifactSandbox.tsx`, `SaveAsFile.tsx`, `lib/potato-artifacts.ts`. Not yet: files the person attaches in chat (the
+`attach_file` brain tool), the date filter, and a maximise button.
+
 ## The Computer panel (Preview, needs the sandbox)
 
 With both Labs switches on (`potato_bot_enabled` and `potato_sandbox_enabled`) a bot's chat has a **Computer** bar under its header. With

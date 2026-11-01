@@ -10,6 +10,7 @@ import { usePotatoThread } from '../../../hooks/usePotato';
 import { CompanionSetupSheet } from '../companion/CompanionSetupSheet';
 import { DEFAULT_TAB, type PanelTab } from '../../../lib/potato-panel';
 import { BotList } from './BotList';
+import { ArtifactsPage } from './ArtifactsPage';
 import { BotPanel } from './BotPanel';
 import { PotatoLayout } from './PotatoLayout';
 import { ThreadView } from './ThreadView';
@@ -45,6 +46,8 @@ export interface PotatoPageProps {
 export function PotatoPage(props: PotatoPageProps) {
   const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport } = props;
   const [sheetOpen, setSheetOpen] = useState(false);
+  // The Artifacts page takes the thread's place while it is open; opening a bot gives the thread back.
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
   const open = pickOpenBot(state.bots, openBotId);
   const layout = usePotatoLayout();
   // The tab each bot's panel was last on (not remembered between runs).
@@ -76,15 +79,20 @@ export function PotatoPage(props: PotatoPageProps) {
       bots={state.bots}
       avatars={avatars}
       openId={open?.id ?? null}
-      onOpen={onOpenBot}
+      onOpen={(botId) => {
+        setArtifactsOpen(false);
+        onOpenBot(botId);
+      }}
       onNew={() => setSheetOpen(true)}
       candidates={candidates}
       onUseCompanion={(id) => void makeBot(id)}
       mini={layout.listMini}
       onToggleMini={layout.toggleList}
+      onArtifacts={() => setArtifactsOpen((was) => !was)}
+      artifactsOpen={artifactsOpen}
     />
   );
-  const thread = open ? (
+  const chat = open ? (
     <ThreadView
       key={open.id}
       bot={open}
@@ -113,6 +121,11 @@ export function PotatoPage(props: PotatoPageProps) {
     />
   ) : (
     <div className="ck-potato-blank" aria-hidden="true" />
+  );
+  const thread = artifactsOpen ? (
+    <ArtifactsPage bots={state.bots.map((b) => ({ id: b.id, name: b.name }))} transport={transport.artifacts} onClose={() => setArtifactsOpen(false)} onNotify={onNotify} />
+  ) : (
+    chat
   );
   const panel = panelOpen && open ? (
     <BotPanel

@@ -2,6 +2,7 @@
 // (markdown, hover actions, reply lines); Transcript only decides the order.
 import { formatWhen, type PotatoMessage, type PotatoTransport } from '../../../lib/potato';
 import { HelperCard } from './HelperCard';
+import { SaveAsFile } from './SaveAsFile';
 import type { ThreadRow } from './model';
 
 export interface MessageRowProps {
@@ -63,6 +64,7 @@ export function MessageRow({ row, botId, botName, agentLabel, transport, onChang
       <div className={`ck-potato-bubble ck-potato-bubble--${row.side}`} title={formatWhen(m.at, now)}>
         {m.text}
       </div>
+      <SaveAsFile botId={botId} messageId={m.id} files={transport.artifacts} />
     </li>
   );
 }
