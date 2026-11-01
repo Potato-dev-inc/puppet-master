@@ -93,7 +93,36 @@ describe('DeskPage', () => {
     await act(async () => button('Try again')?.click());
     await flush();
     expect(host.textContent).toContain('On · 2 screens');
-    expect(h.invoke).toHaveBeenLastCalledWith('desk_snapshot');
+    expect(h.invoke).toHaveBeenCalledWith('desk_snapshot');
+  });
+
+  it('lists paired computers, turns a switch on, and shows the question from another computer', async () => {
+    /** Test-only fixture. */
+    const view = {
+      hosting: null,
+      pending: { id: 3, role: 'host', name: 'Laptop', code: '4F7Q-9K2M', expires_at: 1 },
+      joining: null,
+      message: null,
+      locked_until: null,
+      tampered: false,
+      devices: [{ node: 'ab'.repeat(32), name: 'Tower', added_at: 1, online: null, allowed: [] }],
+    };
+    h.invoke.mockImplementation(async (name: string, args?: Record<string, unknown>) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'pair_view') return view;
+      if (name === 'trust_set_permission') return { ...view, pending: null };
+      if (name === 'pair_answer') return { ...view, pending: null };
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    expect(host.textContent).toContain('Tower');
+    expect(document.body.textContent).toContain('Laptop wants to pair');
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'No')!.click());
+    expect(h.invoke).toHaveBeenCalledWith('pair_answer', { id: 3, allow: false });
+    await flush();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Files for Tower"]')!.click());
+    expect(h.invoke).toHaveBeenCalledWith('trust_set_permission', { node: 'ab'.repeat(32), capability: 'files', on: true });
   });
 
   it('draws nothing while the Labs switch is off', async () => {
@@ -111,7 +140,9 @@ describe('DeskPage', () => {
     expect(host.textContent).toContain('On · 2 screens');
     expect(host.textContent).toContain('Move your mouse to another screen with a shortcut.');
     expect(host.textContent).toContain('Screen 1 · 2560×1440 · main');
-    expect(host.textContent).toContain('Coming next: share mouse and keyboard with your other computers.');
+    expect(host.textContent).toContain('Your computers');
+    expect(host.textContent).not.toContain('Coming next');
+    expect(host.textContent).toContain('Only this computer is here. Add another to share one mouse.');
   });
 
   it('the switch calls set_hops_enabled with the opposite value', async () => {

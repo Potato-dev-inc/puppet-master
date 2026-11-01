@@ -170,6 +170,7 @@ fn apply_public_settings(effective: &Value) {
     crate::potato::live::apply_settings(effective);
     crate::acp::apply_settings(effective);
     crate::desk::apply_settings(effective);
+    crate::pairing_commands::apply_settings(effective);
 }
 
 /// Merge `patch` into the public mirror (bridge state + mobile SSE) without any window event.

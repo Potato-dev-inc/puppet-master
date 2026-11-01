@@ -131,12 +131,12 @@ describe('BrainStateCard', () => {
     registerSettingsOpener(null);
   });
 
-  it('Repair install opens the Potato section when no repair row exists', () => {
+  it('Repair install opens Settings > Agents on the Check my setup row', () => {
     const opener = vi.fn();
     registerSettingsOpener(opener);
     show({ state: 'missing_program' });
     act(() => buttonByText(host, 'Repair install')!.click());
-    expect(opener).toHaveBeenCalledWith('potato');
+    expect(opener).toHaveBeenCalledWith('setup-check');
     registerSettingsOpener(null);
   });
 

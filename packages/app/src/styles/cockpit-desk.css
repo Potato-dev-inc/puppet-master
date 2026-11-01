@@ -318,3 +318,116 @@
 .cockpit .ck-desk-switch-row .ck-desk-hint {
   display: block;
 }
+
+/* Your computers: paired devices, the add sheet, the question sheet. */
+.cockpit .ck-desk-devices,
+.cockpit .ck-desk-caps,
+.cockpit .ck-desk-nearby {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cockpit .ck-desk-device {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-desk-device:first-child {
+  border-top: 0;
+}
+.cockpit .ck-desk-caps {
+  padding-left: 12px;
+}
+.cockpit .ck-desk-device-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--label-3);
+}
+.cockpit .ck-desk-dot {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--label-3);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.cockpit .ck-desk-dot.is-on {
+  background: var(--label);
+  border-color: var(--label);
+}
+.cockpit .ck-desk-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-desk-code {
+  margin: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--label);
+}
+.cockpit .ck-desk-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.cockpit .ck-desk-tab {
+  flex: 1;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cockpit .ck-desk-tab.is-on {
+  background: var(--bg-raised);
+  color: var(--label);
+  box-shadow: var(--raise-hi);
+}
+.cockpit .ck-desk-tab:focus-visible,
+.cockpit .ck-desk-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cockpit .ck-desk-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cockpit .ck-desk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-desk-input {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+}
+.cockpit .ck-desk-code-input {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}
+.cockpit .ck-desk-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
