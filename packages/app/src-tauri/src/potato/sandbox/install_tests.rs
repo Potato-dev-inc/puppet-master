@@ -605,3 +605,40 @@ fn error_texts_are_plain() {
     }
     assert_eq!(apply_exit_reason(None), "it stopped unexpectedly");
 }
+
+fn cancel_a_hanging_step(setup: impl Fn(&mut super::fakes_tests::State), needle: &str) {
+    let rig = rig();
+    setup(&mut rig.guest.st.lock());
+    let cancel = AtomicBool::new(false);
+    let began = std::time::Instant::now();
+    std::thread::scope(|scope| {
+        let job = scope.spawn(|| go(&rig, &options(), &cancel).0);
+        let waited = std::time::Instant::now();
+        while !rig.guest.joined().iter().any(|c| c.contains(needle)) {
+            assert!(waited.elapsed() < std::time::Duration::from_secs(5), "{needle} never ran");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        cancel.store(true, Ordering::SeqCst);
+        assert_eq!(job.join().unwrap().unwrap_err(), InstallError::Cancelled);
+    });
+    assert!(began.elapsed() < std::time::Duration::from_secs(3), "the step was stopped now, not at its time limit");
+    // the half-made distro is taken away (ours only), and no later step ran
+    assert!(rig.guest.st.lock().installed.is_empty());
+    let calls = rig.guest.joined();
+    assert!(calls.iter().any(|c| c.starts_with("--unregister pm-sbx-")), "{calls:?}");
+    for c in calls.iter().filter(|c| c.starts_with("--unregister") || c.starts_with("--terminate")) {
+        assert!(c.ends_with(main_name().as_str()), "only our own distro: {c}");
+    }
+    assert!(!calls.iter().any(|c| c.starts_with("--export")));
+    assert!(rig.records.load(&main_name()).is_none(), "the record is gone, so Set up can start again");
+}
+
+#[test]
+fn a_cancel_stops_the_recipe_step_that_is_running() {
+    cancel_a_hanging_step(|st| st.hang_apply = true, "apply-recipe.py");
+}
+
+#[test]
+fn a_cancel_stops_the_download_that_is_running() {
+    cancel_a_hanging_step(|st| st.hang_install = true, "--install");
+}

@@ -20,6 +20,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -136,6 +137,8 @@ pub enum WslError {
     Timeout,
     /// The process did not start (the OS text, for the log).
     Start(String),
+    /// The caller's cancel flag was set: the process was killed (with its children) and nothing more ran.
+    Cancelled,
     /// The process ended with a failure code. A short cleaned piece of what it printed.
     Failed { code: Option<i32>, detail: String },
 }
@@ -146,6 +149,7 @@ impl std::fmt::Display for WslError {
             WslError::Refused(why) => write!(f, "refused: {why}"),
             WslError::NotAvailable => f.write_str("Windows' Linux feature is not available"),
             WslError::Timeout => f.write_str("the Linux call took too long"),
+            WslError::Cancelled => f.write_str("the Linux call was cancelled"),
             WslError::Start(e) => write!(f, "could not start wsl: {e}"),
             WslError::Failed { code, detail } => write!(f, "wsl failed (code {code:?}): {detail}"),
         }
@@ -217,17 +221,19 @@ pub struct Call {
     pub args: Vec<String>,
     pub stdin: Option<Vec<u8>>,
     pub timeout: Duration,
+    /// When set to true while the call runs, the runner kills the call's process tree and answers `Cancelled`.
+    pub cancel: Option<Arc<AtomicBool>>,
     /// Set only by `Wsl::enable_windows_feature`, which needs a `Consent`.
     consented: bool,
 }
 
 impl Call {
     pub fn new(args: &[&str]) -> Self {
-        Self { args: args.iter().map(|a| a.to_string()).collect(), stdin: None, timeout: SHORT, consented: false }
+        Self { args: args.iter().map(|a| a.to_string()).collect(), stdin: None, timeout: SHORT, cancel: None, consented: false }
     }
 
     pub fn from_args(args: Vec<String>) -> Self {
-        Self { args, stdin: None, timeout: SHORT, consented: false }
+        Self { args, stdin: None, timeout: SHORT, cancel: None, consented: false }
     }
 
     pub fn stdin(mut self, bytes: Vec<u8>) -> Self {
@@ -237,6 +243,11 @@ impl Call {
 
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    pub fn cancel(mut self, flag: Option<Arc<AtomicBool>>) -> Self {
+        self.cancel = flag;
         self
     }
 }
@@ -262,6 +273,7 @@ pub struct Prepared {
     pub args: Vec<String>,
     pub stdin: Option<Vec<u8>>,
     pub timeout: Duration,
+    pub cancel: Option<Arc<AtomicBool>>,
     pub verb: Verb,
 }
 
@@ -398,7 +410,7 @@ fn gate(call: Call) -> Result<Prepared, WslError> {
     if call.stdin.as_ref().is_some_and(|s| s.len() > STDIN_CAP) {
         return Err(WslError::Refused("the stdin stream is too big"));
     }
-    Ok(Prepared { args: call.args, stdin: call.stdin, timeout: call.timeout, verb })
+    Ok(Prepared { args: call.args, stdin: call.stdin, timeout: call.timeout, cancel: call.cancel, verb })
 }
 
 /// The one function every `wsl.exe` call passes through (`run_streaming` and `spawn_holder` are the same
@@ -463,11 +475,27 @@ pub struct FeatureResult {
 #[derive(Clone)]
 pub struct Wsl {
     runner: Arc<dyn Runner>,
+    /// When set, every call made through this handle is killed (with its process tree) once the flag turns true.
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl Wsl {
     pub fn new(runner: Arc<dyn Runner>) -> Self {
-        Self { runner }
+        Self { runner, cancel: None }
+    }
+
+    /// The same Wsl, whose calls stop when `flag` turns true. The original handle is not changed, so a clean-up
+    /// made through it still runs.
+    pub fn with_cancel(&self, flag: Arc<AtomicBool>) -> Self {
+        Self { runner: self.runner.clone(), cancel: Some(flag) }
+    }
+
+    fn run_call(&self, call: Call) -> Result<Output, WslError> {
+        run(self.runner(), call.cancel(self.cancel.clone()))
+    }
+
+    fn run_call_streaming(&self, call: Call, on_line: &mut dyn FnMut(&str)) -> Result<Output, WslError> {
+        run_streaming(self.runner(), call.cancel(self.cancel.clone()), on_line)
     }
 
     /// The real thing, when this computer has `wsl.exe`.
@@ -482,11 +510,11 @@ impl Wsl {
 
     /// True when `wsl --status` answers with success. A PC without the feature says no.
     pub fn is_available(&self) -> bool {
-        run(self.runner(), Call::new(&["--status"])).map(|o| o.success()).unwrap_or(false)
+        self.run_call(Call::new(&["--status"])).map(|o| o.success()).unwrap_or(false)
     }
 
     pub fn list(&self) -> Result<Vec<Distro>, WslError> {
-        let out = run(self.runner(), Call::new(&["--list", "--verbose"]))?;
+        let out = self.run_call(Call::new(&["--list", "--verbose"]))?;
         Ok(parse_list(&out.stdout_text()))
     }
 
@@ -501,7 +529,7 @@ impl Wsl {
 
     /// Asks for the running distros by name only (the words around them are localized, the names are not).
     pub fn is_running(&self, name: &SandboxName) -> Result<bool, WslError> {
-        let out = run(self.runner(), Call::new(&["--list", "--running", "--quiet"]))?;
+        let out = self.run_call(Call::new(&["--list", "--running", "--quiet"]))?;
         Ok(out.stdout_text().lines().any(|l| l.trim().trim_start_matches('*').trim() == name.as_str()))
     }
 
@@ -513,25 +541,25 @@ impl Wsl {
     pub fn install_distro_streaming(&self, name: &SandboxName, dir: &Path, on_line: &mut dyn FnMut(&str)) -> Result<(), WslError> {
         let dir = dir.to_string_lossy();
         let call = Call::new(&["--install", DISTRO_IMAGE, "--name", name.as_str(), "--location", &dir, "--no-launch"]);
-        run_streaming(self.runner(), call.timeout(LONG), on_line)?.ok().map(|_| ())
+        self.run_call_streaming(call.timeout(LONG), on_line)?.ok().map(|_| ())
     }
 
     pub fn terminate(&self, name: &SandboxName) -> Result<(), WslError> {
-        run(self.runner(), Call::new(&["--terminate", name.as_str()]))?.ok().map(|_| ())
+        self.run_call(Call::new(&["--terminate", name.as_str()]))?.ok().map(|_| ())
     }
 
     pub fn unregister(&self, name: &SandboxName) -> Result<(), WslError> {
-        run(self.runner(), Call::new(&["--unregister", name.as_str()]).timeout(LONG))?.ok().map(|_| ())
+        self.run_call(Call::new(&["--unregister", name.as_str()]).timeout(LONG))?.ok().map(|_| ())
     }
 
     pub fn export(&self, name: &SandboxName, tar: &Path) -> Result<(), WslError> {
         let tar = tar.to_string_lossy();
-        run(self.runner(), Call::new(&["--export", name.as_str(), &tar]).timeout(LONG))?.ok().map(|_| ())
+        self.run_call(Call::new(&["--export", name.as_str(), &tar]).timeout(LONG))?.ok().map(|_| ())
     }
 
     pub fn import(&self, name: &SandboxName, dir: &Path, tar: &Path) -> Result<(), WslError> {
         let (dir, tar) = (dir.to_string_lossy(), tar.to_string_lossy());
-        run(self.runner(), Call::new(&["--import", name.as_str(), &dir, &tar]).timeout(LONG))?.ok().map(|_| ())
+        self.run_call(Call::new(&["--import", name.as_str(), &dir, &tar]).timeout(LONG))?.ok().map(|_| ())
     }
 
     fn guest_call(name: &SandboxName, user: GuestUser, argv: &[&str]) -> Call {
@@ -554,7 +582,7 @@ impl Wsl {
     ) -> Result<Output, WslError> {
         let mut call = Self::guest_call(name, user, argv).timeout(timeout);
         call.stdin = stdin;
-        run(self.runner(), call)
+        self.run_call(call)
     }
 
     /// Like `exec`, handing each finished stdout line to `on_line` while the program runs.
@@ -569,7 +597,7 @@ impl Wsl {
     ) -> Result<Output, WslError> {
         let mut call = Self::guest_call(name, user, argv).timeout(timeout);
         call.stdin = stdin;
-        run_streaming(self.runner(), call, on_line)
+        self.run_call_streaming(call, on_line)
     }
 
     /// Starts a process inside the distro that never ends by itself (it keeps the distro up).
@@ -581,7 +609,7 @@ impl Wsl {
     pub fn enable_windows_feature(&self, _consent: Consent) -> Result<FeatureResult, WslError> {
         let mut call = Call::new(&["--install", "--no-distribution"]).timeout(LONG);
         call.consented = true;
-        let out = run(self.runner(), call)?;
+        let out = self.run_call(call)?;
         match out.code {
             Some(0) => Ok(FeatureResult { restart_needed: false }),
             Some(EXIT_RESTART_NEEDED) => Ok(FeatureResult { restart_needed: true }),
@@ -688,6 +716,7 @@ impl Runner for LiveRunner {
             });
         }
         let deadline = Instant::now() + call.timeout;
+        let cancelled = || call.cancel.as_ref().is_some_and(|c| c.load(Ordering::SeqCst));
         let mut stdout_bytes: Vec<u8> = Vec::new();
         let mut pending: Vec<u8> = Vec::new();
         loop {
@@ -707,6 +736,12 @@ impl Runner for LiveRunner {
                 }
                 Ok(Chunk::End) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if cancelled() {
+                        crate::pty::proc_tree::kill_process_tree(child.id());
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(WslError::Cancelled);
+                    }
                     if Instant::now() >= deadline {
                         let _ = child.kill();
                         let _ = child.wait();
@@ -721,6 +756,12 @@ impl Runner for LiveRunner {
         let status = loop {
             match child.try_wait() {
                 Ok(Some(status)) => break status,
+                Ok(None) if cancelled() => {
+                    crate::pty::proc_tree::kill_process_tree(child.id());
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(WslError::Cancelled);
+                }
                 Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
                 Ok(None) => {
                     let _ = child.kill();

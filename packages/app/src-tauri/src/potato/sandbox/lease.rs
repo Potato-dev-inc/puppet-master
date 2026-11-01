@@ -131,6 +131,8 @@ pub enum LeaseError {
     LeaseLost,
     /// The person has the screen; a bot waits for "I'm done" or "Skip".
     PersonHasControl,
+    /// Another bot run holds the screen and its lease is still live; this run waits (the name is the holder's).
+    BusyWithBot(String),
     /// No such card (answered, expired or never made).
     NoSuchCard,
     /// Only the bot holding the lease can ask.
@@ -142,8 +144,19 @@ impl LeaseError {
         match self {
             LeaseError::LeaseLost => LEASE_LOST,
             LeaseError::PersonHasControl => "LEASE_PERSON_HAS_CONTROL",
+            LeaseError::BusyWithBot(_) => "LEASE_BUSY_WITH_BOT",
             LeaseError::NoSuchCard => "LEASE_NO_SUCH_CARD",
             LeaseError::NotTheHolder => "LEASE_NOT_HOLDER",
+        }
+    }
+}
+
+impl LeaseError {
+    /// Plain words for the bot that was turned away.
+    pub fn message(&self) -> String {
+        match self {
+            LeaseError::BusyWithBot(other) => format!("Fish's computer is busy with {other}. Wait and try again."),
+            other => other.code().to_string(),
         }
     }
 }
@@ -210,8 +223,8 @@ impl ScreenLease {
         id
     }
 
-    /// A bot run takes the screen. A run that already holds it gets its own lease back (renewed). A newer
-    /// run takes it from an older bot run. Never from the person.
+    /// A bot run takes the screen. A run that already holds it gets its own lease back (renewed). Never from another bot run whose
+    /// lease is live (it is told the computer is busy), and never from the person.
     pub fn take_for_bot(&mut self, bot: &str, run_id: &str, now_ms: i64) -> Result<String, LeaseError> {
         if let Some(lease) = self.live(now_ms) {
             match &lease.holder {
@@ -225,7 +238,9 @@ impl ScreenLease {
                     self.renew(&id, now_ms)?;
                     return Ok(id);
                 }
-                Holder::Bot(_) => {}
+                // Another bot run with a live lease keeps it: a take would make the working run LEASE_LOST mid-action.
+                // The lease ends by use, release, the run ending or 15 minutes without use.
+                Holder::Bot(other) => return Err(LeaseError::BusyWithBot(other.clone())),
             }
         }
         // A card of another run is not this run's to keep.
