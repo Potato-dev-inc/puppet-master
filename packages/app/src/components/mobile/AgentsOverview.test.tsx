@@ -29,7 +29,7 @@ const pane = (id: string, status: string, created_at: number, extra = {}) =>
 
 const QUESTION = {
   id: 'q-1',
-  agent: 'Claude Code',
+  agent: 'Claude',
   pane_id: null,
   question: 'Keep the old route?',
   choices: [{ id: 'keep', label: 'Keep it' }],

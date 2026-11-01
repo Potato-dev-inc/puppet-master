@@ -81,7 +81,7 @@ describe('keep and throw away', () => {
 });
 
 describe('the problem to show', () => {
-  const base = { status: 'idle', runStatus: 'completed', runCode: null as string | null, loop: null, agent: 'Claude Code' };
+  const base = { status: 'idle', runStatus: 'completed', runCode: null as string | null, loop: null, agent: 'Claude' };
   it('is none while all is well', () => {
     expect(currentProblem(base)).toBeNull();
     expect(currentProblem({ ...base, status: 'running', runStatus: 'running' })).toBeNull();
@@ -93,7 +93,7 @@ describe('the problem to show', () => {
   });
   it('is a message that never reached the agent, and says the work is safe', () => {
     const p = currentProblem({ ...base, runStatus: 'failed', runCode: 'PROMPT_NOT_SUBMITTED' });
-    expect(p?.text).toBe('Your message did not reach Claude Code. Your work is safe.');
+    expect(p?.text).toBe('Your message did not reach Claude. Your work is safe.');
     expect(p?.button).toBe('show_me');
   });
   it('is not a problem when the run is parked on the folder-trust question (the task is sent again)', () => {
@@ -142,8 +142,8 @@ describe('conversation', () => {
     expect(stepText('just words')).toBeNull();
   });
   it('the summary comes from the numbers, not the Full-mode sentence', () => {
-    expect(summarySentence({ files: { count: 3, added: 48, deleted: 7, paths: [] } }, 'Claude Code')).toBe('Claude Code changed 3 files.');
-    expect(summarySentence({ files: null }, 'Claude Code')).toBeNull();
+    expect(summarySentence({ files: { count: 3, added: 48, deleted: 7, paths: [] } }, 'Claude')).toBe('Claude changed 3 files.');
+    expect(summarySentence({ files: null }, 'Claude')).toBeNull();
   });
 });
 
@@ -161,14 +161,14 @@ describe('go back', () => {
     { turn: 2, files: { count: 1, added: 1, deleted: 0, paths: [] } },
   ];
   it('lists the version after each step, newest first, then the start', () => {
-    const rows = versionsFrom(items, sums, 'Claude Code', false);
+    const rows = versionsFrom(items, sums, 'Claude', false);
     expect(rows.map((r) => r.id)).toEqual(['6', '4', '1']);
     expect(rows[0].current).toBe(true);
-    expect(rows[1].title).toBe('Claude Code changed 2 files.');
+    expect(rows[1].title).toBe('Claude changed 2 files.');
     expect(rows[2].title).toBe('The start');
   });
   it('has no current version while the agent works, and hides safety copies and answers', () => {
-    const rows = versionsFrom(items, sums, 'Claude Code', true);
+    const rows = versionsFrom(items, sums, 'Claude', true);
     expect(rows.some((r) => r.current)).toBe(false);
     expect(rows.map((r) => r.id)).not.toContain('2');
     expect(rows.map((r) => r.id)).not.toContain('3');

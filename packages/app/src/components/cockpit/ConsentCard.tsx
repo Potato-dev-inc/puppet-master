@@ -14,7 +14,7 @@ const UNKNOWN = 'Another agent';
 /** "another agent" inside a sentence, a name as it is. */
 const inSentence = (name: string): string => (name === UNKNOWN ? 'another agent' : name);
 
-/** The card's question in the pane's own name: "Allow Claude Code to control Codex 1?" */
+/** The card's question in the pane's own name: "Allow Claude to control Codex 1?" */
 export function consentTitle(q: Question, paneName?: string): string {
   const info = q.consent;
   if (!info) return q.question;

@@ -139,7 +139,7 @@ describe('Tell me on my phone', () => {
     avatar: 'mochi',
     persona: 'calm',
     agentType: 'claude',
-    agentLabel: 'Claude Code',
+    agentLabel: 'Claude',
     folderName: 'mochi',
     state: 'idle',
     stateLine: 'Idle',

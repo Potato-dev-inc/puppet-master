@@ -59,7 +59,7 @@ fn candidate(kind: Kind, prompt: Option<PromptInfo>, item: Option<ItemRef>) -> C
         kind,
         key: "pane-1".to_string(),
         pane_id: Some("pane-1".to_string()),
-        agent_label: "Claude Code".to_string(),
+        agent_label: "Claude".to_string(),
         heading: Some("auth refactor".to_string()),
         prompt,
         item,
@@ -490,7 +490,7 @@ fn run_finished_goes_out_only_with_notify_runs_or_a_window() {
     let note = n
         .offer(&c, None, &cfg(), world.links(), 2)
         .expect("window open");
-    assert_eq!(text_of(&note), "auth refactor · Done\nClaude Code finished");
+    assert_eq!(text_of(&note), "auth refactor · Done\nClaude finished");
     assert_eq!(note.remember, Some(Target::Pane("pane-1".into())));
 
     // notify_runs alone is enough, with no window. A fresh notifier: the first send holds the 30 s gate.
@@ -568,7 +568,7 @@ fn turn_finished_goes_out_only_inside_the_panes_window() {
     assert!(n
         .turn_finished(
             "pane-1",
-            "Claude Code",
+            "Claude",
             Some("auth refactor"),
             "Ran the tests, 42 passed.",
             &c,
@@ -580,7 +580,7 @@ fn turn_finished_goes_out_only_inside_the_panes_window() {
     let note = n
         .turn_finished(
             "pane-1",
-            "Claude Code",
+            "Claude",
             Some("auth refactor"),
             "Ran the tests, 42 passed.",
             &c,
@@ -597,7 +597,7 @@ fn turn_finished_goes_out_only_inside_the_panes_window() {
     assert!(n
         .turn_finished(
             "pane-1",
-            "Claude Code",
+            "Claude",
             None,
             "Again.",
             &c,
@@ -774,7 +774,7 @@ fn golden_consent() {
     let mut world = World::new();
     let n = Notifier::default();
     let mut c = candidate(Kind::Consent, None, Some(item()));
-    c.detail = Some("Claude Code wants to control shop".to_string());
+    c.detail = Some("Claude wants to control shop".to_string());
     let note = n.offer(&c, None, &cfg(), world.links(), 1).expect("sent");
     assert_eq!(golden(&note), include_str!("golden/consent.txt").trim_end());
 }
@@ -879,7 +879,7 @@ fn golden_turn_done() {
     let note = n
         .turn_finished(
             "pane-1",
-            "Claude Code",
+            "Claude",
             Some("auth refactor"),
             "Ran the tests, 42 passed.",
             &cfg(),
@@ -951,7 +951,7 @@ fn a_pem_key_in_a_turn_summary_leaks_no_body_line() {
     let note = n
         .turn_finished(
             "pane-1",
-            "Claude Code",
+            "Claude",
             Some("auth refactor"),
             &pem_text(),
             &cfg(),

@@ -68,7 +68,7 @@ const WORKTREE_START: ReviewStart = {
   files: 2,
   additions: 1,
   deletions: 1,
-  authorLabel: 'Claude Code',
+  authorLabel: 'Claude',
 };
 
 const REVIEW: ParsedReview = {
@@ -162,12 +162,12 @@ describe('Changes with a second opinion of the worktree', () => {
     expect(mark?.closest('.ck-diff-line')?.textContent).toContain('+agent line');
   });
 
-  it('Send to Claude Code sends the note through reviewApi with its file, line and text', async () => {
+  it('Send to Claude sends the note through reviewApi with its file, line and text', async () => {
     const reviewApi = fakeReviewApi();
     await finishReview(reviewApi);
     await mount(fakeApi(), reviewApi);
 
-    await click(button('Send to Claude Code'));
+    await click(button('Send to Claude'));
 
     expect(reviewApi.send).toHaveBeenCalledWith('p1', 'a.txt', 2, 'Guard the agent line');
     expect(host.querySelector('.ck-find-send')?.textContent).toBe('Sent');

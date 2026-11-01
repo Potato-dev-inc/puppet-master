@@ -18,7 +18,7 @@ import {
 export interface NightScenario {
   /** What `night_state` answers. Default: Labs on, no run yet. */
   state?: NightStateView;
-  /** What `night_plans` answers. Default: Codex ready, Claude Code out of usage. */
+  /** What `night_plans` answers. Default: Codex ready, Claude out of usage. */
   plans?: NightPlanView[];
 }
 
@@ -35,7 +35,7 @@ export const PLANS: NightPlanView[] = [
   { key: 'codex', label: 'Codex', ready: true, whyNot: null, outUntil: null, triedHere: { 'C:/work/app': true } },
   {
     key: 'claude',
-    label: 'Claude Code',
+    label: 'Claude',
     ready: false,
     whyNot: 'Out of usage until 16:40.',
     outUntil: 'Out of usage until 16:40',
@@ -118,8 +118,8 @@ const MORNING_TASKS: NightTaskView[] = [
     id: 'nt-00000002',
     title: 'Rename the config loader.',
     project: 'app',
-    plan: 'Claude Code',
-    attempts: [{ n: 1, label: 'Claude Code', end: 'completed', sentence: null, started: '23:15', ended: '00:20' }],
+    plan: 'Claude',
+    attempts: [{ n: 1, label: 'Claude', end: 'completed', sentence: null, started: '23:15', ended: '00:20' }],
     turns: 5,
     duration: '1 h 5 min',
     paneId: 'pane-43',
@@ -224,7 +224,7 @@ function viewOf(tasks: NightTaskView[], over: Partial<NightView>): NightView {
 export const MORNING_4_OF_5: NightView = viewOf(MORNING_TASKS, {
   byPlan: [
     { label: 'Codex', tasks: 3 },
-    { label: 'Claude Code', tasks: 2 },
+    { label: 'Claude', tasks: 2 },
   ],
   events: [
     { at: '23:10', kind: 'started', glyph: '~', text: 'Started in app', task: null },
@@ -254,7 +254,7 @@ export const RUNNING: NightView = viewOf(
 export const WAITING: NightView = viewOf(
   [
     { ...TASK, id: 'nt-00000001', title: 'Fix the cart total rounding.', state: 'waiting', stateText: 'Waiting: Codex is out of usage.', until: '01:10', plan: 'Codex' },
-    { ...TASK, id: 'nt-00000002', title: 'Rename the config loader.', state: 'working', stateText: 'Working', plan: 'Claude Code' },
+    { ...TASK, id: 'nt-00000002', title: 'Rename the config loader.', state: 'working', stateText: 'Working', plan: 'Claude' },
   ],
   { state: 'running', to: null, from: '23:10', turns: 2, duration: '12 min', line: '0 of 2 done' },
 );

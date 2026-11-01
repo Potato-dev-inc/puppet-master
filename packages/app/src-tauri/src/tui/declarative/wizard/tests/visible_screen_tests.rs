@@ -1,5 +1,5 @@
 //! Screen classification and stability for the guided capture (SPEC 11.5), on real captures kept in the
-//! repository (Claude Code, Codex, Cursor, Kilo) and on small made-up screens.
+//! repository (Claude, Codex, Cursor, Kilo) and on small made-up screens.
 
 use crate::tui::declarative::wizard::visible::screen::{
     bottom_matches, classify, frame_key, ready_shape, last_row_with, row_with, rows_with, Flavour, FrameBag, ScreenKind, Stability,

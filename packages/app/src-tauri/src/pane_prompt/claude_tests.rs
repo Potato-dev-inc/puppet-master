@@ -95,7 +95,7 @@ fn claudes_edit_dialog_is_a_file_card_rated_by_where_the_file_is() {
 fn claudes_trust_dialog_is_a_startup_gate_the_user_answers() {
     let prompt = startup_gate("claude", CLAUDE_TRUST).expect("the trust dialog is a startup gate");
     assert_eq!(prompt["kind"], "workspace_trust");
-    assert_eq!(prompt["summary"], "Claude Code asks to trust D:\\pm-demo-untrusted-1");
+    assert_eq!(prompt["summary"], "Claude asks to trust D:\\pm-demo-untrusted-1");
     assert_eq!(prompt["risk"]["headline"], "Trust this folder");
     let ui = PanePrompt::from_detected(&prompt).expect("ui prompt");
     assert_eq!(ui.kind, "workspace_trust");

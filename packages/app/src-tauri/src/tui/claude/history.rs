@@ -1,4 +1,4 @@
-//! Claude Code's old chats: `<config dir>/projects/<project folder>/<session id>.jsonl`, where the config dir is
+//! Claude's old chats: `<config dir>/projects/<project folder>/<session id>.jsonl`, where the config dir is
 //! `~/.claude` or `CLAUDE_CONFIG_DIR`. The generic `FileHistory` walks the folders and streams the lines; this file
 //! only says where Claude keeps them, how a chat is named and how to resume one. Sidechain files (`agent-*.jsonl`)
 //! and anything below a project folder are left out.
@@ -13,7 +13,7 @@ use super::session_file::ClaudeSessionFile;
 
 static FORMAT: ClaudeSessionFile = ClaudeSessionFile;
 
-/// Where Claude Code keeps its chats: `{home}/.claude/projects`, and `<CLAUDE_CONFIG_DIR>/projects` when it is set.
+/// Where Claude keeps its chats: `{home}/.claude/projects`, and `<CLAUDE_CONFIG_DIR>/projects` when it is set.
 /// The session id is the file name; the folder is the first top-level `cwd` in the file's first lines.
 const SPEC: FileHistorySpec = FileHistorySpec {
     roots: &["{home}/.claude/projects"],
@@ -27,7 +27,7 @@ const SPEC: FileHistorySpec = FileHistorySpec {
     resume: &["--resume", "{session}"],
 };
 
-/// Claude Code's old-chat store: the generic file store with Claude's spec.
+/// Claude's old-chat store: the generic file store with Claude's spec.
 pub struct ClaudeHistory(FileHistory);
 
 /// The store `Claude::session_history()` returns.

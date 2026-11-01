@@ -38,7 +38,7 @@ describe('the open card', () => {
   it('shows the pane’s name, the agent and how long it has waited, never an id', () => {
     const v = view(ITEM_HIGH);
     expect(v.heading).toBe('Fix login redirect');
-    expect(v.meta).toBe('Claude Code · 2 min');
+    expect(v.meta).toBe('Claude · 2 min');
     expect(JSON.stringify(v)).not.toContain('pane-claude');
     expect(JSON.stringify(v)).not.toContain(ITEM_HIGH.id);
   });
@@ -65,7 +65,7 @@ describe('cards that cannot be answered here', () => {
     const v = view(ITEM_SIGNIN);
     expect(v.state).toBe('signin');
     expect(v.buttons).toEqual([]);
-    expect(v.title).toBe('Claude Code needs you on your PC.');
+    expect(v.title).toBe('Claude needs you on your PC.');
     expect(v.status).toBe("It's showing a sign-in screen. Puppet Master won't answer it for you.");
     expect(v.openPane).toBe(true);
   });
@@ -158,7 +158,7 @@ describe('what the PC said back', () => {
 
   it('gone: says the agent moved on and offers the pane', () => {
     const v = cardView(ITEM_HIGH, { canAnswer: true, local: { phase: 'gone' }, now: NOW });
-    expect(v).toMatchObject({ state: 'gone', glyph: 'idle', status: 'This question has gone. Claude Code moved on.', openPane: true });
+    expect(v).toMatchObject({ state: 'gone', glyph: 'idle', status: 'This question has gone. Claude moved on.', openPane: true });
   });
 });
 

@@ -41,7 +41,7 @@ function cockpit(cwd: string, withPrompt: boolean, status = withPrompt ? 'waitin
   const p = { status, info: { id: 'p1', agent_type: 'claude', status, pid: 4120, created_at: 1, last_output_at: null, cwd, cols: 158, rows: 56 } };
   return {
     registry: { paneList: [p], panes: new Map([['p1', p]]), initialReady: true },
-    names: new Map([['p1', 'Claude Code']]),
+    names: new Map([['p1', 'Claude']]),
     activities: withPrompt ? { p1: { kind: 'waiting', text: 'Waiting: allow `npm test`?' } } : {},
     previews: {},
     asked: { questions: [] },
@@ -239,7 +239,7 @@ describe('closing a running agent', () => {
     await openMenuItem('Close');
     await flush();
     const text = document.body.textContent ?? '';
-    expect(text).toContain('Claude Code stops, and its conversation ends.');
+    expect(text).toContain('Claude stops, and its conversation ends.');
     expect(text).toContain('Close agent');
     expect(text).not.toContain('Close pane');
   });
@@ -253,7 +253,7 @@ describe('the Receipt tab before the first turn', () => {
     await flush();
     const text = host.querySelector('.ck-pane-body')!.textContent!;
     expect(text).toContain('No turns yet');
-    expect(text).toContain('The receipt appears when Claude Code finishes its first turn.');
+    expect(text).toContain('The receipt appears when Claude finishes its first turn.');
     expect(text).not.toContain('Second opinion');
     expect(text).not.toContain('Refresh');
     expect(text).not.toContain('Nothing yet');

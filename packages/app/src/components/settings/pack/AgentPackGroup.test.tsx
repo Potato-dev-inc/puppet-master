@@ -60,7 +60,7 @@ afterEach(async () => {
 describe('AgentPackGroup', () => {
   it('says which agents it found and offers a review, with no Undo before anything is installed', async () => {
     await render(mockApi());
-    expect(host.textContent).toContain('Found: Claude Code, Codex, OpenCode.');
+    expect(host.textContent).toContain('Found: Claude, Codex, OpenCode.');
     expect(button('Review and install')).toBeTruthy();
     expect(button('Undo')).toBeUndefined();
   });
@@ -71,7 +71,7 @@ describe('AgentPackGroup', () => {
     await click(button('Review and install'));
     const rows = Array.from(document.querySelectorAll('[data-testid="pack-agent"]'));
     expect(rows).toHaveLength(3);
-    expect(rows[0].textContent).toContain('Claude Code');
+    expect(rows[0].textContent).toContain('Claude');
     expect(rows[0].textContent).toContain('4 skills to add');
     expect(rows[0].textContent).toContain('Already connected to Puppet Master');
     expect(rows[1].textContent).toContain('Connection to Puppet Master will be added');
@@ -87,7 +87,7 @@ describe('AgentPackGroup', () => {
     await click(button('Review and install'));
     await click(button('Install'));
     expect(api.apply).toHaveBeenCalledTimes(1);
-    expect(host.textContent).toContain('Added to Claude Code, Codex, OpenCode.');
+    expect(host.textContent).toContain('Added to Claude, Codex, OpenCode.');
     expect(host.textContent).toContain('Restart open agents');
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(button('Undo')).toBeTruthy();
@@ -133,7 +133,7 @@ describe('grouping', () => {
     };
     const rows = groupAgents(shared.agents);
     expect(rows.find((r) => r.labels.includes('OpenCode'))?.labels).toEqual(['OpenCode', 'OpenCode (API)']);
-    expect(visibleRows(rows).map((r) => r.labels[0])).toEqual(['Claude Code', 'Codex', 'OpenCode']);
+    expect(visibleRows(rows).map((r) => r.labels[0])).toEqual(['Claude', 'Codex', 'OpenCode']);
     expect(pendingCount(visibleRows(rows))).toBe(3);
   });
 });

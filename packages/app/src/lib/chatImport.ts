@@ -221,7 +221,7 @@ export function chatCount(count: number): string {
   return `${count.toLocaleString('en-US')} ${count === 1 ? 'chat' : 'chats'}`;
 }
 
-/** One row of the agent list: "Claude Code · 412 chats · 38 MB · Mar 2026 to now". */
+/** One row of the agent list: "Claude · 412 chats · 38 MB · Mar 2026 to now". */
 export function foundLine(found: ImportFound, now: number = Date.now()): string {
   const chats = chatCount(found.chats);
   const parts = [found.label, chats, formatBytes(found.bytes)];

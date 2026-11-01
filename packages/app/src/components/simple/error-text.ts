@@ -55,7 +55,7 @@ export function currentProblem(facts: {
 }
 
 export const STRINGS: string[] = [
-  ...['AGENT_EXITED', 'WORKSPACE_TRUST_DECLINED', 'AGENT_NOT_INSTALLED', 'PANE_NOT_READY', 'OTHER'].map((c) => problemForCode(c, 'Claude Code').text),
-  problemForLoop({ kind: 'repeated_error' }, 'Claude Code').text,
-  problemForLoop({ kind: 'stalled' }, 'Claude Code').text,
+  ...['AGENT_EXITED', 'WORKSPACE_TRUST_DECLINED', 'AGENT_NOT_INSTALLED', 'PANE_NOT_READY', 'OTHER'].map((c) => problemForCode(c, 'Claude').text),
+  problemForLoop({ kind: 'repeated_error' }, 'Claude').text,
+  problemForLoop({ kind: 'stalled' }, 'Claude').text,
 ];

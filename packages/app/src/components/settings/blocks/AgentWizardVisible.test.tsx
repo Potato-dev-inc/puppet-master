@@ -180,7 +180,7 @@ function mockApi(help: string, replies: string[] = [`${F}toml\n${GOOD}${F}`]): M
     finish: vi.fn(async () => finishOk()),
     cancel: vi.fn(async () => ({ ok: true })),
     ask: vi.fn(async () => replies[Math.min(n++, replies.length - 1)]),
-    drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude Code' }]),
+    drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude' }]),
     capturePlan: vi.fn(async (_s: string, args: string[]) => plan(args)),
     captureStart: vi.fn(async () => running()),
     captureStatus: vi.fn(async () => running()),
@@ -500,7 +500,7 @@ describe('the visible flow', () => {
     });
     await click(button('Approve'));
     await flush();
-    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', prompt_version: '9', rounds: 1 });
+    expect(provenance).toMatchObject({ drafter: 'Claude (local)', prompt_version: '9', rounds: 1 });
   });
 
   it('the Review says when the agent writes files without asking', async () => {

@@ -19,7 +19,7 @@
 //! 5. **Results, not only failures.** Each record keeps the previous version, when it changed and
 //!    the exact versions a check passed on here (`verified`). A pass clears the "Untested version"
 //!    chip for that exact version only; the next update starts unverified. The Inbox and Settings
-//!    say "Claude Code 2.3.0 -> 2.4.0: checked, all good." or "...: screens changed."
+//!    say "Claude 2.3.0 -> 2.4.0: checked, all good." or "...: screens changed."
 //! 6. **Runtime signals** (`note_signal`). A screen the profile cannot read, a run that could not
 //!    type its task, a turn that went quiet without saying it finished: each may start one check per
 //!    agent and version, rate limited, only with the auto-check switch on. Two failed checks of one

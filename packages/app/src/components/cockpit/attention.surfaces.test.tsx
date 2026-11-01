@@ -63,10 +63,10 @@ function fixture() {
   const api = {
     registry: { paneList: list, panes: new Map(list.map((p) => [p.info.id, p])), initialReady: true },
     names: new Map([
-      ['ap1', 'Claude Code'],
+      ['ap1', 'Claude'],
       ['ap2', 'Codex'],
       ['ps', 'PowerShell'],
-      ['run', 'Claude Code 2'],
+      ['run', 'Claude 2'],
       ['idle', 'Codex 2'],
     ]),
     asked: { questions: [question], answerQuestion: vi.fn(), dismissQuestion: vi.fn() },
@@ -141,7 +141,7 @@ describe('one Needs-you count', () => {
     const needs = Array.from(host.querySelectorAll('.ck-group')).find((g) => g.querySelector('.ck-caption')?.textContent?.startsWith('Needs you'))!;
     const titles = Array.from(needs.querySelectorAll('.ck-row-title')).map((t) => t.textContent);
     // The agent's question has no pane, so it gets its own row (the caption count then matches the rows).
-    expect(titles.sort()).toEqual(['Claude Code', 'Claude Code 2', 'Codex', 'PowerShell', 'Questions from agents']);
+    expect(titles.sort()).toEqual(['Claude', 'Claude 2', 'Codex', 'PowerShell', 'Questions from agents']);
   });
 
   it('the phone counter is the same derivation', () => {

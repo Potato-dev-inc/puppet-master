@@ -76,7 +76,7 @@ class FakePty {
     await this.output(repaint);
   }
 
-  /** Claude Code reprints the whole conversation at the new width (no ESC[3J). */
+  /** Claude reprints the whole conversation at the new width (no ESC[3J). */
   async claudeReprint(): Promise<void> {
     let out = `${HEADER}\r\n${RULE.repeat(this.cols)}\r\n`;
     for (let i = 0; i < 6; i++) {

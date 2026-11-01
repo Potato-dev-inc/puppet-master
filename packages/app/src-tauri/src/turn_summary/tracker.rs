@@ -19,7 +19,7 @@ use super::store::Store;
 #[derive(Debug, Clone)]
 pub struct PaneInfo {
     pub cwd: String,
-    /// Display name of the agent ("Claude Code"); the agent id when it has none.
+    /// Display name of the agent ("Claude"); the agent id when it has none.
     pub label: String,
     /// The agent's id (profile id) and the account id its pane runs under.
     pub agent_id: String,

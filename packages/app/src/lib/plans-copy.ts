@@ -55,7 +55,7 @@ export function plansCsv(rows: readonly PlanRow[]): string {
   return lines.map((cells) => cells.map(csvField).join(',')).join('\r\n');
 }
 
-/** "Claude Code · Work: 22 turns, 9 h 11 min, 47 files, no limits hit." */
+/** "Claude · Work: 22 turns, 9 h 11 min, 47 files, no limits hit." */
 export function planSummaryLine(row: PlanRow): string {
   const turns = row.turns === 1 ? '1 turn' : `${row.turns} turns`;
   const { changed, knownTurns } = row.files;

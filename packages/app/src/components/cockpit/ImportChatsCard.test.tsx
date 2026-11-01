@@ -27,7 +27,7 @@ function state(over: Partial<ImportState> = {}): ImportState {
     asked: false,
     sinceDays: 365,
     indexEnabled: true,
-    agents: [{ id: 'claude', label: 'Claude Code', fromDefinition: false, enabled: true }],
+    agents: [{ id: 'claude', label: 'Claude', fromDefinition: false, enabled: true }],
     progress: IDLE,
     imported: { chats: 0, items: 0 },
     ...over,
@@ -49,7 +49,7 @@ function fakeApi(st: ImportState = state()): ImportApi {
 
 const FOUND: ImportFound = {
   id: 'claude',
-  label: 'Claude Code',
+  label: 'Claude',
   fromDefinition: false,
   chats: 412,
   bytes: 38 * 1024 * 1024,
@@ -150,7 +150,7 @@ describe('first-start card: Bring my old chats', () => {
     // The look ran from the card's press: the list is there and the panel's own intro button is not.
     expect(api.look).toHaveBeenCalledTimes(1);
     expect(api.look).toHaveBeenCalledWith(365);
-    expect(sheet?.textContent).toContain('Claude Code · 412 chats');
+    expect(sheet?.textContent).toContain('Claude · 412 chats');
     expect(Array.from(sheet?.querySelectorAll('button') ?? []).some((b) => b.textContent === 'Find my chats')).toBe(false);
     expect(api.start).not.toHaveBeenCalled();
   });

@@ -16,7 +16,7 @@
         "consent": {
           "action": "take_over",
           "requester": "Codex",
-          "target": "Claude Code",
+          "target": "Claude",
           "pane_id": "a"
         }
       },

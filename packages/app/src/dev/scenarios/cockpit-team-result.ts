@@ -1,7 +1,7 @@
 import { READY_JOB, teamState } from '../team-fixtures';
 import type { HarnessScenario } from '../types';
 
-// The queued update came back: Claude Code merged feat/auth into a separate copy of feat/billing
+// The queued update came back: Claude merged feat/auth into a separate copy of feat/billing
 // and resolved two conflicts. Apply (fast-forward only) / See changes (open) / Discard.
 const s: HarnessScenario = {
   name: 'cockpit-team-result',

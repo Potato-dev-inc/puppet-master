@@ -141,7 +141,7 @@ pub fn reminder_card(agent_label: &str, pane_id: &str, window: Option<String>) -
     }
 }
 
-/// The come-back card, on the NEW pane: the agent that ran out (`back_label`, "Claude Code") can
+/// The come-back card, on the NEW pane: the agent that ran out (`back_label`, "Claude") can
 /// work again. Asks whether to move the task back from the agent working on it now (`now_label`,
 /// "Codex"). `goal_short` is the task, already shortened by the caller.
 pub fn come_back_card(now_label: &str, back_label: &str, pane_id: &str, goal_short: &str) -> NewQuestion {

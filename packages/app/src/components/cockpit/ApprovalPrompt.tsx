@@ -38,7 +38,7 @@ export function ApprovalPrompt({
   age?: number | null;
   /** Card: the "Open terminal" button. */
   onOpen?: () => void;
-  /** Card: a helper's question shown in its parent's Chat: "Claude Code helper asks" leads the title. */
+  /** Card: a helper's question shown in its parent's Chat: "Claude helper asks" leads the title. */
   asks?: string;
   /** Card: the open button's words. */
   openLabel?: string;

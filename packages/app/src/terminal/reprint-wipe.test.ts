@@ -4,7 +4,7 @@ import { CLEAR_SCROLLBACK, ReprintWipe } from './reprint-wipe';
 import { PaneStreamManager } from './pane-stream';
 
 /**
- * Claude Code reprints the whole conversation on every resize and never sends ESC[3J, so every PTY
+ * Claude reprints the whole conversation on every resize and never sends ESC[3J, so every PTY
  * resize (every phone <-> PC focus handoff) leaves one more copy in a viewer's scrollback. For
  * agents whose profile says so (`reprints_on_resize`) the viewer wipes its saved lines at the
  * resize point of the byte stream, so the reprint is the only copy. Shell-like agents keep history.
@@ -76,7 +76,7 @@ class FakePty {
     await this.output(repaint);
   }
 
-  /** Claude Code: erase its live region, then print the whole conversation at the new width. */
+  /** Claude: erase its live region, then print the whole conversation at the new width. */
   async claudeReprint(): Promise<void> {
     let out = `\x1b[H\x1b[J${HEADER}\r\n${RULE.repeat(this.cols)}\r\n`;
     for (let i = 0; i < 90; i++) {

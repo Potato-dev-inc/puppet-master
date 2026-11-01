@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 const agents: CompanionAgentOption[] = [
-  { id: 'claude', label: 'Claude Code', ok: true, reason: null },
+  { id: 'claude', label: 'Claude', ok: true, reason: null },
   { id: 'codex', label: 'Codex', ok: true, reason: null },
   { id: 'broken', label: 'Broken Agent', ok: false, reason: 'Approve this agent in Settings > Agents first.' },
 ];
@@ -55,7 +55,7 @@ describe('MovePicker', () => {
     render();
     const options = [...select().options].map((o) => [o.textContent, o.disabled]);
     expect(options).toEqual([
-      ['Claude Code', false],
+      ['Claude', false],
       ['Codex', false],
       ['Broken Agent', true],
     ]);

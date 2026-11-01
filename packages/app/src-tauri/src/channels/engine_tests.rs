@@ -775,7 +775,7 @@ fn stop_keeps_the_rest_of_the_config() {
 fn status_counts_and_lists_what_waits() {
     let (e, h) = (engine(), FakeHost::new());
     h.pane("pane-1", "auth refactor", "Codex", "working");
-    h.pane("pane-2", "Claude Code 2", "Claude Code", "needs you");
+    h.pane("pane-2", "Claude 2", "Claude", "needs you");
     h.add_item(approval("pane-2", "npm test", Some(Level::Low)));
     let mut done = card(ItemKind::Done, "Finished");
     done.lane = crate::attention::model::Lane::Ready;

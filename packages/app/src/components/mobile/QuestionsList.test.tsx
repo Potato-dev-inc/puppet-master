@@ -119,16 +119,16 @@ describe('phone usage-limit card', () => {
       ...q,
       id: 'l1',
       pane_id: 'p1',
-      question: 'Claude Code ran out of usage. It can continue at 14:05.',
+      question: 'Claude ran out of usage. It can continue at 14:05.',
       choices: [
         { id: 'remind', label: 'Remind me at 14:05' },
         { id: 'stop', label: 'Stop here' },
       ],
       allow_free_text: false,
-      limit: { kind: 'usage_limit', agent_label: 'Claude Code', has_run: true },
+      limit: { kind: 'usage_limit', agent_label: 'Claude', has_run: true },
     };
     const bridge = await mount([limit]);
-    expect(host.querySelector('.ph-card-cap')?.textContent).toBe('Claude Code · usage limit');
+    expect(host.querySelector('.ph-card-cap')?.textContent).toBe('Claude · usage limit');
     expect(host.querySelector('[data-testid="question-wait"]')).toBeNull();
     expect([...host.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Remind me at 14:05', 'Stop here']);
     const stop = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Stop here')!;

@@ -95,7 +95,7 @@ fn drain(input: &mut impl Read, started: Instant) {
 
 /// Keep the first [`MAX_STDIN`] bytes, drain the rest. Returns (kept, total bytes seen).
 ///
-/// Stops as soon as the bytes so far are one complete JSON document: Claude Code writes the event
+/// Stops as soon as the bytes so far are one complete JSON document: Claude writes the event
 /// at once but closes stdin only ~300-800 ms later (measured live at its startup), which would eat
 /// the whole budget waiting for EOF.
 pub fn read_capped(input: &mut impl Read, started: Instant) -> (Vec<u8>, usize) {

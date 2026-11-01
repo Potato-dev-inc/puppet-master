@@ -198,7 +198,7 @@ mod tests {
     fn payload_round_trips_through_encryption() {
         let (sub, ua_secret, auth) = test_subscription("https://fcm.googleapis.com/fcm/send/abc");
         let vapid = keys("roundtrip");
-        let payload = br#"{"title":"Claude Code needs you","body":"Run command: ls"}"#;
+        let payload = br#"{"title":"Claude needs you","body":"Run command: ls"}"#;
         let out = build_request(&sub, &vapid, "mailto:a@b.example", &PushPayload::raw_for_tests(payload), true).unwrap();
         assert_eq!(out.url, "https://fcm.googleapis.com/fcm/send/abc");
         assert_ne!(out.body, payload.to_vec(), "the body must be encrypted");

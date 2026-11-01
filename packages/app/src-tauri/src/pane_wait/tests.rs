@@ -96,7 +96,7 @@ fn dispatch_ready_accepts_running_claude_pane_with_output() {
     let pane = crate::pty::PaneRegistry::test_pane_stub("claude-1");
     pane.scrollback
         .lock()
-        .push_chunk(b"Claude Code loaded\nLogin expired\n");
+        .push_chunk(b"Claude loaded\nLogin expired\n");
     registry.lock().panes.insert("claude-1".into(), pane);
     let result = wait_for_dispatch_ready(&registry, "claude-1", 1_000).expect("wait");
     assert_eq!(result.reason, "running");

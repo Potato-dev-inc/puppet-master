@@ -463,10 +463,10 @@ fn _shapes(_: Value) {}
 #[test]
 fn the_card_names_the_agent_host_when_the_connection_said_what_it_is() {
     let (agent, pane) = (id("s"), id("user-pane"));
-    mcp_sessions::note_session_client(&agent, "Claude Code <script>");
+    mcp_sessions::note_session_client(&agent, "Claude <script>");
     with_config(ASKING, || {
         let q = card(&consent_id_of(&check_take_over(&agent, Some(&pane), None, None).unwrap_err()));
-        assert_eq!(q.question, "Allow Claude Code script to control that pane?", "plain characters only");
-        assert_eq!(q.agent.as_deref(), Some("Claude Code script"));
+        assert_eq!(q.question, "Allow Claude script to control that pane?", "plain characters only");
+        assert_eq!(q.agent.as_deref(), Some("Claude script"));
     });
 }

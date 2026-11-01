@@ -86,7 +86,7 @@ fn ask_once(
         WizardError::new(
             409,
             "WIZARD_DRAFTER_NO_STDIN",
-            "this agent's command line cannot take the prompt on standard input; pick Claude Code, Codex or an OpenRouter model",
+            "this agent's command line cannot take the prompt on standard input; pick Claude, Codex or an OpenRouter model",
         )
     })?;
     let program = Path::new(&spec.program);

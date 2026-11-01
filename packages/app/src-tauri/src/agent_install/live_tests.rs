@@ -65,7 +65,7 @@ fn a_harmless_winget_show_runs_in_a_pty_pane_and_reports_its_exit_code() {
         .collect();
     let step = Step {
         tool: None,
-        label: "Claude Code (winget show, nothing is installed)".into(),
+        label: "Claude (winget show, nothing is installed)".into(),
         method: Method::Winget,
         action: Action::Argv { exe, args },
         command: "winget show --id Anthropic.ClaudeCode -e --source winget".into(),

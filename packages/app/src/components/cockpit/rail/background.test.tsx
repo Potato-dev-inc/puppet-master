@@ -102,7 +102,7 @@ describe('BackgroundCard', () => {
 
 describe('JobsChip', () => {
   const names = new Map([
-    ['p1', 'Claude Code'],
+    ['p1', 'Claude'],
     ['p2', 'Codex'],
   ]);
   const flush = () => act(async () => void (await Promise.resolve()));
@@ -123,7 +123,7 @@ describe('JobsChip', () => {
     const sheet = document.querySelector('.ck-sheet--jobs');
     expect(sheet).not.toBeNull();
     const groups = [...sheet!.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
-    expect(groups).toEqual(['Claude Code', 'Codex']);
+    expect(groups).toEqual(['Claude', 'Codex']);
     expect(sheet!.querySelectorAll('[data-testid="background-job"]').length).toBe(3);
     click(button('Open'));
     expect(onOpenPane).toHaveBeenCalledWith('p1');

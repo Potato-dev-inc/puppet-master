@@ -27,7 +27,7 @@ const view = (id: string, name: string): CompanionView => ({
   avatar: 'mochi',
   persona: 'calm',
   agentType: 'claude',
-  agentLabel: 'Claude Code',
+  agentLabel: 'Claude',
   folderName: 'home',
   state: 'idle',
   stateLine: 'Here. Ask me anything.',

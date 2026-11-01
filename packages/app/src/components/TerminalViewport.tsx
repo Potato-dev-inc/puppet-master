@@ -27,7 +27,7 @@ function paneTitle(agentType: string, registryLabel: (id: string) => string): st
     case 'bash':
       return 'Terminal (Shell)';
     case 'claude':
-      return 'Claude Code';
+      return 'Claude';
     case 'codex':
       return 'Codex CLI';
     case 'opencode':

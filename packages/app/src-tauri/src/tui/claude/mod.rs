@@ -1,4 +1,4 @@
-//! Claude Code CLI (`claude`). Everything Claude-specific lives in this folder:
+//! Claude CLI (`claude`). Everything Claude-specific lives in this folder:
 //!
 //! - `headless` — command line for headless runs and reading their JSON output
 //! - `screen` — whether the interactive TUI is working (drives how soon a pane reads idle)
@@ -28,7 +28,7 @@ pub struct Claude;
 /// CLI versions the Claude fixtures and live checks cover (see `TuiProfile::tested_versions`).
 pub(crate) const TESTED_VERSIONS: &str = ">=2.1.299, <2.2";
 
-/// Where Claude Code keeps MCP servers (Toolbelt).
+/// Where Claude keeps MCP servers (Toolbelt).
 const MCP_HOST: &str = r#"
 config_path = "~/.claude.json"
 format = "json"
@@ -44,7 +44,7 @@ url = "{url}"
 headers = "{headers}"
 "#;
 
-/// Where Claude Code reads skills ("Add Puppet Master to your agents").
+/// Where Claude reads skills ("Add Puppet Master to your agents").
 const SKILLS_HOST: &str = r#"
 dir = "~/.claude/skills"
 "#;
@@ -90,7 +90,7 @@ impl TuiProfile for Claude {
         Some(&session_source::SOURCE)
     }
 
-    /// Claude Code's old chats: `~/.claude/projects` and `CLAUDE_CONFIG_DIR` (`history.rs`).
+    /// Claude's old chats: `~/.claude/projects` and `CLAUDE_CONFIG_DIR` (`history.rs`).
     fn session_history(&self) -> Option<&'static dyn crate::session_chat::SessionHistory> {
         Some(&history::HISTORY)
     }
@@ -110,13 +110,13 @@ impl TuiProfile for Claude {
         }
     }
 
-    /// Claude Code reprints the whole conversation after a resize and never sends `ESC[3J`
+    /// Claude reprints the whole conversation after a resize and never sends `ESC[3J`
     /// (recorded under ConPTY and replayed into xterm.js, 2026-10-13).
     fn reprints_on_resize(&self) -> bool {
         true
     }
 
-    /// Claude Code opens a diff panel to the right of the chat after an edit (`/diff`, 2.1.x).
+    /// Claude opens a diff panel to the right of the chat after an edit (`/diff`, 2.1.x).
     fn side_panel(&self) -> bool {
         true
     }
@@ -135,7 +135,7 @@ impl TuiProfile for Claude {
         })
     }
 
-    /// Claude Code loads `CLAUDE.md` from the project root (code.claude.com/docs/en/memory).
+    /// Claude loads `CLAUDE.md` from the project root (code.claude.com/docs/en/memory).
     fn instruction_files(&self) -> Vec<InstructionFile> {
         vec![InstructionFile::new("CLAUDE.md")]
     }
@@ -171,7 +171,7 @@ impl TuiProfile for Claude {
     }
 
     fn login_hint(&self) -> Option<String> {
-        Some("Open Claude Code and type /login".into())
+        Some("Open Claude and type /login".into())
     }
 
     fn install_spec(&self) -> Option<super::install::InstallSpec> {
@@ -269,7 +269,7 @@ impl TuiProfile for Claude {
     fn startup_gate(&self, screen: &str) -> Option<StartupGate> {
         prompt::shows_trust_gate(screen).then_some(StartupGate {
             id: StartupGate::WORKSPACE_TRUST,
-            summary: "Claude Code asks whether to trust this folder",
+            summary: "Claude asks whether to trust this folder",
             dismiss: None,
         })
     }

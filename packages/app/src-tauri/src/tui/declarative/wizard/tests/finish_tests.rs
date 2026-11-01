@@ -183,11 +183,11 @@ fn a_finished_session_is_gone_and_its_work_folder_with_it() {
 
 #[test]
 fn provenance_input_is_checked() {
-    let good = json!({"provenance": {"drafter": "Claude Code (local)", "drafter_kind": "local_agent", "model": null, "prompt_version": "1", "rounds": 2}});
+    let good = json!({"provenance": {"drafter": "Claude (local)", "drafter_kind": "local_agent", "model": null, "prompt_version": "1", "rounds": 2}});
     assert_eq!(
         parse_provenance(&good).unwrap(),
         Provenance {
-            drafter: "Claude Code (local)".into(),
+            drafter: "Claude (local)".into(),
             drafter_kind: "local_agent".into(),
             model: None,
             prompt_version: "1".into(),

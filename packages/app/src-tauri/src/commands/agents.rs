@@ -301,7 +301,7 @@ mod tests {
                 "bash"
             ]
         );
-        assert_eq!(body["agents"][0]["label"], "Claude Code");
+        assert_eq!(body["agents"][0]["label"], "Claude");
         assert_eq!(body["dispatchable_ids"].as_array().unwrap().len(), 5);
     }
 

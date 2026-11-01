@@ -49,7 +49,7 @@ impl Static {
 pub fn context_profile(id: &str) -> Option<AgentContextProfile> {
     let profile = match id {
         "claude" => Static {
-            label: "Claude Code",
+            label: "Claude",
             default_model: None,
             model_detection: ModelDetection::CliBanner,
             smartness: 9,

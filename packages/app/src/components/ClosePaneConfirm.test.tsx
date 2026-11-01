@@ -45,12 +45,12 @@ afterEach(async () => {
 describe('ClosePaneConfirm', () => {
   it('is hidden until Rust holds a close, then asks and stops on confirm', async () => {
     const { api, fire } = mockApi();
-    await act(async () => root.render(<ClosePaneConfirm paneId="p1" agentLabel="Claude Code" api={api} />));
+    await act(async () => root.render(<ClosePaneConfirm paneId="p1" agentLabel="Claude" api={api} />));
     await settle();
     expect(host.querySelector('[role="alertdialog"]')).toBeNull();
 
     await act(async () => fire('p1'));
-    expect(host.textContent).toContain('Claude Code is still working.');
+    expect(host.textContent).toContain('Claude is still working.');
     expect(host.textContent).toContain('Close and stop it?');
 
     await act(async () => button('Stop and close')!.click());

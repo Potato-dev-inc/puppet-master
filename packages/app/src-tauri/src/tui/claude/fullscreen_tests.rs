@@ -1,7 +1,7 @@
-//! Claude Code's "fullscreen renderer" (`/tui fullscreen`, or `CLAUDE_CODE_NO_FLICKER=1`).
+//! Claude's "fullscreen renderer" (`/tui fullscreen`, or `CLAUDE_CODE_NO_FLICKER=1`).
 //!
 //! It draws on the terminal's alternate screen buffer and pins the input box to the bottom rows
-//! instead of letting it follow the output. These are REAL captures (Claude Code 2.1.300, a
+//! instead of letting it follow the output. These are REAL captures (Claude 2.1.300, a
 //! scratch `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_NO_FLICKER=1`, a ConPTY, 2026-10-15), the raw PTY
 //! stream run through the emulator the way the app does. The conversations were driven by a local
 //! stand-in for the Messages API (no network, no account), so the UI is the real one. How they were

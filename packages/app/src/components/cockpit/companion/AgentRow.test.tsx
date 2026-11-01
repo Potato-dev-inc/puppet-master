@@ -32,7 +32,7 @@ const mochi: CompanionView = {
   avatar: 'mochi',
   persona: 'calm',
   agentType: 'claude',
-  agentLabel: 'Claude Code',
+  agentLabel: 'Claude',
   folderName: 'mochi',
   state: 'idle',
   stateLine: 'Here. Ask me anything.',
@@ -45,7 +45,7 @@ const mochi: CompanionView = {
 };
 
 const agents: CompanionAgentOption[] = [
-  { id: 'claude', label: 'Claude Code', ok: true, reason: null },
+  { id: 'claude', label: 'Claude', ok: true, reason: null },
   { id: 'codex', label: 'Codex', ok: true, reason: null },
 ];
 
@@ -105,18 +105,18 @@ describe('AgentRow', () => {
       agentType: 'codex',
       agentLabel: 'Codex',
       previousAgent: 'claude',
-      previousAgentLabel: 'Claude Code',
+      previousAgentLabel: 'Claude',
       untilMs: FIVE_PM,
     });
     expect(select().value).toBe('codex');
-    expect(host.textContent).toContain('Moved from Claude Code. Goes back at 17:00.');
+    expect(host.textContent).toContain('Moved from Claude. Goes back at 17:00.');
     await act(async () => button('Move back')!.click());
     expect(updates(transport)).toEqual([['mochi', { agentType: 'claude' }]]);
   });
 
   it('a lasting move says only where it came from', async () => {
-    await renderRow({ ...mochi, agentType: 'codex', agentLabel: 'Codex', previousAgent: 'claude', previousAgentLabel: 'Claude Code' });
-    expect(host.textContent).toContain('Moved from Claude Code.');
+    await renderRow({ ...mochi, agentType: 'codex', agentLabel: 'Codex', previousAgent: 'claude', previousAgentLabel: 'Claude' });
+    expect(host.textContent).toContain('Moved from Claude.');
     expect(host.textContent).not.toContain('Goes back');
   });
 
@@ -139,6 +139,6 @@ describe('AgentRow', () => {
       );
     });
     expect(host.querySelector('select')).toBeNull();
-    expect(host.querySelector('dd')?.textContent).toBe('Claude Code');
+    expect(host.querySelector('dd')?.textContent).toBe('Claude');
   });
 });

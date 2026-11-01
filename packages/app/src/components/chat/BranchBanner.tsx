@@ -1,6 +1,6 @@
 // Branch from here: the rows above a chat that a branch touches. Dense, monochrome, the Keep going row classes
 // (`ck-chat-note`, `ck-btn--plain`). Rows, by what this pane is:
-//   new pane:     "Branched from Claude Code · after turn 5 · 14:02 · Show brief · Open original"
+//   new pane:     "Branched from Claude · after turn 5 · 14:02 · Show brief · Open original"
 //   source pane:  "Branches: Codex · Cursor Agent (couldn't start)"   (each name opens its pane)
 //   making:       "Making a copy from the save point…"
 //   failed:       "Branch couldn't start: <state text>"

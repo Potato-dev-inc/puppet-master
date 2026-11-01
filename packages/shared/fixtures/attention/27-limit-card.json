@@ -15,7 +15,7 @@
         "created_at_ms": 9,
         "limit": {
           "kind": "usage_limit",
-          "agent_label": "Claude Code",
+          "agent_label": "Claude",
           "window": "session limit",
           "reset_text": "5pm",
           "self_resume_armed": false,
@@ -43,7 +43,7 @@
         "consent": {
           "action": "take_over",
           "requester": "Codex",
-          "target": "Claude Code"
+          "target": "Claude"
         },
         "limit": {
           "kind": "usage_limit",

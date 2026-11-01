@@ -42,7 +42,7 @@ const view = (over: Partial<CompanionView> = {}): CompanionView => ({
   avatar: 'mochi',
   persona: 'calm',
   agentType: 'claude',
-  agentLabel: 'Claude Code',
+  agentLabel: 'Claude',
   folder: 'C:\\work\\home',
   folderName: 'home',
   state: 'idle',
@@ -160,7 +160,7 @@ describe('CompanionPage', () => {
   it('the rail shows the memory and the setup, and hides and shows again', async () => {
     await render(view());
     expect(host.querySelector('.ck-companion-rail')?.textContent).toContain('What Mochi knows');
-    expect(host.querySelector('.ck-companion-rail')?.textContent).toContain('Claude Code');
+    expect(host.querySelector('.ck-companion-rail')?.textContent).toContain('Claude');
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Hide details"]')!.click());
     expect(host.querySelector('.ck-companion-rail')).toBeNull();
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Show details"]')!.click());

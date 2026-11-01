@@ -247,7 +247,7 @@ fn claude_fullscreen_pinned_box_takes_a_task_and_starts_a_turn() {
 
 // ---- (f) a usage limit hit mid-turn (SYNTHETIC cast) ------------------------------------------------
 //
-// Hand-off, detect-only (`crate::handoff`). The cast is SYNTHETIC: built by hand from the Claude Code
+// Hand-off, detect-only (`crate::handoff`). The cast is SYNTHETIC: built by hand from the Claude
 // 2.1.300 string-table texts quoted in the design and the layout of the live 2.1.299 captures. It is
 // not a live recording; replace it with a flight recording when a real limit is captured (C1).
 // Correct: the limit is not acted on until it has held still, it fires ONCE, its own-wait line makes the card say Claude continues by itself, nothing is

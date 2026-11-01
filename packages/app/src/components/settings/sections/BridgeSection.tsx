@@ -70,7 +70,7 @@ export const bridgeRows: RowDef[] = [
   {
     id: 'mcp-install',
     label: 'Install MCP runtime',
-    hint: 'Register Claude Code, Codex and OpenCode to use the selected runtime.',
+    hint: 'Register Claude, Codex and OpenCode to use the selected runtime.',
     keywords: 'install register claude code codex opencode cursor claude desktop npx node repair mcp.json project global runtime',
     group: 'Install',
     render: (env) => <McpInstallBlock env={env} />,

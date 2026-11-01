@@ -11,7 +11,7 @@ use std::time::Instant;
 
 /// The fix, in the words every warning uses.
 pub(crate) const SCHEMA_DRIFT_FIX: &str =
-    "Rebuild or reinstall the Puppet Master MCP, then reconnect (Claude Code: /mcp).";
+    "Rebuild or reinstall the Puppet Master MCP, then reconnect (Claude: /mcp).";
 
 /// How long a health answer is trusted before the next tool call asks the bridge again.
 const DRIFT_TTL: Duration = Duration::from_secs(60);

@@ -176,28 +176,28 @@ mod tests {
     #[test]
     fn copies_advice_sentences_match_the_table() {
         assert_eq!(
-            advice_text(Relation::Copies, Why::AlreadyDone, "Codex", "Claude Code"),
-            "Finish Codex first. It has stopped working. Look at its changes and merge them first. Then Claude Code can build on it."
+            advice_text(Relation::Copies, Why::AlreadyDone, "Codex", "Claude"),
+            "Finish Codex first. It has stopped working. Look at its changes and merge them first. Then Claude can build on it."
         );
         assert_eq!(
-            advice_text(Relation::Copies, Why::SmallerChange, "Codex", "Claude Code"),
-            "Finish Codex first. It has changed fewer files, so it is quicker to finish. Merge it first. Then Claude Code can build on it."
+            advice_text(Relation::Copies, Why::SmallerChange, "Codex", "Claude"),
+            "Finish Codex first. It has changed fewer files, so it is quicker to finish. Merge it first. Then Claude can build on it."
         );
         assert_eq!(
-            advice_text(Relation::Copies, Why::StartedFirst, "Codex", "Claude Code"),
-            "Finish Codex first. It started first. Merge it first. Then Claude Code can build on it."
+            advice_text(Relation::Copies, Why::StartedFirst, "Codex", "Claude"),
+            "Finish Codex first. It started first. Merge it first. Then Claude can build on it."
         );
     }
 
     #[test]
     fn same_folder_advice_sentences_match_the_table() {
         assert_eq!(
-            advice_text(Relation::SameFolder, Why::AlreadyDone, "Codex", "Claude Code"),
-            "Codex has stopped working. Ask Claude Code to read the file again before it changes more."
+            advice_text(Relation::SameFolder, Why::AlreadyDone, "Codex", "Claude"),
+            "Codex has stopped working. Ask Claude to read the file again before it changes more."
         );
         assert_eq!(
-            advice_text(Relation::SameFolder, Why::StartedFirst, "Codex", "Claude Code"),
-            "Let Codex finish first. Then ask Claude Code to read the file again before it changes more."
+            advice_text(Relation::SameFolder, Why::StartedFirst, "Codex", "Claude"),
+            "Let Codex finish first. Then ask Claude to read the file again before it changes more."
         );
     }
 

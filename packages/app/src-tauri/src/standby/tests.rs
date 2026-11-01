@@ -882,7 +882,7 @@ fn a_faked_version_bump_turns_the_chip_on_and_the_standby_cold() {
     let now = warm_up(&pool, 0);
     assert_eq!(pool.status(now).counts.ready, 1, "a tested version keeps its warm worker");
 
-    // The machine: Claude Code's version is read from a cell the test bumps.
+    // The machine: Claude's version is read from a cell the test bumps.
     let version = Arc::new(Mutex::new("2.1.299 (Claude Code)".to_string()));
     let read = version.clone();
     let tested = crate::tui::profile_for("claude").tested_versions().map(|r| r.as_str().to_string());
@@ -891,7 +891,7 @@ fn a_faked_version_bump_turns_the_chip_on_and_the_standby_cold() {
         Deps {
             sources: Box::new(move || {
                 vec![Source {
-                    facts: Facts { id: "claude".into(), label: "Claude Code".into(), installed: true, tested: tested.clone() },
+                    facts: Facts { id: "claude".into(), label: "Claude".into(), installed: true, tested: tested.clone() },
                     version_command: None,
                 }]
             }),

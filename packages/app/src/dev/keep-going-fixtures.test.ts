@@ -52,7 +52,7 @@ describe('keepGoingMock', () => {
 describe('limit fixtures', () => {
   it('carry the current backend words, not the old "coming in a later update" line', () => {
     expect(LIMIT_CARD.choices[0]).toEqual({ id: 'continue:codex', label: 'Continue on Codex' });
-    expect(LIMIT_CARD.context).toBe('Codex gets a short brief and works in the same folder. Claude Code in this pane is stopped first.');
+    expect(LIMIT_CARD.context).toBe('Codex gets a short brief and works in the same folder. Claude in this pane is stopped first.');
     expect(JSON.stringify([LIMIT_CARD, LIMIT_CARD_NO_OFFER])).not.toContain('later update');
     expect(LIMIT_CARD_NO_OFFER.choices.map((c) => c.id)).toEqual(['remind', 'stop']);
   });

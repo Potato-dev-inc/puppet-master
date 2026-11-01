@@ -8,7 +8,7 @@ fn pane(id: &str, status: &str) -> PaneFact {
         id: id.into(),
         status: status.into(),
         heading: Some(format!("heading {id}")),
-        agent_label: Some("Claude Code".into()),
+        agent_label: Some("Claude".into()),
         project: Some("shop".into()),
     }
 }
@@ -197,11 +197,11 @@ fn a_folder_trust_screen_is_a_trust_gate_with_its_own_words_and_leads_the_list()
     assert_eq!(trust.kind, Kind::TrustGate);
     assert_eq!(trust.rank, 0);
     assert_eq!(trust.title, "Trust this folder?");
-    assert_eq!(trust.sentence.as_deref(), Some("Claude Code wants to work in shop. It can read and change files there."));
+    assert_eq!(trust.sentence.as_deref(), Some("Claude wants to work in shop. It can read and change files there."));
     assert_eq!(trust.key, "approval:t", "clients that match on the old key keep working");
     let signin = items.iter().find(|i| i.pane.as_ref().unwrap().id == "si").unwrap();
     assert_eq!(signin.kind, Kind::TrustGate);
-    assert_eq!(signin.title, "Claude Code needs you on your PC", "a sign-in screen has no choices to offer");
+    assert_eq!(signin.title, "Claude needs you on your PC", "a sign-in screen has no choices to offer");
     assert!(signin.prompt.as_ref().unwrap().choices.is_empty());
     assert!(items.iter().position(|i| i.id == trust.id).unwrap() < items.iter().position(|i| i.pane.as_ref().unwrap().id == "l").unwrap());
     assert_eq!(store.counts().blocking, 3);
@@ -300,7 +300,7 @@ fn a_budget_pause_card_is_a_budget_item_with_the_cards_own_line() {
         id: "b".into(),
         pane_id: Some("a".into()),
         expires_at_ms: Some(50_000),
-        text: Some("Claude Code used its 20 turns.".into()),
+        text: Some("Claude used its 20 turns.".into()),
         kind: Some("budget".into()),
         ..QuestionFact::default()
     }];
@@ -310,7 +310,7 @@ fn a_budget_pause_card_is_a_budget_item_with_the_cards_own_line() {
     assert_eq!(item.kind, Kind::Budget);
     assert_eq!(item.lane, Lane::Blocking);
     assert_eq!(item.title, "Budget used up");
-    assert_eq!(item.sentence.as_deref(), Some("Claude Code used its 20 turns."));
+    assert_eq!(item.sentence.as_deref(), Some("Claude used its 20 turns."));
     assert_eq!(item.expires_at_ms, Some(50_000));
     assert!(item.actions.is_empty(), "no lock-screen action for a budget card");
     assert_eq!(store.counts().blocking, 1);
@@ -324,8 +324,8 @@ fn a_usage_limit_card_is_a_limit_item_with_the_cards_own_line() {
         id: "l".into(),
         pane_id: Some("a".into()),
         expires_at_ms: Some(80_000),
-        text: Some("Claude Code ran out of usage. It can continue at 5:00 PM.".into()),
-        limit: Some(serde_json::json!({ "kind": "usage_limit", "agent_label": "Claude Code" })),
+        text: Some("Claude ran out of usage. It can continue at 5:00 PM.".into()),
+        limit: Some(serde_json::json!({ "kind": "usage_limit", "agent_label": "Claude" })),
         ..QuestionFact::default()
     }];
     store.recompute(&f, 1_000);
@@ -334,7 +334,7 @@ fn a_usage_limit_card_is_a_limit_item_with_the_cards_own_line() {
     assert_eq!(item.kind, Kind::Limit);
     assert_eq!(item.lane, Lane::Blocking);
     assert_eq!(item.title, "Usage limit reached");
-    assert_eq!(item.sentence.as_deref(), Some("Claude Code ran out of usage. It can continue at 5:00 PM."));
+    assert_eq!(item.sentence.as_deref(), Some("Claude ran out of usage. It can continue at 5:00 PM."));
     assert_eq!(item.expires_at_ms, Some(80_000));
     assert!(item.actions.is_empty(), "no lock-screen action for a usage-limit card");
     assert_eq!(store.counts().blocking, 1);

@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
     npmPackageVersion: '1.2.0',
     launchCommand: 'npx -y @puppet-master/mcp',
     backends: [
-      { backend: 'claude', label: 'Claude Code', installed: true, usesNpm: true, configPath: 'C:\\work\\demo\\.mcp.json', message: 'Configured.' },
+      { backend: 'claude', label: 'Claude', installed: true, usesNpm: true, configPath: 'C:\\work\\demo\\.mcp.json', message: 'Configured.' },
     ],
     overallReady: true,
     repairResults: [],

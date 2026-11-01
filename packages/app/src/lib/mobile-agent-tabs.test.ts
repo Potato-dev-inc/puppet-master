@@ -12,8 +12,8 @@ describe('mobile agent tabs', () => {
     const panes = [pane('c', 'claude', 30), pane('a', 'claude', 10), pane('k', 'kilo', 20)];
     expect(orderPanes(panes).map((p) => p.id)).toEqual(['a', 'k', 'c']);
     const labels = tabLabels(panes);
-    expect(labels.get('a')).toBe('Claude Code 1');
-    expect(labels.get('c')).toBe('Claude Code 2');
+    expect(labels.get('a')).toBe('Claude 1');
+    expect(labels.get('c')).toBe('Claude 2');
     expect(labels.get('k')).toBe('kilo');
   });
 
@@ -23,7 +23,7 @@ describe('mobile agent tabs', () => {
     expect(labels.get('s1')).toBe('PowerShell 1');
     expect(labels.get('s2')).toBe('PowerShell 2');
     expect(labels.get('o')).toBe('OpenCode');
-    expect(labels.get('c')).toBe('Claude Code');
+    expect(labels.get('c')).toBe('Claude');
   });
 
   it('takes display names from the registry listing and keeps the raw id for unknown agents', () => {

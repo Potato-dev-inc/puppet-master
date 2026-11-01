@@ -12,11 +12,11 @@ import { splitError, tauriWizardApi, type ProgressEvent, type WizardApi } from '
 import { isScreenLook, pickAutoDrafter, runAutonomous, type AutoTimings, type Clock } from './agentWizardAuto';
 import type { RunStoreCheck, StoreCheckResult } from '../components/store/StoreCheck';
 
-/** The error of a repair round when no Claude Code or Codex is installed to answer it. */
+/** The error of a repair round when no Claude or Codex is installed to answer it. */
 export const NO_DRAFTER = 'NO_DRAFTER';
 
 export const NO_DRAFTER_MESSAGE =
-  'The definition that comes with Puppet Master did not pass on this PC, and neither Claude Code nor Codex is installed to repair it. Nothing was changed.';
+  'The definition that comes with Puppet Master did not pass on this PC, and neither Claude nor Codex is installed to repair it. Nothing was changed.';
 
 const FENCE = '`'.repeat(3);
 

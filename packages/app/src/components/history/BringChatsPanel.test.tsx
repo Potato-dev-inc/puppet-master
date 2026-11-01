@@ -15,7 +15,7 @@ let root: Root;
 
 const CLAUDE: ImportFound = {
   id: 'claude',
-  label: 'Claude Code',
+  label: 'Claude',
   fromDefinition: false,
   chats: 412,
   bytes: 38 * 1024 * 1024,
@@ -37,7 +37,7 @@ function state(over: Partial<ImportState> = {}): ImportState {
     sinceDays: 365,
     indexEnabled: true,
     agents: [
-      { id: 'claude', label: 'Claude Code', fromDefinition: false, enabled: true },
+      { id: 'claude', label: 'Claude', fromDefinition: false, enabled: true },
       { id: 'codex', label: 'Codex', fromDefinition: false, enabled: true },
     ],
     progress: IDLE,
@@ -117,7 +117,7 @@ describe('BringChatsPanel', () => {
     await render(api);
     await click(findMyChats());
     expect(api.look).toHaveBeenCalledWith(365);
-    expect(text()).toContain('Claude Code · 412 chats · 38 MB');
+    expect(text()).toContain('Claude · 412 chats · 38 MB');
     expect(text()).toContain('Reads ~/.claude/projects');
     expect(switches()).toHaveLength(2);
     expect(switches().every((s) => s.getAttribute('aria-checked') === 'true')).toBe(true);
@@ -244,7 +244,7 @@ describe('BringChatsPanel startLooking (the caller already asked)', () => {
     await renderWith(api, { startLooking: true });
     expect(api.look).toHaveBeenCalledTimes(1);
     expect(api.look).toHaveBeenCalledWith(365);
-    expect(text()).toContain('Claude Code · 412 chats · 38 MB');
+    expect(text()).toContain('Claude · 412 chats · 38 MB');
     expect(findMyChats()).toBeUndefined();
     await renderWith(api, { startLooking: true });
     expect(api.look).toHaveBeenCalledTimes(1);

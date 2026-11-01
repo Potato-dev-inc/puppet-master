@@ -128,7 +128,7 @@ describe('WhatBrokeItResult: the copy per kind', () => {
     await mount(SEVERAL);
     expect(host.querySelector('h2')?.textContent).toBe('Two agents were working at the same time. It was one of these:');
     expect(text()).toContain('Codex · turn 6');
-    expect(text()).toContain('Claude Code · turn 5');
+    expect(text()).toContain('Claude · turn 5');
     expect(text()).toContain("I can't tell which one.");
     expect(button('Undo only this turn')).toBeUndefined();
   });
@@ -143,7 +143,7 @@ describe('WhatBrokeItResult: the copy per kind', () => {
   it('not sure with runs used up: the reason, the range, and Keep looking', async () => {
     const { onKeepLooking } = await mount(NOT_SURE_RUNS);
     expect(host.querySelector('h2')?.textContent).toBe('Not sure. Ran out of runs.');
-    expect(text()).toContain('It was one of turns 5 to 8 (Codex, Claude Code).');
+    expect(text()).toContain('It was one of turns 5 to 8 (Codex, Claude).');
     await press('Keep looking');
     expect(onKeepLooking).toHaveBeenCalledTimes(1);
   });
@@ -196,10 +196,10 @@ describe('WhatBrokeItResult: undo only this turn', () => {
   });
 
   it('adds the shared-folder warning when other agents work in the folder', async () => {
-    await mount(CULPRIT, { sharedWith: ['Claude Code'] });
+    await mount(CULPRIT, { sharedWith: ['Claude'] });
     await press('Undo only this turn');
     await settle();
-    expect(text()).toContain('Claude Code also works in this folder. Its changes since then will be undone too.');
+    expect(text()).toContain('Claude also works in this folder. Its changes since then will be undone too.');
   });
 
   it('a conflict replaces the confirm text, names the file and blocks the button', async () => {
