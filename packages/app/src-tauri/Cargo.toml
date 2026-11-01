@@ -97,7 +97,8 @@ keyring = { version = "3.6", features = ["windows-native"] }
 # Point and Fix screenshots: WebView2 CapturePreview. Same versions wry uses, so the
 # `controller()` types match (`cargo tree -d` shows one webview2-com).
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell", "Win32_Graphics_Gdi", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+# (the last six features are for My computers, `desk/os/windows`: screens, cursor, keyboard hook)
 # Night Shift keep-awake (`night_shift/power.rs`): SetThreadExecutionState. 0.52 is already in Cargo.lock.
 windows-sys = { version = "0.52", features = ["Win32_System_Power", "Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
