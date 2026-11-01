@@ -4,6 +4,8 @@
   "title": "Coding tools",
   "description": "Tools to clone, build and test code: git, the GitHub command line, Node.js (current LTS) and a C compiler for packages that build native code. Pick a package manager and any languages you need.",
   "_note": "Node.js comes from the NodeSource apt repository, not from Ubuntu (Ubuntu's nodejs package is an old major). Why NodeSource and not the official tarball: it is signed and updated by apt like every other package, so the recipe needs no per-release checksum and no hand-managed PATH, and it fits the apt-only install flow. The major is 24 (Active LTS). Change node_24.x in the pre lines to move to the next LTS. The repo key is not pinned to a fingerprint yet (open item in PORTED.md).",
+  "size_mb": 190,
+  "early_pre": true,
   "pre": [
     "install -d -m 0755 /etc/apt/keyrings",
     "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --batch --yes --dearmor -o /etc/apt/keyrings/nodesource.gpg",
@@ -44,6 +46,7 @@
           "pre": [],
           "apt": [],
           "debs": [],
+          "size_mb": 8,
           "post": [
             "npm install -g pnpm"
           ]

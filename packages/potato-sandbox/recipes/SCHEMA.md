@@ -37,6 +37,11 @@ Menu as JSON for the app: `apply-recipe.py --list`.
   "apt":  [ "package", ... ],        apt-get install -y --no-install-recommends
   "debs": [ { "url": "https://...", "sha256": null | "64 hex" } ],
   "post": [ "shell line", ... ],     run as root after the packages
+  "size_mb": 300,                    optional: about how many MB this step downloads. Only steers the progress bar
+                                     (a big step moves it more). Without it: 4 + 3 per package + 20 per .deb + 0.5 per post line.
+  "early_pre": true,                 optional: the pre lines need only what a stock Ubuntu image has (curl, gpg, ca-certificates),
+                                     so they may run, and this step's packages may download, while an earlier step is still
+                                     installing. Leave it out when a pre line needs something an earlier step installs.
   "options": [ ... ]                 see below; [] when there are none
 }
 ```
@@ -69,16 +74,51 @@ Naming an option of a recipe that is not in the list includes that recipe too.
 
 ## Progress output
 
-For each step the installer prints, in order:
+In a real run the installer prints a steady stream of
 
-    PROGRESS <done>/<total> Installing <title>
-    PROGRESS <done+1>/<total> Installed <title>
+    PROGRESS <n>/1000 <text>
 
-Steps that were already in place print `<title>: already in place`. The last line is
-`RESULT {...}` (JSON with `status`, `recipes`, `options`, `installed`, `skipped`). Errors print
-`ERROR <text>` and exit 1. Full command output is in `/var/log/pm-sbx/apply-recipe.log`.
+`n` out of 1000 is the share of the whole job that is done. It never goes down and is 1000 only on the last line.
+The text says what is happening, for example `Desktop base: Downloading 120 of 340 MB · 4.1 MB/s · about 1 min left`,
+`XFCE desktop: Unpacking 11 of 42 · libxfce4ui-2-0`, `Coding tools: Setting up 40 of 42 · build-essential`.
+A step's share of the bar comes from its `size_mb`. Inside a step the time is split: refresh (3), download (45),
+install (30), post lines (0.4 each, at most 6).
+A dry run (`--dry-run`) counts steps instead (`PROGRESS 2/5 Would install ...`).
+
+The last line is `RESULT {...}` (JSON with `status`, `recipes`, `options`, `installed`, `skipped`, `mirror`,
+`downloaded_mb`, `seconds`). Errors print `ERROR <text>` and exit 1. Full command output is in
+`/var/log/pm-sbx/apply-recipe.log`.
 
 Exit codes: 0 ok, 1 a step failed, 2 bad recipe or option, 3 not root, 4 the `pm` user has sudo rights.
+
+## Speed
+
+What the installer does so a fresh sandbox is ready sooner (all of it is in `apply-recipe.py`, and each part has a test in
+`guest/desktop/test_apply_recipe.py`):
+
+- **Nearest fast mirror.** Before the first `apt-get update` it reads the GeoIP list from `mirrors.ubuntu.com/mirrors.txt` and
+  the list for the country of the PC's time zone (`<CC>.txt`), asks every mirror plus `archive.ubuntu.com` for `noble-updates/InRelease`
+  (answer time and date), drops a mirror that is more than a day behind, reads 400 KB from the three quickest, and writes
+  the winner into `/etc/apt/sources.list.d/ubuntu.sources` (the security stanza too when the mirror carries `-security`, else
+  `security.ubuntu.com`). The pick takes at most about 5 seconds. Offline or no answer: the archive stays. The first file is kept in
+  `/var/lib/pm-sbx/ubuntu.sources.orig`.
+- **Several downloads at once.** `apt-get install --print-uris` says what is needed; the installer fetches those `.deb` files over 8
+  keep-alive connections (biggest first), checks size and SHA-256 and puts them in `/var/cache/apt/archives`; Chrome (a `debs` entry)
+  downloads beside them, and starts during the first list refresh. `apt-get install` then finds everything there. A file that failed
+  is left to apt. This is also where the speed and the time left come from.
+- **Download the next step while this one installs.** When a step starts to unpack, a thread already looks at the next step that installs
+  packages: it fetches its `.deb` files (and, with `early_pre`, runs its `pre` lines and the list refresh first), then the step after
+  that. The network is not idle while dpkg works. A step with `pre` lines and no `early_pre` stops the chain. A failure there
+  is only logged; the step then does its own work.
+- **No Recommends, no Suggests, no language files.** `--no-install-recommends` on every install; `/etc/apt/apt.conf.d/90pm-sbx` sets
+  `Acquire::Languages "none"`, retries 3, pipelining 10, no Suggests and waits for the dpkg lock (3 minutes). `Acquire::Queue-Mode` is
+  left alone: `access` would put every host in one queue.
+- **Quiet guest.** `packagekit`, `unattended-upgrades` and the `apt-daily` jobs are masked (and stopped when systemd runs). The app also puts
+  `guest/desktop/wsl-install.conf` (systemd off) in place and restarts the distro once before the installer starts, so none of them runs.
+- **dpkg without fsync** (`--force-unsafe-io`, for the install only), one apt run per step for packages and `.deb` together (one set of triggers).
+- **noVNC without its dependencies.** Ubuntu's `novnc` package depends on `nodejs` and `python3-novnc` (OpenStack oslo libraries, pillow,
+  babel, netaddr: about 60 packages, 65 MB). `guest/desktop/pm-sbx-novnc-lite.sh` repackages the stock `.deb` without its `Depends` and
+  installs that (version suffix `+pmsbx1`, held), so `/usr/share/novnc` is there and nothing else comes with it.
 
 ## Guest files
 

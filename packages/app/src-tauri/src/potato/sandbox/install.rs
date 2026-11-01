@@ -9,9 +9,12 @@
 //! 3. `CreateDistro`: `wsl --install Ubuntu-24.04 --name <n> --location <dir> --no-launch`, with `<dir>`
 //!    under `<app data>/potato/sandbox/<n>/` (`Layout`), never the repo.
 //! 4. `CopyGuestFiles`: the guest files go in over stdin as a tar stream (`GuestFiles::tar_stream`) and are
-//!    unpacked by `tar` inside the distro. Nothing is copied through a Windows folder.
+//!    unpacked by `tar` inside the distro. Nothing is copied through a Windows folder. Then the short install-time
+//!    `/etc/wsl.conf` (systemd off) is put in place and the distro is restarted once, so the installer runs without
+//!    systemd (a fresh Ubuntu starts snapd, unattended-upgrades and PackageKit, which compete with apt).
 //! 5. `ApplyRecipes`: `apply-recipe.py` runs as root; its `PROGRESS n/total text` lines become progress
-//!    events (`parse_progress_line`), its `ERROR text` line becomes the failure reason.
+//!    events (`parse_progress_line`; `total` is 1000 and `n` the share of the whole job done, so the bar moves while
+//!    packages download), its `ERROR text` line becomes the failure reason.
 //! 6. `Restart`: `wsl --terminate <n>` so `/etc/wsl.conf` takes effect.
 //! 7. `BootCheck`: a real start with every readiness check (`Lifecycle::ensure_ready`), then a stop.
 //! 8. `Snapshot` (optional, on by default): `wsl --export` to the reset point.
@@ -21,7 +24,8 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use super::lifecycle::{Lifecycle, GUEST_SHARE};
 use super::wsl::{GuestUser, SandboxName, Wsl, WslError};
@@ -29,6 +33,10 @@ use super::wsl::{GuestUser, SandboxName, Wsl, WslError};
 const APPLY_TIMEOUT: Duration = Duration::from_secs(90 * 60);
 const COPY_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const PROGRESS_TEXT_CHARS: usize = 200;
+/// The short `/etc/wsl.conf` for the install (a file of the guest archive).
+const INSTALL_CONF: &str = "/usr/local/share/pm-sbx/desktop/wsl-install.conf";
+/// What the person is told the Ubuntu download weighs (`wsl --install` prints no percentage).
+const UBUNTU_DOWNLOAD_TEXT: &str = "about 340 MB";
 const MAX_OPTION_VALUE: usize = 200;
 const ADDONS: [&str; 2] = ["coding", "daily"];
 /// The default reset point.
@@ -356,10 +364,11 @@ impl Step {
     pub fn weight(self) -> u32 {
         match self {
             Step::CheckWsl | Step::CheckFree | Step::Restart => 1,
-            Step::CopyGuestFiles => 2,
+            Step::CopyGuestFiles => 3,
             Step::BootCheck => 5,
-            Step::CreateDistro | Step::Snapshot => 15,
-            Step::ApplyRecipes => 60,
+            Step::Snapshot => 10,
+            Step::CreateDistro => 25,
+            Step::ApplyRecipes => 45,
         }
     }
 }
@@ -565,7 +574,7 @@ fn run_steps(
                 let dir = env.layout.distro_dir(name);
                 std::fs::create_dir_all(&dir).map_err(|e| step_error(step, e))?;
                 *created = true;
-                env.wsl.install_distro(name, &dir).map_err(|e| step_error(step, e))?;
+                create_distro(env, name, &dir, steps, index, progress).map_err(|e| step_error(step, e))?;
             }
             Step::CopyGuestFiles => {
                 let tar = env.files.tar_stream().map_err(|e| step_error(step, e))?;
@@ -574,6 +583,7 @@ fn run_steps(
                     .exec(name, GuestUser::Root, &["/bin/tar", "-x", "-m", "-C", GUEST_SHARE, "-f", "-"], Some(tar), COPY_TIMEOUT)
                     .and_then(|o| o.ok())
                     .map_err(|e| step_error(step, e))?;
+                restart_without_systemd(env, name);
             }
             Step::ApplyRecipes => apply_recipes(env, options, steps, index, progress)?,
             Step::Restart => env.wsl.terminate(name).map_err(|e| step_error(step, e))?,
@@ -592,6 +602,88 @@ fn run_steps(
     }
     emit_done(progress, steps);
     Ok(())
+}
+
+/// Puts the short install-time wsl.conf in place and restarts the distro, so the installer runs without systemd. This only
+/// makes the install faster, so a failure here is not an install failure: the installer still works with systemd on.
+fn restart_without_systemd(env: &InstallEnv<'_>, name: &SandboxName) {
+    let copied = env.wsl.exec(name, GuestUser::Root, &["/bin/cp", INSTALL_CONF, "/etc/wsl.conf"], None, COPY_TIMEOUT).and_then(|o| o.ok());
+    if copied.is_ok() {
+        let _ = env.wsl.terminate(name);
+    }
+}
+
+enum CreateEvent {
+    /// `wsl --install` printed its second line (the first is "Downloading", the second "Installing", in the person's language).
+    Unpacking,
+    Done(Result<(), WslError>),
+}
+
+fn mm_ss(elapsed: Duration) -> String {
+    let secs = elapsed.as_secs();
+    format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+/// The share of the step done and the line to show, for how long `wsl --install` has been running. It prints no
+/// percentage, so the bar eases toward the end of each phase and the line carries the elapsed time.
+pub fn create_progress(elapsed: Duration, unpacking_for: Option<Duration>) -> (f64, String) {
+    match unpacking_for {
+        None => {
+            let t = elapsed.as_secs_f64();
+            (0.7 * t / (t + 60.0), format!("Downloading Ubuntu ({UBUNTU_DOWNLOAD_TEXT}) \u{b7} {}", mm_ss(elapsed)))
+        }
+        Some(since) => {
+            let u = since.as_secs_f64();
+            (0.7 + 0.28 * u / (u + 15.0), format!("Unpacking Ubuntu \u{b7} {}", mm_ss(elapsed)))
+        }
+    }
+}
+
+/// `wsl --install` on a thread, while this one keeps the bar and the elapsed time moving once a second.
+fn create_distro(
+    env: &InstallEnv<'_>,
+    name: &SandboxName,
+    dir: &Path,
+    steps: &[Step],
+    index: usize,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<(), WslError> {
+    let (tx, rx) = mpsc::channel::<CreateEvent>();
+    let wsl = env.wsl;
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let mut lines = 0usize;
+            let mut last = String::new();
+            let result = wsl.install_distro_streaming(name, dir, &mut |raw| {
+                // wsl.exe prints UTF-16: after a split at the newline byte, NULs are left in the text.
+                let line: String = raw.chars().filter(|c| *c != '\0' && !c.is_control()).collect();
+                let line = line.trim().to_string();
+                if line.is_empty() || line == last {
+                    return;
+                }
+                last = line;
+                lines += 1;
+                if lines == 2 {
+                    let _ = tx.send(CreateEvent::Unpacking);
+                }
+            });
+            let _ = tx.send(CreateEvent::Done(result));
+        });
+        let started = Instant::now();
+        let mut unpacking: Option<Instant> = None;
+        loop {
+            let (fraction, detail) = create_progress(started.elapsed(), unpacking.map(|t| t.elapsed()));
+            emit(progress, steps, index, fraction, Some(detail));
+            match rx.recv_timeout(Duration::from_secs(1)) {
+                Ok(CreateEvent::Done(result)) => return result,
+                Ok(CreateEvent::Unpacking) => {
+                    unpacking.get_or_insert_with(Instant::now);
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Err(WslError::Start("the download stopped unexpectedly".to_string())),
+            }
+        }
+    })
 }
 
 fn emit_done(progress: &mut dyn FnMut(Progress), steps: &[Step]) {

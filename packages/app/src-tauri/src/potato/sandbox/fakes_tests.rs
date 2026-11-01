@@ -181,7 +181,7 @@ impl FakeGuest {
                 st.control_up = false;
                 ok(b"DESKTOP_STOPPED".to_vec())
             }
-            ["/bin/mkdir", ..] | ["/bin/tar", ..] => code(0),
+            ["/bin/mkdir", ..] | ["/bin/tar", ..] | ["/bin/cp", ..] => code(0),
             ["/usr/bin/python3", "-I", script, ..] if script.ends_with("apply-recipe.py") => {
                 for line in st.apply_lines.clone() {
                     on_line(&line);
