@@ -233,17 +233,21 @@ describe('the keys', () => {
 });
 
 describe('the Computer tab', () => {
-  it('has the computer: who has it, Take over, Hand back, Show', async () => {
+  it('has the computer: a live preview, who has it, Take control (the full window) and I am done', async () => {
     const screen = fakeScreenTransport({ phase: 'bot', bot: 'fish' });
     await mount({ screen });
     expect(host.querySelector('.ck-potato-computer')).toBeNull();
     await click(toggle());
     expect(host.querySelector('.ck-potato-panel .ck-potato-computer')).not.toBeNull();
-    expect(state()).toBe('Fish is using it');
-    await click(buttonByText(host, 'Take over'));
-    expect(state()).toBe('You have control');
     expect(host.querySelector('.ck-potato-panel iframe')).not.toBeNull();
-    await click(buttonByText(host, 'Hand back'));
+    expect(host.querySelector('.ck-potato-computer-label')?.textContent).toBe('Fish’s screen');
+    expect(state()).toBe('Fish is using it');
+    await click(buttonByText(host, 'Take control'));
+    expect(state()).toBe('You have control');
+    const layer = document.querySelector('.ck-potato-overlay');
+    expect(layer).not.toBeNull();
+    await click([...layer!.querySelectorAll('button')].find((b) => b.textContent === "I'm done"));
+    expect(document.querySelector('.ck-potato-overlay')).toBeNull();
     expect(state()).toBe('Not in use');
     expect(screen.calls.map((c) => c.method)).toEqual(expect.arrayContaining(['takeOver', 'handBack']));
   });
@@ -251,7 +255,6 @@ describe('the Computer tab', () => {
   it('stays mounted on the other tabs, so the screen does not reload', async () => {
     await mount({ screen: fakeScreenTransport({ phase: 'bot', bot: 'fish' }) });
     await click(toggle());
-    await click(buttonByText(host, 'Show'));
     const frame = host.querySelector('iframe');
     expect(frame).not.toBeNull();
     await click(tab('Routines'));
@@ -264,7 +267,7 @@ describe('the Computer tab', () => {
     await mount({ screen: fakeScreenTransport({ enabled: false }) });
     await click(toggle());
     expect(host.querySelector('.ck-potato-computer')).toBeNull();
-    expect(host.querySelector('.ck-potato-panel-empty')?.textContent).toBe('Fish has no computer here. Turn on Sandbox in Settings > Potato Bot.');
+    expect(host.querySelector('.ck-potato-panel-empty')?.textContent).toBe('Fish has no computer here. Turn on Sandbox in Settings > General > Labs.');
     act(() => root.unmount());
     root = createRoot(host);
     await mount();
@@ -296,7 +299,7 @@ describe('Needs you', () => {
     expect(banner()).toBeNull();
     expect(state()).toBe('Needs you');
     expect(panel()!.textContent).toContain('The site wants a code');
-    expect(buttonByText(host, 'Take over')).toBeTruthy();
+    expect(buttonByText(host, 'Take control')).toBeTruthy();
     expect(buttonByText(host, 'Skip')).toBeTruthy();
   });
 

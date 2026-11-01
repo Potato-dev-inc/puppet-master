@@ -76,3 +76,13 @@ describe('fakeScreenTransport', () => {
     await expect(t.link('fish', 'view')).resolves.toBeTruthy();
   });
 });
+
+describe('parseViewerMessage title', () => {
+  it('takes the window title as plain text, cut short, and leaves it out when there is none', () => {
+    const base = { type: 'pm-sbx-screen-status', status: 'connected' };
+    expect(parseViewerMessage({ ...base, title: '  Inbox - Chromium  ' })).toEqual({ status: 'connected', reason: null, title: 'Inbox - Chromium' });
+    expect(parseViewerMessage({ ...base, title: 'a\u0000b\nc' })?.title).toBe('a b c');
+    expect(parseViewerMessage({ ...base, title: 'x'.repeat(200) })?.title).toHaveLength(80);
+    for (const title of [undefined, '', '   ', 5, null, {}]) expect(parseViewerMessage({ ...base, title })).toEqual({ status: 'connected', reason: null });
+  });
+});

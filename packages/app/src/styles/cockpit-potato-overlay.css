@@ -1,0 +1,119 @@
+/* The computer in the full window and the set up wizard's layer. Grayscale tokens only. The layer sits over the whole
+   cockpit (above the sheets, under the toast). */
+
+.cockpit .ck-potato-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--label);
+  font-size: 13px;
+  outline: none;
+  animation: ck-fade 160ms var(--ease);
+}
+.cockpit .ck-potato-overlay-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--sep);
+  background: var(--bg-side);
+}
+.cockpit .ck-potato-overlay-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cockpit .ck-potato-overlay-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+.cockpit .ck-potato-overlay-window {
+  min-width: 0;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-potato-overlay-gap {
+  flex: 1;
+}
+.cockpit .ck-potato-overlay-reason {
+  flex: none;
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--sep);
+  color: var(--label-2);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-potato-overlay-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+}
+.cockpit .ck-potato-overlay-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--bg);
+}
+/* The one question before the screen is handed back. */
+.cockpit .ck-potato-overlay-confirm {
+  position: absolute;
+  top: 56px;
+  right: 12px;
+  z-index: 3;
+  width: min(320px, calc(100% - 24px));
+  padding: 14px;
+  border: 1px solid var(--sep);
+  border-radius: 14px;
+  background: var(--bg-float);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  box-shadow: var(--float-shadow);
+  animation: ck-pop 280ms var(--ease-sheet);
+}
+.cockpit .ck-potato-overlay-confirm-title {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+.cockpit .ck-potato-overlay-confirm .ck-sub {
+  margin: 0 0 12px;
+}
+.cockpit .ck-potato-overlay-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* The wizard was made for the settings window: this layer gives it the `.settings` it draws in, and nothing else. */
+.cockpit .ck-potato-wizard-host.settings {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: block;
+  background: transparent;
+  overflow: visible;
+  pointer-events: none;
+}
+.cockpit .ck-potato-wizard-host.settings .st-scrim {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-potato-overlay,
+  .cockpit .ck-potato-overlay-confirm {
+    animation: none;
+  }
+}

@@ -5,6 +5,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { AvatarId, CompanionTransport, CompanionView } from '../../../lib/companion';
 import { plainError, type PotatoState, type PotatoTransport } from '../../../lib/potato';
+import type { SandboxTransport } from '../../../lib/potato-sandbox';
 import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { usePotatoThread } from '../../../hooks/usePotato';
 import { CompanionSetupSheet } from '../companion/CompanionSetupSheet';
@@ -40,10 +41,12 @@ export interface PotatoPageProps {
   paneExists?: (paneId: string) => boolean;
   /** The Computer panel's way to the app (the sandbox screen). Absent: no panel. */
   screenTransport?: ScreenTransport;
+  /** The sandbox's commands for the Computer tab's upkeep section and its set up card. Absent: neither is drawn. */
+  sandboxTransport?: SandboxTransport;
 }
 
 export function PotatoPage(props: PotatoPageProps) {
-  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport } = props;
+  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport, sandboxTransport } = props;
   const [sheetOpen, setSheetOpen] = useState(false);
   const open = pickOpenBot(state.bots, openBotId);
   const layout = usePotatoLayout();
@@ -123,6 +126,8 @@ export function PotatoPage(props: PotatoPageProps) {
       onTab={(next) => setTab(open.id, next)}
       onClose={() => layout.setPanelOpen(false)}
       screen={screenTransport}
+      sandbox={sandboxTransport}
+      onOpenSettings={onOpenSettings}
       through={through}
       onNotify={onNotify}
     />
