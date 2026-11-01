@@ -1,4 +1,5 @@
 //! `pm-fake-tui [--agent claude|codex] [--script FILE] [--check FILE] [--version]`
+//! `pm-fake-tui --acp`: the same fake as a chat agent over the Agent Client Protocol (stdin/stdout, no screen).
 //!
 //! The script comes from `--script`, else the `PM_FAKE_TUI_SCRIPT` environment variable, else a bare
 //! agent of `--agent`'s layout that answers every prompt with "OK".
@@ -6,6 +7,10 @@
 use pm_fake_tui::script::{Layout, Script};
 
 fn main() {
+    if std::env::args().skip(1).any(|a| a == "--acp") {
+        pm_fake_tui::acp_agent::run();
+        return;
+    }
     let mut args = std::env::args().skip(1);
     let mut script_path: Option<String> = std::env::var("PM_FAKE_TUI_SCRIPT").ok().filter(|p| !p.is_empty());
     let mut agent: Option<Layout> = None;

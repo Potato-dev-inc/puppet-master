@@ -39,7 +39,13 @@ import { placeLabel, placeTooltip } from '../../lib/wsl-place';
 import { isProseStream, transcriptSpeaker } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
 import { AcpChatDock } from '../chat/AcpChatDock';
-import { ACP_BADGE, ACP_LANE } from '../../lib/acpChat';
+import { ACP_BADGE, ACP_LANE, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
+import { AcpConfigChips } from '../chat/AcpConfigChips';
+import { HandedToTerminal, HANDED_BLOCK } from '../chat/HandedToTerminal';
+import { HandOverSheet } from '../chat/HandOverSheet';
+import { useAcpChatState } from '../../hooks/useAcpChatState';
+import { useHandOver } from '../../hooks/useHandOver';
+import { useTerminalConversation } from '../../hooks/useTerminalConversation';
 import '../../styles/cockpit-acp.css';
 import { BudgetChip } from './BudgetChip';
 import { MissionProgress } from './mission/MissionProgress';
@@ -124,9 +130,12 @@ export function PaneView({
   c,
   paneId,
   onWhatBroke,
+  acp = tauriAcpChatApi,
 }: {
   c: CockpitApi;
   paneId: string;
+  /** The chat-session calls (state, settings, hand-over). Replaceable in tests. */
+  acp?: AcpChatApi;
   /** Opens "What broke the tests?" for this pane (History tab). Absent: no button. */
   onWhatBroke?: (paneId: string) => void;
 }) {
@@ -156,6 +165,14 @@ export function PaneView({
   // A chat session over ACP has no terminal behind it: its Chat tab is the pane.
   const isAcp = pane?.info.lane === ACP_LANE;
   const chatAllowed = listing.agents.find((a) => a.id === agentType)?.kind !== 'shell';
+  // A chat session: its state (settings, commands, "open in a terminal"). An ordinary pane may hold a chat conversation
+  // that was handed to it: then it can hand it back.
+  const acpState = useAcpChatState(paneId, isAcp, acp);
+  const heldConversation = useTerminalConversation(paneId, !!pane && !isAcp, acp);
+  const handOver = useHandOver({ api: acp, select: c.select, notify: c.notify, resetOn: paneId });
+  const inTerminal = isAcp ? (acpState?.inTerminal ?? null) : null;
+  // The chat is a saved conversation unless the backend says it is not (an older backend says nothing: then it is).
+  const canHandOver = isAcp && !!acpState && !inTerminal && acpState.conversation !== null;
 
   useEffect(() => {
     setTab('terminal');
@@ -293,7 +310,15 @@ export function PaneView({
   const chatDock =
     dockNow || helperAsks.length > 0 || isAcp ? (
       <>
-        {isAcp && <AcpChatDock c={c} paneId={paneId} paneName={name} />}
+        {inTerminal && (
+          <HandedToTerminal
+            terminalPaneId={inTerminal.paneId}
+            busy={handOver.busy}
+            onBack={() => handOver.start('toChat', acpState?.conversation ?? paneId)}
+            onGoToTerminal={(id) => c.select(id)}
+          />
+        )}
+        {isAcp && <AcpChatDock c={c} paneId={paneId} paneName={name} api={acp} />}
         <HelperQuestions c={c} ids={helperAsks} />
         {dockNow && <DockedCards c={c} paneId={paneId} dock={dock} dockNow={dockNow} onMore={cycleDock} />}
       </>
@@ -332,6 +357,30 @@ export function PaneView({
           <span className="ck-lane-chip" data-testid="pane-lane" title="This agent runs as a chat over the Agent Client Protocol, not in a terminal.">
             {ACP_BADGE}
           </span>
+        )}
+        {canHandOver && (
+          <button
+            type="button"
+            className="ck-handover-btn"
+            data-testid="open-in-terminal"
+            disabled={handOver.busy}
+            title="Continue this conversation in a terminal. You can come back to the chat."
+            onClick={() => handOver.start('toTerminal', acpState?.conversation ?? paneId)}
+          >
+            Open in terminal
+          </button>
+        )}
+        {heldConversation && (
+          <button
+            type="button"
+            className="ck-handover-btn"
+            data-testid="back-to-chat"
+            disabled={handOver.busy}
+            title="Stop the terminal and continue this conversation in the chat."
+            onClick={() => handOver.start('toChat', heldConversation.conversation)}
+          >
+            Back to chat
+          </button>
         )}
         <LiveChip paneId={paneId} status={liveStatus} />
         <BudgetChip paneId={paneId} refreshKey={pane.status} onNotify={c.notify} />
@@ -427,7 +476,16 @@ export function PaneView({
           )}
           {tab === 'chat' && chatAllowed && (
             <div className="ck-scroll ck-fade-in" key="chat">
-              <SessionChatPanel paneId={paneId} dock={chatDock} screenAsk={screenAsk} helpers={startedHelpers} reply={{ blockedReason: composerBlock(pane, !chatAllowed, isAcp) }} onOpenPane={(id) => c.select(id)} />
+              <SessionChatPanel
+                paneId={paneId}
+                dock={chatDock}
+                screenAsk={screenAsk}
+                helpers={startedHelpers}
+                reply={{ blockedReason: inTerminal ? HANDED_BLOCK : composerBlock(pane, !chatAllowed, isAcp) }}
+                onOpenPane={(id) => c.select(id)}
+                slashCommands={isAcp ? acpState?.commands : undefined}
+                composerTop={isAcp ? <AcpConfigChips paneId={paneId} state={acpState} api={acp} /> : undefined}
+              />
             </div>
           )}
           {tab === 'changes' && worktree && (
@@ -557,6 +615,8 @@ export function PaneView({
           </div>
         </Sheet>
       )}
+
+      {handOver.ask && <HandOverSheet ask={handOver.ask} busy={handOver.busy} onConfirm={handOver.confirm} onCancel={handOver.cancel} />}
 
       {confirm && (
         <Sheet labelledBy="ck-close-t" onClose={() => setConfirm(false)}>

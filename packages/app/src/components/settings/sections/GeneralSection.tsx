@@ -498,6 +498,22 @@ export const generalRows: RowDef[] = [
       />
     ),
   },
+  {
+    id: 'acp-chat-labs',
+    label: 'Chat sessions (ACP)',
+    hint: 'Run an agent as a chat instead of in a terminal. Turn it on to pick Chat per agent under Agents.',
+    keywords: 'chat acp agent client protocol conversation terminal lane labs early',
+    group: 'Labs',
+    labs: { name: 'Chat sessions (ACP)', about: 'Run an agent as a chat instead of in a terminal.' },
+    render: (env) => (
+      <SettingToggle
+        label="Chat sessions (ACP)"
+        description="Run an agent as a chat instead of in a terminal. The terminal stays available for every agent. Pick Chat per agent under Agents, or per session from the + menu."
+        checked={env.settings.acp_chat_enabled ?? false}
+        onChange={(value) => void env.patch({ acp_chat_enabled: value })}
+      />
+    ),
+  },
   { id: 'team', label: 'Team', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', labs: { name: 'Team', about: 'Tell teammates when your agent pushes, and see when theirs does.' }, render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'live-room', label: 'Live Room', hint: 'Let people with a link watch a chat. Pick the relay address, how long and how many.', keywords: 'live room share stream watch link relay viewers broadcast default length', group: 'Live Room', render: (env) => <LiveRoomRow onSaved={env.markSaved} /> },
   { id: 'version', label: 'Version', hint: 'Check for updates and download the installer.', keywords: 'app version update release download install', group: 'About', render: (env) => <VersionRow env={env} /> },

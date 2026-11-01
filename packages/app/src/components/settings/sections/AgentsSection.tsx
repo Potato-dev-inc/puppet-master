@@ -2,6 +2,7 @@
 // consent, review and approval). Most blocks save through their own command; the Live updates row calls env.patch.
 import { AccountsGroup } from '../accounts/AccountsGroup';
 import { AgentDefinitions } from '../blocks/AgentDefinitions';
+import { AgentLaneRows } from '../blocks/AgentLaneRows';
 import { AgentVersions } from '../blocks/AgentVersions';
 import { CHAT_ADDONS_LABEL, ChatAddonRows } from '../blocks/ChatAddonRows';
 import { COLLISION_LABEL, CollisionSettings } from '../blocks/CollisionSettings';
@@ -110,6 +111,15 @@ export const agentsRows: RowDef[] = [
     keywords: 'version update tested untested check canary strict unknown screens recognise capture folder fixture',
     group: 'Updates',
     render: () => <AgentVersions />,
+  },
+  {
+    id: 'agent-lane',
+    label: 'How to run',
+    hint: 'Run an agent in a terminal (the default) or as a chat. The terminal stays available for every agent.',
+    keywords: 'chat acp terminal lane run mode conversation session how to run',
+    group: 'Chat',
+    labsFlag: 'acp_chat_enabled',
+    render: () => <AgentLaneRows />,
   },
   {
     id: 'chat-addons',

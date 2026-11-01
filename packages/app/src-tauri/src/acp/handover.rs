@@ -219,6 +219,8 @@ impl Conversations {
         let session = self.live_session(&id).ok()?;
         session.release_hold();
         session.replay_on_next_start();
+        // The chat of this conversation starts its history over from the replay (it holds what was said before).
+        super::chat::history_will_be_replayed(&id);
         self.update(&id, |r| {
             r.last_known_state = LastState::Live;
             r.terminal_pane = None;
@@ -232,6 +234,7 @@ impl Conversations {
         let session = self.live_session(id)?;
         session.release_hold();
         session.replay_on_next_start();
+        super::chat::history_will_be_replayed(id);
         self.update(id, |r| {
             r.last_known_state = LastState::Live;
             r.terminal_pane = None;

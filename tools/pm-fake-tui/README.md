@@ -8,6 +8,8 @@ It is a development tool. Nothing in the shipped app refers to it; the app side 
 pm-fake-tui [--agent claude|codex|nimbus] [--script FILE.toml|FILE.json] [--check FILE]
 ```
 
+`pm-fake-tui --acp` is the same fake as a chat agent over the Agent Client Protocol (no screen, JSON-RPC on stdin/stdout; `src/acp_agent.rs`): `stream N`, `work` (reads, edits, a command), `perm` (a permission question), `slow` (stops when cancelled), `crash`, else an echo; sessions are kept in `PM_FAKE_ACP_STORE` (else next to the script file) so `session/load` and a restart of the app find them. The end-to-end definition `packages/e2e/fixtures/agents/nimbus.toml` has an `[acp]` table that starts it.
+
 `--script` falls back to the `PM_FAKE_TUI_SCRIPT` environment variable. With no script it is a bare agent that answers every prompt with "OK". `--check FILE` validates a script and exits. `PM_FAKE_TUI_LOG=<file>` (or `log = "<file>"` in the script) appends one JSON line per event: `start`, `ready`, `key`, `prompt`, `approval_shown`, `approval_answer`, `gate_shown`, `gate_answer`, `write_file`, `limit`, `interrupted`, `turn_done`, `exit`.
 
 ## What it draws

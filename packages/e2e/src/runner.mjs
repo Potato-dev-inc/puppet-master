@@ -233,6 +233,26 @@ export async function runTests(tests, opts = {}, emit = () => {}) {
         ctx = makeContext({ meta: test, app, conn, runDir: outDir, pace: video ? 1 : 0.2, isAborted: () => aborted || signal.stopped, emit, project: null });
         await ctx.page.inject();
         if (video) { recorder = new Recorder(conn, outDir, VIEWPORT()); await recorder.start(); await sleep(300); }
+        // `t.restartApp()`: stop the app and start it again on the same data folder (what survives a restart is the
+        // point of the test). The video goes on in the same file.
+        ctx.restartApp = async () => {
+          const frames = recorder ? recorder.frames : null;
+          if (recorder) await recorder.stop();
+          const sameRun = app.runId;
+          try { conn?.close(); } catch { /* closed */ }
+          conn = null;
+          await app.stop();
+          app = await startApp({ runId: sameRun, headless: opts.headless, anchor: opts.anchor, reuse: true });
+          conn = await ensureCockpit(app);
+          await prepareWindow(app, conn);
+          conn.on((m) => {
+            if (m.method === 'Runtime.exceptionThrown') consoleErrors.push(String(m.params.exceptionDetails?.exception?.description || m.params.exceptionDetails?.text).slice(0, 300));
+          });
+          ctx.rebind(app, conn);
+          await keepOverlaysOff(conn, test);
+          await ctx.page.inject();
+          if (recorder && frames) { recorder = new Recorder(conn, outDir, VIEWPORT()); recorder.frames = frames; await recorder.start(); await sleep(300); }
+        };
         if (test.setup) await test.setup(ctx);
         let timer;
         const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`the test took longer than ${test.timeout} ms`)), test.timeout); });

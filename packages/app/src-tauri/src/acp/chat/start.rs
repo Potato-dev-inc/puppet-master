@@ -7,6 +7,7 @@ use parking_lot::Mutex;
 
 use super::{AcpChat, ChatHost, CHATS, LANE};
 use crate::acp::config::{AgentConfig, HostEnv};
+use crate::acp::conversations::Conversations;
 use crate::acp::lane::RunLane;
 use crate::acp::session::{AcpSession, SessionParams};
 use crate::acp::supervisor::{self, SweeperHandle};
@@ -20,6 +21,9 @@ pub struct StartDeps {
     pub registry: Arc<Mutex<PaneRegistry>>,
     pub host: Arc<dyn ChatHost>,
     pub env: Arc<dyn HostEnv>,
+    /// The saved conversations. With them a chat session is a conversation (the pane's id is the conversation's):
+    /// it survives an app restart and can be handed to a terminal and back. Without them it lives as long as the app.
+    pub conversations: Option<Conversations>,
 }
 
 pub struct StartRequest {
@@ -109,19 +113,32 @@ pub fn start(deps: &StartDeps, cfg: AgentConfig, request: StartRequest) -> Resul
         let size = cfg.addon.size_mb.map(|mb| format!(" (about {mb} MB)")).unwrap_or_default();
         return Err(StartError::new("ACP_ADDON_MISSING", format!("Chat needs a small add-on for {}{size}. Install it first.", cfg.label), true));
     }
-    let pane_id = uuid::Uuid::new_v4().to_string();
     let label = cfg.label.clone();
     let agent_id = cfg.id.clone();
-    let session = AcpSession::new(Arc::new(cfg), deps.env.clone(), SessionParams { key: pane_id.clone(), cwd: folder.clone(), resume_session_id: None });
-    let chat = AcpChat::build(&pane_id, &label, session.clone(), deps.host.clone());
+    let (session, pane_id) = match &deps.conversations {
+        Some(conversations) => {
+            let view = conversations.create(&agent_id, &folder).map_err(|e| StartError::new("ACP_START_FAILED", format!("The agent could not start: {e}"), true))?;
+            let session = conversations.session(&view.id).ok_or_else(|| StartError::new("ACP_START_FAILED", "The agent could not start.", true))?;
+            (session, view.id)
+        }
+        None => {
+            let pane_id = uuid::Uuid::new_v4().to_string();
+            let session = AcpSession::new(Arc::new(cfg), deps.env.clone(), SessionParams { key: pane_id.clone(), cwd: folder.clone(), resume_session_id: None });
+            supervisor::global().insert(session.clone());
+            (session, pane_id)
+        }
+    };
+    let chat = AcpChat::build(&pane_id, &label, session.clone(), deps.host.clone(), deps.conversations.clone());
     chat.attach();
     CHATS.lock().insert(pane_id.clone(), chat.clone());
     pushed::register(&pane_id, chat.clone());
-    supervisor::global().insert(session.clone());
     SWEEPER.get_or_init(|| supervisor::global().start_thread());
 
     if let Err(error) = session.ensure_running() {
         chat.retire();
+        if let Some(conversations) = &deps.conversations {
+            conversations.discard(&pane_id);
+        }
         let needs_sign_in = matches!(error, crate::acp::error::AcpError::AuthRequired { .. });
         let message = if needs_sign_in { "The agent needs you to sign in first.".to_string() } else { format!("The agent could not start: {error}") };
         return Err(StartError::new(if needs_sign_in { "ACP_SIGN_IN_NEEDED" } else { "ACP_START_FAILED" }, message, true));
@@ -140,6 +157,41 @@ pub fn start(deps: &StartDeps, cfg: AgentConfig, request: StartRequest) -> Resul
     deps.host.panes_changed();
     deps.host.state_changed(&pane_id, &chat.state());
     Ok(chat)
+}
+
+/// After an app start: a chat pane for every conversation that came back (`Conversations::restore_lazily`). The pane
+/// is listed at once; nothing starts until a viewer reads it (`AcpChat::wake_for_reader`) or a message is sent. A
+/// conversation that is open in a terminal pane (the terminal survived) shows that. Returns the pane ids.
+pub fn restore_panes(deps: &StartDeps) -> Vec<String> {
+    let Some(conversations) = &deps.conversations else { return Vec::new() };
+    let mut restored = Vec::new();
+    for id in conversations.open_ids() {
+        if CHATS.lock().contains_key(&id) {
+            continue;
+        }
+        let (Some(session), Some(record)) = (conversations.session(&id), conversations.record(&id)) else { continue };
+        let Ok(cfg) = conversations.config_for(&record.agent) else { continue };
+        let chat = AcpChat::build(&id, &cfg.label, session, deps.host.clone(), Some(conversations.clone()));
+        chat.attach();
+        CHATS.lock().insert(id.clone(), chat.clone());
+        pushed::register(&id, chat.clone());
+        SWEEPER.get_or_init(|| supervisor::global().start_thread());
+        let on_close = {
+            let id = id.clone();
+            Arc::new(move || super::on_pane_closed(&id)) as Arc<dyn Fn() + Send + Sync>
+        };
+        let handles = insert_virtual_pane(
+            &deps.registry,
+            VirtualPaneSpec { pane_id: id.clone(), agent_type: record.agent.clone(), cwd: record.cwd.clone(), lane: LANE.to_string() },
+            on_close,
+        );
+        chat.set_handles(handles);
+        restored.push(id);
+    }
+    if !restored.is_empty() {
+        deps.host.panes_changed();
+    }
+    restored
 }
 
 #[cfg(test)]

@@ -8,11 +8,13 @@
 // here, from the person's own history. It starts nothing: only a press on its Start button does.
 import { useEffect, useState } from 'react';
 import { accountsFor, needsAccountStep, tauriAccountsApi, type Account, type AccountsApi } from '../../lib/accounts';
+import { laneChoiceFor, startFailure, type AcpLane, type AcpLaneAgent } from '../../lib/acpChat';
 import { shipApi, type GitInitPlan, type GitState, type RecentProject, type ShipApi } from '../../lib/ship-api';
 import { realRecents, stateHint, supportsCopies } from '../../lib/ship-model';
 import { EARLY_TITLE, FOOTER, isEarly, pickHint, startable, startLabel, type PickApi, type PickResult, type PickState } from '../../lib/pick-for-me';
 import '../../styles/cockpit-ship.css';
 import '../../styles/cockpit-pick.css';
+import '../../styles/cockpit-acp.css';
 
 export interface LaunchEntry {
   type: string;
@@ -51,6 +53,11 @@ interface Props {
   onStartMission?: () => void;
   /** "Tonight…" (Night Shift, Labs). Without it the item is not drawn. */
   onTonight?: () => void;
+  /**
+   * Chat sessions (ACP, Labs). The agents that can run as a chat get a small Terminal | Chat switch on their row, set to
+   * the agent's own setting. `onStart` starts the chat and rejects with the backend's error. Without it nothing changes.
+   */
+  chat?: { agents: readonly AcpLaneAgent[]; onStart: (agentId: string) => Promise<void> };
 }
 
 type Step = 'agents' | 'projects' | 'git' | 'pick';
@@ -86,6 +93,7 @@ export function NewAgentMenu({
   onOpenStore,
   onStartMission,
   onTonight,
+  chat,
 }: Props) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [picking, setPicking] = useState<LaunchEntry | null>(null);
@@ -97,6 +105,11 @@ export function NewAgentMenu({
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<PickAnswer | null>(null);
   const projectPath = project?.path ?? null;
+  // Chat sessions: the person's pick per agent for this menu (the agent's own setting until they pick), and a failed start.
+  const [lanePick, setLanePick] = useState<Record<string, AcpLane>>({});
+  const [chatFail, setChatFail] = useState<{ agentId: string; sentence: string; terminalFallback: boolean } | null>(null);
+  const [chatBusy, setChatBusy] = useState(false);
+  const laneOf = (agentId: string): AcpLane => lanePick[agentId] ?? laneChoiceFor(chat?.agents.find((a) => a.id === agentId));
 
   useEffect(() => {
     let alive = true;
@@ -145,6 +158,20 @@ export function NewAgentMenu({
   const start = (agentId: string, accountId?: string) => {
     onClose();
     onStart(agentId, accountId);
+  };
+
+  const startChat = async (agentId: string) => {
+    if (!chat || chatBusy) return;
+    setChatBusy(true);
+    setChatFail(null);
+    try {
+      await chat.onStart(agentId);
+      onClose();
+    } catch (err) {
+      setChatFail({ agentId, ...startFailure(err) });
+    } finally {
+      setChatBusy(false);
+    }
   };
 
   const choose = (found: RecentProject) => {
@@ -404,24 +431,59 @@ export function NewAgentMenu({
         </>
       )}
       {entries.map((e) => {
-        const hasAccounts = needsAccountStep(accounts, e.type);
-        return (
+        const chatAgent = chat?.agents.find((a) => a.id === e.type);
+        const lane = chatAgent ? laneOf(e.type) : 'terminal';
+        // An agent that will start as a chat skips the login step: a chat session has no login choice.
+        const hasAccounts = lane === 'terminal' && needsAccountStep(accounts, e.type);
+        const row = (
           <button
             key={e.type}
             type="button"
             role="menuitem"
             className="ck-menu-item"
-            disabled={e.disabled}
+            disabled={e.disabled || (lane === 'acp' && chatBusy)}
             title={e.disabledReason}
-            onClick={() => (hasAccounts ? setPicking(e) : start(e.type))}
+            onClick={() => (lane === 'acp' ? void startChat(e.type) : hasAccounts ? setPicking(e) : start(e.type))}
           >
             <span>{e.label}</span>
             {!e.disabled && hasAccounts && <span className="ck-menu-hint">{accountsFor(accounts, e.type).length + 1} logins ›</span>}
-            {!e.disabled && !hasAccounts && readyAgents.has(e.type) && <span className="ck-menu-hint">ready</span>}
+            {!e.disabled && !hasAccounts && lane === 'terminal' && readyAgents.has(e.type) && <span className="ck-menu-hint">ready</span>}
             {e.disabled && <span className="ck-menu-hint ck-menu-hint--long">only for tasks from other agents</span>}
           </button>
         );
+        if (!chatAgent || e.disabled) return row;
+        return (
+          <div key={e.type} className="ck-menu-lane" data-testid={`lane-row-${e.type}`}>
+            {row}
+            <div role="group" aria-label={`How ${e.label} runs`} className="ck-lane-seg">
+              {(['terminal', 'acp'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className="ck-lane-seg-btn"
+                  aria-pressed={lane === value}
+                  onClick={() => {
+                    setChatFail(null);
+                    setLanePick((cur) => ({ ...cur, [e.type]: value }));
+                  }}
+                >
+                  {value === 'terminal' ? 'Terminal' : 'Chat'}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
       })}
+      {chatFail && (
+        <div className="ck-menu-note ck-menu-note--err ck-menu-note--row" role="alert" data-testid="chat-start-failed">
+          <span>{chatFail.sentence}</span>
+          {chatFail.terminalFallback && (
+            <button type="button" className="ck-btn ck-btn--secondary ck-btn--sm" onClick={() => start(chatFail.agentId)}>
+              Start in terminal
+            </button>
+          )}
+        </div>
+      )}
       {onIsolated && (
         <>
           <div className="ck-menu-toggle" title="Work in a separate copy of the project, so agents never edit the same files. You review and merge it later.">

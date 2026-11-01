@@ -83,7 +83,7 @@ impl Rig {
         tweak(&mut cfg);
         let registry = Arc::new(Mutex::new(PaneRegistry::new()));
         let host = Arc::new(Recorder::default());
-        let deps = StartDeps { registry: registry.clone(), host: host.clone(), env: Arc::new(TestEnv { root: dir.clone() }) };
+        let deps = StartDeps { registry: registry.clone(), host: host.clone(), env: Arc::new(TestEnv { root: dir.clone() }), conversations: None };
         let chat = start(&deps, cfg, StartRequest { agent_id: "fake".into(), folder: dir.clone(), explicit: true }).expect("the fake agent starts");
         Rig { chat, registry, host, dir }
     }
@@ -199,7 +199,7 @@ fn an_adapter_that_will_not_start_leaves_nothing_behind_and_offers_the_terminal(
     let mut cfg = fake_agent::agent_config("", &dir.join("store"));
     cfg.command = dir.join("no-such-adapter.exe").to_string_lossy().into_owned();
     let registry = Arc::new(Mutex::new(PaneRegistry::new()));
-    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }) };
+    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }), conversations: None };
     let error = start(&deps, cfg, StartRequest { agent_id: "fake".into(), folder: dir, explicit: true }).err().expect("it cannot start");
     assert_eq!(error.code, "ACP_START_FAILED");
     assert!(error.fallback, "the terminal can run this agent instead");
@@ -214,7 +214,7 @@ fn the_labs_switch_off_starts_nothing() {
     }
     let dir = std::env::temp_dir();
     let registry = Arc::new(Mutex::new(PaneRegistry::new()));
-    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }) };
+    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }), conversations: None };
     let error = super::start_gated(&deps, StartRequest { agent_id: "codex".into(), folder: dir, explicit: true }).err().expect("refused");
     assert_eq!(error.code, "ACP_LABS_OFF");
     assert!(registry.lock().list().is_empty());
@@ -224,7 +224,7 @@ fn the_labs_switch_off_starts_nothing() {
 fn a_folder_that_is_not_a_folder_is_refused_before_anything_starts() {
     let dir = std::env::temp_dir().join("pm-acp-chat-no-such-folder-xyz");
     let registry = Arc::new(Mutex::new(PaneRegistry::new()));
-    let deps = StartDeps { registry, host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: std::env::temp_dir() }) };
+    let deps = StartDeps { registry, host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: std::env::temp_dir() }), conversations: None };
     let error = start(&deps, fake_agent::agent_config("", &std::env::temp_dir().join("s")), StartRequest { agent_id: "fake".into(), folder: dir, explicit: true }).err().unwrap();
     assert_eq!(error.code, "INVALID_ARGUMENT");
     assert!(!error.fallback);
@@ -706,7 +706,7 @@ fn a_closed_pane_stops_the_adapter_through_the_registry() {
 #[test]
 fn the_bridge_refuses_a_start_without_what_it_needs_and_offers_the_terminal() {
     let registry = Arc::new(Mutex::new(PaneRegistry::new()));
-    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: std::env::temp_dir() }) };
+    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: std::env::temp_dir() }), conversations: None };
     let (status, body) = super::api::start(&json!({ "folder": "work" }), &deps).unwrap_err();
     assert_eq!((status, body["code"].as_str()), (400, Some("INVALID_ARGUMENT")));
     let (status, body) = super::api::start(&json!({ "agent": "codex" }), &deps).unwrap_err();
@@ -758,7 +758,7 @@ fn a_missing_add_on_is_its_own_start_error_and_leaves_nothing_behind() {
         sha256: Some("0".repeat(64)),
     }];
     let registry = Arc::new(Mutex::new(PaneRegistry::new()));
-    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }) };
+    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }), conversations: None };
     let error = start(&deps, cfg, StartRequest { agent_id: "fake".into(), folder: dir, explicit: true }).err().expect("no add-on, no chat");
     assert_eq!(error.code, "ACP_ADDON_MISSING");
     assert!(error.message.contains("add-on for Fake (about 12 MB)"), "{}", error.message);

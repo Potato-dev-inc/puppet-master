@@ -20,6 +20,7 @@ import { lastClippableId, SessionChatView } from './SessionChatView';
 import { useSideQuestion } from './useSideQuestion';
 import { useChatJump } from '../../lib/chatJump';
 import type { ChatHelper } from '../../lib/chat-helpers';
+import type { AcpCommand } from '../../lib/acpChat';
 
 export interface ChatReply {
   /** Why the message box is switched off, or null. */
@@ -43,7 +44,7 @@ export interface ScreenAsk {
   onOpenTerminal?: () => void;
 }
 
-export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOpenPane, screenAsk, helpers }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; clipApi?: ClipApi; onOpenPane?: (paneId: string) => void; screenAsk?: ScreenAsk; /** The helpers this pane started through Puppet Master (rows in the turn they began in). */ helpers?: readonly ChatHelper[] }) {
+export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOpenPane, screenAsk, helpers, slashCommands, composerTop }: { paneId: string; dock?: ReactNode; reply?: ChatReply; emptyNote?: ReactNode; clipApi?: ClipApi; onOpenPane?: (paneId: string) => void; screenAsk?: ScreenAsk; /** The helpers this pane started through Puppet Master (rows in the turn they began in). */ helpers?: readonly ChatHelper[]; /** A chat session over ACP: the agent's slash commands for the message box (typing "/" opens a menu). */ slashCommands?: readonly AcpCommand[]; /** Drawn right above the message box (a chat session's settings chips). */ composerTop?: ReactNode }) {
   const chat = useSessionChat(paneId, true);
   const outbox = usePaneOutbox(tauriOutboxTransport, paneId, !!reply);
   const userTexts = useMemo(() => chat.turns.flatMap((turn) => (turn.user ? [turn.user.text] : [])), [chat.turns]);
@@ -106,7 +107,12 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
           )
         }
         pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
-        composer={reply ? <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} /> : undefined}
+        composer={reply ? (
+          <>
+            {composerTop}
+            <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} slashCommands={slashCommands} />
+          </>
+        ) : undefined}
       />
       {clipFor !== null && <ClipSheet paneId={paneId} userItemId={clipFor} api={clipApi} onClose={() => setClipFor(null)} />}
       {branchFor !== null && (

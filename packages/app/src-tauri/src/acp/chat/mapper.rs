@@ -474,6 +474,13 @@ impl Mapper {
         }
     }
 
+    /// The settings the agent offers, as the session knows them (from `session/new`, `session/load` and what the
+    /// person changed): the chat's header names the model from them, also before any `config_option_update`.
+    pub fn observe_config_options(&mut self, options: &[Value], at: &str) -> Vec<ChatItem> {
+        let items = self.config_options(options, at);
+        self.note(items)
+    }
+
     /// The model the agent says it uses now, from its config options (`category: "model"`).
     fn config_options(&mut self, options: &[Value], at: &str) -> Vec<ChatItem> {
         let model = options.iter().find(|o| o.get("category").and_then(Value::as_str) == Some("model")).and_then(|o| {

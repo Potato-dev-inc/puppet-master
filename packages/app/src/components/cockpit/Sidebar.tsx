@@ -4,6 +4,8 @@ import { requestPaneAction, type PaneAction } from '../../lib/pane-actions';
 import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
 import { shipApi, type GitState, type ShipApi } from '../../lib/ship-api';
 import { tauri } from '../../lib/tauri';
+import { useAcpLanes } from '../../hooks/useAcpLanes';
+import { chatCapable, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
 import { tauriPickApi } from '../../lib/pick-for-me';
 import { isValidProjectPath } from '../../lib/project-path';
 import { copyDefault, lastRealFolder, projectOfCwd, readStoredCopyPreference, supportsCopies, writeCopyPreference } from '../../lib/ship-model';
@@ -61,6 +63,7 @@ export function Sidebar({
   onOpenToSide,
   onPaneAction,
   ship = shipApi,
+  acp = tauriAcpChatApi,
 }: {
   c: CockpitApi;
   onOpenPalette: () => void;
@@ -97,6 +100,8 @@ export function Sidebar({
   potatoOpen?: boolean;
   onOpenPotato?: () => void;
   ship?: ShipApi;
+  /** Chat sessions (ACP): which agents can run as a chat, and starting one. Replaceable in tests. */
+  acp?: AcpChatApi;
 }) {
   const list = c.registry.paneList;
   // `Review 4`: how many finished things wait to be looked at. Hidden at 0.
@@ -185,6 +190,8 @@ export function Sidebar({
   useEffect(() => setStored(readStoredCopyPreference(projectKey)), [projectKey]);
   const isolated = copyDefault(stored);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Chat sessions (ACP, Labs): the agents with a Terminal | Chat switch in the menu. Read when the menu opens.
+  const chatAgents = chatCapable(useAcpLanes(menuOpen, acp));
   // Missions (Preview, Labs): "+" → Start a mission… opens the start sheet for the menu's project.
   const missionsOn = useMissionsEnabled();
   const missions = useMissions();
@@ -343,6 +350,18 @@ export function Sidebar({
                   void (project ? c.newAgent(agent, account, copy, project.path) : c.newAgent(agent, account, copy));
                 }}
                 onClose={() => setMenuOpen(false)}
+                chat={
+                  chatAgents.length > 0
+                    ? {
+                        agents: chatAgents,
+                        onStart: async (agentId) => {
+                          if (!project) throw new Error('Pick a project folder first.');
+                          const started = await acp.start(agentId, project.path, true);
+                          c.select(started.pane_id);
+                        },
+                      }
+                    : undefined
+                }
                 project={project}
                 onProject={setChosen}
                 pick={tauriPickApi}

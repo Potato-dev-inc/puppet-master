@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import type { AcpChatApi, AcpChatState } from '../../lib/acpChat';
+import { fakeAcpApi } from '../../lib/acpChatFake';
 import type { Question } from '../../lib/questions';
 import { AcpChatDock } from './AcpChatDock';
 
@@ -53,10 +54,11 @@ function cockpit(questions: Question[]) {
   return { c, answerQuestion, dismissQuestion };
 }
 
-function fakeApi(initial: AcpChatState | null) {
+function fakeApi(initial: AcpChatState | null, over: Partial<AcpChatApi> = {}) {
   let push: ((paneId: string, next: AcpChatState) => void) | null = null;
   const cancel = vi.fn(async () => true);
-  const api: AcpChatApi = {
+  const api: AcpChatApi = fakeAcpApi({
+    ...over,
     state: async () => initial,
     cancel,
     watch: async (cb) => {
@@ -65,7 +67,7 @@ function fakeApi(initial: AcpChatState | null) {
         push = null;
       };
     },
-  };
+  });
   return { api, cancel, emit: (next: AcpChatState) => act(async () => push?.('p1', next)) };
 }
 
@@ -153,6 +155,59 @@ describe('AcpChatDock', () => {
     await act(async () => button('Stop')!.click());
     await flush();
     expect(button('Stop')?.disabled).toBe(false);
+  });
+  describe('"Let agents answer these questions"', () => {
+    const sw = () => host.querySelector<HTMLButtonElement>('[data-testid="agent-answering"] [role="switch"]');
+    const note = () => host.querySelector('[data-testid="agent-answering"] .ck-acp-answering-note')?.textContent;
+
+    it('is shown with an open question, off, with the plain note', async () => {
+      const { c } = cockpit([question()]);
+      const { api } = fakeApi(state({ phase: 'needs_input', agentAnswering: false }));
+      await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+      await flush();
+      expect(host.querySelector('[data-testid="agent-answering"]')?.textContent).toContain('Let agents answer these questions');
+      expect(sw()!.getAttribute('aria-checked')).toBe('false');
+      expect(note()).toBe('Off: only you can answer.');
+    });
+
+    it('is not shown when no question is open', async () => {
+      const { c } = cockpit([]);
+      const { api } = fakeApi(state());
+      await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+      await flush();
+      expect(host.querySelector('[data-testid="agent-answering"]')).toBeNull();
+    });
+
+    it('turning it on asks the backend, shows it on at once, and keeps what the backend then says', async () => {
+      const { c } = cockpit([question()]);
+      const setAgentAnswering = vi.fn(async (_id: string, allowed: boolean) => state({ agentAnswering: allowed }));
+      const { api, emit } = fakeApi(state({ phase: 'needs_input' }), { setAgentAnswering });
+      await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+      await flush();
+      await act(async () => sw()!.click());
+      expect(setAgentAnswering).toHaveBeenCalledWith('p1', true);
+      expect(sw()!.getAttribute('aria-checked')).toBe('true');
+      expect(note()).toBe('On: an agent that started this chat may answer its permission questions.');
+      await emit(state({ phase: 'needs_input', agentAnswering: true }));
+      expect(sw()!.getAttribute('aria-checked')).toBe('true');
+      // And off again.
+      await act(async () => sw()!.click());
+      expect(setAgentAnswering).toHaveBeenLastCalledWith('p1', false);
+    });
+
+    it('goes back to off, with the sentence, when the backend refuses', async () => {
+      const { c } = cockpit([question()]);
+      const setAgentAnswering = vi.fn(async (): Promise<AcpChatState> => {
+        throw 'ACP_CLOSED: This chat is closed.';
+      });
+      const { api } = fakeApi(state({ phase: 'needs_input' }), { setAgentAnswering });
+      await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+      await flush();
+      await act(async () => sw()!.click());
+      await flush();
+      expect(sw()!.getAttribute('aria-checked')).toBe('false');
+      expect(host.querySelector('[data-testid="agent-answering"] [role="alert"]')?.textContent).toBe('This chat is closed.');
+    });
   });
 
   it('a chat that needs a sign-in shows the card; Open sign-in opens the agent terminal in the pane folder, then try again', async () => {

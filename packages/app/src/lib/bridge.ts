@@ -213,6 +213,8 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     pairMe: () => call('GET', '/pair/me'),
     paneChat: (paneId, since) =>
       call('GET', `/panes/${encodeURIComponent(paneId)}/chat${since === undefined ? '' : `?since=${since}`}`),
+    acpSession: (paneId) => call('GET', `/acp/sessions/${encodeURIComponent(paneId)}`),
+    acpCancel: (paneId) => call('POST', `/acp/sessions/${encodeURIComponent(paneId)}/cancel`, {}),
     searchChats: (query, limit) => {
       const params = new URLSearchParams({ q: query });
       if (limit != null) params.set('limit', String(limit));

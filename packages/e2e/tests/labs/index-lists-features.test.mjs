@@ -19,6 +19,8 @@ const FEATURES = [
   ['Night Shift', 'Agents work through your tasks overnight, in separate copies.'],
   ['Red to Green', 'The same agent fixes failed CI on its pull request, after you say yes.'],
   ['Potato Bot', 'A chat friend with its own brain that asks before it starts any helper.'],
+  ['Sandbox', 'A small private Linux computer the bot can use, away from your files.'],
+  ['Chat sessions (ACP)', 'Run an agent as a chat instead of in a terminal.'],
 ];
 
 export async function run(t) {
