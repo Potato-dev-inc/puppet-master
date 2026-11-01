@@ -29,6 +29,15 @@ export const run = guarded(async (t) => {
   await t.expect.visible('exact=Fish', { within: 'css=.ck-potato-list' });
   await t.expect.visible('exact=Potato');
 
+  await t.step('A new bot opens with its first message and choices, and no "Say hello" line; "/" lists the commands');
+  await t.expect.visible('css=[aria-label^="Start with "]');
+  await t.expect.noText('Say hello to Fish.');
+  await t.page.fill('Message Fish', '/');
+  const first = process.env.E2E_SCREENSHOT_FIRST || path.join(t.outDir, 'potato-first-message.png');
+  await t.page.screenshot(first);
+  t.log('screenshot: ' + first);
+  await t.page.fill('Message Fish', '');
+
   await t.step('Send "hello"');
   await t.page.fill('Message Fish', 'hello');
   await t.press('Enter');
@@ -40,6 +49,8 @@ export const run = guarded(async (t) => {
   await t.expect.text('Fish heard: hello');
   await t.expect.text('Genki · energy 60');
   await t.expect.noText('Fish is typing…');
+  // The bot list shows the reply as its last line a moment before the thread has the message: wait for the bubble.
+  await t.expect.visible('css=.ck-potato-bubble--bot');
   t.expect.equal(await t.page.count('css=.ck-potato-bubble--you'), 1, 'one bubble is yours');
   t.expect.equal(await t.page.count('css=.ck-potato-bubble--bot'), 1, 'one bubble is the bot\'s');
 
