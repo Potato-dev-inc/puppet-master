@@ -656,6 +656,22 @@ sha256 = "..."
 The table is part of the fingerprint (it starts a program with the person's login behind it): changing it asks for
 approval again. Invalid tables are refused with `AGENT_DEF_ACP_INVALID` (the path names the field).
 
+##### Chat overlay (an agent without an `[acp]` table)
+
+"Add chat (ACP)" gives an existing agent a chat setup without editing its definition (a built-in code profile, a bundled
+catalog definition, or one the person keeps as is). The setup is kept beside it in `<app data>/acp_overlay.json`: agent id
+-> `{command, args, env_allow, resume_command?}`, the same fields as the wizard's `acp` object. Rules:
+
+- A real `[acp]` table always wins; the overlay answers only for an agent that has none.
+- It is built into the same config as a table and held to the same checks: `table_problems`, VAL-4 (a shell or
+  interpreter as `command` is refused; an overlay never has `allow_interpreter`), VAL-5 (no denied environment name in
+  `env_allow`), and no text the secret redactor would change. An invalid overlay is refused when written and ignored when
+  read (the agent is then terminal-only again).
+- Only the desktop app writes it, through the Tauri commands `acp_overlay_detect` / `acp_overlay_set` /
+  `acp_overlay_remove` (Labs switch on). `acp_overlay_set` takes the exact command line and refuses unless
+  `confirmed: true` (the person's click). No bridge route, no MCP tool: a phone or an agent cannot add a program the app starts.
+- Removing it leaves the agent's chat conversations as records; they show the "agent not available" notice.
+
 ### 7.2 Complete example 1: Kilo Code (the proof agent)
 
 This is `packages/app/src-tauri/tests/agent-definitions/kilo.toml` verbatim. Headless flags verified with `kilo`

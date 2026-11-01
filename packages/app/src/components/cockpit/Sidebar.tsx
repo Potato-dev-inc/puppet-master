@@ -5,7 +5,8 @@ import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
 import { shipApi, type GitState, type ShipApi } from '../../lib/ship-api';
 import { tauri } from '../../lib/tauri';
 import { useAcpLanes } from '../../hooks/useAcpLanes';
-import { chatCapable, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
+import { addableChat, chatCapable, tauriAcpChatApi, type AcpAddable, type AcpChatApi } from '../../lib/acpChat';
+import { AddChatDialog } from '../settings/blocks/AddChatDialog';
 import { tauriPickApi } from '../../lib/pick-for-me';
 import { isValidProjectPath } from '../../lib/project-path';
 import { copyDefault, lastRealFolder, projectOfCwd, readStoredCopyPreference, supportsCopies, writeCopyPreference } from '../../lib/ship-model';
@@ -191,7 +192,10 @@ export function Sidebar({
   const isolated = copyDefault(stored);
   const menuRef = useRef<HTMLDivElement>(null);
   // Chat sessions (ACP, Labs): the agents with a Terminal | Chat switch in the menu. Read when the menu opens.
-  const chatAgents = chatCapable(useAcpLanes(menuOpen, acp));
+  const laneView = useAcpLanes(menuOpen, acp);
+  const chatAgents = chatCapable(laneView);
+  const addableAgents = addableChat(laneView);
+  const [setUpFor, setSetUpFor] = useState<AcpAddable | null>(null);
   // Missions (Preview, Labs): "+" → Start a mission… opens the start sheet for the menu's project.
   const missionsOn = useMissionsEnabled();
   const missions = useMissions();
@@ -323,6 +327,7 @@ export function Sidebar({
 
   return (
     <aside className="ck-side" aria-label="Agents">
+      {setUpFor && <AddChatDialog agent={setUpFor} api={acp} onClose={() => setSetUpFor(null)} onAdded={() => setSetUpFor(null)} />}
       <div className="ck-side-head">
         <span className="ck-wordmark">Puppet Master</span>
         <button type="button" className="ck-icon-btn" onClick={onOpenPalette} title="Search (Ctrl+K)" aria-label="Search">
@@ -351,9 +356,14 @@ export function Sidebar({
                 }}
                 onClose={() => setMenuOpen(false)}
                 chat={
-                  chatAgents.length > 0
+                  chatAgents.length > 0 || addableAgents.length > 0
                     ? {
                         agents: chatAgents,
+                        canAdd: addableAgents,
+                        onSetUp: (agent) => {
+                          setMenuOpen(false);
+                          setSetUpFor(agent);
+                        },
                         onStart: async (agentId) => {
                           if (!project) throw new Error('Pick a project folder first.');
                           const started = await acp.start(agentId, project.path, true);

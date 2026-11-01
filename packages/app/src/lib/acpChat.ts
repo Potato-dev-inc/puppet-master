@@ -97,11 +97,51 @@ export interface AcpLaneAgent {
   effective_lane: AcpLane;
   disabled: boolean;
   disabled_note: string | null;
+  /** The chat comes from the person's own add-on (`acp_overlay_set`), so it can be removed. */
+  overlay?: boolean;
+}
+
+/** An agent that has no chat yet and could get one (`reason`: why it cannot, then the button is off). */
+export interface AcpAddable {
+  id: string;
+  label: string;
+  reason?: string;
 }
 
 export interface AcpLaneView {
   labs_enabled: boolean;
   agents: AcpLaneAgent[];
+  /** Agents with no chat yet. An older backend sends none. */
+  can_add_chat?: AcpAddable[];
+}
+
+/** One guess of how an agent starts as a chat, from its help text (`acp_overlay_detect`). */
+export interface OverlayDetect {
+  ok: boolean;
+  command: string;
+  candidates: { command: string; args: string[]; evidence: string; confidence: 'high' | 'medium' }[];
+  stdio_hint?: string | null;
+  mentions_protocol?: boolean;
+}
+
+/** The `[acp]` table the person confirmed. */
+export interface OverlayAcp {
+  command: string;
+  args: string[];
+  env_allow: string[];
+  resume_command?: string[];
+}
+
+/** A lane view from the wire with every newer field defaulted (an old backend must not break the screens). */
+export function normalizeLaneView(raw: AcpLaneView | null | undefined): AcpLaneView {
+  const agents = Array.isArray(raw?.agents) ? raw!.agents : [];
+  const addable = Array.isArray(raw?.can_add_chat) ? raw!.can_add_chat.filter((a) => a && typeof a.id === 'string') : [];
+  return { labs_enabled: raw?.labs_enabled === true, agents, can_add_chat: addable };
+}
+
+/** The agents that could get a chat (Labs on), in the backend's order. */
+export function addableChat(view: AcpLaneView | null): AcpAddable[] {
+  return view && view.labs_enabled ? (view.can_add_chat ?? []) : [];
 }
 
 /** `acp_chat_start`. */
@@ -152,6 +192,12 @@ export interface AcpChatApi {
   laneSet: (agentId: string, lane: AcpLane) => Promise<AcpLaneView>;
   /** Start a chat session. `explicit`: the person picked Chat for this session, so the saved choice is not needed. */
   start: (agentId: string, folder: string, explicit?: boolean) => Promise<AcpStarted>;
+  /** Read the agent's help text for how it starts as a chat. Runs nothing but help. */
+  overlayDetect?: (agent: string) => Promise<OverlayDetect>;
+  /** Give an agent a chat. Refused (rejects with the reason) unless `confirmed`. Answers with the agent's lane row. */
+  overlaySet?: (agent: string, acp: OverlayAcp, confirmed: boolean) => Promise<AcpLaneAgent>;
+  /** Take the added chat away again. */
+  overlayRemove?: (agent: string) => Promise<void>;
 }
 
 const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -188,9 +234,14 @@ export const tauriAcpChatApi: AcpChatApi = {
     if (!isTauri()) return noopUnlisten;
     return listen('acp-conversations-changed', () => cb());
   },
-  laneGet: () => call<AcpLaneView>('agent_lane_get'),
-  laneSet: (agentId, lane) => call<AcpLaneView>('agent_lane_set', { id: agentId, lane }),
+  laneGet: async () => normalizeLaneView(await call<AcpLaneView>('agent_lane_get')),
+  laneSet: async (agentId, lane) => normalizeLaneView(await call<AcpLaneView>('agent_lane_set', { id: agentId, lane })),
   start: (agentId, folder, explicit) => call<AcpStarted>('acp_chat_start', { agentId, folder, explicit: explicit ?? false }),
+  overlayDetect: (agent) => call<OverlayDetect>('acp_overlay_detect', { agent }),
+  overlaySet: (agent, acp, confirmed) => call<AcpLaneAgent>('acp_overlay_set', { agent, acp, confirmed }),
+  overlayRemove: async (agent) => {
+    await call<unknown>('acp_overlay_remove', { agent });
+  },
 };
 
 /** The permission cards that belong to `paneId`, oldest first. */

@@ -32,6 +32,9 @@ export interface AcpDetectResult {
   ok: boolean;
   command: string;
   candidates: AcpCandidate[];
+  /** A `--stdio`-style hint from the help text, when the backend found one. */
+  stdio_hint?: string | null;
+  mentions_protocol?: boolean;
 }
 
 export type AcpErrors = Partial<Record<keyof AcpFields, string>>;

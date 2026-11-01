@@ -8,7 +8,7 @@
 // here, from the person's own history. It starts nothing: only a press on its Start button does.
 import { useEffect, useState } from 'react';
 import { accountsFor, needsAccountStep, tauriAccountsApi, type Account, type AccountsApi } from '../../lib/accounts';
-import { laneChoiceFor, startFailure, type AcpLane, type AcpLaneAgent } from '../../lib/acpChat';
+import { laneChoiceFor, startFailure, type AcpAddable, type AcpLane, type AcpLaneAgent } from '../../lib/acpChat';
 import { shipApi, type GitInitPlan, type GitState, type RecentProject, type ShipApi } from '../../lib/ship-api';
 import { realRecents, stateHint, supportsCopies } from '../../lib/ship-model';
 import { EARLY_TITLE, FOOTER, isEarly, pickHint, startable, startLabel, type PickApi, type PickResult, type PickState } from '../../lib/pick-for-me';
@@ -57,7 +57,13 @@ interface Props {
    * Chat sessions (ACP, Labs). The agents that can run as a chat get a small Terminal | Chat switch on their row, set to
    * the agent's own setting. `onStart` starts the chat and rejects with the backend's error. Without it nothing changes.
    */
-  chat?: { agents: readonly AcpLaneAgent[]; onStart: (agentId: string) => Promise<void> };
+  chat?: {
+    agents: readonly AcpLaneAgent[];
+    onStart: (agentId: string) => Promise<void>;
+    /** Agents with no chat yet (Labs on): each gets a quiet "Set up chat" next to its name. */
+    canAdd?: readonly AcpAddable[];
+    onSetUp?: (agent: AcpAddable) => void;
+  };
 }
 
 type Step = 'agents' | 'projects' | 'git' | 'pick';
@@ -451,6 +457,24 @@ export function NewAgentMenu({
             {e.disabled && <span className="ck-menu-hint ck-menu-hint--long">only for tasks from other agents</span>}
           </button>
         );
+        const addable = chat?.onSetUp && !chatAgent && !e.disabled ? chat.canAdd?.find((a) => a.id === e.type) : undefined;
+        if (addable) {
+          return (
+            <div key={e.type} className="ck-menu-lane" data-testid={`setup-row-${e.type}`}>
+              {row}
+              <button
+                type="button"
+                className="ck-menu-setup"
+                disabled={!!addable.reason}
+                title={addable.reason}
+                aria-label={`Set up chat for ${e.label}`}
+                onClick={() => chat?.onSetUp?.(addable)}
+              >
+                Set up chat
+              </button>
+            </div>
+          );
+        }
         if (!chatAgent || e.disabled) return row;
         return (
           <div key={e.type} className="ck-menu-lane" data-testid={`lane-row-${e.type}`}>

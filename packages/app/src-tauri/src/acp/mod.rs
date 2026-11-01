@@ -69,6 +69,7 @@ pub mod handshake;
 pub mod install;
 pub mod job;
 pub mod lane;
+pub mod overlay;
 pub mod pin;
 pub mod record;
 pub mod ring;
