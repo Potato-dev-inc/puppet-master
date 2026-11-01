@@ -812,6 +812,49 @@ fn the_trust_of_a_call_never_comes_from_the_brain_and_the_brain_cannot_name_a_ca
     assert_eq!(TOOL_NAMES.len(), 6);
 }
 
+// ---- the first navigation of a fresh sandbox starts Chrome
+
+const NO_CHROME: &str = "{\"ok\":false,\"error\":\"CDP not ready on port 9320: <urlopen error [Errno 111] Connection refused>\",\"fallback\":\"computer_act\"}";
+
+#[test]
+fn the_first_navigation_starts_chrome_and_asks_again() {
+    let f = Fixture::new("nav-start");
+    f.fake.queue_browser_replies(&[NO_CHROME, "{\"ok\":true,\"url\":\"https://example.com/\",\"title\":\"Example Domain\"}"]);
+    let answer = f.call("browser_navigate", json!({ "url": "https://example.com" })).unwrap();
+    assert_eq!(answer["title"], "Example Domain");
+    let kinds: Vec<&str> = f.fake.calls().iter().map(|c| match c { Recorded::Browser(_) => "browser", Recorded::Act(_) => "act", _ => "other" }).collect();
+    assert_eq!(kinds, ["browser", "act", "browser"], "ask, start Chrome, ask again");
+    assert_eq!(f.fake.actions(), vec![Action::Launch { app: "chrome".to_string(), arg: None }, Action::Wait { ms: 3000 }]);
+}
+
+#[test]
+fn a_navigation_that_works_starts_nothing_and_a_second_failure_is_told_as_it_is() {
+    let f = Fixture::new("nav-plain");
+    f.fake.set_browser_reply("{\"ok\":true,\"title\":\"Fine\"}");
+    f.call("browser_navigate", json!({ "url": "https://example.com" })).unwrap();
+    assert!(f.fake.actions().is_empty(), "Chrome was up: nothing was started");
+    // still no Chrome after the start: the bot gets the page tool's own answer (with its fallback), not an endless loop
+    let g = Fixture::new("nav-twice");
+    g.fake.set_browser_reply(NO_CHROME);
+    let answer = g.call("browser_navigate", json!({ "url": "https://example.com" })).unwrap();
+    assert_eq!((answer["ok"].clone(), answer["fallback"].clone()), (json!(false), json!("computer_act")));
+    assert_eq!(g.fake.calls().iter().filter(|c| matches!(c, Recorded::Browser(_))).count(), 2, "asked twice, no more");
+    // other page errors do not start anything
+    let h = Fixture::new("nav-other");
+    h.fake.set_browser_reply("{\"ok\":false,\"error\":\"navigation timed out\"}");
+    h.call("browser_navigate", json!({ "url": "https://example.com" })).unwrap();
+    assert!(h.fake.actions().is_empty());
+}
+
+#[test]
+fn only_navigation_starts_chrome_a_snapshot_with_no_browser_says_so() {
+    let f = Fixture::new("snap-nochrome");
+    f.fake.set_browser_reply(NO_CHROME);
+    let answer = f.call("browser_snapshot", json!({})).unwrap();
+    assert_eq!(answer["fallback"], "computer_act");
+    assert!(f.fake.actions().is_empty());
+}
+
 // ---- ask_person_for_screen: the sixth tool --------------------------------------------------------------
 
 #[test]
@@ -909,4 +952,41 @@ fn through_the_engine_the_card_comes_back_as_a_result() {
     let item = all.iter().find(|i| i["callId"] == "s-2").unwrap();
     assert_eq!((item["ok"].clone(), item["result"]["asked"].clone()), (json!(true), json!(true)));
     assert!(lease.lock().card(rig.host.now.load(Ordering::SeqCst)).is_some());
+}
+
+#[test]
+fn the_card_outlives_the_turn_that_raised_it() {
+    // The bot asks, tells the person what it needs and ends its turn: the card must still be there to answer.
+    let f = Fixture::new("ask-parked");
+    f.call("ask_person_for_screen", json!({ "reason": "A code is needed" })).unwrap();
+    f.calls.end_run(Some(&f.port), "nimbus", "app:dm:nimbus");
+    assert!(f.port.lease.lock().card(f.now()).is_some(), "the card is still open after the turn ended");
+    assert!(matches!(f.port.lease.lock().banner(f.now()), super::sandbox::lease::Banner::NeedsYou { .. }));
+    assert!(f.calls.bot_is_using(&f.port, "nimbus"));
+    // the person takes over: the card is answered, and the bot is told to wait if it tries the screen
+    f.port.lease.lock().take_over(f.now());
+    assert!(f.port.lease.lock().card(f.now()).is_none());
+    assert_eq!(code(f.call("computer_observe", json!({}))), "LEASE_HELD_BY_PERSON");
+}
+
+#[test]
+fn the_next_turn_of_the_bot_that_asked_clears_its_old_card() {
+    let f = Fixture::new("ask-next-turn");
+    f.call("ask_person_for_screen", json!({ "reason": "A code is needed" })).unwrap();
+    f.calls.end_run(Some(&f.port), "nimbus", "app:dm:nimbus");
+    f.advance(2 * MIN);
+    f.call("computer_observe", json!({})).unwrap();
+    assert!(f.port.lease.lock().card(f.now()).is_none(), "working again: nobody is being waited for");
+    assert!(f.calls.bot_is_using(&f.port, "nimbus"));
+}
+
+#[test]
+fn a_card_that_nobody_answers_ends_with_its_thirty_minutes() {
+    let f = Fixture::new("ask-expires");
+    f.call("ask_person_for_screen", json!({ "reason": "A code is needed" })).unwrap();
+    f.calls.end_run(Some(&f.port), "nimbus", "app:dm:nimbus");
+    f.advance(31 * MIN);
+    f.port.lease.lock().tick(f.now());
+    assert!(f.port.lease.lock().card(f.now()).is_none());
+    assert!(f.port.lease.lock().current(f.now()).is_none());
 }

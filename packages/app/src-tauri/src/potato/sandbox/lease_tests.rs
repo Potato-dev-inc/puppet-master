@@ -245,19 +245,78 @@ fn an_unanswered_card_expires_and_the_clock_says_so() {
 }
 
 #[test]
-fn a_run_that_ends_takes_its_lease_and_card_with_it() {
+fn a_run_that_ends_takes_its_lease_with_it_and_its_card_too_unless_the_card_is_open_and_waiting() {
+    let mut screen = ScreenLease::new();
+    let id = screen.take_for_bot("fish", "run-1", T0).unwrap();
+    screen.end_run("run-2", T0 + 1);
+    assert!(screen.check(&id, T0 + 1).is_ok(), "another run's end changes nothing");
+    screen.end_run("run-1", T0 + 2);
+    assert_eq!(screen.check(&id, T0 + 2), Err(LeaseError::LeaseLost));
+    // a card that is already past its time goes with its run
+    let id = screen.take_for_bot("fish", "run-3", T0 + 3).unwrap();
+    screen.ask_for_help(&id, "stuck", T0 + 3).unwrap();
+    screen.end_run("run-3", T0 + 3 + NEEDS_YOU_TTL_MS);
+    assert!(screen.card(T0 + 4 + NEEDS_YOU_TTL_MS).is_none());
+    // the person's lease is not a run's: end_run does not drop it
+    let (person, _) = screen.take_over(T0 + 3);
+    screen.end_run("person", T0 + 3);
+    assert!(screen.check(&person, T0 + 4).is_ok());
+}
+
+#[test]
+fn a_run_that_ends_its_turn_with_its_card_open_keeps_the_card_and_the_lease_for_the_person() {
+    let mut screen = ScreenLease::new();
+    let id = screen.take_for_bot("fish", "run-1", T0).unwrap();
+    let card = screen.ask_for_help(&id, "A code is needed", T0).unwrap();
+    screen.end_run("run-1", T0 + 1000);
+    assert!(screen.check(&id, T0 + 1001).is_ok(), "the lease waits with the card");
+    assert_eq!(screen.banner(T0 + 1001), Banner::NeedsYou { bot: "fish".into(), card_id: card.card_id.clone() });
+    // it is still the 30 minutes of the card, not more: the clock ends both
+    screen.tick(T0 + NEEDS_YOU_TTL_MS);
+    assert!(screen.card(T0 + NEEDS_YOU_TTL_MS).is_none());
+    assert_eq!(screen.banner(T0 + NEEDS_YOU_TTL_MS), Banner::Free);
+}
+
+#[test]
+fn the_person_can_take_over_from_a_parked_card_and_the_run_is_named_as_displaced() {
     let mut screen = ScreenLease::new();
     let id = screen.take_for_bot("fish", "run-1", T0).unwrap();
     screen.ask_for_help(&id, "stuck", T0).unwrap();
-    screen.end_run("run-2");
-    assert!(screen.check(&id, T0 + 1).is_ok(), "another run's end changes nothing");
-    screen.end_run("run-1");
-    assert_eq!(screen.check(&id, T0 + 2), Err(LeaseError::LeaseLost));
+    screen.end_run("run-1", T0 + 1);
+    let (_, displaced) = screen.take_over(T0 + 2);
+    assert_eq!(displaced, Some(Displaced { bot: "fish".into(), run_id: "run-1".into() }));
+    assert!(screen.card(T0 + 3).is_none(), "taking over answers the card");
+    // handing back gives the screen to nobody; the bot takes a new one in its next turn
+    screen.hand_back(T0 + 4);
+    assert!(screen.take_for_bot("fish", "run-1", T0 + 5).is_ok());
+}
+
+#[test]
+fn skip_on_a_parked_card_ends_the_waiting_and_a_later_end_of_run_takes_the_lease() {
+    let mut screen = ScreenLease::new();
+    let id = screen.take_for_bot("fish", "run-1", T0).unwrap();
+    let card = screen.ask_for_help(&id, "stuck", T0).unwrap();
+    screen.end_run("run-1", T0 + 1);
+    screen.skip(&card.card_id).unwrap();
     assert!(screen.card(T0 + 2).is_none());
-    // the person's lease is not a run's: end_run does not drop it
-    let (person, _) = screen.take_over(T0 + 3);
-    screen.end_run("person");
-    assert!(screen.check(&person, T0 + 4).is_ok());
+    screen.end_run("run-1", T0 + 3);
+    assert_eq!(screen.check(&id, T0 + 4), Err(LeaseError::LeaseLost), "no card, so the end of the run takes the lease");
+}
+
+#[test]
+fn the_same_run_working_again_in_its_next_turn_is_not_waiting_any_more() {
+    let mut screen = ScreenLease::new();
+    let id = screen.take_for_bot("fish", "run-1", T0).unwrap();
+    screen.ask_for_help(&id, "stuck", T0).unwrap();
+    // the same turn goes on after the ask: the card stays so the person can see it
+    assert_eq!(screen.take_for_bot("fish", "run-1", T0 + 1).unwrap(), id);
+    assert!(screen.card(T0 + 2).is_some());
+    // the turn ends, the person is asked; the next turn starts working: the card goes
+    screen.end_run("run-1", T0 + 3);
+    assert!(screen.card(T0 + 4).is_some());
+    assert_eq!(screen.take_for_bot("fish", "run-1", T0 + 5).unwrap(), id, "the same lease is renewed");
+    assert!(screen.card(T0 + 6).is_none());
+    assert_eq!(screen.banner(T0 + 6), Banner::BotUsing { bot: "fish".into() });
 }
 
 #[test]

@@ -203,7 +203,9 @@ export function SandboxWizard({ transport, onClose }: { transport: SandboxTransp
     try {
       await transport.install(answers);
       started.current = true;
-      setInstall({ ...emptyInstall(), state: 'running' });
+      // The set up runs on its own thread and its events may already have come (a fast one ends before this answer does):
+      // only a page that has heard nothing yet starts at the empty bar.
+      setInstall((current) => (current.state === 'idle' ? { ...emptyInstall(), state: 'running' } : current));
       setStep('progress');
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);

@@ -85,7 +85,7 @@ async function handle(item) {
     const text = String(item.text ?? "");
     if (text.trim() === "crash") process.exit(1);
     const conversationId = String(item.conversationId);
-    const computer = /^computer:s*([a-z_]+)s*({.*})?s*$/is.exec(text.trim());
+    const computer = /^computer:\s*([a-z_]+)\s*(\{.*\})?\s*$/is.exec(text.trim());
     if (computer) {
       const tool = computer[1] ?? "";
       await post([{ type: "typing", conversationId, on: true }]);

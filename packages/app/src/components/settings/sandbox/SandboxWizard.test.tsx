@@ -237,6 +237,25 @@ describe('the progress', () => {
     return mounted;
   }
 
+  it('a set up that ends before the app has even answered Install still shows its end', async () => {
+    const mounted = await mount();
+    const { fake, host: h } = mounted;
+    await next(h);
+    await next(h);
+    await next(h);
+    // the app finishes the whole set up (and says so) while the command is still on its way back
+    const install = fake.install.bind(fake);
+    fake.install = async (answers) => {
+      await install(answers);
+      fake.finishInstall();
+    };
+    await click(buttonByText(h, 'Install'));
+    await settle();
+    expect(step(h)).toBe('progress');
+    expect(hasText(h, 'The sandbox is ready.')).toBe(true);
+    expect(buttonByText(h, 'Done')).toBeDefined();
+  });
+
   it('follows the app: the bar, the step name, the installer line and the step count', async () => {
     const { fake, host: h } = await installing();
     await act(async () => fake.pushInstall({ percent: 12, step: 'create', title: 'Downloading Ubuntu', index: 3, of: 8, detail: null }));

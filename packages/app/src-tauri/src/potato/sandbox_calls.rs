@@ -518,7 +518,7 @@ impl Calls {
                 }
                 Ok(Value::Object(out))
             }
-            Request::Navigate { url } => Ok(browser::run(sandbox, &browser::navigate_args(&url)?)?),
+            Request::Navigate { url } => Ok(navigate(sandbox, &url)?),
             Request::Snapshot => Ok(browser::run(sandbox, &browser::snapshot_args())?),
             Request::BrowserAct { actions } => Ok(browser::run(sandbox, &browser::act_args(&actions)?)?),
             // Answered before the screen is touched (`execute`); never reaches the sandbox.
@@ -589,7 +589,7 @@ impl Calls {
         let id = run_id(bot, conversation);
         self.runs.lock().remove(&id);
         if let Some(port) = port {
-            port.lease.lock().end_run(&id);
+            port.lease.lock().end_run(&id, self.host.now_ms());
         }
     }
 
@@ -600,7 +600,7 @@ impl Calls {
         for id in ids {
             self.runs.lock().remove(&id);
             if let Some(port) = port {
-                port.lease.lock().end_run(&id);
+                port.lease.lock().end_run(&id, self.host.now_ms());
             }
         }
     }
@@ -623,6 +623,27 @@ impl Calls {
         let now = self.host.now_ms();
         port.lease.lock().current(now).is_some_and(|l| matches!(&l.holder, Holder::Bot(b) if b == bot))
     }
+}
+
+/// How long a freshly started Chrome is given before the page tool looks for it again.
+const BROWSER_START_WAIT_MS: u32 = 3000;
+
+/// `browser_navigate`. The page tool talks to Chrome through its debug port, so a Chrome that is not up yet (the first
+/// navigation of a fresh sandbox) is not a failure the bot has to work around: the app starts it (the launcher that
+/// opens Chrome with that port), waits a moment, and asks again, once.
+fn navigate(sandbox: &dyn Sandbox, url: &str) -> Result<Value, CallError> {
+    let args = browser::navigate_args(url)?;
+    let first = browser::run(sandbox, &args)?;
+    if !browser_is_down(&first) {
+        return Ok(first);
+    }
+    sandbox.act(&[Action::Launch { app: "chrome".to_string(), arg: None }, Action::Wait { ms: BROWSER_START_WAIT_MS }])?;
+    Ok(browser::run(sandbox, &args)?)
+}
+
+/// The page tool's answer when there is no browser to talk to.
+fn browser_is_down(reply: &Value) -> bool {
+    reply.get("ok").and_then(Value::as_bool) == Some(false) && reply.get("error").and_then(Value::as_str).is_some_and(|e| e.starts_with("CDP not ready"))
 }
 
 /// Eight hex characters of a digest.

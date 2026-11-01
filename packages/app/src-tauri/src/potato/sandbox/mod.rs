@@ -370,6 +370,8 @@ struct FakeState {
     generation: u64,
     fail_next: Option<SandboxError>,
     browser_reply: String,
+    /// Answers to the next `browser` calls, first in first out; then `browser_reply`.
+    browser_queue: Vec<String>,
     /// `None`: the default. Set by `set_idle_minutes`.
     idle_minutes: Option<u32>,
     no_linux_feature: bool,
@@ -401,6 +403,11 @@ impl FakeSandbox {
 
     pub fn set_browser_reply(&self, reply: &str) {
         self.state.lock().browser_reply = reply.to_string();
+    }
+
+    /// The next `browser` calls answer with these, in order (then the usual reply).
+    pub fn queue_browser_replies(&self, replies: &[&str]) {
+        self.state.lock().browser_queue = replies.iter().map(|r| r.to_string()).collect();
     }
 
     /// A PC without Windows' Linux feature: `install` fails with the "needs Windows' Linux feature" error.
@@ -566,7 +573,8 @@ impl Sandbox for FakeSandbox {
 
     fn browser(&self, args: &[String]) -> SbxResult<String> {
         self.use_screen(Recorded::Browser(args.to_vec()))?;
-        Ok(self.state.lock().browser_reply.clone())
+        let mut state = self.state.lock();
+        Ok(if state.browser_queue.is_empty() { state.browser_reply.clone() } else { state.browser_queue.remove(0) })
     }
 
     fn screen_target(&self) -> SbxResult<ScreenTarget> {

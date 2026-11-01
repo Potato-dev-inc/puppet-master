@@ -58,7 +58,7 @@ export const run = guarded(async (t) => {
 
   await t.step('The progress reaches "All done"');
   await t.expect.text('All done', { timeout: 60000 });
-  await t.expect.visible('css=.sbx-bar');
+  await t.expect.text('The sandbox is ready.');
   await t.click('exact=Done', { within: 'css=.sbx-sheet' });
 
   await t.step('Back in the bot chat there is a Computer panel');
@@ -70,11 +70,13 @@ export const run = guarded(async (t) => {
   await t.step('The brain issues a sandbox_call and the result comes back into the chat');
   await say(t, 'computer: computer_observe');
   await t.expect.text('Fish used computer_observe: ok, saw Fake desktop', { timeout: 30000 });
-  await t.expect.text('Fish is using it', { within: 'css=.ck-potato-computer' });
+  // (the bot lets go of the screen when its turn ends)
+  await t.expect.text('Not in use', { within: 'css=.ck-potato-computer' });
 
   await t.step('The sixth tool: a stuck bot asks the person, and the panel says "Needs you"');
   await say(t, 'computer: ask_person_for_screen {"reason":"The site wants a code"}');
   await t.expect.text('Fish used ask_person_for_screen: ok', { timeout: 30000 });
+  // the card outlives the turn that raised it: the brain has answered and the person can still Take over or Skip
   await t.expect.text('Needs you', { within: 'css=.ck-potato-computer' });
   await t.expect.text('The site wants a code', { within: 'css=.ck-potato-computer' });
   await t.expect.visible('exact=Take over', { within: 'css=.ck-potato-computer' });
