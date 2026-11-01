@@ -82,7 +82,7 @@ export function DotSpinner({ status, size = 3, className, label }: DotSpinnerPro
     }
   }
 
-  const rootClass = ['pm-dots', `pm-dots-${n}`, className].filter(Boolean).join(' ');
+  const rootClass = ['pm-dots', `pm-dots-${n}`, `pm-dots-s-${status}`, className].filter(Boolean).join(' ');
   return (
     <span
       className={rootClass}

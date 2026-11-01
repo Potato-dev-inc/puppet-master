@@ -328,3 +328,26 @@ describe('General: search covers what the section shows', () => {
     expect(unsearchableLabels(m.host, generalRows)).toEqual([]);
   });
 });
+
+describe('General: Your name', () => {
+  const field = () => byLabel<HTMLInputElement>(m.host, 'Your name')!;
+
+  it('is empty by default: the greeting then has no name', async () => {
+    await mount();
+    expect(hasText(m.host, 'Your name')).toBe(true);
+    expect(field().value).toBe('');
+  });
+
+  it('saves the name as typed (trimmed) when the field loses focus, and clears it with an empty field', async () => {
+    await mount();
+    await typeInto(field(), '  Sam  ');
+    await blur(field());
+    await settle();
+    expect(m.env.patches).toContainEqual({ display_name: 'Sam' });
+    await m.rerender();
+    await typeInto(field(), '   ');
+    await blur(field());
+    await settle();
+    expect(m.env.patches).toContainEqual({ display_name: null });
+  });
+});

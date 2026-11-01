@@ -12,10 +12,10 @@
   line-height: 1;
   white-space: nowrap;
 }
-/* Needs you, running: the one inverted fill on the page. */
+/* Accent: Needs you, running. The one filled pill on the page. */
 .cockpit .ck-potato-pill--strong {
-  background: var(--primary-bg);
-  color: var(--primary-fg);
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 .cockpit .ck-potato-pill--quiet {
   border: 1px solid var(--sep);

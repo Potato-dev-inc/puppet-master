@@ -136,3 +136,32 @@ export const IconChat = () => (
     <path d="M3 3.5h10a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-.5.5H7.5L4.5 13v-2.5H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5Z" />
   </Icon>
 );
+
+/** A pencil over a square: "New agent". */
+export const IconNewAgent = () => (
+  <Icon>
+    <path d="M7 3H4.5A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13h7a1.5 1.5 0 0 0 1.5-1.5V9" />
+    <path d="M11.2 2.8a1.2 1.2 0 0 1 1.7 1.7L8 9.4 5.8 10l.6-2.2z" />
+  </Icon>
+);
+/** A small four-point mark above the greeting. */
+export const IconSpark = ({ size = 22 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M8 2.2c.5 3.1 2.7 5.3 5.8 5.8-3.1.5-5.3 2.7-5.8 5.8-.5-3.1-2.7-5.3-5.8-5.8C5.3 7.5 7.5 5.3 8 2.2z" />
+  </Icon>
+);
+export const IconArrowUp = () => (
+  <Icon>
+    <path d="M8 13V3.5M4 7.5l4-4 4 4" />
+  </Icon>
+);
+export const IconFolder = () => (
+  <Icon>
+    <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.8h5A1.5 1.5 0 0 1 14 6.3v5.2a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" />
+  </Icon>
+);
+export const IconChevronDown = () => (
+  <Icon>
+    <path d="M4.5 6.5 8 10l3.5-3.5" />
+  </Icon>
+);

@@ -32,8 +32,8 @@ describe('Live Room styles', () => {
   });
 
   it('defines the inverted bar greys once, on the cockpit', () => {
-    expect(css).toMatch(/\.cockpit\s*\{[^}]*--live-ink:\s*#0a0a0b/);
-    expect(css).toMatch(/\.cockpit\s*\{[^}]*--live-paper:\s*#f5f5f7/);
+    expect(css).toMatch(/\.cockpit\s*\{[^}]*--live-ink:\s*#171615/);
+    expect(css).toMatch(/\.cockpit\s*\{[^}]*--live-paper:\s*#f4f2ef/);
   });
 
   it('only reads custom properties that exist', () => {

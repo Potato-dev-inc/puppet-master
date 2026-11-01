@@ -15,7 +15,7 @@ import { mainPreview, type PreviewUrl } from '../../lib/pane-preview';
 import '../../styles/live-preview.css';
 import '../../styles/cockpit-helpers.css';
 import { DotSpinner } from './DotSpinner';
-import { IconChart, IconChat, IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
+import { IconChart, IconChat, IconGlobe, IconInbox, IconMoon, IconNewAgent, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, spinnerStatus } from './model';
 import { groupHelperTree, helperChipText, readFoldedParents, writeFoldedParents, type HelperNode } from '../../lib/pane-helpers';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
@@ -53,6 +53,8 @@ export function Sidebar({
   onOpenCompanion,
   onOpenInbox,
   onNewCompanion,
+  onOpenNewAgent,
+  newAgentOpen = false,
   potato,
   potatoOpen = false,
   onOpenPotato,
@@ -85,6 +87,10 @@ export function Sidebar({
   /** The Inbox row was chosen (the Inbox may already be the view on screen). */
   onOpenInbox?: () => void;
   onNewCompanion?: () => void;
+  /** The "New agent" row at the top opens the New agent page. Absent: no row. */
+  onOpenNewAgent?: () => void;
+  /** The New agent page is the view on screen: its row is the active one (and the Inbox row is not). */
+  newAgentOpen?: boolean;
   /** Potato Bot (Labs). Absent, or `enabled` false: no row. `unread` is the count over every bot. */
   potato?: { enabled: boolean; unread: number } | null;
   /** The Potato Bot page is the view on screen: its row is the active one. */
@@ -379,6 +385,22 @@ export function Sidebar({
       <FocusPill notify={c.notify} />
 
       <nav className="ck-side-scroll">
+        {onOpenNewAgent && (
+          <button
+            type="button"
+            data-testid="side-new-agent"
+            className={`ck-side-new${newAgentOpen ? ' is-active' : ''}`}
+            aria-current={newAgentOpen ? 'page' : undefined}
+            onClick={onOpenNewAgent}
+          >
+            <span className="ck-row-glyph ck-row-glyph--icon">
+              <IconNewAgent />
+            </span>
+            <span className="ck-row-main">
+              <span className="ck-row-title">New agent</span>
+            </span>
+          </button>
+        )}
         {potato?.enabled && onOpenPotato && (
           <button
             type="button"
@@ -386,7 +408,7 @@ export function Sidebar({
             aria-current={potatoOpen ? 'true' : undefined}
             onClick={onOpenPotato}
           >
-            <span className="ck-row-glyph ck-row-glyph--icon">
+            <span className="ck-row-glyph ck-row-glyph--icon ck-row-glyph--potato">
               <IconChat />
             </span>
             <span className="ck-row-main">
@@ -408,7 +430,7 @@ export function Sidebar({
               )))}
         <button
           type="button"
-          className={`ck-row ck-row--flat${c.selectedId === null && !c.spawn && !openCompanionId && !potatoOpen ? ' is-active' : ''}`}
+          className={`ck-row ck-row--flat${c.selectedId === null && !c.spawn && !openCompanionId && !potatoOpen && !newAgentOpen ? ' is-active' : ''}`}
           onClick={() => {
             c.select(null);
             onOpenInbox?.();
