@@ -90,6 +90,8 @@ mod helpers_tests;
 #[cfg(test)]
 mod keeper_tests;
 #[cfg(test)]
+mod log_tests;
+#[cfg(test)]
 mod memory_notes_tests;
 #[cfg(test)]
 mod notify_tests;
@@ -111,6 +113,8 @@ mod usage_tests;
 mod sandbox_host_tests;
 #[cfg(test)]
 mod service_tests;
+#[cfg(test)]
+mod real_brain_tests;
 #[cfg(test)]
 mod store_tests;
 #[cfg(test)]

@@ -12,6 +12,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sandboxInputsHash, writeStamp } from './resource-stamp.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = join(root, 'packages/potato-sandbox');
@@ -37,6 +38,9 @@ for (const part of PARTS) {
   cpSync(join(pkg, part), dest, { recursive: true });
 }
 cpSync(join(pkg, 'LICENSE-APACHE-2.0'), join(outDir, 'LICENSE-APACHE-2.0'));
+
+// Last: scripts/ensure-tauri-resources.mjs stages again whenever this stamp differs from the sources.
+writeStamp(outDir, sandboxInputsHash(root));
 
 function count(dir) {
   let n = 0;

@@ -118,7 +118,7 @@ impl Launcher for FakeLauncher {
     }
     fn spawn(&self, spec: &SpawnSpec, sink: LineSink) -> Result<Box<dyn Child>, String> {
         if self.fail_spawn.load(Ordering::SeqCst) {
-            return Err("no".into());
+            return Err("could not start the brain: no".into());
         }
         let child = Arc::new(ChildState { pid: self.next_pid.fetch_add(1, Ordering::SeqCst), exit: AtomicI32::new(RUNNING), killed: AtomicBool::new(false) });
         self.spawned.lock().push(Spawned {
@@ -622,13 +622,49 @@ fn five_crashes_stop_it_for_good_until_start_again() {
     }
     assert_eq!(rig.state(), BrainState::Stopped);
     assert_eq!(rig.spawned(), 5);
-    assert!(rig.notes().iter().any(|n| n == "Nimbus's brain stopped. Press Start again."), "{:?}", rig.notes());
+    assert!(rig.notes().iter().any(|n| n == "Nimbus's brain stopped: the brain exited with code 1. Press Start again."), "{:?}", rig.notes());
     // a message does not start it; the person's "Start again" does
     let out = rig.svc.send("nimbus", "still there?").unwrap();
     assert_eq!((out.delivered, out.state), (false, BrainState::Stopped));
     assert_eq!(rig.spawned(), 5);
     rig.svc.start_bot("nimbus").unwrap();
     assert_eq!(rig.spawned(), 6);
+}
+
+#[test]
+fn the_stopped_note_says_why_from_what_the_brain_printed() {
+    let rig = Rig::new("why");
+    rig.svc.send("nimbus", "go").unwrap();
+    for n in 0..5 {
+        let sink = rig.launcher.spawned.lock()[n].sink.clone();
+        for line in ["node:fs:2744", "Error: EISDIR: illegal operation on a directory, lstat 'C:'", "    at Object.realpathSync (node:fs:2744:25)", "", "Node.js v22.20.0"] {
+            sink(line);
+        }
+        rig.child(n).exit_with(1);
+        rig.advance(100);
+        rig.svc.tick();
+        rig.advance(10_000);
+        rig.svc.tick();
+    }
+    assert_eq!(rig.state(), BrainState::Stopped);
+    let want = "Nimbus's brain stopped: Error: EISDIR: illegal operation on a directory, lstat 'C:'. Press Start again.";
+    assert!(rig.notes().iter().any(|n| n == want), "{:?}", rig.notes());
+    // a message to a stopped brain says the same, not the bare sentence
+    rig.svc.send("nimbus", "still there?").unwrap();
+    assert_eq!(rig.notes().iter().filter(|n| n.as_str() == want).count(), 2, "{:?}", rig.notes());
+}
+
+#[test]
+fn a_brain_that_cannot_be_started_says_so_in_the_note() {
+    let rig = Rig::new("nostart");
+    rig.launcher.fail_spawn.store(true, Ordering::SeqCst);
+    rig.svc.send("nimbus", "go").unwrap();
+    for _ in 0..8 {
+        rig.advance(10_000);
+        rig.svc.tick();
+    }
+    assert_eq!(rig.state(), BrainState::Stopped);
+    assert!(rig.notes().iter().any(|n| n == "Nimbus's brain stopped: could not start the brain: no. Press Start again."), "{:?}", rig.notes());
 }
 
 #[test]

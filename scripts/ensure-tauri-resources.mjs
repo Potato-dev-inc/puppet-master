@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { brainInputsHash, readStamp, sandboxInputsHash } from './resource-stamp.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pwaDist = join(root, 'packages/app/src-tauri/resources/pwa-dist');
@@ -65,12 +66,15 @@ function ensureCloudflaredBin() {
   console.error('[ensure-tauri-resources] cloudflared missing — wrote empty bin stub for tauri dev');
 }
 
-// The Potato Bot brain is a small esbuild bundle (tens of ms), so build the real one.
-// If that cannot run, write a stub that exits with the "not configured" code, so tauri dev still starts.
+// The Potato Bot brain is a small esbuild bundle (tens of ms), so build the real one, and build it again whenever
+// anything under packages/potato-brain (source, persona) changed since the bundle was made: the stamp that
+// bundle-potato-brain.mjs writes must equal the hash of the sources now. A stub (below) has no stamp, so it is
+// replaced as soon as the build works. If the build cannot run, write a stub that exits with the "not configured"
+// code, so tauri dev still starts.
 function ensurePotatoBrain() {
   const brain = join(brainDir, 'brain.mjs');
   const persona = join(brainDir, 'persona');
-  if (existsSync(brain) && existsSync(persona)) {
+  if (existsSync(brain) && existsSync(persona) && readStamp(brainDir) === brainInputsHash(root)) {
     return;
   }
   const result = spawnSync(process.execPath, [join(root, 'scripts', 'bundle-potato-brain.mjs')], {
@@ -92,13 +96,15 @@ function ensurePotatoBrain() {
 }
 
 // The Potato Bot sandbox files (guest scripts, recipes, the screen viewer) are a plain copy of packages/potato-sandbox.
-// A missing piece means a stale or partial copy, so it is staged again; the copy is quick.
+// A missing piece means a partial copy and a stamp that differs from the sources means an old one, so it is staged
+// again either way; the copy is quick.
 function ensurePotatoSandbox() {
   const ready =
     existsSync(join(sandboxDir, 'guest')) &&
     existsSync(join(sandboxDir, 'recipes', 'base.json')) &&
     existsSync(join(sandboxDir, 'viewer', 'embed.html')) &&
-    existsSync(join(sandboxDir, 'viewer', 'novnc'));
+    existsSync(join(sandboxDir, 'viewer', 'novnc')) &&
+    readStamp(sandboxDir) === sandboxInputsHash(root);
   if (ready) {
     return;
   }

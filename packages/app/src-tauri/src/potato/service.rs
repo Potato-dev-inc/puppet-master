@@ -33,7 +33,7 @@ use super::cost::{self, Budget};
 use super::env::{self, Brain, HostEnv};
 use super::fallback;
 use super::keeper::{Action, Keeper, Phase};
-use super::log::LogRing;
+use super::log::{self, LogRing};
 use super::protocol::{self, ErrorCode, Event, HelperStatus, PauseReason, Trust};
 use super::rules::{self, Caps, Channel, Decision, Facts, Sender};
 use super::sandbox_calls::{self, Calls, Gates, Port};
@@ -715,8 +715,9 @@ impl Service {
             return Ok(SendOutcome { id: saved.id, state, delivered: false });
         }
         if rt.keeper.is_stopped() {
+            let line = log::stopped_note(&name, &rt.log.lock().lines());
             drop(g);
-            self.note(bot, &format!("{name}'s brain stopped. Press Start again."));
+            self.note(bot, &line);
             self.host.changed(bot);
             return Ok(SendOutcome { id: saved.id, state: BrainState::Stopped, delivered: false });
         }
@@ -1054,6 +1055,9 @@ impl Service {
                     }
                 }
                 Action::Kill => {
+                    if let Some(rt) = g.bots.get(bot) {
+                        rt.log.lock().push("the brain did not say hello in time", &[]);
+                    }
                     if let Some(session) = g.bots.get_mut(bot).and_then(|rt| rt.session.as_mut()) {
                         session.child.kill_tree();
                     }
@@ -1061,7 +1065,8 @@ impl Service {
                 }
                 Action::RaiseStopped => {
                     let name = self.name_of(bot);
-                    self.note(bot, &format!("{name}'s brain stopped. Press Start again."));
+                    let lines = g.bots.get(bot).map(|rt| rt.log.lock().lines()).unwrap_or_default();
+                    self.note(bot, &log::stopped_note(&name, &lines));
                 }
             }
         }
@@ -1171,6 +1176,7 @@ impl Service {
             Err(e) => {
                 self.brains.unregister(bot);
                 tracing::warn!(%bot, error = %e, "could not start the brain");
+                rt.log.lock().push(&e, &[]);
                 Err(None)
             }
         }
@@ -1222,7 +1228,12 @@ impl Service {
         for bot in bots {
             let mut g = self.inner.lock();
             let exited = g.bots.get_mut(&bot).and_then(|rt| rt.session.as_mut()).and_then(|s| s.child.try_wait().map(|code| (code, s.shutdown_at.is_some())));
-            if let Some((_, asked)) = exited {
+            if let Some((code, asked)) = exited {
+                if !asked {
+                    if let Some(rt) = g.bots.get(&bot) {
+                        rt.log.lock().push(&format!("the brain exited with code {code}"), &[]);
+                    }
+                }
                 self.end_session(&mut g, &bot, asked);
             }
             // A brain that was asked to leave is killed after the grace.

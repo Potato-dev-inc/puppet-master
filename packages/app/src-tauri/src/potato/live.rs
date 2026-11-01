@@ -153,6 +153,16 @@ impl Host for LiveHost {
     }
 
     fn resources(&self) -> Option<PathBuf> {
+        // A debug build runs from the checkout, where `npm run dev` has just made sure the generated folder matches
+        // the sources (scripts/ensure-tauri-resources.mjs). The copy cargo made under target/debug/resources is only
+        // refreshed when cargo reruns the build script, so it can be an older brain: the checkout's folder wins.
+        #[cfg(all(not(test), debug_assertions))]
+        {
+            let staged = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources").join("potato-brain");
+            if staged.join("brain.mjs").is_file() {
+                return Some(staged);
+            }
+        }
         #[cfg(not(test))]
         if let Some(dir) = self.app.as_ref().and_then(|app| super::resource_dirs::installed(app, "potato-brain", "brain.mjs")) {
             return Some(dir);
