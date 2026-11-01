@@ -34,6 +34,18 @@ export interface ChatComposerProps {
   slashCommands?: readonly AcpCommand[];
   /** Controls drawn inside the box under the text (the agent's settings), left of the send button. */
   toolbar?: ReactNode;
+  /** The agent is working: the button reads Stop (and Esc stops too) while this is true and `onStop` is set. */
+  running?: boolean;
+  /** Stops the agent (the pane's Interrupt). Without it the button stays Send. */
+  onStop?: () => void;
+}
+
+function StopIcon() {
+  return (
+    <svg className="ck-chat-send-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="5" y="5" width="14" height="14" rx="2" />
+    </svg>
+  );
 }
 
 function MicIcon() {
@@ -51,7 +63,8 @@ export function ChatComposer(props: ChatComposerProps) {
   return <ChatComposerBox key={props.draftKey ?? ''} {...props} />;
 }
 
-function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft: pointDraft, slashCommands, toolbar }: ChatComposerProps) {
+function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft: pointDraft, slashCommands, toolbar, running = false, onStop }: ChatComposerProps) {
+  const stoppable = running && !!onStop;
   const [text, setText] = useState(() => (draftKey ? readDraft(draftKey) : ''));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -204,6 +217,12 @@ function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft
         return;
       }
     }
+    // Esc while the agent works stops it (the same Interrupt as the pane menu).
+    if (event.key === 'Escape' && stoppable && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      onStop?.();
+      return;
+    }
     // Enter while an input method is choosing a word is the method's, not ours.
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
@@ -322,13 +341,20 @@ function ChatComposerBox({ onSend, blockedReason, voice = false, draftKey, draft
           </button>
         )}
         {toolbar && <div className="ck-chat-composer-toolbar">{toolbar}</div>}
-        <button type="submit" className="ck-btn ck-btn--primary ck-chat-send" disabled={blocked || busy || empty || tooLong}>
-          <svg className="ck-chat-send-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M12 19V5" />
-            <path d="m5 12 7-7 7 7" />
-          </svg>
-          <span className="ck-chat-send-label">Send</span>
-        </button>
+        {stoppable ? (
+          <button type="button" className="ck-btn ck-btn--secondary ck-chat-send ck-chat-stop" data-testid="chat-composer-stop" aria-label="Stop the agent" title="Stop the agent (Esc)" onClick={() => onStop?.()}>
+            <StopIcon />
+            <span className="ck-chat-send-label">Stop</span>
+          </button>
+        ) : (
+          <button type="submit" className="ck-btn ck-btn--primary ck-chat-send" disabled={blocked || busy || empty || tooLong}>
+            <svg className="ck-chat-send-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 19V5" />
+              <path d="m5 12 7-7 7 7" />
+            </svg>
+            <span className="ck-chat-send-label">Send</span>
+          </button>
+        )}
       </div>
       {voice && mic.note && (
         <p className="ck-chat-composer-note ck-chat-composer-voice" role="status" data-testid="chat-composer-voice">

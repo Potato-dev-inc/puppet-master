@@ -493,7 +493,12 @@ export function PaneView({
                 dock={chatDock}
                 screenAsk={screenAsk}
                 helpers={startedHelpers}
-                reply={{ blockedReason: inTerminal ? HANDED_BLOCK : composerBlock(pane, !chatAllowed, isAcp) }}
+                reply={{
+                  blockedReason: inTerminal ? HANDED_BLOCK : composerBlock(pane, !chatAllowed, isAcp),
+                  // A Chat (terminal) pane: while the agent works, the box shows Stop (the pane menu's Interrupt).
+                  running: isTerminalChat && pane.status === 'running',
+                  onStop: isTerminalChat ? () => void c.interrupt(paneId) : undefined,
+                }}
                 onOpenPane={(id) => c.select(id)}
                 slashCommands={isAcp ? acpState?.commands : undefined}
                 composerTop={isAcp ? <AcpConfigChips paneId={paneId} state={acpState} api={acp} /> : undefined}

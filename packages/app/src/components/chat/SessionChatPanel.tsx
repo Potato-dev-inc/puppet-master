@@ -25,6 +25,10 @@ import type { AcpCommand } from '../../lib/acpChat';
 export interface ChatReply {
   /** Why the message box is switched off, or null. */
   blockedReason: string | null;
+  /** The agent is working: the box shows Stop instead of Send (see ChatComposer). */
+  running?: boolean;
+  /** Stops the agent. Set for a Chat (terminal) pane only: a chat session over ACP has its own Stop (AcpChatDock). */
+  onStop?: () => void;
 }
 
 /**
@@ -111,7 +115,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
         }
         pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
         composer={reply ? (
-          <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} slashCommands={slashCommands} toolbar={composerTop} />
+          <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} slashCommands={slashCommands} toolbar={composerTop} running={reply.running} onStop={reply.onStop} />
         ) : undefined}
       />
       {clipFor !== null && <ClipSheet paneId={paneId} userItemId={clipFor} api={clipApi} onClose={() => setClipFor(null)} />}
