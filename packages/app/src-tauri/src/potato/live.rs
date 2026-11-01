@@ -108,6 +108,14 @@ pub fn stop_all(grace: Duration) {
     super::sandbox_host::stop_on_exit();
 }
 
+/// "Stop everything" (panic button): pauses every bot, holds every routine and puts Fish's computer to sleep.
+/// The hold is saved before anything is stopped, so a routine due in the meantime is recorded, not run.
+pub fn pause_all(grace: Duration) -> super::hold::Hold {
+    let asleep = super::sandbox_host::sleep();
+    let now = chrono::Utc::now().timestamp_millis();
+    super::hold::pause(&root(), service().as_deref(), asleep, grace, now)
+}
+
 pub fn root() -> PathBuf {
     crate::app_paths::app_data_dir().join("potato")
 }

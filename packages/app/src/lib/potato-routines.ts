@@ -3,6 +3,7 @@
 // `fakeRoutinesTransport` is the in-memory twin for tests (the pattern of `fakePotatoTransport`).
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from './cockpit-api';
+import type { ListStatus } from './potato-list';
 
 /** When a routine runs (`RoutineSchedule` in routines.rs). Times are the computer's local clock. */
 export type RoutineSchedule =
@@ -146,6 +147,61 @@ export const ROUTINE_COPY = {
   saveFailed: 'Could not save the routine.',
   actionFailed: 'That did not work. Try again.',
 } as const;
+
+// ---- the bot list's second line ------------------------------------------------------------------
+
+/** The grey line under a bot's name in the list: what the bot waits for, does, or does next. */
+export interface ListNextLine {
+  /** `needs` gets the one accent dot; the rest are grey. */
+  tone: 'needs' | 'working' | 'quiet';
+  text: string;
+}
+
+export const LIST_NEXT_COPY = {
+  waiting: 'Waiting for you',
+  thinking: 'Thinking…',
+  paused: 'Paused',
+  next: (name: string, when: string) => `Next: ${name} · ${when}`,
+} as const;
+
+/**
+ * The time a row shows for the next run: `9:00` today, `Tomorrow 9:00`, else the weekday `Tue 9:00`. The clock and the
+ * weekday follow the locale (default: the person's).
+ */
+export function nextRunShort(at: number, now: number, locale?: string): string {
+  const when = new Date(at);
+  const today = new Date(now);
+  const tomorrow = new Date(now + 24 * 60 * 60 * 1000);
+  const time = when.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+  if (when.toDateString() === today.toDateString()) return time;
+  if (when.toDateString() === tomorrow.toDateString()) return `Tomorrow ${time}`;
+  return `${when.toLocaleDateString(locale, { weekday: 'short' })} ${time}`;
+}
+
+/** The active routine that runs next, or null. Paused and finished routines do not count. */
+export function nextRoutine(routines: readonly RoutineView[]): { title: string; at: number } | null {
+  let best: { title: string; at: number } | null = null;
+  for (const r of routines) {
+    if (r.status !== 'active' || r.nextRunMs == null) continue;
+    if (!best || r.nextRunMs < best.at) best = { title: r.title, at: r.nextRunMs };
+  }
+  return best;
+}
+
+/**
+ * The second line of a row, by priority: waiting on the person, working, paused, then the next routine. Null means no
+ * line: the row keeps its preview. Errors are not here (the row shows its own pill). "Using the computer" has no per-bot
+ * signal on the client yet, so it is not chosen.
+ */
+export function listNextLine(status: ListStatus | null, routines: readonly RoutineView[], now: number, locale?: string): ListNextLine | null {
+  if (status === 'needs') return { tone: 'needs', text: LIST_NEXT_COPY.waiting };
+  if (status === 'working') return { tone: 'working', text: LIST_NEXT_COPY.thinking };
+  if (status === 'paused') return { tone: 'quiet', text: LIST_NEXT_COPY.paused };
+  if (status === 'error') return null;
+  const next = nextRoutine(routines);
+  if (!next) return null;
+  return { tone: 'quiet', text: LIST_NEXT_COPY.next(next.title, nextRunShort(next.at, now, locale)) };
+}
 
 // ---- the fake -----------------------------------------------------------------------------------
 
