@@ -5,6 +5,7 @@
 //! The brain is a separate Node program (`packages/potato-brain`). Puppet Master starts it, hands it
 //! messages and takes its answers over the local bridge. It cannot do anything else:
 //!
+//! - `attachments`: files attached to a message (saved in the bot's folder, sent to the brain as text)
 //! - `protocol`: the channel protocol v1 (inbox items, events, their size limits)
 //! - `auth`: who may call `/potato/brain/*` (a new caller on the bridge) and what a brain can never do
 //! - `rules`: `decide`, the one pure function that says what happens to a message
@@ -31,6 +32,7 @@
 //! Keys and tokens live only in the OS credential store and in the brain's environment. Nothing here
 //! names an agent or a chat app: a chat app's code would live only in `potato/surfaces/<app>/`.
 
+pub mod attachments;
 pub mod auth;
 pub mod cost;
 pub mod env;
@@ -50,6 +52,8 @@ pub mod sidecar;
 pub mod store;
 pub mod window_guard;
 
+#[cfg(test)]
+mod attachments_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]

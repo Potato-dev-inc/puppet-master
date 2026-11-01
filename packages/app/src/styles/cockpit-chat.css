@@ -323,6 +323,51 @@
   text-decoration: underline dotted;
   text-underline-offset: 2px;
 }
+.cockpit .ck-chat-md-link--live {
+  color: var(--label);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cockpit .ck-chat-md-link--live:hover {
+  text-decoration-thickness: 2px;
+}
+/* A checklist (task items or tick items): a small box with a tick instead of a bullet. */
+.cockpit .ck-chat-md-checklist {
+  list-style: none;
+  padding-left: 0;
+}
+.cockpit .ck-chat-md-task {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.cockpit .ck-chat-md-task-body {
+  flex: 1;
+  min-width: 0;
+}
+.cockpit .ck-chat-md-box {
+  flex: none;
+  position: relative;
+  top: 2px;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--label-4);
+  border-radius: 4px;
+}
+.cockpit .ck-chat-md-task[data-checked='true'] .ck-chat-md-box {
+  border-color: var(--label-2);
+}
+.cockpit .ck-chat-md-task[data-checked='true'] .ck-chat-md-box::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 3px;
+  height: 7px;
+  border: solid var(--label);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(40deg);
+}
 .cockpit .ck-chat-md-table-wrap {
   max-width: 100%;
   overflow-x: auto;

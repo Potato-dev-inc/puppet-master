@@ -73,7 +73,15 @@ export const run = guarded(async (t) => {
 
   await t.step('The brain issues a sandbox_call and the result comes back into the chat');
   await say(t, 'computer: computer_observe');
-  await t.expect.text('Fish used computer_observe: ok, saw Fake desktop', { timeout: 30000 });
+  // the tool result is one folded line ("Used the computer · 1 step"); opened, it is a row in words, never raw text
+  await t.expect.text('Used the computer · 1 step', { timeout: 30000 });
+  t.expect.equal(await t.page.has('Fish used computer_observe', { within: 'css=.ck-potato-rows' }), false, 'the tool line is not a bubble');
+  await t.click('css=.ck-potato-activity-head');
+  await t.expect.text('Looked at the screen', { within: 'css=.ck-potato-activity' });
+  await t.expect.text('Fake desktop', { within: 'css=.ck-potato-activity' });
+  const activityShot = process.env.E2E_SCREENSHOT_ACTIVITY || path.join(t.outDir, 'potato-thread-activity.png');
+  await t.page.screenshot(activityShot);
+  t.log('screenshot: ' + activityShot);
   // (the bot lets go of the screen when its turn ends)
   await t.expect.text('Not in use', { within: 'css=.ck-potato-computer' });
 
@@ -81,7 +89,11 @@ export const run = guarded(async (t) => {
   await t.click('css=.ck-potato-panel-toggle');
   await t.expect.eventually(async () => (await t.page.count('css=.ck-potato-panel')) === 0, { message: 'the bot panel is closed' });
   await say(t, 'computer: ask_person_for_screen {"reason":"The site wants a code"}');
-  await t.expect.text('Fish used ask_person_for_screen: ok', { timeout: 30000 });
+  await t.expect.eventually(async () => (await t.page.count('css=.ck-potato-activity')) >= 2, { message: 'the second tool call is a second activity line', timeout: 30000 });
+  // the banner pushes the list down when it shows, so wait for it before clicking; the first line was opened above, so the closed one is the new line
+  await t.expect.visible('css=.ck-potato-banner');
+  await t.click('css=.ck-potato-activity-head[aria-expanded="false"]');
+  await t.expect.text('Asked you for the screen', { timeout: 30000 });
   await t.expect.visible('css=.ck-potato-banner');
   await t.expect.text('Fish needs you on the computer.', { within: 'css=.ck-potato-banner' });
   await t.expect.visible('exact=Open computer', { within: 'css=.ck-potato-banner' });
@@ -107,7 +119,7 @@ export const run = guarded(async (t) => {
   await t.step('The other tabs say "Coming soon", and the bot list can be made small');
   await t.click('exact=Routines', { within: 'css=.ck-potato-panel' });
   await t.expect.text('Coming soon', { within: 'css=.ck-potato-panel' });
-  await t.click('css=.ck-potato-list-head button');
+  await t.click('css=.ck-potato-list-toggle');
   await t.expect.visible('css=.ck-potato-list.is-mini');
   const tabsShot = process.env.E2E_SCREENSHOT_TABS || path.join(t.outDir, 'potato-panel-routines-strip.png');
   await t.page.screenshot(tabsShot);

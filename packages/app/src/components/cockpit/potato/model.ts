@@ -1,5 +1,6 @@
 // Pure rules of the Potato Bot page: what a thread turns into on screen, and which buttons a bot gets.
 import type { BrainState, PotatoBotView, PotatoMessage } from '../../../lib/potato';
+import { TIME_GAP_MS, clockLabel, dayLabel, sameDay, toolStep, type ToolStep } from '../../../lib/potato-thread';
 
 export type ThreadRow =
   | { type: 'bubble'; message: PotatoMessage; side: 'you' | 'bot'; /** First bubble of a run by one sender. */ first: boolean }
@@ -31,6 +32,79 @@ export function threadRows(messages: readonly PotatoMessage[]): ThreadRow[] {
     }
   }
   return rows;
+}
+
+/** What the message list shows: the rows, plus the lines between them. */
+export type ThreadItem =
+  | ThreadRow
+  | { type: 'day'; key: string; label: string }
+  | { type: 'time'; key: string; label: string }
+  | { type: 'unread'; key: string }
+  | { type: 'activity'; key: string; steps: ToolStep[] };
+
+export interface ThreadItemOptions {
+  now: number;
+  /** The first unread message: the "New" line goes above it. */
+  unreadId?: string | null;
+}
+
+/**
+ * The thread as it is drawn: a day line when the day changes (and at the top), a time line after a long pause, the
+ * "New" line above the first unread message, and the bot's tool results folded into one activity row per run.
+ * A bubble that follows any of those starts a new run of one sender.
+ */
+export function threadItems(messages: readonly PotatoMessage[], { now, unreadId = null }: ThreadItemOptions): ThreadItem[] {
+  const items: ThreadItem[] = [];
+  let prev: PotatoMessage | undefined;
+  let group: Extract<ThreadItem, { type: 'activity' }> | null = null;
+  let breakRun = false;
+  let unreadPending = false;
+
+  // The lines that go above a message: day, time, and the unread divider.
+  const lead = (m: PotatoMessage) => {
+    if (!prev || !sameDay(prev.at, m.at)) {
+      items.push({ type: 'day', key: `day-${m.id}`, label: dayLabel(m.at, now) });
+      items.push({ type: 'time', key: `time-${m.id}`, label: clockLabel(m.at) });
+      breakRun = true;
+    } else if (m.at - prev.at >= TIME_GAP_MS) {
+      items.push({ type: 'time', key: `time-${m.id}`, label: clockLabel(m.at) });
+      breakRun = true;
+    }
+    if (unreadPending) {
+      items.push({ type: 'unread', key: `unread-${m.id}` });
+      unreadPending = false;
+      breakRun = true;
+    }
+  };
+
+  for (const row of threadRows(messages)) {
+    const m = row.message;
+    if (m.id === unreadId) unreadPending = true;
+    const step = row.type === 'bubble' && row.side === 'bot' ? toolStep(m) : null;
+    if (step) {
+      if (group) {
+        group.steps.push(step);
+      } else {
+        lead(m);
+        group = { type: 'activity', key: `activity-${m.id}`, steps: [step] };
+        items.push(group);
+        breakRun = true;
+      }
+      prev = m;
+      continue;
+    }
+    group = null;
+    lead(m);
+    if (row.type === 'bubble') {
+      items.push(breakRun && !row.first ? { ...row, first: true } : row);
+      breakRun = false;
+    } else {
+      items.push(row);
+    }
+    prev = m;
+  }
+  if (unreadPending) items.push({ type: 'unread', key: 'unread-end' });
+  return items;
 }
 
 /** Which of Stop and Start the header offers, if either. */

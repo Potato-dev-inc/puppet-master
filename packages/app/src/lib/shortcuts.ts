@@ -219,6 +219,16 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     handlers: [{ file: 'src/components/cockpit/potato/potato-keys.ts', text: 'isPanelShortcut' }],
   },
   {
+    id: 'potato-search',
+    group: 'Panes',
+    label: 'Search bots (Potato Bot page)',
+    keys: ['Ctrl+K'],
+    handlers: [
+      { file: 'src/components/cockpit/potato/BotList.tsx', text: 'isSearchShortcut(e)' },
+      { file: 'src/CockpitApp.tsx', text: 'if (potatoShown) return;' },
+    ],
+  },
+  {
     id: 'interrupt',
     group: 'Panes',
     label: 'Stop what the agent is doing (sends Ctrl+C to the focused pane)',
