@@ -20,6 +20,8 @@ export default defineConfig({
       injectManifest: {
         // Same precache set as the old generateSW config.
         globPatterns: ['**/*.{js,css,html,woff2}'],
+        // The main script passed the 2 MiB default (a build then fails instead of precaching it). Keep precaching it.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
       manifest: {
         name: 'Puppet Master',

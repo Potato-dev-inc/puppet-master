@@ -147,15 +147,18 @@ vi.mock('./components/cockpit/Sidebar', async () => {
     onOpenMorning?: () => void;
     onOpenStore?: () => void;
     onOpenToSide?: (id: string) => void;
+    onOpenNewAgent?: () => void;
+    newAgentOpen?: boolean;
     potato?: { enabled: boolean; unread: number } | null;
     onOpenPotato?: () => void;
   };
   return {
-    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenReview, onOpenMorning, onOpenStore, onOpenToSide, potato, onOpenPotato }: Props) =>
+    Sidebar: ({ c, onOpenDoctor, onOpenMemory, onOpenScores, onOpenReview, onOpenMorning, onOpenStore, onOpenToSide, onOpenNewAgent, newAgentOpen, potato, onOpenPotato }: Props) =>
       h(
         'div',
         null,
         h('button', { type: 'button', onClick: onOpenDoctor }, 'Set up agents'),
+        h('button', { type: 'button', onClick: onOpenNewAgent, 'aria-current': newAgentOpen ? 'page' : undefined }, 'New agent row'),
         h('button', { type: 'button', onClick: () => onOpenToSide?.('p2') }, 'Open p2 to the side'),
         h('button', { type: 'button', onClick: onOpenMemory }, 'Project memory'),
         h('button', { type: 'button', onClick: onOpenScores }, 'Scores'),
@@ -171,6 +174,10 @@ vi.mock('./components/cockpit/Sidebar', async () => {
         ),
       ),
   };
+});
+vi.mock('./components/cockpit/newagent/NewAgentHost', async () => {
+  const { createElement: h } = await import('react');
+  return { NewAgentHost: ({ onSetUp }: { onSetUp?: () => void }) => h('div', null, 'NEW AGENT PAGE', h('button', { type: 'button', onClick: onSetUp }, 'Page set up')) };
 });
 vi.mock('./components/cockpit/AgentDoctor', async () => {
   const { createElement: h, Fragment } = await import('react');
@@ -931,5 +938,53 @@ describe('CockpitApp Potato Bot wiring', () => {
     expect(mainText()).toContain('POTATO VIEW');
     await remount({ enabled: false, bots: [{ id: 'fish', unread: 0 }] });
     expect(host.textContent).not.toContain('POTATO VIEW');
+  });
+});
+
+describe('CockpitApp New agent page wiring', () => {
+  const findButton = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === text);
+  const ctrlN = (target: EventTarget = window, init: KeyboardEventInit = {}) =>
+    act(() => void target.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true, cancelable: true, ...init })));
+
+  it('the sidebar row opens the page and marks its row active; the Inbox row leaves it', async () => {
+    await act(async () => root.render(createElement(CockpitApp)));
+    expect(mainText()).not.toContain('NEW AGENT PAGE');
+    clickButton('New agent row');
+    expect(mainText()).toContain('NEW AGENT PAGE');
+    expect(findButton('New agent row')?.getAttribute('aria-current')).toBe('page');
+    clickButton('Inbox');
+    expect(mainText()).not.toContain('NEW AGENT PAGE');
+  });
+
+  it('Ctrl+N opens the page, from a pane too', async () => {
+    await act(async () => root.render(createElement(CockpitApp)));
+    ctrlN();
+    expect(mainText()).toContain('NEW AGENT PAGE');
+  });
+
+  it('Ctrl+N inside a terminal is the terminal’s own key', async () => {
+    await act(async () => root.render(createElement(CockpitApp)));
+    const term = document.createElement('div');
+    term.className = 'terminal-host';
+    const inner = document.createElement('textarea');
+    term.appendChild(inner);
+    document.body.appendChild(term);
+    ctrlN(inner);
+    term.remove();
+    expect(mainText()).not.toContain('NEW AGENT PAGE');
+  });
+
+  it('Shift or Alt with Ctrl+N is not ours', async () => {
+    await act(async () => root.render(createElement(CockpitApp)));
+    ctrlN(window, { shiftKey: true });
+    ctrlN(window, { altKey: true });
+    expect(mainText()).not.toContain('NEW AGENT PAGE');
+  });
+
+  it('the page’s Set up agents row opens the Agent Doctor', async () => {
+    await act(async () => root.render(createElement(CockpitApp)));
+    clickButton('New agent row');
+    clickButton('Page set up');
+    expect(mainText()).toContain('DOCTOR VIEW');
   });
 });

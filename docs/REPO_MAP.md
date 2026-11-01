@@ -953,6 +953,21 @@ Drive an agent through the Agent Client Protocol (JSON-RPC over the stdio of a N
 
 Tests: `cargo test --lib acp`. No real agent is ever started by a test.
 
+### 3.21 New agent page (`components/cockpit/newagent/`, UI only)
+
+A start page in the sidebar (top row "New agent", Ctrl/Cmd+N): a greeting, one big message box, the choices under it, pinned cards. Nothing new in Rust: it uses the commands the "+" menu, Settings and the chat tab already have. Generic (no agent names; the examples are plain tasks).
+
+| Where | What |
+|---|---|
+| `newagent/model.ts` | pure rules: `greeting(name)` (the name only from the setting, never derived), `EXAMPLES` + rotation, `agentChoices` (registry agents + saved logins, no shells; ready / not installed / unavailable), `chatAvailable` / `defaultRunAs` (Terminal or Chat), `sendBlock` (why Send is off), `StartRequest`, the home-card list ops (`parseCards`, `addCard`, `removeCard`, `moveCard`; limit 12, one card per kind except saved prompts) |
+| `newagent/NewAgentPage.tsx` | the page: Enter sends, Shift+Enter is a new line, Tab fills the example while the box is empty. Chips: "+" (add file paths to the message, Separate copy switch), folder (recent projects, Choose folder), agent (status dot), Terminal / Chat (only with Labs `acp_chat_enabled` and an ACP agent, from `agent_lane_get`). There is no permission-mode, model or effort control: the app has nothing behind them (`new_pane` takes agent, login, isolation and folder only) |
+| `newagent/HomeCards.tsx` | "+ Add card" (recent projects, running agents, needs you, a saved prompt) and "Customize" (move, remove) |
+| `newagent/api.ts` | `NewAgentApi` (injectable): recent, pick folder or files, default folder, git state, lanes, accounts, `loadHome` / `saveCards` (settings keys `display_name` and `home_cards`, in the shared schema), `settings://changed` |
+| `newagent/start.ts` | `runStart`: terminal = `useCockpit().newAgent` (now resolves to the pane id), chat = `acp_chat_start` with `explicit: true`, then select; then the first message goes through `pane_message_send` (the pane outbox types it when the agent is ready) |
+| `newagent/NewAgentHost.tsx` | wires the page to the cockpit (agents, panes, needs-you). Mounted in `CockpitApp.tsx` for `MainView` `'newagent'`; sidebar row `data-testid="side-new-agent"` (`Sidebar.tsx`); Ctrl+N in `CockpitApp.tsx` (not inside a terminal) |
+| Settings | General > Appearance > "Your name" (`display_name`, empty by default: the greeting then has no name) |
+| Styles and tests | `styles/cockpit-newagent.css` (tokens only; `--accent` only on Send, falls back to `--primary-bg`) + `cockpit-newagent.css.test.ts`; `npx vitest run src/components/cockpit/newagent src/components/cockpit/Sidebar.newagent src/styles/cockpit-newagent`; e2e `packages/e2e/tests/app/new-agent-page-sends.test.mjs` |
+
 ---
 
 ## 4. "Where do I change X?"

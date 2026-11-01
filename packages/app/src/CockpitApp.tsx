@@ -49,6 +49,7 @@ import { totalUnread } from './components/cockpit/potato/model';
 import { CompanionPage } from './components/cockpit/companion/CompanionPage';
 import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './components/cockpit/companion/model';
 import { CompanionSetupSheet } from './components/cockpit/companion/CompanionSetupSheet';
+import { NewAgentHost } from './components/cockpit/newagent/NewAgentHost';
 import { StartCrewSheet } from './components/cockpit/crews/StartCrewSheet';
 import { ShortcutsSheet } from './components/cockpit/ShortcutsSheet';
 import { ImportHost } from './components/history/ImportHost';
@@ -272,6 +273,18 @@ export default function CockpitApp() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
+  // Ctrl+N (Cmd+N on a Mac) opens the New agent page. In a terminal the key belongs to the program running there.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.altKey || e.shiftKey || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'n') return;
+      if (inTerminal(e.target) || c.mode === 'individual') return;
+      e.preventDefault();
+      setView('newagent');
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [c.mode]);
+
   // Ctrl+\ (see toggleSplit). Re-listens each render so it always sees the current selection and split.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -371,6 +384,8 @@ export default function CockpitApp() {
         openCompanionId={view === 'companion' ? companionId : null}
         onOpenCompanion={openCompanion}
         onNewCompanion={() => setSetupOpen(true)}
+        onOpenNewAgent={() => setView('newagent')}
+        newAgentOpen={view === 'newagent'}
         potato={potato.state ? { enabled: potatoOn, unread: totalUnread(potato.state.bots) } : null}
         potatoOpen={view === 'potato' && potatoOn}
         onOpenPotato={openPotato}
@@ -435,6 +450,8 @@ export default function CockpitApp() {
           />
         ) : view === 'settings' ? (
           <SettingsView key={settings.viewKey} {...settings.viewProps} onOpenStore={openStore} />
+        ) : view === 'newagent' ? (
+          <NewAgentHost c={nav} onSetUp={() => setView('doctor')} />
         ) : view === 'spawn' && c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
         ) : view === 'companion' && companion ? (
