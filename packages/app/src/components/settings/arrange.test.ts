@@ -93,12 +93,12 @@ describe('General > Labs', () => {
   const labsRows = () => section('general').rows.filter((r) => r.group === LABS_GROUP);
 
   it('collects every early feature in one place, in a fixed order, after the overview', () => {
-    expect(labsRows().map((r) => r.id)).toEqual([LABS_INDEX_ID, 'team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions', 'assign-issue', 'night-shift', 'red-to-green', 'potato-labs', 'acp-chat-labs', 'potato-sandbox-labs']);
+    expect(labsRows().map((r) => r.id)).toEqual([LABS_INDEX_ID, 'team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions', 'assign-issue', 'night-shift', 'red-to-green', 'potato-labs', 'acp-chat-labs', 'desk-labs', 'potato-sandbox-labs']);
   });
 
   it('each feature has a short name and one plain line (no second sentence, no raw ids)', () => {
     const features = collectLabs(BASE_SECTIONS);
-    expect(features.map((r) => r.id)).toEqual(['team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions', 'assign-issue', 'night-shift', 'red-to-green', 'potato-labs', 'acp-chat-labs', 'potato-sandbox-labs']);
+    expect(features.map((r) => r.id)).toEqual(['team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions', 'assign-issue', 'night-shift', 'red-to-green', 'potato-labs', 'acp-chat-labs', 'desk-labs', 'potato-sandbox-labs']);
     for (const row of features) {
       const { name, about } = row.labs!;
       expect(name.length, row.id).toBeGreaterThan(2);
@@ -136,7 +136,7 @@ describe('General > Labs', () => {
       .find((s) => s.id === 'general')!
       .rows.filter((r) => r.group === LABS_GROUP)
       .map((r) => r.id);
-    expect(labs.slice(-6)).toEqual(['night-shift', 'red-to-green', 'potato-labs', 'acp-chat-labs', 'later-feature', 'potato-sandbox-labs']);
+    expect(labs.slice(-7)).toEqual(['night-shift', 'red-to-green', 'potato-labs', 'acp-chat-labs', 'desk-labs', 'later-feature', 'potato-sandbox-labs']);
     expect(arranged.find((s) => s.id === 'phone')!.rows.some((r) => r.id === 'later-feature')).toBe(false);
   });
 

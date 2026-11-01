@@ -88,6 +88,9 @@ hmac = "0.12"
 subtle = "2"
 # Wire types shared with the team relay (MIT, `relay/protocol` in this repository).
 pm-relay-protocol = { path = "../../../relay/protocol" }
+# My computers (desk/): pure geometry and wire types ported from desktoplab (MIT). See crates/PORTED.md.
+desk-core = { path = "crates/desk-core" }
+desk-proto = { path = "crates/desk-proto" }
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }

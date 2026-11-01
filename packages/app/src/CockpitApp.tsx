@@ -46,6 +46,8 @@ import { tauriPotatoTransport } from './lib/potato';
 import { tauriScreenTransport } from './lib/potatoScreen';
 import { tauriSandboxTransport } from './lib/potato-sandbox';
 import { PotatoPage } from './components/cockpit/potato/PotatoPage';
+import { DeskPage } from './components/desk/DeskPage';
+import { useDeskEnabled } from './lib/desk';
 import { totalUnread } from './components/cockpit/potato/model';
 import { CompanionPage } from './components/cockpit/companion/CompanionPage';
 import { COMPANION_PANE_PREFIX, isCompanionPaneId } from './components/cockpit/companion/model';
@@ -136,6 +138,8 @@ export default function CockpitApp() {
     writeOpenBot(id);
   };
   const openPotato = () => setView('potato');
+  // My computers (Labs `desk_enabled`): off, the row is gone and the page is unreachable.
+  const deskOn = useDeskEnabled();
   // The page on screen: its bot list owns Ctrl/Cmd+K (search), so the palette stays shut here.
   const potatoShown = view === 'potato' && potatoOn;
   // "Start crew…" (crews): pick a saved team and a folder.
@@ -394,6 +398,9 @@ export default function CockpitApp() {
         potato={potato.state ? { enabled: potatoOn, unread: totalUnread(potato.state.bots) } : null}
         potatoOpen={view === 'potato' && potatoOn}
         onOpenPotato={openPotato}
+        desk={{ enabled: deskOn }}
+        deskOpen={view === 'desk' && deskOn}
+        onOpenDesk={() => setView('desk')}
         onOpenToSide={openToSide}
         onPaneAction={(id, action) => {
           // The actions run in a pane's own view: a split view gives way to it.
@@ -492,6 +499,8 @@ export default function CockpitApp() {
             screenTransport={tauriScreenTransport}
             sandboxTransport={tauriSandboxTransport}
           />
+        ) : view === 'desk' && deskOn ? (
+          <DeskPage />
         ) : view === 'pane' && c.selectedId && splitOn && split ? (
           <SplitView c={nav} leftId={c.selectedId} rightId={split} focus={side} ratio={ratio} onFocus={setSide} onRatio={setRatio} onClose={toggleSplit} />
         ) : view === 'pane' && c.selectedId ? (

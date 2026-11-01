@@ -260,6 +260,8 @@ struct Inner {
     holder: Option<Box<dyn Holder>>,
     secrets: Option<Arc<RunSecrets>>,
     last_active_ms: i64,
+    /// Until when the person holds the screen (a live link or lease). Counts as use for the idle rule.
+    person_until_ms: i64,
     idle_minutes: u32,
 }
 
@@ -301,6 +303,7 @@ impl Lifecycle {
                 holder: None,
                 secrets: None,
                 last_active_ms: 0,
+                person_until_ms: 0,
                 idle_minutes: DEFAULT_IDLE_MINUTES,
             }),
             start_lock: Mutex::new(()),
@@ -361,6 +364,19 @@ impl Lifecycle {
 
     pub fn touch(&self, now_ms: i64) {
         self.inner.lock().last_active_ms = now_ms;
+    }
+
+    /// The person holds the screen (a live link or lease) until `until_ms`. While that runs the sandbox counts as in
+    /// use; the idle minutes run from the later of the last bot use and this hold.
+    pub fn hold_for_person(&self, until_ms: i64) {
+        let mut inner = self.inner.lock();
+        inner.person_until_ms = inner.person_until_ms.max(until_ms);
+    }
+
+    /// Test helper: holds the start lock (what a start or a stop takes) until the guard is dropped.
+    #[cfg(test)]
+    pub fn hold_starts_for_test(&self) -> parking_lot::MutexGuard<'_, ()> {
+        self.start_lock.lock()
     }
 
     pub fn begin_use(&self) -> UseGuard {
@@ -508,19 +524,26 @@ impl Lifecycle {
 
     /// Stops the sandbox when it has been idle long enough. Returns true when it did.
     pub fn idle_check(&self, now_ms: i64) -> Result<bool, LifecycleError> {
+        // The decision and the stop share the start lock. A start (and a bot action's `ensure_ready`) takes the same
+        // lock, so a use that begins after an earlier decision is seen by the re-check here, and nothing is stopped
+        // under a use that has begun.
+        let _start = self.start_lock.lock();
         let due = {
             let inner = self.inner.lock();
             should_idle_stop(
                 inner.phase == Phase::Ready,
-                inner.last_active_ms,
+                inner.last_active_ms.max(inner.person_until_ms),
                 now_ms,
                 inner.idle_minutes,
                 self.in_use.load(Ordering::SeqCst),
             )
         };
-        if due {
-            self.stop()?;
+        if !due {
+            return Ok(false);
         }
-        Ok(due)
+        let result = self.stop_inner();
+        self.inner.lock().phase = Phase::Stopped;
+        result.map_err(LifecycleError::from)?;
+        Ok(true)
     }
 }
