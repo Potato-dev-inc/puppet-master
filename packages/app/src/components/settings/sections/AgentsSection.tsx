@@ -9,6 +9,9 @@ import { COLLISION_LABEL, CollisionSettings } from '../blocks/CollisionSettings'
 import { PreloadSettings } from '../blocks/PreloadSettings';
 import { useEffect, useState } from 'react';
 import { agentHealthApi, type AgentHealth } from '../../../lib/agent-health';
+import { DEV_LABS_KEYS } from '../../../lib/dev-labs';
+import { SETUP_CHECK_ROW_ID } from '../../../lib/openSettingsAt';
+import { SetupCheckPage } from '../SetupCheckPage';
 import { Popup } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
 import { SettingRow, SettingToggle } from '../settings-ui';
@@ -72,7 +75,22 @@ function LiveUpdates({ env }: { env: SettingsEnv }) {
   );
 }
 
+/** "Check my setup": one list of what works and one fix per problem. Its id is SETUP_CHECK_ROW_ID (Repair install opens it). */
+export const setupCheckRow: RowDef = {
+  id: SETUP_CHECK_ROW_ID,
+  label: 'Check my setup',
+  hint: 'What is running, which agents are signed in, and what needs one fix.',
+  keywords: 'check setup health repair install bridge sign in agent deepseek key computer add-on labs copy report',
+  group: 'Check my setup',
+  render: (env) => (
+    <SetupCheckPage
+      ctx={{ bridgeUrl: env.bridgeUrl, labs: Object.fromEntries(DEV_LABS_KEYS.map((k) => [k, env.settings[k]])) }}
+    />
+  ),
+};
+
 export const agentsRows: RowDef[] = [
+  setupCheckRow,
   {
     id: 'accounts',
     label: 'Accounts',

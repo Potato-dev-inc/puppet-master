@@ -51,3 +51,6 @@ function glowRow(rowId: string, focusField: boolean): void {
   };
   tryFind();
 }
+
+/** The row id of "Check my setup" (Settings > Agents). "Repair install" buttons open this row. */
+export const SETUP_CHECK_ROW_ID = 'setup-check';
