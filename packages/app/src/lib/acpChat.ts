@@ -42,11 +42,15 @@ export interface AcpChatState {
   usage: { used: number; size: number } | null;
   permissions: AcpPermission[];
   closed: boolean;
+  /** The agent refused the last message until the person signs in (the sign-in card shows). */
+  signIn?: { needed: boolean; hint: string };
 }
 
 export interface AcpChatApi {
   state: (paneId: string) => Promise<AcpChatState | null>;
   cancel: (paneId: string) => Promise<boolean>;
+  /** "I'm signed in — try again": sends the message that was waiting. Rejects with the agent's reason. */
+  retrySignIn?: (paneId: string) => Promise<void>;
   watch: (cb: (paneId: string, state: AcpChatState) => void) => Promise<UnlistenFn>;
 }
 
@@ -61,6 +65,10 @@ export const tauriAcpChatApi: AcpChatApi = {
   cancel: async (paneId) => {
     if (!isTauri()) throw new Error('Desktop shell required: acp_chat_cancel');
     return invoke<boolean>('acp_chat_cancel', { paneId });
+  },
+  retrySignIn: async (paneId) => {
+    if (!isTauri()) throw new Error('Desktop shell required: acp_chat_retry_sign_in');
+    await invoke<void>('acp_chat_retry_sign_in', { paneId });
   },
   watch: async (cb) => {
     if (!isTauri()) return noopUnlisten;

@@ -30,6 +30,8 @@ export function NewAgentHost({ c, onSetUp }: { c: CockpitApi; onSetUp?: () => vo
       selectedCwd={selectedCwd}
       onOpenPane={(id) => c.select(id)}
       onSetUp={onSetUp}
+      // The agent's own terminal pane, in the folder: the person signs in there (the same login Chat uses).
+      onSignIn={(agentId, folder) => c.newAgent(agentId, undefined, false, folder)}
       onStart={(request) => runStart(request, realStartDeps({ newAgent: c.newAgent, select: c.select, notify: c.notify }))}
     />
   );

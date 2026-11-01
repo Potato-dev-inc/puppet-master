@@ -551,3 +551,8 @@
     flex-wrap: wrap;
   }
 }
+
+/* The add-on prompt or the sign-in card, under the message box. */
+.cockpit .ck-na-card {
+  margin: 10px 0 0;
+}

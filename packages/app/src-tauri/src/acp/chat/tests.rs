@@ -740,3 +740,64 @@ fn the_bridge_reads_the_state_and_stops_the_turn_of_a_chat_session() {
     assert_eq!(super::api::state("a-terminal-pane").unwrap_err().0, 404);
     assert_eq!(super::api::cancel("a-terminal-pane").unwrap_err().0, 404);
 }
+
+// ---- the add-on and the sign-in (A5) ------------------------------------------------------------------------------
+
+#[test]
+fn a_missing_add_on_is_its_own_start_error_and_leaves_nothing_behind() {
+    let dir = std::env::temp_dir().join(format!("pm-acp-chat-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut cfg = fake_agent::agent_config("", &dir.join("store"));
+    cfg.label = "Fake".into();
+    cfg.pin_policy = crate::acp::config::PinPolicy::Enforce;
+    cfg.addon.size_mb = Some(12);
+    cfg.pins = vec![crate::acp::config::AdapterPin {
+        package: "@scope/fake-acp".into(),
+        version: "1.0.0".into(),
+        entry: "{adapters}/fake/node_modules/@scope/fake-acp/dist/index.js".into(),
+        sha256: Some("0".repeat(64)),
+    }];
+    let registry = Arc::new(Mutex::new(PaneRegistry::new()));
+    let deps = StartDeps { registry: registry.clone(), host: Arc::new(Recorder::default()), env: Arc::new(TestEnv { root: dir.clone() }) };
+    let error = start(&deps, cfg, StartRequest { agent_id: "fake".into(), folder: dir, explicit: true }).err().expect("no add-on, no chat");
+    assert_eq!(error.code, "ACP_ADDON_MISSING");
+    assert!(error.message.contains("add-on for Fake (about 12 MB)"), "{}", error.message);
+    assert!(error.fallback);
+    assert!(registry.lock().list().is_empty(), "no pane was made");
+}
+
+#[test]
+fn a_login_that_runs_out_shows_the_sign_in_card_and_try_again_sends_the_same_message() {
+    let dir = std::env::temp_dir().join(format!("pm-acp-chat-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let auth_file = dir.join("signed-out");
+    let rig = Rig::with(&format!("auth_file={}", auth_file.display()), |cfg| {
+        cfg.timeouts.idle_ttl_secs = 60;
+        cfg.addon.signin_hint = "Type /login in the terminal.".into();
+    });
+    rig.say("stream 2");
+    assert_eq!(rig.chat.state()["signIn"]["needed"], false);
+
+    // The adapter sleeps; the login ran out meanwhile.
+    assert_eq!(rig.chat.session().tick(Instant::now() + Duration::from_secs(61)), crate::acp::session::TickAction::Slept);
+    std::fs::write(&auth_file, "x").unwrap();
+    let refused = rig.chat.send("stream 3").unwrap_err();
+    assert_eq!(refused, SendError::Refused("The agent needs you to sign in.".into()));
+    let state = rig.chat.state();
+    assert_eq!(state["signIn"]["needed"], true);
+    assert_eq!(state["signIn"]["hint"], "Type /login in the terminal.");
+    assert!(rig.chat.sign_in_needed());
+    assert!(rig.host.states.load(Ordering::SeqCst) >= 1, "viewers are told so the card appears");
+
+    // Still signed out: the card stays, and the message is kept.
+    assert!(matches!(rig.chat.retry_after_sign_in(), Err(SendError::Refused(_))));
+    assert!(rig.chat.sign_in_needed());
+
+    // Signed in again: the held message goes, the card goes.
+    std::fs::remove_file(&auth_file).unwrap();
+    assert_eq!(rig.chat.retry_after_sign_in().unwrap(), Sent::Started);
+    assert!(wait_until(30, || rig.items().iter().any(|i| i["kind"] == "user" && i["text"] == "stream 3")));
+    assert_eq!(rig.chat.state()["signIn"]["needed"], false);
+    // Nothing is held now.
+    assert!(matches!(rig.chat.retry_after_sign_in(), Err(SendError::Refused(_))));
+}

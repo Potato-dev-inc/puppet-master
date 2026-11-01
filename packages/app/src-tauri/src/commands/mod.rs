@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 mod acp_conversations;
+mod acp_install;
 mod agent_install;
 mod agent_store;
 mod agent_wizard;
@@ -85,6 +86,7 @@ mod ci_fix;
 mod collision;
 
 pub use acp_conversations::*;
+pub use acp_install::*;
 pub use agent_install::*;
 pub use agent_store::*;
 pub use agent_wizard::*;

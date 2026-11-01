@@ -121,6 +121,8 @@ pub struct AcpChat {
     cards: Mutex<BTreeMap<u64, Card>>,
     /// What the person sent, until the turn it starts is reported (the user item is made from it).
     pending_user: Mutex<Option<String>>,
+    /// The message the agent refused because it needs a sign-in, kept to send again once the person has signed in.
+    sign_in_held: Mutex<Option<String>>,
     closed: AtomicBool,
     /// How long a card lives before it is raised again (a day; a test makes it short).
     card_timeout_s: AtomicU64,
@@ -195,6 +197,7 @@ impl AcpChat {
             handles: Mutex::new(None),
             cards: Mutex::new(BTreeMap::new()),
             pending_user: Mutex::new(None),
+            sign_in_held: Mutex::new(None),
             closed: AtomicBool::new(false),
             card_timeout_s: AtomicU64::new(cards::CARD_TIMEOUT_S),
         })
@@ -462,12 +465,39 @@ impl AcpChat {
         }
         *self.pending_user.lock() = Some(text.to_string());
         match self.session.prompt_text(text) {
-            Ok(_) => Ok(Sent::Started),
+            Ok(_) => {
+                self.sign_in_held.lock().take();
+                Ok(Sent::Started)
+            }
             Err(error) => {
                 self.pending_user.lock().take();
+                if needs_sign_in(&error) {
+                    // The sign-in card shows; the text waits for "I'm signed in — try again".
+                    *self.sign_in_held.lock() = Some(text.to_string());
+                    self.host.state_changed(&self.pane_id, &self.state());
+                }
                 Err(send_error(&error))
             }
         }
+    }
+
+    /// Whether the agent refused to work until the person signs in (the sign-in card is shown).
+    pub fn sign_in_needed(&self) -> bool {
+        self.sign_in_held.lock().is_some()
+    }
+
+    /// "I'm signed in — try again": sends the message that was refused for want of a sign-in. If the agent still wants
+    /// a sign-in the card stays.
+    pub fn retry_after_sign_in(&self) -> Result<Sent, SendError> {
+        let held = self.sign_in_held.lock().take();
+        let Some(text) = held else { return Err(SendError::Refused("Nothing is waiting to be sent.".into())) };
+        let result = self.send(&text);
+        if result.is_err() && !self.sign_in_needed() {
+            // Another reason it did not go: keep the text so the person can try again.
+            *self.sign_in_held.lock() = Some(text);
+        }
+        self.host.state_changed(&self.pane_id, &self.state());
+        result
     }
 
     /// Sends `text` into the turn that runs, when the agent takes that. `None`: it does not (or no turn runs); the
@@ -599,6 +629,7 @@ impl AcpChat {
             "permissions": permissions,
             "exit": snapshot.exit.as_ref().map(|e| json!({ "kind": serde_json::to_value(e.kind).unwrap_or(Value::Null), "code": e.code, "reason": e.reason })),
             "closed": self.is_closed(),
+            "signIn": { "needed": self.sign_in_needed(), "hint": self.session.config().addon.signin_hint },
         })
     }
 }
@@ -620,6 +651,11 @@ impl PushedSource for AcpChat {
     fn state(&self) -> Option<Value> {
         Some(AcpChat::state(self))
     }
+}
+
+/// The agent wants the person to sign in first (its `authMethods` with nothing signed in, or its auth error).
+fn needs_sign_in(error: &AcpError) -> bool {
+    matches!(error, AcpError::AuthRequired { .. } | AcpError::Rpc { code: crate::acp::error::RPC_AUTH_REQUIRED, .. })
 }
 
 fn send_error(error: &AcpError) -> SendError {

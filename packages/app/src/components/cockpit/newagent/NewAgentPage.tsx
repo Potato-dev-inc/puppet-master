@@ -6,6 +6,10 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import type { Account } from '../../../lib/accounts';
 import type { AgentDescriptor } from '../../../lib/agentRegistry';
 import type { RecentProject } from '../../../lib/ship-api';
+import { addonFor, needsInstall, tauriAcpAddonApi, type AcpAddonApi } from '../../../lib/acpAddon';
+import { useAcpAddons } from '../../../hooks/useAcpAddons';
+import { AddonPrompt } from '../../acp/AddonPrompt';
+import { SignInCard } from '../../acp/SignInCard';
 import { lastRealFolder, projectOfCwd, readStoredCopyPreference, supportsCopies, writeCopyPreference, copyDefault } from '../../../lib/ship-model';
 import { IconArrowUp, IconChevronDown, IconFolder, IconPlus, IconSpark } from '../Icons';
 import type { ProjectChoice } from '../NewAgentMenu';
@@ -29,6 +33,7 @@ import {
   type RunAs,
   type StartRequest,
 } from './model';
+import { isStartBlock } from './start';
 import '../../../styles/cockpit-newagent.css';
 
 const REMEMBER_KEY = 'pm.newagent.agent';
@@ -48,6 +53,36 @@ function remember(key: string): void {
   }
 }
 
+// The page leaves for the sign-in terminal and comes back: what was typed and chosen is kept for that one trip.
+const SIGNIN_KEY = 'pm.newagent.signin';
+
+interface SignInTrip {
+  pickKey: string;
+  folder?: { path: string; name: string };
+  prompt: string;
+}
+
+function saveTrip(trip: SignInTrip): void {
+  try {
+    sessionStorage.setItem(SIGNIN_KEY, JSON.stringify(trip));
+  } catch {
+    /* storage can be blocked: the text is just not kept */
+  }
+}
+function takeTrip(): SignInTrip | null {
+  try {
+    const raw = sessionStorage.getItem(SIGNIN_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(SIGNIN_KEY);
+    const trip = JSON.parse(raw) as Partial<SignInTrip>;
+    if (typeof trip.pickKey !== 'string' || typeof trip.prompt !== 'string') return null;
+    const folder = trip.folder && typeof trip.folder.path === 'string' && typeof trip.folder.name === 'string' ? trip.folder : undefined;
+    return { pickKey: trip.pickKey, prompt: trip.prompt, folder };
+  } catch {
+    return null;
+  }
+}
+
 export interface PaneBrief {
   id: string;
   title: string;
@@ -63,6 +98,10 @@ export interface NewAgentPageProps {
   /** The folder of the pane that is selected, if any: the first guess for the folder. */
   selectedCwd?: string | null;
   api?: NewAgentApi;
+  /** The chat add-ons (install state and install). */
+  addonApi?: AcpAddonApi;
+  /** Opens the agent's own terminal pane in `folder`, where the person signs in. Absent: the card only explains. */
+  onSignIn?: (agentId: string, folder?: string) => Promise<unknown> | void;
   /** Hand the request to whoever starts agents. May resolve later; the page is busy until then. */
   onStart: (request: StartRequest) => Promise<unknown> | void;
   onOpenPane: (paneId: string) => void;
@@ -72,7 +111,7 @@ export interface NewAgentPageProps {
 
 type Menu = 'plus' | 'folder' | 'agent' | null;
 
-export function NewAgentPage({ agents, panes, needs, selectedCwd = null, api = tauriNewAgentApi, onStart, onOpenPane, onSetUp }: NewAgentPageProps) {
+export function NewAgentPage({ agents, panes, needs, selectedCwd = null, api = tauriNewAgentApi, addonApi = tauriAcpAddonApi, onSignIn, onStart, onOpenPane, onSetUp }: NewAgentPageProps) {
   const [prompt, setPrompt] = useState('');
   const [exampleIdx, setExampleIdx] = useState(0);
   const [menu, setMenu] = useState<Menu>(null);
@@ -87,6 +126,9 @@ export function NewAgentPage({ agents, panes, needs, selectedCwd = null, api = t
   const [looked, setLooked] = useState<{ path: string; state: RecentProject['state'] } | null>(null);
   const [pickKey, setPickKey] = useState<string | null>(null);
   const [runPick, setRunPick] = useState<RunAs | null>(null);
+  // The agent whose chat start said "sign in first"; the card shows until the person says they are signed in.
+  const [signInFor, setSignInFor] = useState<string | null>(null);
+  const addons = useAcpAddons(addonApi);
   const area = useRef<HTMLTextAreaElement>(null);
   const alive = useRef(true);
 
@@ -95,6 +137,17 @@ export function NewAgentPage({ agents, panes, needs, selectedCwd = null, api = t
     return () => {
       alive.current = false;
     };
+  }, []);
+
+  // Back from the sign-in terminal: the message, agent and folder are as they were, and the card asks to try again.
+  useEffect(() => {
+    const trip = takeTrip();
+    if (!trip) return;
+    setPrompt(trip.prompt);
+    setPickKey(trip.pickKey);
+    setRunPick('chat');
+    if (trip.folder) setChosenFolder({ path: trip.folder.path, name: trip.folder.name });
+    setSignInFor(trip.pickKey.split(':')[0]);
   }, []);
 
   // What the page reads once. Every read may fail (a browser preview, an older build): the page still works.
@@ -171,7 +224,10 @@ export function NewAgentPage({ agents, panes, needs, selectedCwd = null, api = t
   const runAs: RunAs = canChat ? (runPick ?? defaultRunAs(lanes, choice?.agentId ?? null)) : 'terminal';
   const isolated = copyDefault(storedCopy) && copiesOk && runAs === 'terminal';
 
-  const block = sendBlock({ prompt, choice, runAs, folder: folder?.path ?? null, busy });
+  const addon = runAs === 'chat' ? addonFor(addons.byAgent, choice?.agentId) : undefined;
+  const installFirst = needsInstall(addon);
+  const block = sendBlock({ prompt, choice, runAs, folder: folder?.path ?? null, busy }) ?? (installFirst ? 'Install the chat add-on first.' : null);
+  const signInCard = runAs === 'chat' && choice && signInFor !== null && signInFor.toLowerCase() === choice.agentId.toLowerCase();
   const example = exampleAt(exampleIdx);
 
   const send = async () => {
@@ -180,7 +236,7 @@ export function NewAgentPage({ agents, panes, needs, selectedCwd = null, api = t
     setBusy(true);
     remember(choice.key);
     try {
-      await onStart({
+      const result = await onStart({
         agentId: choice.agentId,
         accountId: choice.accountId,
         folder: folder?.path,
@@ -188,6 +244,15 @@ export function NewAgentPage({ agents, panes, needs, selectedCwd = null, api = t
         runAs,
         prompt: prompt.trim(),
       });
+      // Chat could not start for a reason a card answers: the add-on is gone, or a sign-in is needed.
+      if (isStartBlock(result)) {
+        if (alive.current) {
+          if (result.blocked === 'signin') setSignInFor(choice.agentId);
+          else void addons.refresh();
+        }
+      } else if (alive.current) {
+        setSignInFor(null);
+      }
     } catch (e) {
       if (alive.current) setError(e instanceof Error ? e.message : 'Could not start the agent.');
     } finally {
@@ -441,6 +506,31 @@ export function NewAgentPage({ agents, panes, needs, selectedCwd = null, api = t
               </button>
             </div>
           </div>
+
+          {signInCard && choice ? (
+            <div className="ck-na-card">
+              <SignInCard
+                label={addon?.label ?? choice.label}
+                hint={addon?.signin_hint ?? ''}
+                onOpen={async () => {
+                  // The page is replaced by the terminal: keep what was typed for the trip back.
+                  saveTrip({ pickKey: choice.key, prompt, folder: folder ? { path: folder.path, name: folder.name } : undefined });
+                  await onSignIn?.(choice.agentId, folder?.path);
+                }}
+                onRetry={async () => {
+                  setSignInFor(null);
+                  await send();
+                }}
+              />
+            </div>
+          ) : (
+            installFirst &&
+            addon && (
+              <div className="ck-na-card">
+                <AddonPrompt status={addon} onInstall={() => void addons.install(addon.agent)} />
+              </div>
+            )
+          )}
 
           <p className="ck-na-hint" role={error ? 'alert' : undefined}>
             {error ?? (prompt.trim() && block ? block : '')}
