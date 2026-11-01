@@ -75,6 +75,8 @@ export interface RowDef {
   labs?: { name: string; about: string };
   /** A link left where a row used to be. Never searched (the real row is), and has no setting of its own. */
   pointer?: boolean;
+  /** An early feature's own row: shown (and searched) only while this Labs flag is on. Hidden otherwise, as if it did not exist. */
+  labsFlag?: 'potato_sandbox_enabled';
   render: (env: SettingsEnv) => ReactNode;
 }
 
@@ -88,9 +90,14 @@ export interface SectionDef {
   labsFlag?: 'potato_bot_enabled';
 }
 
-/** The sections a person sees now: those of an early feature appear only while its switch is on. */
-export function visibleSections(sections: SectionDef[], settings: { potato_bot_enabled?: boolean } | null): SectionDef[] {
-  return sections.filter((s) => !s.labsFlag || settings?.[s.labsFlag] === true);
+/**
+ * The sections a person sees now: those of an early feature appear only while its switch is on, and so do the rows that
+ * name a switch of their own (the sandbox's rows need Potato Bot on too, because they live in its section).
+ */
+export function visibleSections(sections: SectionDef[], settings: { potato_bot_enabled?: boolean; potato_sandbox_enabled?: boolean } | null): SectionDef[] {
+  return sections
+    .filter((s) => !s.labsFlag || settings?.[s.labsFlag] === true)
+    .map((s) => (s.rows.some((r) => r.labsFlag) ? { ...s, rows: s.rows.filter((r) => !r.labsFlag || settings?.[r.labsFlag] === true) } : s));
 }
 
 export interface RowGroup {

@@ -6,6 +6,7 @@ ones inside the PM Ubuntu 24.04 distro, as root. Nothing here runs on Windows.
 - `base.json` is always installed.
 - `light.json` and `xfce.json` are the two desktops. Only one may be picked (`exclusive: "desktop"`).
 - `coding.json` and `daily.json` are optional add-ons.
+- `zorin-look.json` is an optional look for the XFCE desktop. It has `"requires": "xfce"`: choosing it without `xfce` is an error.
 
 Try the plan without installing anything (any OS, no root):
 
@@ -30,6 +31,7 @@ Menu as JSON for the app: `apply-recipe.py --list`.
   "title": "XFCE desktop",           short name, shown to the user
   "description": "...",              one or two plain sentences
   "exclusive": "desktop" | null,     two recipes with the same value cannot both be picked
+  "requires": "xfce" | null,         optional: another recipe that must be picked too
   "session": "fluxbox" | "xfce4",    desktop recipes only; written to /etc/pm-sbx/desktop.conf
   "pre":  [ "shell line", ... ],     run as root before the apt step (for example adding an apt repo)
   "apt":  [ "package", ... ],        apt-get install -y --no-install-recommends

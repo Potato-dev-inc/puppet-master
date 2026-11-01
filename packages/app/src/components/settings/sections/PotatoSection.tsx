@@ -9,6 +9,7 @@ import { ApiKeyField } from '../ApiKeyField';
 import { NumberControl } from '../controls';
 import type { RowDef } from '../model';
 import { Btn, FieldSelect, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
+import { makeSandboxRows } from '../sandbox/SandboxRows';
 
 /** The limits of the daily limit, in cents ($0.05 to $20). Rust clamps again. */
 export const MIN_LIMIT_CENTS = 5;
@@ -257,4 +258,5 @@ export function makePotatoRows(transport: PotatoTransport = tauriPotatoTransport
   ];
 }
 
-export const potatoRows: RowDef[] = makePotatoRows();
+/** Potato Bot's rows, then the sandbox's (its switch is in General > Labs; its other rows show only while that is on). */
+export const potatoRows: RowDef[] = [...makePotatoRows(), ...makeSandboxRows()];

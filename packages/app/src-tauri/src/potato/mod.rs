@@ -19,6 +19,12 @@
 //! - `sandbox`: the bot's small Linux computer (a WSL 2 distro the app owns): the one `wsl.exe` door, install,
 //!   lazy start and idle stop, the control client and the screen lease (piece S1; the screen links, brain tools and
 //!   settings page come later)
+//! - `sandbox_calls`: the bot's computer as the brain's tools use it (`computer_*`, `browser_*`): the checks, the screen
+//!   lease, the day's action cap, and the answer
+//! - `sandbox_host`: the app's one sandbox (the real one or a stand-in), the idle-stop setting and its tick, the Labs
+//!   switch (`potato_sandbox_enabled`); the settings page talks to it through `commands/potato_sandbox.rs`
+//! - `resource_dirs`: where the bundled `potato-brain` and `potato-sandbox` folders are (installed layout or dev layout)
+//! - `window_guard`: the check after every sandbox start that no remote-desktop window (WSLg's `msrdc`) is visible
 //! - `wire_names`: names the brain package fixes that are also other names (the one reasoned exception to the
 //!   "no agent names in generic code" guard)
 //!
@@ -34,11 +40,15 @@ pub mod live;
 pub mod log;
 pub mod wire_names;
 pub mod protocol;
+pub mod resource_dirs;
 pub mod rules;
 pub mod sandbox;
+pub mod sandbox_calls;
+pub mod sandbox_host;
 pub mod service;
 pub mod sidecar;
 pub mod store;
+pub mod window_guard;
 
 #[cfg(test)]
 mod auth_tests;
@@ -55,8 +65,16 @@ mod keeper_tests;
 #[cfg(test)]
 mod protocol_tests;
 #[cfg(test)]
+mod resource_dirs_tests;
+#[cfg(test)]
 mod rules_tests;
+#[cfg(test)]
+mod sandbox_calls_tests;
+#[cfg(test)]
+mod sandbox_host_tests;
 #[cfg(test)]
 mod service_tests;
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod window_guard_tests;

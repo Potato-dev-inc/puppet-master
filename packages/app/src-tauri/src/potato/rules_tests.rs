@@ -103,3 +103,16 @@ fn others_never_get_memory_or_a_folder() {
         assert_eq!((trust, tools, folder_rule), (Trust::Others, Tools::NoMemory, FolderRule::None));
     }
 }
+
+#[test]
+fn the_tool_rows_anyone_may_use_the_sandbox_only_the_owner_may_start_a_helper() {
+    assert_eq!(tool_access(Trust::OwnerPc), ToolAccess { helpers: true, sandbox: true });
+    assert_eq!(tool_access(Trust::OwnerRemote), ToolAccess { helpers: true, sandbox: true });
+    assert_eq!(tool_access(Trust::Others), ToolAccess { helpers: false, sandbox: true });
+    // the rows follow the decision: whoever `decide` made `others` can use no helper
+    for decision in [OWNER_PC, OWNER_REMOTE, OTHERS] {
+        if let Decision::Send { trust, folder_rule, .. } = decision {
+            assert_eq!(tool_access(trust).helpers, folder_rule == FolderRule::Owner, "{trust:?}");
+        }
+    }
+}

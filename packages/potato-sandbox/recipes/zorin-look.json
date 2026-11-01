@@ -1,0 +1,29 @@
+{
+  "_source": "Puppet Master spike (D:\\pm-sandbox\\spike\\zorin\\look.sh and RESULTS.md, item 5), not a Rakazo file. Only the look of Zorin OS: four plain-file packages from the official Zorin PPA (ppa:zorinos/stable, suite noble) on top of the XFCE desktop. Not Zorin's own panel, menu, session or GNOME: full Zorin was fragile in the spike and is not offered.",
+  "_pin": "Without a pin apt wants to REMOVE xfdesktop4 (the PPA ships a newer xfce4-panel stack). The pin gives the whole PPA priority 100 (below Ubuntu's 500, so nothing from it replaces an Ubuntu package) and these four packages 600. The origin name of a Launchpad PPA is LP-PPA-<owner>-<name>.",
+  "_requires": "xfce: the look is set through XFCE's settings. install.rs only offers it together with the XFCE desktop.",
+  "id": "zorin-look",
+  "title": "Zorin look",
+  "description": "Makes the XFCE desktop look like Zorin OS: its light theme, icons, wallpaper and the Inter font, with the window buttons on the right and a taskbar at the bottom. Adds about 400 MB. It only changes how the desktop looks.",
+  "exclusive": null,
+  "requires": "xfce",
+  "pre": [
+    "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends software-properties-common gnupg",
+    "export DEBIAN_FRONTEND=noninteractive; add-apt-repository -y ppa:zorinos/stable",
+    "printf '%s\\n' 'Package: *' 'Pin: release o=LP-PPA-zorinos-stable' 'Pin-Priority: 100' '' 'Package: zorin-desktop-themes zorin-icon-themes zorin-os-wallpapers-18 fonts-inter-zorin-os' 'Pin: release o=LP-PPA-zorinos-stable' 'Pin-Priority: 600' > /etc/apt/preferences.d/pm-sbx-zorin-look.pref"
+  ],
+  "apt": [
+    "zorin-desktop-themes",
+    "zorin-icon-themes",
+    "zorin-os-wallpapers-18",
+    "fonts-inter-zorin-os"
+  ],
+  "debs": [],
+  "post": [
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-zorin-look.sh\" > /usr/local/bin/pm-sbx-zorin-look && chmod 0755 /usr/local/bin/pm-sbx-zorin-look",
+    "install -d -m 0755 /etc/xdg/autostart",
+    "tr -d '\\r' < \"$PM_SBX_ASSETS/pm-sbx-zorin-look.desktop\" > /etc/xdg/autostart/pm-sbx-zorin-look.desktop && chmod 0644 /etc/xdg/autostart/pm-sbx-zorin-look.desktop",
+    "dpkg -s xfdesktop4 >/dev/null 2>&1 || { echo 'ERROR: the Zorin packages removed xfdesktop4' >&2; exit 1; }"
+  ],
+  "options": []
+}

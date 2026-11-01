@@ -127,6 +127,16 @@ pub(super) fn gate_with(
         crate::potato::auth::Verdict::Brain(bot_id) => return Ok(mobile_pairing::Caller::Brain { bot_id }),
         crate::potato::auth::Verdict::Refuse(status, body) => return Err((status, body)),
     }
+    // The sandbox screen viewer: the app's own webview, or a phone holding a link made for it (an iframe and a
+    // websocket cannot carry a bearer). The sealed link itself is checked by the route.
+    if let Some(verdict) = super::routes::potato_screen::gate(
+        crate::potato::sandbox::screen::hub(),
+        &req.headers_raw,
+        req.peer_loopback,
+        &segments,
+    ) {
+        return verdict;
+    }
     if segments == ["events", "ws"] {
         let offer =
             mobile_pairing::header_value(&req.headers_raw, "Sec-WebSocket-Protocol").unwrap_or("");
@@ -215,6 +225,17 @@ pub(super) fn handle_connection(
             None => super::routes::potato_brain::not_found(),
         };
         return write_json(stream.stream, status, &value);
+    }
+    // The sandbox screen viewer and its websocket: answered here, no CORS (the iframe is same-origin with its page).
+    {
+        let (path, _) = split_target(&req.target);
+        let raw: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+        let segments = mobile_pairing::normalize_bridge_segments(&raw).to_vec();
+        if super::routes::potato_screen::is_screen_path(&segments) {
+            let hub = crate::potato::sandbox::screen::hub();
+            let viewer = crate::potato::sandbox::screen_live::viewer_dir();
+            return super::routes::potato_screen::serve(stream.stream, hub, viewer.as_deref(), &req.method, &req.headers_raw, &segments, &caller);
+        }
     }
     if caller == mobile_pairing::Caller::Local {
         // S3, log-only: a local caller without the app's per-launch key is logged and still served.

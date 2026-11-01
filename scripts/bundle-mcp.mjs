@@ -85,6 +85,16 @@ if (potatoBrain.status !== 0) {
   console.error('[bundle-mcp] Potato Bot brain bundle failed — the bot will not start from this build');
 }
 
+// The sandbox files (guest scripts, recipes, the screen viewer): resources/potato-sandbox/. Not fatal either.
+const potatoSandbox = spawnSync('node', ['scripts/bundle-potato-sandbox.mjs'], {
+  cwd: root,
+  stdio: 'inherit',
+  shell: true,
+});
+if (potatoSandbox.status !== 0) {
+  console.error('[bundle-mcp] Potato Bot sandbox bundle failed — the bot will not be able to set up a computer from this build');
+}
+
 try {
   await esbuild.build({
     entryPoints: [entry],

@@ -5,13 +5,17 @@ import { useEffect, useRef, type ReactNode } from 'react';
 
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function useSheetKeys(onClose: (() => void) | undefined) {
+/** `paused`: another sheet is on top of this one (it has its own keys), so Escape and Tab are left alone for now. */
+export function useSheetKeys(onClose: (() => void) | undefined, paused = false) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKey = (event: KeyboardEvent) => {
+      if (pausedRef.current) return;
       if (event.key === 'Escape') {
         if (!closeRef.current) return;
         event.preventDefault();

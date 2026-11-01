@@ -12,6 +12,11 @@
 //   send "probe: /path"        asks the app for /path twice, with the token and without it, and
 //                              replies with the two status codes (the app must answer 403 to both
 //                              on any route that is not a brain route)
+//   send "computer: <tool> [json]"  one sandbox_call (computer_observe, browser_snapshot, ...) when the send says the bot
+//                              has a computer (capabilities.sandbox); the reply is "Fish used <tool>: ..." with what came
+//                              back (the front window, the page text, or the error code). Without a computer:
+//                              "Fish has no computer."
+//   sandbox_result             finishes the pending "computer:" send above
 //   helper_update (not started) a reply "Fish heard: helper <status>"
 //   shutdown                   exits with code 0
 //   anything else              ignored
@@ -36,6 +41,18 @@ let cursor = 0;
 let counter = 0;
 let failures = 0;
 const helpers = new Map();
+// "computer:" sends waiting for their sandbox_result
+const calls = new Map();
+
+function summarize(tool, item) {
+  if (item.ok !== true) {
+    const e = item.error ?? {};
+    return `Fish used ${tool}: failed ${String(e.code ?? "unknown")}${e.needsYou ? " (needs you)" : ""}`;
+  }
+  const r = item.result ?? {};
+  const seen = r.activeWindow ?? r.title ?? r.url ?? r.text ?? JSON.stringify(r).slice(0, 80);
+  return `Fish used ${tool}: ok, saw ${String(seen).slice(0, 120)}`;
+}
 
 async function post(events) {
   const res = await fetch(new URL("potato/brain/events", base), {
@@ -53,10 +70,44 @@ async function handle(item) {
 
   if (item.type === "shutdown") process.exit(0);
 
+  if (item.type === "sandbox_result") {
+    const pending = calls.get(String(item.callId));
+    if (!pending) return;
+    calls.delete(String(item.callId));
+    await post([
+      { type: "reply", conversationId: pending.conversationId, inReplyTo: pending.inReplyTo, segments: [summarize(pending.tool, item)] },
+      { type: "typing", conversationId: pending.conversationId, on: false },
+    ]);
+    return;
+  }
+
   if (item.type === "send") {
     const text = String(item.text ?? "");
     if (text.trim() === "crash") process.exit(1);
     const conversationId = String(item.conversationId);
+    const computer = /^computer:\s*([a-z_]+)\s*(\{.*\})?\s*$/is.exec(text.trim());
+    if (computer) {
+      const tool = computer[1] ?? "";
+      await post([{ type: "typing", conversationId, on: true }]);
+      if (item.capabilities?.sandbox !== true) {
+        await post([
+          { type: "reply", conversationId, inReplyTo: item.id, segments: ["Fish has no computer."] },
+          { type: "typing", conversationId, on: false },
+        ]);
+        return;
+      }
+      let args = {};
+      try {
+        args = computer[2] ? JSON.parse(computer[2]) : {};
+      } catch {
+        args = {};
+      }
+      const callId = `s-fake${++counter}`;
+      calls.set(callId, { conversationId, inReplyTo: item.id, tool });
+      // The answer arrives later as a "sandbox_result" item; the loop must keep polling for it.
+      await post([{ type: "sandbox_call", conversationId, callId, tool, args, image: false }]);
+      return;
+    }
     // Typing goes alone and first: events in one post are applied together, so a page would never see it.
     await post([{ type: "typing", conversationId, on: true }]);
     await new Promise((r) => setTimeout(r, thinkMs));

@@ -31,6 +31,13 @@ mod state;
 mod store;
 #[cfg(test)]
 mod startup_gate_tests;
+
+/// For the opt-in live test of the sandbox (`potato::sandbox::live`): one GET of the screen route in process, against the
+/// given hub. Returns the status, the head and the body text.
+#[cfg(test)]
+pub(crate) fn screen_get_in_process(hub: &std::sync::Arc<crate::potato::sandbox::screen::ScreenHub>, sealed: &str, rest: &str) -> (u16, String, String) {
+    routes::potato_screen_tests::get_in_process(hub, sealed, rest)
+}
 #[cfg(test)]
 mod tests;
 mod tool_names;

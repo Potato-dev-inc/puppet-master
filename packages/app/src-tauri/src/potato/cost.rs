@@ -22,6 +22,10 @@ pub const MIN_LIMIT_CENTS: u32 = 5;
 pub const MAX_LIMIT_CENTS: u32 = 2_000;
 /// The warning note appears at this share of the daily limit.
 pub const WARN_PERCENT: u64 = 80;
+/// How many sandbox actions one bot may take in a day (a setting; the page for it comes with the sandbox settings).
+pub const DEFAULT_SANDBOX_ACTIONS: u32 = 500;
+pub const MIN_SANDBOX_ACTIONS: u32 = 10;
+pub const MAX_SANDBOX_ACTIONS: u32 = 5_000;
 
 /// Nano-dollars per token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +138,8 @@ pub struct BotDay {
     pub surfaces: BTreeMap<String, SurfaceUsage>,
     pub warned: bool,
     pub limit_hit: bool,
+    /// Sandbox actions used today (a screen picture, a click, a typed text, a page snapshot, each counts one).
+    pub sandbox_actions: u64,
 }
 
 impl BotDay {
@@ -220,4 +226,35 @@ pub fn charge(root: &Path, day: &str, bot: &str, surface: &str, model: &str, tok
     }
     save_month(root, day, &file)?;
     Ok(Charged { cost_nano: cost, used_nano: used, budget: verdict, warn_now, limit_now })
+}
+
+pub fn clamp_sandbox_actions(cap: u32) -> u32 {
+    cap.clamp(MIN_SANDBOX_ACTIONS, MAX_SANDBOX_ACTIONS)
+}
+
+/// What `spend_sandbox_actions` found out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActionsSpent {
+    /// Used today after this call (or before it, when refused).
+    pub used: u64,
+    pub cap: u32,
+    /// False: the call would pass the cap, so nothing was counted and the call must not run.
+    pub allowed: bool,
+}
+
+/// Counts `n` sandbox actions against the bot's day. A call that would go past the cap is refused whole and not
+/// counted. Saved in the same file as the money, so a restart does not reset the day.
+pub fn spend_sandbox_actions(root: &Path, day: &str, bot: &str, n: u32, cap: u32) -> Result<ActionsSpent, String> {
+    let _files = super::store::files_lock();
+    let cap = clamp_sandbox_actions(cap);
+    let mut file = load_month(root, day)?;
+    file.v = USAGE_VERSION;
+    let entry = file.days.entry(day.to_string()).or_default().entry(bot.to_string()).or_default();
+    let next = entry.sandbox_actions.saturating_add(u64::from(n));
+    if next > u64::from(cap) {
+        return Ok(ActionsSpent { used: entry.sandbox_actions, cap, allowed: false });
+    }
+    entry.sandbox_actions = next;
+    save_month(root, day, &file)?;
+    Ok(ActionsSpent { used: next, cap, allowed: true })
 }

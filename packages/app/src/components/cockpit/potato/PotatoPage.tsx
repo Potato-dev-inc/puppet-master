@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import type { AvatarId, CompanionTransport, CompanionView } from '../../../lib/companion';
 import { plainError, type PotatoState, type PotatoTransport } from '../../../lib/potato';
+import type { ScreenTransport } from '../../../lib/potatoScreen';
 import { usePotatoThread } from '../../../hooks/usePotato';
 import { CompanionSetupSheet } from '../companion/CompanionSetupSheet';
 import { ConversationList } from './ConversationList';
@@ -32,10 +33,12 @@ export interface PotatoPageProps {
   /** Opens a helper's pane (the Open button of a finished helper), and says whether the pane is still there. */
   onOpenPane?: (paneId: string) => void;
   paneExists?: (paneId: string) => boolean;
+  /** The Computer panel's way to the app (the sandbox screen). Absent: no panel. */
+  screenTransport?: ScreenTransport;
 }
 
 export function PotatoPage(props: PotatoPageProps) {
-  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists } = props;
+  const { state, version, transport, companionTransport, companions, openBotId, onOpenBot, onChanged, onCompanionsChanged, onNotify, onOpenSettings, onOpenCompanion, onOpenPane, paneExists, screenTransport } = props;
   const [sheetOpen, setSheetOpen] = useState(false);
   const open = pickOpenBot(state.bots, openBotId);
   const { messages } = usePotatoThread(transport, open?.id ?? null, version, open?.unread ?? 0);
@@ -82,6 +85,7 @@ export function PotatoPage(props: PotatoPageProps) {
             onOpenCompanion={onOpenCompanion}
             onOpenPane={onOpenPane}
             paneExists={paneExists}
+            screen={screenTransport}
           />
         ) : (
           <div className="ck-potato-blank" aria-hidden="true" />
