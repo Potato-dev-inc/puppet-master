@@ -1,4 +1,4 @@
-/* "My computers" page shell (Labs). Cockpit tokens only, so light and dark mode follow the app. */
+/* "My computers" page (Labs). Cockpit tokens only, so light and dark mode follow the app. No colour literals. */
 .cockpit .ck-desk {
   display: flex;
   flex-direction: column;
@@ -8,6 +8,7 @@
   padding: 28px 24px 24px;
   min-height: 0;
   overflow-y: auto;
+  font-family: var(--font-ui);
 }
 .cockpit .ck-desk-head {
   display: flex;
@@ -20,16 +21,130 @@
   font-weight: 600;
   color: var(--label);
 }
-.cockpit .ck-desk-line {
+.cockpit .ck-desk-h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label-2);
+}
+.cockpit .ck-desk-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0;
   font-size: 13px;
   color: var(--label-2);
+}
+.cockpit .ck-desk-status.is-error {
+  color: var(--label);
+}
+.cockpit .ck-desk-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label-3);
+}
+.cockpit .ck-desk-hint.is-error {
+  color: var(--label);
+}
+.cockpit .ck-desk-footnote {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--label-4);
+}
+.cockpit .ck-desk-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+.cockpit .ck-desk-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cockpit .ck-desk-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cockpit .ck-desk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cockpit .ck-desk-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cockpit .ck-desk-row-label {
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-desk-btn {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cockpit .ck-desk-btn:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+.cockpit .ck-desk-btn:disabled {
+  color: var(--label-4);
+  cursor: default;
+}
+.cockpit .ck-desk-btn:focus-visible,
+.cockpit .ck-desk-keys:focus-visible,
+.cockpit .ck-desk-screen:focus-visible,
+.cockpit .ck-desk-switch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cockpit .ck-desk-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--sep);
+  border-radius: 999px;
+  background: var(--fill);
+  cursor: pointer;
+  transition: background 160ms var(--ease);
+}
+.cockpit .ck-desk-switch.is-on {
+  background: var(--accent);
+  border-color: var(--accent-line);
+}
+.cockpit .ck-desk-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--label);
+  transition: transform 160ms var(--ease);
+}
+.cockpit .ck-desk-switch.is-on .ck-desk-switch-knob {
+  transform: translateX(16px);
+  background: var(--accent-fg);
 }
 .cockpit .ck-desk-empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 160px;
+  min-height: 120px;
   border: 1px dashed var(--sep);
   border-radius: 10px;
   padding: 24px;
@@ -39,4 +154,167 @@
 }
 .cockpit .ck-desk-empty p {
   margin: 0;
+}
+.cockpit .ck-desk-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+}
+.cockpit .ck-desk-skel {
+  display: block;
+  height: 14px;
+  width: 100%;
+  border-radius: 4px;
+  background: var(--fill);
+  animation: ck-desk-pulse 1.2s var(--ease) infinite alternate;
+}
+.cockpit .ck-desk-skel.is-short {
+  width: 40%;
+}
+@keyframes ck-desk-pulse {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.cockpit .ck-desk-canvas {
+  position: relative;
+  width: 100%;
+  max-height: 320px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.cockpit .ck-desk-screen {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  padding: 4px 6px;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--label-3);
+  border-radius: 4px;
+  background: var(--bg-float);
+  color: var(--label-2);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.cockpit .ck-desk-screen.is-main {
+  border-color: var(--label-2);
+  color: var(--label);
+}
+.cockpit .ck-desk-screen:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-desk-screen-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cockpit .ck-desk-pointer {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-float);
+  pointer-events: none;
+}
+.cockpit .ck-desk-ring {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: ck-desk-ring 1.5s var(--ease) both;
+}
+@keyframes ck-desk-ring {
+  0% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.cockpit .ck-desk-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.cockpit .ck-desk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-desk-row:first-child {
+  border-top: 0;
+}
+.cockpit .ck-desk-recorder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.cockpit .ck-desk-keys {
+  min-width: 120px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.cockpit .ck-desk-keys:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+.cockpit .ck-desk-recording {
+  font-size: 12px;
+  color: var(--label);
+}
+.cockpit .ck-desk-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cockpit .ck-desk-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-desk-radio input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.cockpit .ck-desk-switch-row .ck-desk-hint {
+  display: block;
 }
