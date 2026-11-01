@@ -1,3 +1,3 @@
 auth refactor · Needs you
-Hit an error · Claude Code
+Hit an error · Claude
 Open Puppet Master to act on this.

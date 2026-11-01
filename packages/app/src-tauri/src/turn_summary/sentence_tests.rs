@@ -40,40 +40,40 @@ fn receipt(checks: &str, outcome: &str) -> Option<ReceiptFacts> {
 
 #[test]
 fn edits_approvals_and_waiting_prompt() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(4, 86, 12);
     f.approvals = vec![approval("command", "allow")];
     f.end_status = "waiting_input".into();
     f.end_prompt = Some("allow `npm test`?".into());
     assert_eq!(
         assemble(f).sentence,
-        "Claude Code edited 4 files (+86 \u{2212}12), you approved 1 command, now waiting: allow `npm test`?"
+        "Claude edited 4 files (+86 \u{2212}12), you approved 1 command, now waiting: allow `npm test`?"
     );
 }
 
 #[test]
 fn no_file_changes_idle() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(0, 0, 0);
-    assert_eq!(assemble(f).sentence, "Claude Code made no file changes, now idle.");
+    assert_eq!(assemble(f).sentence, "Claude made no file changes, now idle.");
 }
 
 #[test]
 fn unknown_files_uses_duration() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = None;
     f.ended_at_ms = 200_000;
-    assert_eq!(assemble(f).sentence, "Claude Code worked for 3m, now idle.");
+    assert_eq!(assemble(f).sentence, "Claude worked for 3m, now idle.");
 }
 
 #[test]
 fn approvals_are_counted_as_commands() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(0, 0, 0);
     f.approvals = vec![approval("command", "allow"), approval("command", "allow")];
     assert_eq!(
         assemble(f).sentence,
-        "Claude Code made no file changes, you approved 2 commands, now idle."
+        "Claude made no file changes, you approved 2 commands, now idle."
     );
 }
 
@@ -90,100 +90,100 @@ fn codex_error_singular_file() {
 
 #[test]
 fn waiting_without_prompt() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(2, 5, 5);
     f.end_status = "waiting_input".into();
     f.end_prompt = None;
     assert_eq!(
         assemble(f).sentence,
-        "Claude Code edited 2 files (+5 \u{2212}5), now waiting for you."
+        "Claude edited 2 files (+5 \u{2212}5), now waiting for you."
     );
 }
 
 #[test]
 fn approved_and_declined_requests() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(0, 0, 0);
     f.approvals = vec![approval("edit", "allow"), approval("command", "deny")];
     assert_eq!(
         assemble(f).sentence,
-        "Claude Code made no file changes, you approved 1 request, you declined 1 command, now idle."
+        "Claude made no file changes, you approved 1 request, you declined 1 command, now idle."
     );
 }
 
 #[test]
 fn receipt_all_checks_passed() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(2, 10, 1);
     f.receipt = receipt("3/3 passed", "passed_checks");
     assert_eq!(
         assemble(f).sentence,
-        "Claude Code edited 2 files (+10 \u{2212}1), all checks passed (3/3), now idle."
+        "Claude edited 2 files (+10 \u{2212}1), all checks passed (3/3), now idle."
     );
 }
 
 #[test]
 fn receipt_checks_failed() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(2, 10, 1);
     f.receipt = receipt("1/3 passed", "failed_checks");
     assert_eq!(
         assemble(f).sentence,
-        "Claude Code edited 2 files (+10 \u{2212}1), checks failed (1/3 passed), now idle."
+        "Claude edited 2 files (+10 \u{2212}1), checks failed (1/3 passed), now idle."
     );
 }
 
 #[test]
 fn receipt_no_checks_configured() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(0, 0, 0);
     f.receipt = receipt("none configured", "completed_unchecked");
     assert_eq!(
         assemble(f).sentence,
-        "Claude Code made no file changes, no checks ran, now idle."
+        "Claude made no file changes, no checks ran, now idle."
     );
 }
 
 #[test]
 fn receipt_failed_run_with_error() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(0, 0, 0);
     f.receipt = receipt("none configured", "failed");
     f.end_status = "error".into();
     assert_eq!(
         assemble(f).sentence,
-        "Claude Code made no file changes, the run failed, ended with an error."
+        "Claude made no file changes, the run failed, ended with an error."
     );
 }
 
 #[test]
 fn receipt_cancelled_run() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(0, 0, 0);
     f.receipt = receipt("none configured", "cancelled");
     assert_eq!(
         assemble(f).sentence,
-        "Claude Code made no file changes, the run was cancelled, now idle."
+        "Claude made no file changes, the run was cancelled, now idle."
     );
 }
 
 #[test]
 fn answers_to_questions_are_not_approvals() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(0, 0, 0);
     f.approvals = vec![approval("question", "answer")];
-    assert_eq!(assemble(f).sentence, "Claude Code made no file changes, now idle.");
+    assert_eq!(assemble(f).sentence, "Claude made no file changes, now idle.");
 }
 
 #[test]
 fn long_waiting_prompt_is_shortened() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.files = files(0, 0, 0);
     f.end_status = "waiting_input".into();
     f.end_prompt = Some("x".repeat(200));
     assert_eq!(
         assemble(f).sentence,
-        format!("Claude Code made no file changes, now waiting: {}\u{2026}.", "x".repeat(79))
+        format!("Claude made no file changes, now waiting: {}\u{2026}.", "x".repeat(79))
     );
 }
 
@@ -222,7 +222,7 @@ fn file_stats_total_and_cap() {
 
 #[test]
 fn summary_fields_are_assembled() {
-    let mut f = facts("Claude Code");
+    let mut f = facts("Claude");
     f.started_at_ms = 1_000;
     f.ended_at_ms = 61_000;
     f.turn = 3;

@@ -197,7 +197,7 @@ fn raise(ask: &Ask, now: u64) -> Option<String> {
         .create(
             NewQuestion {
                 asker: None,
-                // The push label: "Claude Code asks". The target is in the text.
+                // The push label: "Claude asks". The target is in the text.
                 agent: Some(ask.requester.clone()),
                 // Not the target pane's id: the pane is not the one waiting, the person is.
                 pane_id: None,

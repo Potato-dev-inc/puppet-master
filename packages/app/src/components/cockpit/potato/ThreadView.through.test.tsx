@@ -37,7 +37,7 @@ const props = (over: Partial<ThreadViewProps> = {}): ThreadViewProps => ({
   messages: [],
   settings: SETTINGS,
   avatar: 'mochi',
-  agentLabel: 'Claude Code',
+  agentLabel: 'Claude',
   transport: fakePotatoTransport({ bots: [bot()] }),
   onOpenSettings: () => {},
   onNotify: () => {},

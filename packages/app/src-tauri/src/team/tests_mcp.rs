@@ -457,11 +457,11 @@ fn plan(args: Value) -> Result<mcp::NotifyPlan, McpError> {
 
 #[test]
 fn a_notify_plan_is_checked_before_anything_is_drafted() {
-    let ok = plan(json!({ "project": "billing", "kind": "pushed", "refs": { "branch": "feat/x", "commit": "ABCDEF1" }, "note": "  hi   there ", "agent": "Claude Code" })).unwrap();
+    let ok = plan(json!({ "project": "billing", "kind": "pushed", "refs": { "branch": "feat/x", "commit": "ABCDEF1" }, "note": "  hi   there ", "agent": "Claude" })).unwrap();
     assert_eq!(ok.kind, TeamEventKind::Pushed);
     assert_eq!(ok.commit.as_deref(), Some("abcdef1"));
     assert_eq!(ok.note.as_deref(), Some("hi there"), "whitespace is collapsed: what is shown is what is sent");
-    assert_eq!(ok.agent.as_deref(), Some("Claude Code"));
+    assert_eq!(ok.agent.as_deref(), Some("Claude"));
     let pr = plan(json!({ "project": "billing", "kind": "pr_ready", "refs": { "pr": 142, "pr_title": "Add OAuth", "pr_url": "https://github.com/acme/billing/pull/142" } })).unwrap();
     assert_eq!(pr.pr.as_ref().unwrap().number, 142);
     assert!(plan(json!({ "project": "billing", "kind": "please_review", "refs": { "branch": "feat/x" } })).is_ok());
@@ -542,20 +542,20 @@ fn a_draft_is_an_unsent_card_with_the_exact_text_and_never_a_card_or_a_send() {
     let config = config_for(&rig.world.maya, &rig.world.roster, "Maya");
     let mut store = TeamStore::default();
     let t = now();
-    let p = plan(json!({ "project": "billing", "kind": "please_review", "refs": { "pr": 142, "pr_title": "Add OAuth refresh", "pr_url": "https://github.com/acme/billing/pull/142" }, "note": "Please look at the token store first", "agent": "Claude Code" })).unwrap();
+    let p = plan(json!({ "project": "billing", "kind": "please_review", "refs": { "pr": 142, "pr_title": "Add OAuth refresh", "pr_url": "https://github.com/acme/billing/pull/142" }, "note": "Please look at the token store first", "agent": "Claude" })).unwrap();
     let draft = mcp::build_draft(&config, "github.com/acme/billing", "D:\\work\\billing", &p, None, t);
     let added = mcp::add_agent_draft(&mut store, draft).unwrap();
     assert!(added.created);
     assert_eq!(store.drafts.len(), 1);
     assert!(store.cards.is_empty() && store.jobs.is_empty(), "a draft is not a card and starts no job");
     let d = &store.drafts[0];
-    assert_eq!(d.drafted_by.as_deref(), Some("Claude Code"));
+    assert_eq!(d.drafted_by.as_deref(), Some("Claude"));
     let e = &d.event;
     assert_eq!(e.kind, TeamEventKind::PleaseReview);
     assert_eq!(e.note.as_deref(), Some("Please look at the token store first"));
     assert_eq!(e.actor.member, config.me.id);
     assert_eq!(e.actor.display, "Maya");
-    assert_eq!(e.actor.agent.as_ref().unwrap().label, "Claude Code");
+    assert_eq!(e.actor.agent.as_ref().unwrap().label, "Claude");
     assert!(e.to.is_empty(), "addressed to the whole team, never to a chosen recipient");
     assert_eq!(e.source, EventSource::Pm);
     assert_eq!(e.tier_hint, Tier::Ambient);

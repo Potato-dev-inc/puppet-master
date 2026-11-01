@@ -116,7 +116,7 @@ fn agent_label(agent_type: &str) -> String {
 }
 
 /// What the sidebar calls a pane: the person's title (or the auto title), else the agent label
-/// numbered when several panes run the same agent ("Claude Code 2"). `None` for a pane that is gone.
+/// numbered when several panes run the same agent ("Claude 2"). `None` for a pane that is gone.
 fn pane_heading(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<String> {
     use crate::attention::copy::{headings, PaneName};
     let names: Vec<PaneName> = registry

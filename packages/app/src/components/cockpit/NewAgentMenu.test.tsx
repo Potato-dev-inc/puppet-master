@@ -8,7 +8,7 @@ import { NewAgentMenu, type LaunchEntry } from './NewAgentMenu';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ENTRIES = [
-  { type: 'claude', label: 'Claude Code' },
+  { type: 'claude', label: 'Claude' },
   { type: 'codex', label: 'Codex' },
 ];
 
@@ -59,8 +59,8 @@ describe('NewAgentMenu', () => {
   it('an agent with accounts asks which login, then starts under it', async () => {
     const work = { id: 'acc_1', agent_id: 'claude', label: 'Work', home: 'C:/a' };
     const { onStart } = await mount([work, { id: 'acc_2', agent_id: 'claude', label: 'Personal', home: 'C:/b' }]);
-    expect(item('Claude Code')!.textContent).toContain('3 logins');
-    await act(async () => item('Claude Code')!.click());
+    expect(item('Claude')!.textContent).toContain('3 logins');
+    await act(async () => item('Claude')!.click());
     expect(onStart).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Default login');
     expect(host.textContent).toContain('Personal');
@@ -70,10 +70,10 @@ describe('NewAgentMenu', () => {
 
   it('the default login starts the agent without an account; Back returns to the list', async () => {
     const { onStart } = await mount([{ id: 'acc_1', agent_id: 'claude', label: 'Work', home: 'C:/a' }]);
-    await act(async () => item('Claude Code')!.click());
+    await act(async () => item('Claude')!.click());
     await act(async () => item('Back')!.click());
     expect(item('Codex')).toBeTruthy();
-    await act(async () => item('Claude Code')!.click());
+    await act(async () => item('Claude')!.click());
     await act(async () => item('Default login')!.click());
     expect(onStart).toHaveBeenCalledWith('claude', undefined);
   });

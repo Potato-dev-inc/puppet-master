@@ -170,7 +170,7 @@ fn every_tool_result_carries_the_warning_while_the_versions_differ() {
     assert!(warning.contains(FIX), "{warning}");
     let structured = &result["structuredContent"]["puppet_master_warnings"][0];
     assert_eq!(structured["code"], "SCHEMA_DRIFT");
-    assert_eq!(structured["fix"], "Rebuild or reinstall the Puppet Master MCP, then reconnect (Claude Code: /mcp).");
+    assert_eq!(structured["fix"], "Rebuild or reinstall the Puppet Master MCP, then reconnect (Claude: /mcp).");
     assert_eq!(structured["bridge_catalog_version"], OLD_CATALOG);
     assert_eq!(structured["shim_catalog_version"], tool_registry::catalog_version());
     // A second, different tool carries it too (not only the first call).

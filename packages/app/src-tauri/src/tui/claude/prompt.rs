@@ -1,7 +1,7 @@
-//! Claude Code's dialogs that wait for the user: the folder-trust check and the numbered permission
+//! Claude's dialogs that wait for the user: the folder-trust check and the numbered permission
 //! menus (`Do you want to proceed?` for a command, `Do you want to make this edit to <file>?`).
 //!
-//! The wording of these dialogs changes between Claude Code versions (`Yes, and don't ask again
+//! The wording of these dialogs changes between Claude versions (`Yes, and don't ask again
 //! for: npm test *`, `Yes, and switch to auto mode`, a fourth option appearing and moving `No` to
 //! `4.`), so detection reads the *structure* that has stayed the same instead of matching a fixed
 //! option list:
@@ -440,8 +440,8 @@ fn trust_gate(agent_type: &str, screen: &str) -> Option<Value> {
     // One trust dialog per pane at a time: its text must not decide its id (it re-wraps).
     prompt["identity"] = Value::String("workspace_trust".into());
     prompt["summary"] = Value::String(match &folder {
-        Some(folder) => format!("Claude Code asks to trust {folder}"),
-        None => "Claude Code asks to trust this folder".into(),
+        Some(folder) => format!("Claude asks to trust {folder}"),
+        None => "Claude asks to trust this folder".into(),
     });
     if let Some(folder) = folder {
         prompt["folder"] = Value::String(folder);

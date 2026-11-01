@@ -24,15 +24,15 @@ fn mixed() -> (Store, Facts) {
         store.on_prompt(id, true, Some(PromptRec { prompt_id: Some(format!("p-{id}")), risk_level: Some("low".into()), ..PromptRec::default() }));
     }
     store.raise(
-        Raised { key: "done:run".into(), kind: Kind::Done, pane_id: None, title: "Claude Code finished".into(), sentence: None, expires_at_ms: None, actions: vec![] },
+        Raised { key: "done:run".into(), kind: Kind::Done, pane_id: None, title: "Claude finished".into(), sentence: None, expires_at_ms: None, actions: vec![] },
         1_000,
     );
     let facts = Facts {
         panes: vec![
-            pane("ap1", "waiting_input", "Claude Code"),
+            pane("ap1", "waiting_input", "Claude"),
             pane("ap2", "waiting_input", "Codex"),
             pane("ps", "error", "PowerShell"),
-            pane("run", "running", "Claude Code"),
+            pane("run", "running", "Claude"),
             pane("idle", "idle", "Codex"),
         ],
         questions: vec![QuestionFact { id: "q1".into(), created_at_ms: Some(0), ..QuestionFact::default() }],

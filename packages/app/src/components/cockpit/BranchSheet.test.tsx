@@ -24,7 +24,7 @@ const codexWork: BranchOffer = { target: { agent_id: 'codex', account: 'work' },
 
 function preview(over: Partial<BranchPreview> = {}): BranchPreview {
   return {
-    fromLabel: 'Claude Code',
+    fromLabel: 'Claude',
     point: AFTER,
     canBranch: true,
     whyNot: null,
@@ -39,7 +39,7 @@ function preview(over: Partial<BranchPreview> = {}): BranchPreview {
 
 const started: BranchView = {
   id: 'bf-1a2b3c4d5e6f',
-  fromLabel: 'Claude Code',
+  fromLabel: 'Claude',
   toLabel: 'Codex',
   fromPaneId: 'p-claude',
   toPaneId: 'p-new',

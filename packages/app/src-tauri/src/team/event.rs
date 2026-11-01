@@ -73,7 +73,7 @@ pub struct Actor {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTag {
-    /// "Claude Code", "Codex": a display label, never an account or login.
+    /// "Claude", "Codex": a display label, never an account or login.
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,

@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::session_chat::SessionFormat;
 use crate::tui::claude::session_file::ClaudeSessionFile;
 
-/// Scrubbed lines in the shapes captured from Claude Code 2.1.311 (task list, Write, Edit, Agent) plus the shapes
+/// Scrubbed lines in the shapes captured from Claude 2.1.311 (task list, Write, Edit, Agent) plus the shapes
 /// read from docs (see the module comment). One line per fixture row.
 const FIXTURE: &str = include_str!("fixtures/session_tasks.jsonl");
 

@@ -128,7 +128,7 @@ mod tests {
             pending_memory: 2,
             next_checkin: Some(NextCheckIn { id: "0a0a0a0a".into(), label: "Morning".into(), at_ms: 5 }),
             restarts: 1,
-            agent_label: "Claude Code".into(),
+            agent_label: "Claude".into(),
             previous_agent_label: None,
             queued_move: None,
             home_problem: None,

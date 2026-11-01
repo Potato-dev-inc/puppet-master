@@ -52,7 +52,7 @@ async function mount(props: Partial<Parameters<typeof AnnotatedDiff>[0]> = {}) {
       <AnnotatedDiff
         file="a.txt"
         lines={LINES}
-        agentLabel="Claude Code"
+        agentLabel="Claude"
         {...props}
         findings={anchored}
       />,
@@ -94,7 +94,7 @@ describe('AnnotatedDiff', () => {
   it('sends a finding to the original agent with its file, line and text', async () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
     await mount({ findings: [FINDING], onSend });
-    const btn = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Send to Claude Code');
+    const btn = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Send to Claude');
     await click(btn ?? null);
     expect(onSend).toHaveBeenCalledWith('a.txt', 2, 'Missing null check');
     expect(host.querySelector('.ck-find-send')?.textContent).toBe('Sent');
@@ -119,7 +119,7 @@ describe('AnnotatedDiff', () => {
       setter?.call(area, '  Why not guard this?  ');
       area?.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    const send = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Send to Claude Code');
+    const send = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Send to Claude');
     await click(send ?? null);
     expect(onSend).toHaveBeenCalledWith('a.txt', 3, 'Why not guard this?');
     expect(host.querySelector('textarea[aria-label="Comment"]')).toBeNull();
@@ -129,7 +129,7 @@ describe('AnnotatedDiff', () => {
   it('the comment send button is disabled while the draft is empty', async () => {
     await mount({ onSend: vi.fn().mockResolvedValue(undefined) });
     await click(host.querySelector('[aria-label="Comment on line 2"]'));
-    const send = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Send to Claude Code');
+    const send = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Send to Claude');
     expect((send as HTMLButtonElement).disabled).toBe(true);
   });
 

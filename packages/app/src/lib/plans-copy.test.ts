@@ -5,7 +5,7 @@ import { NO_TURNS_TEXT, PLANS_CSV_HEADER, csvField, planCsvCells, plansCsv, plan
 function row(over: Partial<PlanRow>): PlanRow {
   return {
     agentId: 'claude',
-    agentLabel: 'Claude Code',
+    agentLabel: 'Claude',
     accountId: 'acct-work',
     accountLabel: 'Work',
     turns: 22,
@@ -19,7 +19,7 @@ function row(over: Partial<PlanRow>): PlanRow {
 
 describe('csvField', () => {
   it('leaves plain text and numbers alone', () => {
-    expect(csvField('Claude Code')).toBe('Claude Code');
+    expect(csvField('Claude')).toBe('Claude');
     expect(csvField(42)).toBe('42');
     expect(csvField(0)).toBe('0');
   });
@@ -86,12 +86,12 @@ describe('plansCsv', () => {
 
   it('puts raw numbers in each column, with no units', () => {
     const rows = [row({ limits: { hits: 3, limitedMs: 7 * 3_600_000 } })];
-    expect(plansCsv(rows).split('\r\n')[1]).toBe('Claude Code,Work,22,551,47,340,45,2,3,7');
+    expect(plansCsv(rows).split('\r\n')[1]).toBe('Claude,Work,22,551,47,340,45,2,3,7');
   });
 
   it('rounds busy minutes and hours waiting', () => {
     expect(planCsvCells(row({ busyMs: 90_000, limits: { hits: 1, limitedMs: 90 * 60_000 } }))).toEqual([
-      'Claude Code',
+      'Claude',
       'Work',
       22,
       2,
@@ -120,12 +120,12 @@ describe('plansCsv', () => {
 
 describe('planSummaryLine', () => {
   it('reads as one plain sentence per plan', () => {
-    expect(planSummaryLine(row({}))).toBe('Claude Code · Work: 22 turns, 9 h 11 min, 47 files, no limits hit.');
+    expect(planSummaryLine(row({}))).toBe('Claude · Work: 22 turns, 9 h 11 min, 47 files, no limits hit.');
   });
 
   it('says when a limit was hit and how long it waited', () => {
     expect(planSummaryLine(row({ limits: { hits: 3, limitedMs: 7 * 3_600_000 } }))).toBe(
-      'Claude Code · Work: 22 turns, 9 h 11 min, 47 files, hit its limit 3 times · 7 h waiting.',
+      'Claude · Work: 22 turns, 9 h 11 min, 47 files, hit its limit 3 times · 7 h waiting.',
     );
   });
 
@@ -142,7 +142,7 @@ describe('plansSummaryText', () => {
   it('puts one line per plan', () => {
     const text = plansSummaryText([row({}), row({ agentId: 'nimbus', agentLabel: 'Nimbus', accountLabel: 'Default account', turns: 5, busyMs: 90_000 })]);
     expect(text.split('\n')).toEqual([
-      'Claude Code · Work: 22 turns, 9 h 11 min, 47 files, no limits hit.',
+      'Claude · Work: 22 turns, 9 h 11 min, 47 files, no limits hit.',
       'Nimbus · Default account: 5 turns, 2 min, 47 files, no limits hit.',
     ]);
   });

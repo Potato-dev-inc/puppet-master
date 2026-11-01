@@ -606,7 +606,7 @@ describe('AgentDefinitions: Add with wizard', () => {
         ask: vi.fn(async () => `${F}toml
 schema_version = 1
 ${F}`),
-        drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude Code' }]),
+        drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude' }]),
       },
     };
   }

@@ -2,7 +2,7 @@ import { PANE_CLAUDE } from '../fixtures';
 import { ALERTS } from '../collision-fixtures';
 import type { HarnessScenario } from '../types';
 
-// Collision Alert, the row above Claude Code's chat: "Codex also changed src/auth.ts · Lines 40-80 · Open Codex · Ignore".
+// Collision Alert, the row above Claude's chat: "Codex also changed src/auth.ts · Lines 40-80 · Open Codex · Ignore".
 const s: HarnessScenario = {
   name: 'collision-banner',
   route: 'cockpit',

@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 const companion = (id = 'fish', name = 'Fish'): CompanionView =>
-  ({ id, name, avatar: 'bit', persona: 'cheerful', agentType: 'claude', agentLabel: 'Claude Code', folderName: id, state: 'idle', stateLine: 'Here.', paneId: `companion-${id}`, needs: null, pendingMemory: 0, nextCheckin: null, restarts: 0, autoStart: true }) as CompanionView;
+  ({ id, name, avatar: 'bit', persona: 'cheerful', agentType: 'claude', agentLabel: 'Claude', folderName: id, state: 'idle', stateLine: 'Here.', paneId: `companion-${id}`, needs: null, pendingMemory: 0, nextCheckin: null, restarts: 0, autoStart: true }) as CompanionView;
 
 function Harness({ transport, screen, companions }: { transport: FakePotatoTransport; screen?: FakeScreenTransport; companions: CompanionView[] }) {
   const potato = usePotatoState(transport);

@@ -54,7 +54,7 @@ export const ITEM_HIGH: AttentionItem = {
   state: 'open',
   since_ms: now - 2 * MIN,
   expires_at_ms: null,
-  pane: pane(PANE_CLAUDE, 'Fix login redirect', 'Claude Code', 'puppet-master'),
+  pane: pane(PANE_CLAUDE, 'Fix login redirect', 'Claude', 'puppet-master'),
   title: 'Delete a folder outside this project',
   sentence: 'Run command: rm -rf ../build-cache',
   risk: {
@@ -105,9 +105,9 @@ export const ITEM_TRUST: AttentionItem = {
   state: 'open',
   since_ms: now - 40_000,
   expires_at_ms: null,
-  pane: pane(PANE_CLAUDE, 'Fix login redirect', 'Claude Code', 'puppet-master'),
+  pane: pane(PANE_CLAUDE, 'Fix login redirect', 'Claude', 'puppet-master'),
   title: 'Trust this folder?',
-  sentence: 'Claude Code wants to work in puppet-master. It can read and change files there.',
+  sentence: 'Claude wants to work in puppet-master. It can read and change files there.',
   // The PC rates this prompt too ("Check first"); the card does not show a risk reading for a folder question.
   risk: { level: 'medium', word: 'Check first', headline: 'Trust this folder?', reasons: [] },
   prompt: {
@@ -131,7 +131,7 @@ export const ITEM_TRUST: AttentionItem = {
 export const ITEM_SIGNIN: AttentionItem = {
   ...ITEM_TRUST,
   id: 'S1gn1nXx',
-  title: 'Claude Code needs you on your PC',
+  title: 'Claude needs you on your PC',
   sentence: 'It’s showing a sign-in screen. Puppet Master won’t answer it for you.',
   prompt: { ...ITEM_TRUST.prompt!, prompt_id: 'pid-signin', kind: 'startup_screen', choices: [], fingerprint: '51611151611151aa', layout: { primary: null, focus: null, more: [] } },
 };
@@ -156,7 +156,7 @@ export const ITEM_QUESTION: AttentionItem = {
   state: 'open',
   since_ms: now - 6 * MIN,
   expires_at_ms: now + 54 * MIN,
-  pane: pane(PANE_CLAUDE, 'Fix login redirect', 'Claude Code', 'puppet-master'),
+  pane: pane(PANE_CLAUDE, 'Fix login redirect', 'Claude', 'puppet-master'),
   title: 'Keep the old /login route as a redirect, or remove it?',
   sentence: null,
   risk: null,

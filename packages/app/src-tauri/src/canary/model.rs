@@ -224,7 +224,7 @@ pub struct AgentView {
     pub change: Option<ChangeView>,
 }
 
-/// "Claude Code 2.3.0 -> 2.4.0: checked, all good."
+/// "Claude 2.3.0 -> 2.4.0: checked, all good."
 #[derive(Debug, Clone, Serialize)]
 pub struct ChangeView {
     pub from: String,

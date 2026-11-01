@@ -439,7 +439,7 @@ pub struct NotifyPlan {
     pub commit: Option<String>,
     pub pr: Option<PrRef>,
     pub note: Option<String>,
-    /// The label the agent gave itself ("Claude Code"), cleaned.
+    /// The label the agent gave itself ("Claude"), cleaned.
     pub agent: Option<String>,
 }
 

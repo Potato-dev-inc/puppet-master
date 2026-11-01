@@ -109,7 +109,7 @@ export function useLoopSignals(api: LoopGuardApi = tauriLoopApi): LoopGuardState
   return { signals, dismiss };
 }
 
-/** "Claude Code seems stuck: the same error 4 times." */
+/** "Claude seems stuck: the same error 4 times." */
 export function stuckTitle(name: string, signal: LoopSignal): string {
   return `${name} seems stuck: ${signal.summary}.`;
 }

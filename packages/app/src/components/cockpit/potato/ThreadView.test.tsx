@@ -37,7 +37,7 @@ function setup(over: Partial<ThreadViewProps> = {}): { transport: FakePotatoTran
     messages: [],
     settings: SETTINGS,
     avatar: 'mochi',
-    agentLabel: 'Claude Code',
+    agentLabel: 'Claude',
     transport,
     onOpenSettings: () => {},
     onNotify: () => {},

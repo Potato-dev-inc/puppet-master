@@ -91,7 +91,7 @@ const CODE_IDS: [&str; 9] = [
 const NINE_PROFILES_JSON: &str = r#"[
   {
     "agent_type": "claude",
-    "label": "Claude Code",
+    "label": "Claude",
     "default_model": null,
     "model_detection": "cli-banner",
     "smartness": 9,

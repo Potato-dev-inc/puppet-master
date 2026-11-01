@@ -40,7 +40,7 @@ pub(crate) fn session_id_from(client_id: Option<String>) -> String {
 }
 
 /// What the MCP host called itself in `initialize` (`clientInfo.name`). Sent to the bridge as a label
-/// for consent cards ("Allow Claude Code to control Codex?"); the bridge never trusts it for anything else.
+/// for consent cards ("Allow Claude to control Codex?"); the bridge never trusts it for anything else.
 static CLIENT_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 pub(crate) fn set_client_name(name: &str) {

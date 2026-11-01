@@ -22,7 +22,7 @@ export const TARGETS: KeepGoingOffer[] = [
 ];
 
 export const BRIEF = [
-  'Continue the task of the previous agent (Claude Code), which ran out of usage.',
+  'Continue the task of the previous agent (Claude), which ran out of usage.',
   'Goal: make the cart total round half-up to cents.',
   'Done so far: money is now integer cents; 2 of 5 tests pass.',
   'Files changed: src/cart.ts (+48 -7), src/cart.test.ts (+12 -0).',
@@ -32,7 +32,7 @@ export const BRIEF = [
 
 const base: HandoverView = {
   id: 'kg-0123456789ab',
-  fromLabel: 'Claude Code',
+  fromLabel: 'Claude',
   toLabel: 'Codex',
   fromPaneId: PANE_CLAUDE,
   toPaneId: PANE_CODEX,

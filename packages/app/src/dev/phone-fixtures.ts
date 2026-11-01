@@ -16,7 +16,7 @@ export const PHONE_PANES = [
 
 export const PHONE_QUESTION: Question = {
   id: 'q-1',
-  agent: 'Claude Code',
+  agent: 'Claude',
   pane_id: PANE_CLAUDE,
   question: 'Keep the old /login route as a redirect, or remove it?',
   choices: [
@@ -46,7 +46,7 @@ export const PHONE_AGENT_TYPES = (() => {
 const ESC = '\x1b';
 /** A phone-width screen (44 columns) for the open agent. */
 export const PHONE_SCREEN_LINES = [
-  `${ESC}[1m* Claude Code${ESC}[0m ${ESC}[2mv2.1${ESC}[0m`,
+  `${ESC}[1m* Claude${ESC}[0m ${ESC}[2mv2.1${ESC}[0m`,
   `${ESC}[2m  ~/work/puppet-master${ESC}[0m`,
   '',
   `${ESC}[38;5;250m> Fix the login redirect loop${ESC}[0m`,

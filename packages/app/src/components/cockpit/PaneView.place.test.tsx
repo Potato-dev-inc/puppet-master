@@ -36,7 +36,7 @@ const mk = (id: string, place?: PanePlace) => ({
 function cockpit(list: ReturnType<typeof mk>[], selected: string): CockpitApi {
   return {
     registry: { paneList: list, panes: new Map(list.map((p) => [p.info.id, p])), initialReady: true },
-    names: new Map(list.map((p) => [p.info.id, 'Claude Code'])),
+    names: new Map(list.map((p) => [p.info.id, 'Claude'])),
     activities: {},
     previews: {},
     asked: { questions: [] },

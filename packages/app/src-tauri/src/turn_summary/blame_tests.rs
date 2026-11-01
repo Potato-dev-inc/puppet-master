@@ -43,19 +43,19 @@ fn names(list: &[&str]) -> Vec<String> {
 #[test]
 fn latest_turn_wins_across_panes_and_within_one() {
     let summaries = vec![
-        turn("p1", "Claude Code", 1, 1_000, &["src/a.ts"]),
+        turn("p1", "Claude", 1, 1_000, &["src/a.ts"]),
         turn("p2", "Codex", 1, 3_000, &["src/a.ts"]),
         // Same pane, later turn, but it ended before p2's turn: p2 still wins.
-        turn("p1", "Claude Code", 2, 2_000, &["src/a.ts"]),
+        turn("p1", "Claude", 2, 2_000, &["src/a.ts"]),
     ];
     let found = blame(&summaries, &names(&["src/a.ts"]), &no_titles);
     assert_eq!(found["src/a.ts"], FileBlame { agent: "Codex".into(), pane_title: None, at_ms: 3_000 });
 
     // A later turn of the first pane takes the file back.
     let mut more = summaries.clone();
-    more.push(turn("p1", "Claude Code", 3, 4_000, &["src/a.ts"]));
+    more.push(turn("p1", "Claude", 3, 4_000, &["src/a.ts"]));
     let found = blame(&more, &names(&["src/a.ts"]), &no_titles);
-    assert_eq!(found["src/a.ts"].agent, "Claude Code");
+    assert_eq!(found["src/a.ts"].agent, "Claude");
     assert_eq!(found["src/a.ts"].at_ms, 4_000);
 }
 
@@ -113,7 +113,7 @@ fn normalise_rules() {
 
 #[test]
 fn pane_title_is_included_when_the_pane_is_titled() {
-    let summaries = vec![turn("p1", "Codex", 1, 1_000, &["a.txt"]), turn("p2", "Claude Code", 1, 2_000, &["b.txt"])];
+    let summaries = vec![turn("p1", "Codex", 1, 1_000, &["a.txt"]), turn("p2", "Claude", 1, 2_000, &["b.txt"])];
     let titled = titles(&[("p1", "helper"), ("p2", "   ")]);
     let found = blame(&summaries, &names(&["a.txt", "b.txt"]), &titled);
     assert_eq!(found["a.txt"].pane_title.as_deref(), Some("helper"));

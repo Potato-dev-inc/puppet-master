@@ -4,7 +4,7 @@ import { KEY_DOWN, KEY_UP, keysForOption, keysForYesNo, parseScreenQuestion } fr
 const LOGIN = `
  Login
 
- Claude Code can be used with your Claude subscription or billed based on API usage through your Console account.
+ Claude can be used with your Claude subscription or billed based on API usage through your Console account.
 
  Select login method:
 

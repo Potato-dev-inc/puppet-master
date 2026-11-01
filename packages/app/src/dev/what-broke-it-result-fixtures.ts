@@ -40,7 +40,7 @@ export const SEVERAL: FindingView = {
   kind: 'several',
   suspects: [
     { paneKey: 'pane-codex', turn: 6, agentLabel: 'Codex', agentId: 'codex', account: null, atMs: 1_800_000_000_000, sentence: 'refactor cart', files: { count: 2, added: 30, deleted: 4 } },
-    { paneKey: 'pane-claude', turn: 5, agentLabel: 'Claude Code', agentId: 'claude_code', account: null, atMs: 1_800_000_000_000, sentence: 'tidy the totals', files: null },
+    { paneKey: 'pane-claude', turn: 5, agentLabel: 'Claude', agentId: 'claude_code', account: null, atMs: 1_800_000_000_000, sentence: 'tidy the totals', files: null },
   ],
   failing: ['cart.test.ts'],
   tail: '',
@@ -65,7 +65,7 @@ export const BETWEEN_TURNS: FindingView = {
 export const NOT_SURE_RUNS: FindingView = {
   id: 'wb-2468ace13579',
   title: 'Not sure. Ran out of runs.',
-  subtitle: 'It was one of turns 5 to 8 (Codex, Claude Code).',
+  subtitle: 'It was one of turns 5 to 8 (Codex, Claude).',
   kind: 'not_sure',
   suspects: [],
   failing: [],

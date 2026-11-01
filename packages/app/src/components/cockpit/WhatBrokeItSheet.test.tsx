@@ -12,7 +12,7 @@ const OVERVIEW: Overview = {
   suggestions: [],
   points: [
     { checkpointId: '31', label: 'Codex · turn 7 · 14:10', atMs: 1 },
-    { checkpointId: '28', label: 'Claude Code · turn 5 · 13:42', atMs: 2 },
+    { checkpointId: '28', label: 'Claude · turn 5 · 13:42', atMs: 2 },
   ],
   limits: { max_runs: 16, max_minutes: 20 },
   can: true,

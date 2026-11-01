@@ -2,7 +2,7 @@ import { PANE_CODEX } from '../fixtures';
 import { NEW_LINEAGE } from '../branch-fixtures';
 import type { HarnessScenario } from '../types';
 
-// The new pane: "Branched from Claude Code · after turn 5 · 14:02 · Show brief · Open original" above the chat.
+// The new pane: "Branched from Claude · after turn 5 · 14:02 · Show brief · Open original" above the chat.
 const s: HarnessScenario = {
   name: 'branch-banner',
   route: 'cockpit',

@@ -70,7 +70,7 @@ pub struct ReceiptFacts {
 #[serde(rename_all = "camelCase")]
 pub struct TurnSummary {
     pub pane_id: String,
-    /// Display name of the agent ("Claude Code").
+    /// Display name of the agent ("Claude").
     pub agent: String,
     /// The agent's id and the account (id) it ran under, for "Your plans" (`crate::plans_report`).
     /// Absent on summaries saved before they were recorded.
@@ -221,7 +221,7 @@ pub(crate) fn receipt_part(receipt: &ReceiptFacts) -> Option<String> {
     }
 }
 
-/// "Claude Code edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?"
+/// "Claude edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?"
 pub fn render_sentence(s: &TurnSummary) -> String {
     let head = match &s.files {
         Some(f) if f.count > 0 => {

@@ -75,9 +75,9 @@ export function saveFinishWithoutMe(on: boolean): void {
 // ---- the writer ------------------------------------------------------------------------------------------------
 
 export const NO_AUTO_DRAFTER_MESSAGE =
-  "Finish without me needs Claude Code or Codex on this computer, and neither was found. Install one of them, or turn the switch off and pick a writer yourself.";
+  "Finish without me needs Claude or Codex on this computer, and neither was found. Install one of them, or turn the switch off and pick a writer yourself.";
 
-/** Claude Code, else Codex, else nobody: the switch asks no question about it. */
+/** Claude, else Codex, else nobody: the switch asks no question about it. */
 export function pickAutoDrafter(list: LocalDrafter[]): LocalDrafter | null {
   for (const id of ['claude', 'codex']) {
     const hit = list.find((d) => d.id === id);

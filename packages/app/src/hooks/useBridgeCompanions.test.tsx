@@ -13,7 +13,7 @@ const view = (over: Partial<CompanionView> = {}): CompanionView => ({
   avatar: 'mochi',
   persona: 'calm',
   agentType: 'claude',
-  agentLabel: 'Claude Code',
+  agentLabel: 'Claude',
   folderName: 'proj',
   state: 'idle',
   stateLine: 'Here. Ask me anything.',

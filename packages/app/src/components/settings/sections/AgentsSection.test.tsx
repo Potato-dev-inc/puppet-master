@@ -58,7 +58,7 @@ vi.mock('../../../lib/agent-health', async (importOriginal) => {
     ...real,
     agentHealthApi: {
       check: vi.fn(async () => [
-        { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.300', reason: '', install_hint: null, login_hint: null, can_test: true, hooks: { state: 'connected', mode: 'shadow', sentence: 'Connected.', opt_in: false, enabled: true } },
+        { id: 'claude', label: 'Claude', state: 'unchecked', installed: true, version: '2.1.300', reason: '', install_hint: null, login_hint: null, can_test: true, hooks: { state: 'connected', mode: 'shadow', sentence: 'Connected.', opt_in: false, enabled: true } },
         { id: 'codex', label: 'Codex', state: 'unchecked', installed: true, version: '0.162.1', reason: '', install_hint: null, login_hint: null, can_test: true, hooks: { state: 'off', mode: 'off', sentence: 'Live updates are off.', opt_in: true, opt_in_note: note, enabled: false } },
       ]),
       test: vi.fn(),
@@ -174,7 +174,7 @@ describe('Agents: every row renders', () => {
 
     // Preload
     expect(switchFor('Preload agents')).toBeTruthy();
-    expect(byLabel(m.host, 'Keep Claude Code warm')).toBeTruthy();
+    expect(byLabel(m.host, 'Keep Claude warm')).toBeTruthy();
     expect(byLabel(m.host, 'Preload idle timeout (minutes)')).toBeTruthy();
     expect(hasText(m.host, 'Agents to keep warm')).toBe(true);
     expect(hasText(m.host, 'Idle timeout')).toBe(true);
@@ -250,7 +250,7 @@ describe('Agents: each control saves through its own command', () => {
   it('Preload: ticking a provider keeps one of it warm', async () => {
     useStandby({ ...DEFAULT_STANDBY_CONFIG, preload: { enabled: true, providers: {} } });
     await mount();
-    await click(byLabel(m.host, 'Keep Claude Code warm'));
+    await click(byLabel(m.host, 'Keep Claude warm'));
     await settle();
     expect(tauri.standbySetConfig).toHaveBeenLastCalledWith(expect.objectContaining({ preload: { enabled: true, providers: { claude: 1 } } }));
     expect(m.env.patches).toEqual([]);
@@ -320,7 +320,7 @@ describe('Agents: Live updates', () => {
       ['shadow', 'Watch only'],
       ['off', 'Off'],
     ]);
-    expect(hasText(m.host, 'Claude Code and Codex tell Puppet Master when they start, ask and finish.')).toBe(true);
+    expect(hasText(m.host, 'Claude and Codex tell Puppet Master when they start, ask and finish.')).toBe(true);
   });
 
   it('choosing Off saves agent_hooks_mode off', async () => {
@@ -351,7 +351,7 @@ describe('Agents: Live updates for opt-in agents', () => {
     expect(codexSwitch()).toBeTruthy();
     expect(codexSwitch()!.getAttribute('aria-checked')).toBe('false');
     expect(hasText(m.host, 'Puppet Master adds a small file to .codex in each project; Codex asks you to review it once per folder.')).toBe(true);
-    expect(byLabel(m.host, 'Live updates from Claude Code')).toBeNull();
+    expect(byLabel(m.host, 'Live updates from Claude')).toBeNull();
   });
 
   it('turning it on saves only that agent', async () => {

@@ -188,7 +188,7 @@ fn deliver(pane: &mut LivePane, prompt: &str) -> (Delivery, Vec<String>) {
     (outcome, trace)
 }
 
-/// Claude Code, zero tokens: the fresh screen reads Ready through the recogniser (no banner rule),
+/// Claude, zero tokens: the fresh screen reads Ready through the recogniser (no banner rule),
 /// a draft typed into the box reads HasText (not Ready: Claude has no clear key), and the blank
 /// pane before Claude draws is Unknown.
 #[cfg(windows)]
@@ -213,7 +213,7 @@ fn live_permit_claude_fresh_screen_is_ready_and_a_draft_is_not() {
     assert!(!draft.is_ready(), "a box holding someone's text is not typed into");
 }
 
-/// Claude Code, zero tokens (plain-mode live bug, r12): the follow-up typed TWICE into the box (the
+/// Claude, zero tokens (plain-mode live bug, r12): the follow-up typed TWICE into the box (the
 /// first copy taken late) is erased by the profile's retype clear key in one press, and the box then
 /// reads Empty, which is what lets delivery say "cleared". Nothing is submitted.
 #[cfg(windows)]
@@ -245,7 +245,7 @@ fn live_permit_claude_retype_clear_key_erases_two_copies_of_its_own_text() {
     assert!(cleared.is_ready());
 }
 
-/// Claude Code, two tiny turns: a first task and a follow-up, both delivered under permits through
+/// Claude, two tiny turns: a first task and a follow-up, both delivered under permits through
 /// the real protocol. The follow-up is the case that stalled when readiness demanded the startup
 /// screen: the recogniser must read the box after a turn.
 #[cfg(windows)]

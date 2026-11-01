@@ -258,8 +258,8 @@ mod tests {
     #[test]
     fn a_helper_names_its_parent() {
         let mut t = turn("pane-2", "Read the logs.");
-        t.parent_label = Some("Claude Code".into());
-        assert_eq!(line(&t, 0), "09:05 · ↳ Claude Code › Codex · my-app · Read the logs.");
+        t.parent_label = Some("Claude".into());
+        assert_eq!(line(&t, 0), "09:05 · ↳ Claude › Codex · my-app · Read the logs.");
     }
 
     #[test]

@@ -90,7 +90,7 @@ export function settingsShortcuts(
       id: 'act:live-updates',
       group: 'Actions',
       title: 'Live updates…',
-      desc: 'What Claude Code and Codex report while they work',
+      desc: 'What your agents report while they work',
       keywords: 'hooks watch report trust agents',
       icon: <IconTerminal />,
       run: open('live-updates'),

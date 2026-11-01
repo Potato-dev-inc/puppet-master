@@ -4,7 +4,7 @@ use super::*;
 use std::sync::mpsc;
 use std::time::Instant;
 
-/// Real Claude Code capture: the trust dialog was declined, Claude quit, its host PowerShell prints a
+/// Real Claude capture: the trust dialog was declined, Claude quit, its host PowerShell prints a
 /// prompt under the dialog's text.
 const DECLINED_HOST_SHELL: &str = include_str!("../../../tui/claude/fixtures/trust_declined_host_shell.txt");
 const TRUST: &str = include_str!("../../../tui/claude/fixtures/trust_dialog_2_1_299.txt");

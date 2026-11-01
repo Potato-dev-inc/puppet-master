@@ -34,7 +34,7 @@ export interface CanaryResultView {
   screens: CanaryShot[];
 }
 
-/** The last version change and what became of it: "Claude Code 2.3.0 -> 2.4.0: checked, all good." */
+/** The last version change and what became of it: "Claude 2.3.0 -> 2.4.0: checked, all good." */
 export interface CanaryChange {
   from: string;
   to: string;
@@ -153,7 +153,7 @@ export function lastCheckLine(agent: CanaryAgent, now: number): string | null {
   return `${agent.last.summary} Checked ${checkedAgo(agent.last.at_ms, now)}.`;
 }
 
-/** The sentence under an agent in Settings about its last update ("Claude Code 2.3.0 -> 2.4.0: checked, all good. Updated 3 hours ago."), or null before any. */
+/** The sentence under an agent in Settings about its last update ("Claude 2.3.0 -> 2.4.0: checked, all good. Updated 3 hours ago."), or null before any. */
 export function changeLine(agent: CanaryAgent, now: number): string | null {
   const change = agent.change;
   if (!change) return null;

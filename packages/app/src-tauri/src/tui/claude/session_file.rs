@@ -1,4 +1,4 @@
-//! Claude Code's session file: `<config dir>/projects/<encoded cwd>/<session id>.jsonl`, one JSON
+//! Claude's session file: `<config dir>/projects/<encoded cwd>/<session id>.jsonl`, one JSON
 //! object per line. Only the lines a chat view needs give items; the rest (attachments, hooks,
 //! snapshots, thinking) is noise. Shapes: `D:\pm-acp-spike\PROBES.md` section B3.
 
@@ -211,7 +211,7 @@ fn tool_result(block: &Value, out: &mut Line) {
     out.push(|id, at| ChatItem::ToolResult { id, at, call_id, ok, output });
 }
 
-/// The name Claude Code writes on a message it made itself (an API error such as "Login expired"). It is not a model:
+/// The name Claude writes on a message it made itself (an API error such as "Login expired"). It is not a model:
 /// the view must keep the last real one (or none).
 fn is_synthetic_model(name: &str) -> bool {
     name.trim().eq_ignore_ascii_case("<synthetic>")
@@ -308,7 +308,7 @@ fn result_text(content: Option<&Value>) -> String {
     }
 }
 
-/// Claude Code's folder name for a working folder: every character that is not an ASCII letter
+/// Claude's folder name for a working folder: every character that is not an ASCII letter
 /// or digit becomes `-`. `C:\Users\x\proj` gives `C--Users-x-proj`.
 pub fn encode_cwd(cwd: &str) -> String {
     cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()

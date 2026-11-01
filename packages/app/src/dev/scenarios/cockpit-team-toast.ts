@@ -2,7 +2,7 @@ import { emit } from '@tauri-apps/api/event';
 import { MY_DRAFT, teamState } from '../team-fixtures';
 import type { HarnessScenario } from '../types';
 
-// The sending side: Leo's Claude Code just pushed feat/billing. The toast asks "Tell the team?",
+// The sending side: Leo's Claude just pushed feat/billing. The toast asks "Tell the team?",
 // with the preview of the card Maya and Sam will see opened.
 const s: HarnessScenario = {
   name: 'cockpit-team-toast',

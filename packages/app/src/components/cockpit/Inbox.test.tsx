@@ -69,19 +69,19 @@ const question = (over: Partial<Question> = {}): Question => ({
 
 const consent = question({
   id: 'c1',
-  agent: 'Claude Code',
-  question: 'Allow Claude Code to control Codex?',
+  agent: 'Claude',
+  question: 'Allow Claude to control Codex?',
   context: 'It did not start this pane.',
   choices: [{ id: 'allow_once', label: 'Allow once' }, { id: 'deny', label: 'Deny' }],
   urgency: 'high',
   created_at_ms: NOW - 40_000,
-  consent: { action: 'take_over', requester: 'Claude Code', target: 'Codex', pane_id: 'hi' },
+  consent: { action: 'take_over', requester: 'Claude', target: 'Codex', pane_id: 'hi' },
 });
 const budget = question({
   id: 'b1',
-  agent: 'Claude Code',
+  agent: 'Claude',
   pane_id: 'lo',
-  question: 'Claude Code used its 20 turns.',
+  question: 'Claude used its 20 turns.',
   context: 'Nothing was lost.',
   choices: [{ id: 'add_turns', label: 'Add 10 turns' }, { id: 'stop', label: 'Stop here' }],
   kind: 'budget',
@@ -102,7 +102,7 @@ function fixture(over: { questions?: Question[]; panes?: { id: string; agent: st
   const since: Record<string, number> = over.since ?? { lo: NOW - 300_000, hi: NOW - 5_000, ps: NOW - 60_000 };
   const api = {
     registry: { paneList: list, panes: new Map(list.map((p) => [p.info.id, p])), initialReady: true },
-    names: new Map([['lo', 'Claude Code'], ['hi', 'Codex'], ['ps', 'PowerShell']]),
+    names: new Map([['lo', 'Claude'], ['hi', 'Codex'], ['ps', 'PowerShell']]),
     asked: { questions: over.questions ?? [], answerQuestion, dismissQuestion },
     launchEntries: [],
     readyAgents: new Set<string>(),
@@ -175,7 +175,7 @@ describe('one list, one card', () => {
     expect(Array.from(low.querySelectorAll('[data-ib="answer"]')).map((b) => b.textContent)).toEqual(['Allow once', 'Always allow npm test', 'Deny']);
     expect(host.textContent).not.toMatch(/tell Claude what to do/);
     // and the project shows, never an id
-    expect(low.querySelector('.ib-meta')?.textContent).toBe('Claude Code · shop');
+    expect(low.querySelector('.ib-meta')?.textContent).toBe('Claude · shop');
   });
 
   it('names a separate copy by its project, never by the id of its folder', () => {
@@ -186,7 +186,7 @@ describe('one list, one card', () => {
       ],
     });
     mount(api);
-    expect(host.querySelector('[data-kind="approval"] .ib-meta')?.textContent).toBe('Claude Code · separate copy of shop');
+    expect(host.querySelector('[data-kind="approval"] .ib-meta')?.textContent).toBe('Claude · separate copy of shop');
     expect(host.querySelector('[data-kind="error"] .ib-meta')?.textContent).toBe('separate copy of shop');
     expect(host.textContent).not.toContain('7d4cb2b3');
   });

@@ -137,7 +137,7 @@ export const EXAMPLE_TRANSCRIPT: PaneTranscript = {
 
 const ESC = '\x1b';
 const SCREEN_LINES = [
-  `${ESC}[1m${ESC}[38;5;208m*${ESC}[0m ${ESC}[1mClaude Code${ESC}[0m ${ESC}[2mv2.1${ESC}[0m`,
+  `${ESC}[1m${ESC}[38;5;208m*${ESC}[0m ${ESC}[1mClaude${ESC}[0m ${ESC}[2mv2.1${ESC}[0m`,
   `${ESC}[2m  C:\\Users\\dev\\work\\puppet-master${ESC}[0m`,
   '',
   `${ESC}[38;5;245m> Add retry with backoff to the bridge client${ESC}[0m`,
@@ -180,7 +180,7 @@ export function agentsListing(headlessOnlyAgent = false) {
     definition: null,
   });
   const agents = [
-    row('claude', 'Claude Code'),
+    row('claude', 'Claude'),
     row('codex', 'Codex'),
     row('opencode', 'OpenCode'),
     row('cursor_agent', 'Cursor Agent'),
@@ -350,7 +350,7 @@ export const TOOLBELT_LISTING: ToolbeltListing = {
     { id: 'linear', name: 'Linear', transport: 'http', url: 'https://mcp.linear.app/mcp', headers: { Authorization: '********' }, enabled: false, scope: 'project' },
   ],
   agents: [
-    { id: 'claude', label: 'Claude Code', installed: true, supports_url: true },
+    { id: 'claude', label: 'Claude', installed: true, supports_url: true },
     { id: 'codex', label: 'Codex', installed: true, supports_url: true },
     { id: 'opencode', label: 'OpenCode', installed: true, supports_url: true },
     { id: 'cursor_agent', label: 'Cursor Agent', installed: true, supports_url: true },
@@ -365,7 +365,7 @@ export const TOOLBELT_PREVIEW: SyncReport = {
   unsupported: TOOLBELT_LISTING.unsupported,
   hosts: [
     {
-      agents: [{ id: 'claude', label: 'Claude Code' }],
+      agents: [{ id: 'claude', label: 'Claude' }],
       scope: 'global',
       path: 'C:/Users/dev/.claude.json',
       format: 'json',
@@ -434,13 +434,13 @@ export const TOOLBELT_PREVIEW: SyncReport = {
 export const TOOLBELT_IMPORT: ImportCandidate[] = [
   {
     reference: 'global|claude|github',
-    agents: [{ id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }],
+    agents: [{ id: 'claude', label: 'Claude' }, { id: 'codex', label: 'Codex' }],
     server: { id: '', name: 'github', transport: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: '********' }, enabled: true, scope: 'global' },
     already: false,
   },
   {
     reference: 'global|claude|browser',
-    agents: [{ id: 'claude', label: 'Claude Code' }],
+    agents: [{ id: 'claude', label: 'Claude' }],
     server: { id: '', name: 'browser', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp'], enabled: true, scope: 'global' },
     already: true,
   },
@@ -471,11 +471,11 @@ const sum = (
 });
 
 export const EXAMPLE_TURN_SUMMARIES = [
-  sum(PANE_CLAUDE, 'Claude Code', 2, 31 * 60_000, 21 * 60_000, { count: 3, added: 48, deleted: 7, paths: ['src/login.tsx'] },
-    'Claude Code edited 3 files (+48 −7), all checks passed (3/3), now idle.'),
-  sum(PANE_CLAUDE, 'Claude Code', 3, 130_000, 4 * 60_000,
+  sum(PANE_CLAUDE, 'Claude', 2, 31 * 60_000, 21 * 60_000, { count: 3, added: 48, deleted: 7, paths: ['src/login.tsx'] },
+    'Claude edited 3 files (+48 −7), all checks passed (3/3), now idle.'),
+  sum(PANE_CLAUDE, 'Claude', 3, 130_000, 4 * 60_000,
     { count: 4, added: 86, deleted: 12, paths: ['src/pages/Settings.tsx', 'src/App.tsx', 'src/routes.ts', 'public/bell.png'] },
-    'Claude Code edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?',
+    'Claude edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?',
     { kind: 'waiting_input', prompt: 'allow `npm test`?' }),
 ];
 
@@ -487,8 +487,8 @@ export const EXAMPLE_DIGEST = {
   turns: 5,
   lines: [
     {
-      paneId: PANE_CLAUDE, agent: 'Claude Code', turns: 2, endedAtMs: now - 2 * MIN, end: 'waiting_input',
-      sentence: 'Claude Code edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?',
+      paneId: PANE_CLAUDE, agent: 'Claude', turns: 2, endedAtMs: now - 2 * MIN, end: 'waiting_input',
+      sentence: 'Claude edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?',
     },
     {
       paneId: PANE_CODEX, agent: 'Codex', turns: 2, endedAtMs: now - 9 * MIN, end: 'idle',
@@ -500,7 +500,7 @@ export const EXAMPLE_DIGEST = {
     },
   ],
   needsYou: [
-    { paneId: PANE_CLAUDE, agent: 'Claude Code', status: 'waiting_input', prompt: 'Allow `npm test` in puppet-master?' },
+    { paneId: PANE_CLAUDE, agent: 'Claude', status: 'waiting_input', prompt: 'Allow `npm test` in puppet-master?' },
     { paneId: PANE_PWSH, agent: 'PowerShell', status: 'error' },
   ],
 };
@@ -518,7 +518,7 @@ export const EXAMPLE_FOCUS_DIGEST = {
 
 // Second opinion: a reviewer's answer to the Claude pane's worktree changes (dev harness only).
 export const EXAMPLE_REVIEWERS: ReviewerEntry[] = [
-  { id: 'claude', label: 'Claude Code', ready: false, same: true },
+  { id: 'claude', label: 'Claude', ready: false, same: true },
   { id: 'codex', label: 'Codex', ready: true, same: false },
   { id: 'cursor_agent', label: 'Cursor Agent', ready: false, same: false },
 ];
@@ -536,7 +536,7 @@ export const EXAMPLE_REVIEW_START: ReviewStart = {
   files: 3,
   additions: 14,
   deletions: 3,
-  authorLabel: 'Claude Code',
+  authorLabel: 'Claude',
 };
 
 export const EXAMPLE_REVIEW_POLL: ReviewPoll = {
@@ -584,7 +584,7 @@ export const AGENT_PACK_PREVIEW: PackReport = {
   agents: [
     {
       id: 'claude',
-      label: 'Claude Code',
+      label: 'Claude',
       installed: true,
       skills: { status: 'ready', path: 'C:/Users/dev/.claude/skills', shared_with: [], files: PACK_FILES, reason: null, written: false },
       mcp: { status: 'unchanged', path: 'C:/Users/dev/.claude.json', format: 'json', shared_with: [], change: 'unchanged', reason: null, diff: '', written: false, backup: null },

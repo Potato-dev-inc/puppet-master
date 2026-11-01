@@ -41,7 +41,7 @@ export function History({
   api?: CheckpointsApi;
   /** Labels of the other live panes working in this pane's folder. */
   sharedWith?: string[];
-  /** The agent's name, for "Before Claude Code's question". */
+  /** The agent's name, for "Before Claude's question". */
   agentName?: string;
   /** Opens "What broke the tests?" for this pane. Absent: no button. */
   onWhatBroke?: (paneId: string) => void;

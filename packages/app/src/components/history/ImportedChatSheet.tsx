@@ -50,7 +50,7 @@ export interface ImportedChatSheetProps {
 export function ImportedChatSheet({ request, api = chatImportApi, onContinue, onContinueChat, onClose }: ImportedChatSheetProps) {
   const { agent, session, itemId, nonce } = request;
   const titleId = useId();
-  // The banner shows the agent's display name from the registry ("Claude Code"), never its id ("claude").
+  // The banner shows the agent's display name from the registry ("Claude"), never its id ("claude").
   const agentName = agentLabel(useAgentRegistry(), agent);
   const [loaded, setLoaded] = useState<Loaded>({ kind: 'loading' });
   const [plan, setPlan] = useState<ResumePlan | null>(null);

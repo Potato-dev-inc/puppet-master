@@ -578,7 +578,7 @@ pub(crate) mod testing {
             state: State::Open,
             since_ms: Some(1),
             expires_at_ms: None,
-            pane: Some(crate::attention::model::PaneRef { id: pane.into(), heading: "auth refactor".into(), agent: Some("Claude Code".into()), project: Some("shop".into()) }),
+            pane: Some(crate::attention::model::PaneRef { id: pane.into(), heading: "auth refactor".into(), agent: Some("Claude".into()), project: Some("shop".into()) }),
             title: "Run tests".into(),
             sentence: rec.summary.clone(),
             risk: level.map(|level| RiskView { level, word: level.word(), headline: rec.headline.clone(), reasons: vec![] }),

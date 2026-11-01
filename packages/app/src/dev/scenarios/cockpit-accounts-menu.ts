@@ -1,7 +1,7 @@
 import type { HarnessScenario } from '../types';
 import { EXAMPLE_ACCOUNTS } from '../fixtures';
 
-// The "+" menu: Claude Code has two accounts, so choosing it opens the login step.
+// The "+" menu: Claude has two accounts, so choosing it opens the login step.
 const s: HarnessScenario = {
   name: 'cockpit-accounts-menu',
   route: 'cockpit',

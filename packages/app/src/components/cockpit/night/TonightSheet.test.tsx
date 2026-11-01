@@ -62,7 +62,7 @@ const PLANS: NightPlanView[] = [
   { key: 'codex', label: 'Codex', ready: true, whyNot: null, outUntil: null, triedHere: { 'C:/work/app': true } },
   {
     key: 'claude',
-    label: 'Claude Code',
+    label: 'Claude',
     ready: true,
     whyNot: null,
     outUntil: 'Out of usage until 16:40',
@@ -424,7 +424,7 @@ describe('TonightSheet', () => {
     it('keeps an out-of-usage plan enabled and shows the time', async () => {
       answer();
       await mount();
-      expect(planBox('Claude Code').disabled).toBe(false);
+      expect(planBox('Claude').disabled).toBe(false);
       expect(host.textContent).toContain('Out of usage until 16:40');
     });
 
@@ -550,7 +550,7 @@ describe('TonightSheet', () => {
       expect(host.textContent).toContain('Codex has worked here before.');
 
       await type(labelled('Agent for task 1') as HTMLSelectElement, 'claude');
-      expect(host.textContent).toContain('First time with Claude Code here: it may ask you to trust the folder.');
+      expect(host.textContent).toContain('First time with Claude here: it may ask you to trust the folder.');
     });
   });
 

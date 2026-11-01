@@ -125,7 +125,7 @@ fn live_side_by_side() {
 {}", serde_json::to_string_pretty(&tallies).unwrap());
 }
 
-/// The two live shadow runs (Claude Code 2.1.300, Codex 0.162.1), kept as recordings: on both,
+/// The two live shadow runs (Claude 2.1.300, Codex 0.162.1), kept as recordings: on both,
 /// the hooks and the screen agreed on the turn start, the approval wait and the turn end.
 #[test]
 fn the_live_shadow_runs_agree_with_the_screen_on_every_check() {

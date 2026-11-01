@@ -56,7 +56,7 @@ export const PREPARED: PrPrepared = {
   body: [
     '## What changed',
     '',
-    'Claude Code changed 3 files and ran 2 commands.',
+    'Claude changed 3 files and ran 2 commands.',
     '',
     'Task: Round cart totals to cents and add a test.',
     '',
@@ -75,7 +75,7 @@ export const PREPARED: PrPrepared = {
   ].join('\n'),
   base: 'main',
   branch: 'pm/refactor-auth',
-  agent: 'Claude Code',
+  agent: 'Claude',
   has_uncommitted: true,
 };
 
@@ -105,7 +105,7 @@ export const WATCH: WatchView = {
   prNumber: 42,
   prUrl: 'https://github.com/example/shop/pull/42',
   branch: 'pm/refactor-auth',
-  agentLabel: 'Claude Code',
+  agentLabel: 'Claude',
   state: 'watching',
   stateText: 'Watching CI · 0 of 2 tries used',
   triesUsed: 0,

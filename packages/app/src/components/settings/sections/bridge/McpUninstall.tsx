@@ -23,7 +23,7 @@ export function McpUninstallBlock({ env }: { env: SettingsEnv }) {
     if (busy !== null) return;
     const ok = await env.confirm({
       title: 'Uninstall global MCP?',
-      body: 'Remove puppet-master from global Claude Code, Codex, and OpenCode MCP configs?',
+      body: 'Remove puppet-master from global Claude, Codex, and OpenCode MCP configs?',
       confirmLabel: 'Uninstall',
     });
     if (!ok) return;
@@ -44,7 +44,7 @@ export function McpUninstallBlock({ env }: { env: SettingsEnv }) {
         </Btn>
       </div>
       <Note>
-        Project: removes .mcp.json, .codex/config.toml, and opencode.json entries. Global: removes Claude Code local and user MCP,
+        Project: removes .mcp.json, .codex/config.toml, and opencode.json entries. Global: removes Claude local and user MCP,
         ~/.mcp.json, ~/.codex/config.toml, and OpenCode global config. Cursor and Claude Desktop configs are manual: edit your
         host&apos;s MCP settings file.
       </Note>

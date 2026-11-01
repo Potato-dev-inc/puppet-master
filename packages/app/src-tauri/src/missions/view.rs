@@ -91,7 +91,7 @@ pub struct MissionView {
     pub total: u32,
     pub budget: BudgetView,
     pub agents: Vec<String>,
-    /// "Claude Code → Codex": who worked on it, in order.
+    /// "Claude → Codex": who worked on it, in order.
     pub agents_line: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_agent: Option<String>,

@@ -347,7 +347,7 @@ fn the_built_in_agents_can_be_installed_from_their_tables() {
         assert!(plan.entry.starts_with(&plan.dir), "{}: the entry file is inside the add-on's folder", cfg.id);
         assert!(plan.size_mb.is_some(), "{}: the prompt says about how big", cfg.id);
         assert!(!cfg.addon.signin_hint.is_empty(), "{}", cfg.id);
-        assert!(!cfg.addon.signin_hint.contains("Claude Code"), "branding rule");
+        assert!(!cfg.addon.signin_hint.contains("Claude"), "branding rule");
         seen += 1;
     }
     assert!(seen >= 2, "claude and codex both have an add-on to install");

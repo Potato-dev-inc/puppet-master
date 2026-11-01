@@ -1,4 +1,4 @@
-//! Live bug #6: the Transcript tab showed Claude Code's diff panel interleaved with the chat.
+//! Live bug #6: the Transcript tab showed Claude's diff panel interleaved with the chat.
 //! The screen is the layout of `03b-claude-done.png` (164x50, panel divider at column 90).
 
 use super::completion::{clean_extracted_result, tui_turn_evidence};

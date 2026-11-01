@@ -28,7 +28,7 @@ export const PHONE_TEAM_JOB: TeamJob = {
   who: 'Priya',
   theirBranch: 'fix/tax-rounding',
   conflicts: [],
-  message: 'Claude Code merged fix/tax-rounding with no conflicts.',
+  message: 'Claude merged fix/tax-rounding with no conflicts.',
   stats: { files: 2, additions: 31, deletions: 6 },
   createdAtMs: now - 12 * MIN,
   updatedAtMs: now - 2 * MIN,

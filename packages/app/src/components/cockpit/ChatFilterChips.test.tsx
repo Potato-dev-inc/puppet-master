@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 const facets = { agents: ['codex', 'claude-code'], folders: ['demo-a'] };
-const agentName = (id: string) => (id === 'codex' ? 'Codex CLI' : 'Claude Code');
+const agentName = (id: string) => (id === 'codex' ? 'Codex CLI' : 'Claude');
 
 function render(filters: ChatFilters = {}) {
   const onPick = vi.fn<(key: ChipKey, value: string | undefined) => void>();
@@ -44,7 +44,7 @@ describe('ChatFilterChips', () => {
   it('Agent lists Any agent and the agents the index holds, by their names', () => {
     render();
     click(chip('Agent'));
-    expect(choices()).toEqual(['Any agent', 'Codex CLI', 'Claude Code']);
+    expect(choices()).toEqual(['Any agent', 'Codex CLI', 'Claude']);
   });
 
   it('picking an agent reports its id and closes the menu', () => {

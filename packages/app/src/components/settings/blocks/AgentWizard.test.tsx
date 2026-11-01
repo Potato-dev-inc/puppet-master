@@ -151,7 +151,7 @@ function mockApi(replies: string[] = [`${F}toml\n${GOOD}${F}`]): MockApi {
     ask: vi.fn(async () => replies[Math.min(n++, replies.length - 1)]),
     drafters: vi.fn(async () => [
       { id: 'codex', label: 'Codex' },
-      { id: 'claude', label: 'Claude Code' },
+      { id: 'claude', label: 'Claude' },
     ]),
     visibletest: vi.fn(async () => {
       throw new Error('the visible test is not part of the headless-only tests');
@@ -254,12 +254,12 @@ describe('AgentWizard', () => {
     expect(found?.textContent).toContain('fake-agent 1.4.2');
     expect(found?.textContent).toContain('~\\fake-agent.exe');
     expect(text()).toContain('Who writes the profile?');
-    // Claude Code comes first and is the default even though the list had Codex first
+    // Claude comes first and is the default even though the list had Codex first
     const radios = Array.from(host.querySelectorAll('input[type="radio"]')) as HTMLInputElement[];
     expect(radios).toHaveLength(3);
     expect(radios[0].checked).toBe(true);
     expect(host.querySelector('label')?.textContent).not.toBeNull();
-    expect(text().indexOf('Claude Code')).toBeLessThan(text().indexOf('Codex'));
+    expect(text().indexOf('Claude')).toBeLessThan(text().indexOf('Codex'));
   });
 
   it('shows the error when the program is not found and keeps the command box', async () => {
@@ -313,7 +313,7 @@ describe('AgentWizard', () => {
     expect(api.finish).toHaveBeenCalledTimes(1);
     const [session, provenance] = api.finish.mock.calls[0];
     expect(session).toBe('wz_1');
-    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '9' });
+    expect(provenance).toMatchObject({ drafter: 'Claude (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '9' });
     expect(approved).toHaveLength(1);
     expect(approved[0].id).toBe('fake_agent');
     expect(api.cancel).not.toHaveBeenCalled();

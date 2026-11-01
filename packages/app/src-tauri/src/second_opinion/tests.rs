@@ -152,16 +152,16 @@ fn diff_of(patch: &str, truncated: bool) -> super::ReviewDiff {
 fn the_prompt_carries_task_facts_context_diff_and_the_answer_format() {
     let input = PromptInput {
         task: Some("Add retry to the fetch helper"),
-        turn_summary: Some("Claude Code changed 1 file and ran 2 tests."),
+        turn_summary: Some("Claude changed 1 file and ran 2 tests."),
         facts: vec![("Checks".into(), "2/2 passed".into()), ("Empty".into(), "  ".into())],
         context: Some("Use pnpm, not npm."),
-        author: Some("Claude Code"),
+        author: Some("Claude"),
     };
     let text = build_prompt(&input, &diff_of(PATCH, false));
-    assert!(text.contains("Claude Code just made the change"));
+    assert!(text.contains("Claude just made the change"));
     assert!(text.contains("read-only"));
     assert!(text.contains("## What the agent was asked to do\nAdd retry to the fetch helper"));
-    assert!(text.contains("- Claude Code changed 1 file and ran 2 tests."));
+    assert!(text.contains("- Claude changed 1 file and ran 2 tests."));
     assert!(text.contains("- Checks: 2/2 passed"));
     assert!(!text.contains("Empty:"), "blank facts are dropped");
     assert!(text.contains("## Project context\nUse pnpm, not npm."));

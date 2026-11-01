@@ -31,7 +31,7 @@ export interface ReviewStart {
   files: number;
   additions: number;
   deletions: number;
-  /** Display name of the original agent ("Claude Code"). */
+  /** Display name of the original agent ("Claude"). */
   authorLabel: string;
 }
 

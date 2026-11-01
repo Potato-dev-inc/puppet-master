@@ -46,7 +46,7 @@ describe('UntestedChip', () => {
     await flush();
     const chip = host.querySelector('[data-testid="untested-chip"]');
     expect(chip?.textContent).toBe('Untested version');
-    expect(chip?.getAttribute('title')).toContain('has not been tested with Claude Code 2.4.0');
+    expect(chip?.getAttribute('title')).toContain('has not been tested with Claude 2.4.0');
   });
 
   it('shows nothing for another agent, or when there is no status', async () => {
@@ -98,7 +98,7 @@ describe('AgentVersions (Settings > Agents)', () => {
     await act(async () => root.render(<AgentVersions api={fakeApi(UPDATED_GOOD_STATUS)} now={() => at + 2 * 3_600_000} />));
     await flush();
     expect(host.querySelector('[data-testid="agent-version-change-claude"]')?.textContent).toBe(
-      'Claude Code 2.3.0 \u2192 2.4.0: checked, all good. Updated 2 hours ago.',
+      'Claude 2.3.0 \u2192 2.4.0: checked, all good. Updated 2 hours ago.',
     );
     expect(host.querySelector('[data-testid="agent-version-chip-claude"]')).toBeNull();
     expect(host.querySelector('[data-testid="agent-version-claude"]')?.textContent).toContain('was checked on this computer');

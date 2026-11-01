@@ -2,7 +2,7 @@ import type { McpToolExecutor } from './mcp-executor';
 import { sleep } from './ansi';
 import { classifyPaneAttention } from './pane-attention';
 
-/** Heuristics for agent permission / approval TUIs (Codex, Claude Code, etc.). */
+/** Heuristics for agent permission / approval TUIs (Codex, Claude, etc.). */
 const PERMISSION_HINTS = [
   /allow once/i,
   /allow always/i,

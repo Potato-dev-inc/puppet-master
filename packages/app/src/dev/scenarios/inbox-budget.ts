@@ -9,9 +9,9 @@ const s: HarnessScenario = {
   questions: [
     {
       id: 'budget-1',
-      agent: 'Claude Code',
+      agent: 'Claude',
       pane_id: PANE_CLAUDE,
-      question: 'Claude Code used its 20 turns.',
+      question: 'Claude used its 20 turns.',
       context: "20 of 20 turns. It's paused after its last turn. Nothing was lost.",
       choices: [
         { id: 'add_turns', label: 'Add 10 turns' },

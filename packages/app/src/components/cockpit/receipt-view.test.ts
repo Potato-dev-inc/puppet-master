@@ -33,7 +33,7 @@ describe('readableReceipt', () => {
     const lines = readableReceipt(receipt);
 
     expect(valueOf(lines, 'Result')).toBe('Finished, not verified');
-    expect(valueOf(lines, 'Agent')).toBe('Claude Code');
+    expect(valueOf(lines, 'Agent')).toBe('Claude');
     expect(valueOf(lines, 'Read-only')).toBe('No');
     expect(valueOf(lines, 'Answer read from')).toBe('The screen');
     expect(valueOf(lines, 'Not verified')).toBe('No checks configured; Model not confirmed');

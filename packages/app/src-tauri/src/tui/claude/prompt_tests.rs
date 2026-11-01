@@ -98,7 +98,7 @@ fn the_trust_dialog_is_a_startup_gate_with_trust_and_deny() {
     assert_eq!(prompt["kind"], KIND_TRUST);
     assert_eq!(prompt["choices"], json!(["trust", "deny"]));
     assert_eq!(prompt["folder"], "D:\\pm-demo-untrusted-1");
-    assert_eq!(prompt["summary"], "Claude Code asks to trust D:\\pm-demo-untrusted-1");
+    assert_eq!(prompt["summary"], "Claude asks to trust D:\\pm-demo-untrusted-1");
     assert_eq!(prompt["labels"]["deny"], "Don't trust");
     // The pointer starts on "No, exit": trusting is one row down, declining is Enter alone.
     assert_eq!(prompt["menu"]["selected"], 1);
@@ -197,7 +197,7 @@ const LOGIN_MENU: &str = include_str!("fixtures/login_menu_2_1_312.txt");
 fn the_sign_in_menu_is_a_card_with_its_three_options_and_a_way_out() {
     let prompt = detect(LOGIN_MENU, false);
     assert_eq!(prompt["kind"], "question");
-    assert_eq!(prompt["summary"], "Claude Code needs you to sign in");
+    assert_eq!(prompt["summary"], "Claude needs you to sign in");
     assert_eq!(prompt["note"], "Pick how you sign in. A browser window opens.");
     assert_eq!(prompt["choices"], json!(["1", "2", "3", "cancel"]));
     assert_eq!(prompt["labels"]["1"], "Claude account with subscription");
@@ -250,7 +250,7 @@ fn the_sign_in_card_leads_with_its_own_line_and_keeps_the_agents_words() {
     let card = crate::pane_prompt::detect_in_screen("claude", LOGIN_MENU, false).expect("a card");
     assert_eq!(card["risk"]["reasons"][0], "Pick how you sign in. A browser window opens.");
     let ui = crate::pane_prompt::PanePrompt::from_detected(&card).expect("a prompt for the UI");
-    assert_eq!(ui.summary.as_deref(), Some("Claude Code needs you to sign in"));
+    assert_eq!(ui.summary.as_deref(), Some("Claude needs you to sign in"));
     let labels: Vec<&str> = ui.choices.iter().map(|c| c.label.as_str()).collect();
     assert_eq!(labels, ["Claude account with subscription", "Anthropic Console account", "3rd-party platform", "Cancel"]);
     assert!(ui.choices.iter().all(|c| !c.broad), "no sign-in answer is a broad approval");
@@ -274,7 +274,7 @@ fn the_theme_picker_is_a_waiting_pane_with_a_card_of_seven_rows() {
     assert!(waiting(FIRST_THEME));
     let prompt = detect(FIRST_THEME, false);
     assert_eq!(prompt["kind"], "question");
-    assert_eq!(prompt["summary"], "Claude Code: pick a text style");
+    assert_eq!(prompt["summary"], "Claude: pick a text style");
     assert_eq!(prompt["choices"], json!(["1", "2", "3", "4", "5", "6", "7"]));
     assert_eq!(prompt["labels"]["1"], "Auto (match terminal)");
     assert_eq!(prompt["labels"]["2"], "Dark mode", "the check mark is not part of the name");
@@ -321,7 +321,7 @@ fn the_theme_picker_goes_away_when_the_next_screen_is_drawn() {
 fn the_sign_in_menu_of_a_first_run_has_no_title_and_is_still_a_card() {
     assert!(waiting(FIRST_LOGIN));
     let prompt = detect(FIRST_LOGIN, false);
-    assert_eq!(prompt["summary"], "Claude Code needs you to sign in");
+    assert_eq!(prompt["summary"], "Claude needs you to sign in");
     assert_eq!(prompt["choices"], json!(["1", "2", "3", "cancel"]));
     assert_eq!(prompt["labels"]["3"], "3rd-party platform");
     assert_eq!(key(&prompt, "2", false), DOWN);
@@ -332,7 +332,7 @@ fn the_api_key_question_is_a_card_with_yes_and_no_and_hides_the_key() {
     assert!(waiting(FIRST_API_KEY));
     let prompt = detect(FIRST_API_KEY, false);
     assert_eq!(prompt["kind"], "question");
-    assert_eq!(prompt["summary"], "Claude Code found an API key in your environment");
+    assert_eq!(prompt["summary"], "Claude found an API key in your environment");
     assert_eq!(prompt["choices"], json!(["1", "2", "cancel"]));
     assert_eq!(prompt["labels"]["1"], "Yes");
     assert_eq!(prompt["labels"]["2"], "No (recommended)");
@@ -348,7 +348,7 @@ fn the_security_notes_are_a_continue_card() {
     assert!(waiting(FIRST_NOTES));
     let prompt = detect(FIRST_NOTES, false);
     assert_eq!(prompt["kind"], "question");
-    assert_eq!(prompt["summary"], "Claude Code shows its security notes");
+    assert_eq!(prompt["summary"], "Claude shows its security notes");
     assert_eq!(prompt["choices"], json!(["continue"]));
     assert_eq!(prompt["labels"]["continue"], "Continue");
     assert!(prompt["text"].as_str().unwrap().starts_with("Security notes"));
@@ -363,7 +363,7 @@ fn any_press_enter_to_continue_screen_is_caught_by_its_footer() {
     let signed_in = "Login successful. Press Enter to continue…";
     assert!(waiting(signed_in));
     let prompt = detect(signed_in, false);
-    assert_eq!(prompt["summary"], "Claude Code signed you in");
+    assert_eq!(prompt["summary"], "Claude signed you in");
     assert_eq!(prompt["choices"], json!(["continue"]));
     // Said in the middle of a reply, with the input box under it, it is not a screen to continue.
     let quoted = format!("The wizard says: Press Enter to continue…\n\n{READY_FRESH}");
@@ -393,10 +393,10 @@ fn the_screens_that_look_a_little_like_a_first_run_screen_are_not_cards() {
 fn every_first_run_screen_reaches_the_card_through_the_shared_detector() {
     // `pane_prompt::detect_in_screen` hands the profile only the last rows (a window around an anchor phrase).
     for (screen, summary) in [
-        (FIRST_THEME, "Claude Code: pick a text style"),
-        (FIRST_LOGIN, "Claude Code needs you to sign in"),
-        (FIRST_API_KEY, "Claude Code found an API key in your environment"),
-        (FIRST_NOTES, "Claude Code shows its security notes"),
+        (FIRST_THEME, "Claude: pick a text style"),
+        (FIRST_LOGIN, "Claude needs you to sign in"),
+        (FIRST_API_KEY, "Claude found an API key in your environment"),
+        (FIRST_NOTES, "Claude shows its security notes"),
     ] {
         let card = crate::pane_prompt::detect_in_screen("claude", screen, false).unwrap_or_else(|| panic!("no card for {summary}"));
         let ui = crate::pane_prompt::PanePrompt::from_detected(&card).expect("a prompt for the UI");

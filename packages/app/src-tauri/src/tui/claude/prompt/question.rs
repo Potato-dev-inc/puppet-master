@@ -1,4 +1,4 @@
-//! Claude Code's own question to the person: the AskUserQuestion menu.
+//! Claude's own question to the person: the AskUserQuestion menu.
 //!
 //! ```text
 //! ──────────────────────────────── ☐ Colour

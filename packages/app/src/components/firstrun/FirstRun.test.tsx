@@ -41,7 +41,7 @@ const SEED: Seed = { start: 'welcome', look: null, project: null, agentId: null 
 
 const health = (over: Partial<AgentHealth> = {}): AgentHealth => ({
   id: 'claude',
-  label: 'Claude Code',
+  label: 'Claude',
   state: 'unchecked',
   installed: true,
   version: '2.1.4',
@@ -152,7 +152,7 @@ describe('2. Your agents', () => {
     const d = deps();
     await mount(d, at('agents'));
     expect(host.querySelector('.ck-doctor--embedded')).not.toBeNull();
-    expect(text()).toContain('Claude Code');
+    expect(text()).toContain('Claude');
     expect(text()).toContain(T.agentsNone);
     expect(button('Continue')!.disabled).toBe(true);
     await tap('Test');
@@ -265,7 +265,7 @@ describe('4. A first task', () => {
     );
     await mount(d, at);
     await tap(T.taskRun);
-    expect(text()).toContain(T.taskWorking('Claude Code'));
+    expect(text()).toContain(T.taskWorking('Claude'));
     expect(button('Continue')!.disabled).toBe(true);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1600);
@@ -330,7 +330,7 @@ describe('4. A first task', () => {
     await tap(T.taskRun);
     expect(host.textContent).toContain('Run tests');
     expect(host.textContent).toContain(T.approvalTip);
-    expect(host.textContent).toContain(T.taskAsking('Claude Code'));
+    expect(host.textContent).toContain(T.taskAsking('Claude'));
   });
 });
 
