@@ -99,7 +99,10 @@ async function main(): Promise<void> {
   await channel.start();
 }
 
-main().catch(() => {
-  console.error("potato-brain: could not start");
+main().catch((error: unknown) => {
+  // The reason, so the app can show it: the error's name and system code, never its message (a path or a url can be in it).
+  const name = error instanceof Error ? error.name : "Error";
+  const code = typeof (error as { code?: unknown } | null)?.code === "string" ? ` ${(error as { code: string }).code}` : "";
+  console.error(`potato-brain: could not start (${name}${code})`);
   process.exit(1);
 });

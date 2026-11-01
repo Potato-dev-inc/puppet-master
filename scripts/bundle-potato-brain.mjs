@@ -10,16 +10,22 @@
  * discord.js; the script fails if one ever slips in.
  *
  * The output is generated and gitignored, like resources/pwa-dist and resources/bin.
- * `scripts/ensure-tauri-resources.mjs` builds it when it is missing.
+ * `scripts/ensure-tauri-resources.mjs` builds it when it is missing or older than its sources: this script
+ * writes a `.source-hash` stamp next to it (see resource-stamp.mjs) for that check.
+ *
+ * POTATO_BRAIN_OUT=<folder> writes there instead (a test builds its own copy without touching the app's).
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import esbuild from 'esbuild';
+import { brainInputsHash, writeStamp } from './resource-stamp.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = resolve(root, 'packages/potato-brain');
-const outDir = resolve(root, 'packages/app/src-tauri/resources/potato-brain');
+const outDir = process.env.POTATO_BRAIN_OUT
+  ? resolve(process.env.POTATO_BRAIN_OUT)
+  : resolve(root, 'packages/app/src-tauri/resources/potato-brain');
 const outfile = resolve(outDir, 'brain.mjs');
 const personaOut = resolve(outDir, 'persona');
 
@@ -47,6 +53,9 @@ if (existsSync(personaOut) && personaOut.startsWith(outDir + sep)) {
   rmSync(personaOut, { recursive: true, force: true });
 }
 cpSync(resolve(pkg, 'persona'), personaOut, { recursive: true });
+
+// Last: a bundle that failed above has no stamp, so the next `ensure` builds it again.
+writeStamp(outDir, brainInputsHash(root));
 
 const kb = Math.round(statSync(outfile).size / 1024);
 console.error(`[bundle-potato-brain] wrote ${outfile} (${kb} KB) and persona/`);

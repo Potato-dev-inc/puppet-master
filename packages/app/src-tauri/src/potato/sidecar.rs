@@ -126,7 +126,9 @@ pub fn script_path(resources: Option<&Path>) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("PM_POTATO_BRAIN").filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(path));
     }
-    let script = resources?.join("brain.mjs");
+    // Never the extended-length spelling (a path that starts with two backslashes and a question mark):
+    // node cannot start a script named like that.
+    let script = super::resource_dirs::without_verbatim_prefix(&resources?.join("brain.mjs"));
     script.is_file().then_some(script)
 }
 

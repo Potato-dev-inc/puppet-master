@@ -63,3 +63,53 @@ impl LogRing {
         self.lines.is_empty()
     }
 }
+
+// ---- why it stopped ---------------------------------------------------------------------------------------------
+
+/// What the app itself writes into the ring when a brain ends or does not start. They end one attempt.
+pub const MARKERS: [&str; 3] = ["the brain exited", "the brain did not say hello", "could not start the brain"];
+
+/// The longest reason shown in a note.
+const REASON_CHARS: usize = 160;
+
+fn is_marker(line: &str) -> bool {
+    MARKERS.iter().any(|m| line.starts_with(m))
+}
+
+/// A line that says what went wrong, or `None` for a stack frame, a source excerpt or a status line.
+fn error_text(line: &str) -> Option<String> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with("at ") || line.starts_with("Node.js v") || line.starts_with('^') || line.starts_with('{') || line.starts_with('}') {
+        return None;
+    }
+    let brain_says = line.strip_prefix("potato-brain:").map(str::trim);
+    let text = match brain_says {
+        // The brain's own words: its refusals and failures, not its greeting and not a single failed turn.
+        Some(rest) if !rest.is_empty() && !rest.contains(": ready") && !rest.starts_with("a turn failed") && !rest.starts_with("an unhandled error") => rest,
+        Some(_) => return None,
+        None if line.contains("Error:") || line.contains("Error [") => line,
+        None => return None,
+    };
+    let text: String = text.chars().take(REASON_CHARS).collect();
+    Some(text.trim_end_matches(['.', ' ']).to_string())
+}
+
+/// Why the brain stopped, in a few words, from the (already cleaned) ring: the last error line it printed since it
+/// last got going (a line saying it is ready ends the search, so an old turn's trouble is not blamed), else what the
+/// app saw last (the exit code, no hello, no start). `None` when the ring says nothing. A line the brain printed as
+/// it died can reach the ring just after the app's own marker, so the search does not stop at a marker.
+pub fn last_reason(lines: &[String]) -> Option<String> {
+    if let Some(error) = lines.iter().rev().take_while(|l| !l.contains(": ready")).find_map(|l| error_text(l)) {
+        return Some(error);
+    }
+    let marker = lines.iter().rev().find(|l| is_marker(l))?;
+    Some(marker.chars().take(REASON_CHARS).collect::<String>().trim_end_matches(['.', ' ']).to_string())
+}
+
+/// The note for a brain that stopped for good: with the reason when the ring has one.
+pub fn stopped_note(name: &str, lines: &[String]) -> String {
+    match last_reason(lines) {
+        Some(reason) => format!("{name}'s brain stopped: {reason}. Press Start again."),
+        None => format!("{name}'s brain stopped. Press Start again."),
+    }
+}
