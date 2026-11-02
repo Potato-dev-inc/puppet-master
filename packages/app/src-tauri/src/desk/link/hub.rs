@@ -522,6 +522,10 @@ impl Hub {
                 let _ = l.ctl.send(StreamMsg::Return { t_milli: milli(t) });
             }
             self.release_controlled();
+            // Step off the edge. Resting on it, this computer would take the pointer straight back across (when it
+            // sees the other computer on this same edge, as after the layout was swapped) and be left holding the
+            // mouse the person is not using.
+            let _ = self.inner.host.move_cursor(inward(pos, entry).0, inward(pos, entry).1);
             clip_link::spawn_send(&self.inner, peer);
         }
     }
