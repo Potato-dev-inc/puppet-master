@@ -32,6 +32,7 @@
 //! touch and appears at the same place in the shared space.
 
 pub mod arrange;
+pub mod clickstate;
 pub mod clip_link;
 pub mod clipboard;
 pub mod commands;

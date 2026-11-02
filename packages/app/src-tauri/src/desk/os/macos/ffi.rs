@@ -54,6 +54,7 @@ pub const CG_EVENT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
 pub const CG_EVENT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 pub const CG_KEYBOARD_EVENT_KEYCODE: u32 = 9;
 pub const CG_EVENT_SOURCE_STATE_COMBINED_SESSION: i32 = 0;
+pub const CG_EVENT_SOURCE_STATE_HID_SYSTEM: i32 = 1;
 pub const CG_SUCCESS: CGError = 0;
 pub const CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
 pub const CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
@@ -105,6 +106,8 @@ extern "C" {
     pub fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     pub fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
     pub fn CGEventGetFlags(event: CGEventRef) -> u64;
+    /// Owned: the caller releases it (`CFRelease`) or keeps it for the life of the process.
+    pub fn CGEventSourceCreate(state_id: i32) -> CGEventSourceRef;
     pub fn CGEventSourceFlagsState(state_id: i32) -> u64;
     pub fn CGEventSourceKeyState(state_id: i32, key: u16) -> bool;
     pub fn CGEventCreateMouseEvent(source: CGEventSourceRef, kind: u32, at: CGPoint, button: u32) -> CGEventRef;
