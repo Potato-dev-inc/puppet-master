@@ -15,7 +15,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
-use desk_core::{translate_hid, ControlEvent, ControlMachine, HostOs, ModifierMap, ScrollNorm, Side};
+use desk_core::{translate_hid, ControlEvent, ControlMachine, HostOs, Side};
 use desk_proto::{Datagram, OsKind, StreamMsg};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{interval, MissedTickBehavior};
@@ -39,6 +39,8 @@ const DWELL_LOOKS: u32 = 2;
 /// Most keys remembered as held on the controlled side.
 const MAX_HELD: usize = 256;
 
+mod actions;
+
 pub struct InstallReq {
     pub peer: NodeId,
     pub link: Arc<dyn Link>,
@@ -60,6 +62,10 @@ pub enum Msg {
     Capture(Capture),
     DialResult { peer: NodeId, ok: bool },
     Pause(bool),
+    /// Hotkey: cross to the Nth paired computer.
+    Jump(u8),
+    /// Hotkey: bring the pointer back from the other computer.
+    ReturnHome,
     Panic,
     Kick,
     /// The placement of a computer changed here: tell the linked computers.
@@ -280,6 +286,8 @@ impl Hub {
                 }
             }
             Msg::Panic => self.stop_all(),
+            Msg::Jump(n) => self.jump_to(n),
+            Msg::ReturnHome => self.return_home(),
             Msg::Kick => self.upkeep(),
             Msg::LayoutChanged => self.send_layouts(),
             Msg::Shutdown => {}
@@ -323,7 +331,7 @@ impl Hub {
     // ---- the edge ----------------------------------------------------------------------------------------
 
     fn poll_edge(&mut self) {
-        if self.paused || self.remote.is_some() || self.controlled.is_some() || !self.inner.labs() {
+        if self.paused || self.remote.is_some() || self.controlled.is_some() || !self.inner.labs() || self.inner.pointer_locked() {
             self.edge_candidate = None;
             return;
         }
@@ -396,6 +404,9 @@ impl Hub {
                     }
                     None => {}
                 }
+                if down && Hub::return_chord_pressed(&self.inner, &self.chords, hid) {
+                    return self.go_home(None);
+                }
                 self.control.handle(if down { ControlEvent::KeyDown(hid) } else { ControlEvent::KeyUp(hid) });
                 let _ = live.ctl.send(StreamMsg::Key { hid, down });
             }
@@ -404,7 +415,7 @@ impl Hub {
                 let _ = live.ctl.send(StreamMsg::Button { button, down });
             }
             Capture::Wheel { dx, dy } => {
-                let (dx, dy) = desk_core::normalize_wheel(ScrollNorm::default(), dx, dy);
+                let (dx, dy) = desk_core::normalize_wheel(self.inner.peer_prefs(&peer).scroll_out(), dx, dy);
                 let _ = live.ctl.send(StreamMsg::Wheel { dx, dy });
             }
             Capture::Motion { dx, dy } => {
@@ -462,7 +473,7 @@ impl Hub {
             StreamMsg::Enter { monitor_id, nx_milli, ny_milli } => self.on_enter(peer, &monitor_id, nx_milli, ny_milli),
             StreamMsg::Key { hid, down } => {
                 let from = self.live.get(&peer).map_or(HostOs::Windows, |l| host_os(l.os));
-                let hid = translate_hid(ModifierMap::default(), from, host_os(io::os_here()), hid);
+                let hid = translate_hid(self.inner.peer_prefs(&peer).modifier_map(), from, host_os(io::os_here()), hid);
                 self.inject_held(peer, Inject::Key { hid, down }, |c| {
                     if down {
                         if c.keys.len() < MAX_HELD {
@@ -480,7 +491,10 @@ impl Hub {
                     c.buttons.remove(&button);
                 }
             }),
-            StreamMsg::Wheel { dx, dy } => self.inject_held(peer, Inject::Wheel { dx, dy }, |_| {}),
+            StreamMsg::Wheel { dx, dy } => {
+                let (dx, dy) = desk_core::normalize_wheel(self.inner.peer_prefs(&peer).scroll_in(), dx, dy);
+                self.inject_held(peer, Inject::Wheel { dx, dy }, |_| {})
+            }
             StreamMsg::ReleaseAll | StreamMsg::Leave => {
                 let leave = matches!(msg, StreamMsg::Leave);
                 if self.controlled.as_ref().is_some_and(|c| c.peer == peer) {

@@ -18,6 +18,14 @@ pub enum DeskAction {
     Screen(u8),
     Find,
     Pause,
+    /// Put the pointer in the middle of the screen it is on.
+    Center,
+    /// Keep the pointer on the screen it is on (toggle).
+    LockPointer,
+    /// 1-based paired computer number: cross to it without moving the mouse.
+    Jump(u8),
+    /// Bring the pointer back from the other computer.
+    ReturnHome,
 }
 
 impl DeskAction {
@@ -29,6 +37,10 @@ impl DeskAction {
             DeskAction::Screen(n) => format!("screen:{n}"),
             DeskAction::Find => "find".into(),
             DeskAction::Pause => "pause".into(),
+            DeskAction::Center => "center".into(),
+            DeskAction::LockPointer => "lock".into(),
+            DeskAction::Jump(n) => format!("jump:{n}"),
+            DeskAction::ReturnHome => "return_home".into(),
         }
     }
 }
@@ -39,7 +51,9 @@ pub struct Binding {
     pub action: DeskAction,
 }
 
+/// Fields missing from an older saved file take their defaults, so adding a key never loses the others.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HotkeyConfig {
     pub next: String,
     pub prev: String,
@@ -47,6 +61,11 @@ pub struct HotkeyConfig {
     pub screen_n: String,
     pub find_pointer: String,
     pub pause: String,
+    pub center: String,
+    pub lock_pointer: String,
+    /// Must contain `{n}`; it becomes 1..9, the Nth paired computer.
+    pub jump_n: String,
+    pub return_home: String,
 }
 
 impl Default for HotkeyConfig {
@@ -57,13 +76,18 @@ impl Default for HotkeyConfig {
             screen_n: "ctrl+alt+{n}".into(),
             find_pointer: "ctrl+alt+f".into(),
             pause: "scrolllock".into(),
+            center: "ctrl+alt+c".into(),
+            lock_pointer: "ctrl+alt+l".into(),
+            jump_n: "ctrl+alt+shift+{n}".into(),
+            return_home: "ctrl+alt+shift+h".into(),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Problem {
-    /// Which setting: `next`, `prev`, `screen_n`, `find_pointer`, `pause`.
+    /// Which setting: `next`, `prev`, `screen_n`, `find_pointer`, `pause`, `center`, `lock_pointer`, `jump_n`,
+    /// `return_home`.
     pub field: &'static str,
     pub message: String,
 }
@@ -75,9 +99,15 @@ fn entries(cfg: &HotkeyConfig) -> Vec<(&'static str, DeskAction, String)> {
         ("prev", DeskAction::Prev, cfg.prev.clone()),
         ("find_pointer", DeskAction::Find, cfg.find_pointer.clone()),
         ("pause", DeskAction::Pause, cfg.pause.clone()),
+        ("center", DeskAction::Center, cfg.center.clone()),
+        ("lock_pointer", DeskAction::LockPointer, cfg.lock_pointer.clone()),
+        ("return_home", DeskAction::ReturnHome, cfg.return_home.clone()),
     ];
     for n in 1..=9u8 {
         out.push(("screen_n", DeskAction::Screen(n), cfg.screen_n.replace("{n}", &n.to_string())));
+    }
+    for n in 1..=9u8 {
+        out.push(("jump_n", DeskAction::Jump(n), cfg.jump_n.replace("{n}", &n.to_string())));
     }
     out
 }
@@ -126,19 +156,23 @@ fn note(problems: &mut Vec<Problem>, field: &'static str, message: String) {
 pub fn compile(cfg: &HotkeyConfig) -> Result<Vec<Binding>, Vec<Problem>> {
     let mut problems: Vec<Problem> = Vec::new();
     let mut out: Vec<Binding> = Vec::new();
-    let has_n = cfg.screen_n.contains("{n}");
-    if !has_n {
+    let screen_has_n = cfg.screen_n.contains("{n}");
+    if !screen_has_n {
         note(&mut problems, "screen_n", "Use {n} where the screen number goes, like ctrl+alt+{n}".into());
     }
+    let jump_has_n = cfg.jump_n.contains("{n}");
+    if !jump_has_n {
+        note(&mut problems, "jump_n", "Use {n} where the computer number goes, like ctrl+alt+shift+{n}".into());
+    }
     for (field, action, text) in entries(cfg) {
-        if field == "screen_n" && !has_n {
+        if (field == "screen_n" && !screen_has_n) || (field == "jump_n" && !jump_has_n) {
             continue;
         }
         let Some(mut chord) = parse_chord(&text) else {
             note(&mut problems, field, format!("\"{}\" is not a key combination", text.trim()));
             continue;
         };
-        if let DeskAction::Screen(n) = action {
+        if let DeskAction::Screen(n) | DeskAction::Jump(n) = action {
             if let Some(hid) = digit_hid(n) {
                 chord.hid = hid;
             }

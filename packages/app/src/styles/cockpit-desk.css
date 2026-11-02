@@ -448,6 +448,32 @@
   outline-offset: 2px;
 }
 
+/* Keys and scrolling for one computer: folded away, the same rows as the switches above. */
+.cockpit .ck-desk-more {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-desk-more > summary {
+  cursor: pointer;
+}
+.cockpit .ck-desk-more > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* A Mac still has to allow Accessibility: a calm box with the steps, in the same tokens as the sections. */
+.cockpit .ck-desk-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--fill);
+}
+.cockpit .ck-desk-banner p {
+  margin: 0;
 /* The layout: every computer's screens in one picture. Blocks are grey; the one you drag lifts, and one that cannot
    go where you hold it turns dashed. State is also said in words, never by tone alone. */
 .cockpit .ck-desk-lay {

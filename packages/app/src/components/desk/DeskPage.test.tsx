@@ -31,8 +31,8 @@ import { Sidebar } from '../cockpit/Sidebar';
 };
 
 const HOTKEYS = {
-  config: { next: 'ctrl+alt+right', prev: 'ctrl+alt+left', screen_n: 'ctrl+alt+{n}', find_pointer: 'ctrl+alt+f', pause: 'scrolllock' },
-  defaults: { next: 'ctrl+alt+right', prev: 'ctrl+alt+left', screen_n: 'ctrl+alt+{n}', find_pointer: 'ctrl+alt+f', pause: 'scrolllock' },
+  config: { next: 'ctrl+alt+right', prev: 'ctrl+alt+left', screen_n: 'ctrl+alt+{n}', find_pointer: 'ctrl+alt+f', pause: 'scrolllock', center: 'ctrl+alt+c', lock_pointer: 'ctrl+alt+l', jump_n: 'ctrl+alt+shift+{n}', return_home: 'ctrl+alt+shift+h' },
+  defaults: { next: 'ctrl+alt+right', prev: 'ctrl+alt+left', screen_n: 'ctrl+alt+{n}', find_pointer: 'ctrl+alt+f', pause: 'scrolllock', center: 'ctrl+alt+c', lock_pointer: 'ctrl+alt+l', jump_n: 'ctrl+alt+shift+{n}', return_home: 'ctrl+alt+shift+h' },
   bindings: [
     { action: 'next', keys: 'ctrl+alt+right' },
     { action: 'prev', keys: 'ctrl+alt+left' },
@@ -45,7 +45,7 @@ const HOTKEYS = {
 function snap(over: Partial<DeskSnapshot> = {}, status: Partial<DeskSnapshot['status']> = {}): DeskSnapshot {
   return {
     seq: 1,
-    status: { state: 'on', hops_enabled: true, paused: false, hooks_installed: true, hook_reinstalls: 0, error: null, ...status },
+    status: { state: 'on', hops_enabled: true, paused: false, hooks_installed: true, pointer_locked: false, hook_reinstalls: 0, error: null, ...status },
     screens: [
       { id: 'a', name: 'A', x: 0, y: 0, width: 2560, height: 1440, scale: 1, primary: true, index: 1 },
       { id: 'b', name: 'B', x: 2560, y: 0, width: 1920, height: 1080, scale: 1, primary: false, index: 2 },
@@ -66,6 +66,7 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
+
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -298,6 +299,67 @@ describe('DeskPage', () => {
     const center = host.querySelector<HTMLInputElement>('input[value="center"]')!;
     await act(async () => center.click());
     expect(h.invoke).toHaveBeenLastCalledWith('desk_command', { cmd: { type: 'set_hop_mode', mode: 'center' } });
+  });
+
+  it('keys and scrolling for a computer reach the app commands with that computer and the whole choice', async () => {
+    const node = 'cd'.repeat(32);
+    /** Test-only fixtures. */
+    const pairView = {
+      hosting: null, pending: null, joining: null, message: null, locked_until: null, tampered: false,
+      devices: [{ node, name: 'Laptop', added_at: 1, online: null, allowed: ['desk/input'] }],
+    };
+    const prefs = { alt_cmd: true, win_option: true, natural: false, speed: 1, reverse_incoming: false };
+    const linkDevice = { node, name: 'Laptop', state: 'online', side: 'right', mouse_here: false, controls_me: false, input_on: true, clipboard_on: false, prefs };
+    const linkView = (p = prefs) => ({
+      seq: 1, devices: [{ ...linkDevice, prefs: p }], mouse_on: null, controlled_by: null, paused: false, sharing: true,
+      tray: 'Mouse sharing is on', admin_note: "Can't control windows that run as admin.", error: null, clipboard_note: null, supported: true,
+    });
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'pair_view') return pairView;
+      if (name === 'desk_link_view') return linkView();
+      if (name === 'desk_link_set_keymap') return linkView({ ...prefs, alt_cmd: false });
+      if (name === 'desk_link_set_scroll') return linkView({ ...prefs, natural: true, speed: 2 });
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Swap Alt and Command for Laptop"]')!.click());
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_keymap', { node, altCmd: false, winOption: true });
+    // The app's answer is what the switch shows now.
+    await flush();
+    expect(host.querySelector('[aria-label="Swap Alt and Command for Laptop"]')!.getAttribute('aria-checked')).toBe('false');
+    const speed = host.querySelector<HTMLSelectElement>('.ck-desk-more select')!;
+    await act(async () => {
+      speed.value = '2';
+      speed.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_scroll', { node, natural: false, speed: 2, reverseIncoming: false });
+    await flush();
+    expect(host.querySelector('[aria-label="Reverse scrolling when I use Laptop"]')!.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('tells a Mac to switch Accessibility on, and says nothing on a computer that does not ask', async () => {
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'desk_permissions') return { accessibility: false };
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    const banner = host.querySelector('[data-testid="permission-banner"]');
+    expect(banner?.textContent).toContain('Privacy & Security');
+    expect(banner?.textContent).toContain('Accessibility');
+    act(() => root.unmount());
+    root = createRoot(host);
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'desk_permissions') return { accessibility: null };
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    expect(host.querySelector('[data-testid="permission-banner"]')).toBeNull();
   });
 });
 

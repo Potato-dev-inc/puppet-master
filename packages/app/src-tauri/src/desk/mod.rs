@@ -22,6 +22,8 @@ pub mod engine;
 pub mod host;
 pub mod link;
 pub mod os;
+pub mod permissions;
+pub mod port;
 
 #[cfg(test)]
 mod guard_tests;
@@ -62,6 +64,7 @@ pub struct Desk {
     notifier: Arc<Mutex<Option<Notifier>>>,
     tick: Duration,
     engine: Mutex<Option<Arc<EngineHandle>>>,
+    port: Arc<port::LinkPort>,
 }
 
 impl Desk {
@@ -73,6 +76,7 @@ impl Desk {
             notifier: Arc::new(Mutex::new(None)),
             tick,
             engine: Mutex::new(None),
+            port: port::LinkPort::new(),
         }
     }
 
@@ -83,6 +87,11 @@ impl Desk {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn engine_running(&self) -> bool {
         self.engine.lock().unwrap_or_else(|p| p.into_inner()).is_some()
+    }
+
+    /// The meeting point with the link: jump/return-home requests go out, the pointer lock comes in.
+    pub fn port(&self) -> Arc<port::LinkPort> {
+        self.port.clone()
     }
 
     pub fn set_notifier(&self, notifier: Notifier) {
@@ -100,6 +109,7 @@ impl Desk {
             labs: self.labs.clone(),
             notifier: self.notifier.clone(),
             tick: self.tick,
+            port: self.port.clone(),
         })?);
         *slot = Some(engine.clone());
         Ok(engine)

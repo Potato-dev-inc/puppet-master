@@ -9,6 +9,8 @@ import { KeysView } from './KeysView';
 import { LayoutEditor } from './LayoutEditor';
 import { usePair } from '../../lib/desk-pair';
 import { useLink } from '../../lib/desk-link';
+import { useDeskPermissions } from '../../lib/desk-permissions';
+import { PermissionBanner } from './PermissionBanner';
 import { LinkStatus } from './LinkStatus';
 import { AddComputerSheet } from './AddComputerSheet';
 import { DeviceRow } from './DeviceRow';
@@ -26,6 +28,7 @@ export function DeskPage() {
   const { snapshot, loadError, actionError, reload, run } = desk;
   const pair = usePair(snapshot !== null);
   const link = useLink(snapshot !== null);
+  const access = useDeskPermissions(snapshot !== null);
   const [adding, setAdding] = useState(false);
   const computersTitleId = useId();
   const pairView = pair.view;
@@ -55,6 +58,8 @@ export function DeskPage() {
           </p>
         )}
       </header>
+
+      <PermissionBanner permissions={access.permissions} onRecheck={access.recheck} />
 
       <LinkStatus view={link.view} error={link.error} onPause={(p) => void link.pause(p)} onPanic={() => void link.panic()} />
 
@@ -178,6 +183,8 @@ export function DeskPage() {
                     device={d}
                     link={link.view?.devices.find((l) => l.node === d.node)}
                     onSide={(side) => void link.setSide(d.node, side)}
+                    onKeymap={(altCmd, winOption) => void link.setKeymap(d.node, altCmd, winOption)}
+                    onScroll={(natural, speed, reverse) => void link.setScroll(d.node, natural, speed, reverse)}
                     onToggle={(cap, on) => void pair.setPermission(d.node, cap, on)}
                     onRemove={() => void pair.remove(d.node)}
                   />

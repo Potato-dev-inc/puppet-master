@@ -301,7 +301,7 @@ fn snapshot_seq_only_goes_up_when_something_changed() {
 #[test]
 fn default_hotkeys_compile_to_next_prev_nine_screens_find_and_pause() {
     let b = compile(&HotkeyConfig::default()).unwrap();
-    assert_eq!(b.len(), 4 + 9);
+    assert_eq!(b.len(), 4 + 9 + 3 + 9, "next, prev, find, pause, 9 screens, center, lock, return home, 9 computers");
     assert!(b.iter().any(|x| x.action == DeskAction::Screen(9)));
 }
 
@@ -722,3 +722,6 @@ fn display_list_failure_is_shown() {
     let snap = desk.snapshot().unwrap();
     assert!(snap.status.error.unwrap().contains("Could not list screens"));
 }
+
+// The settings added after the first version: center, lock, jump to a computer, return home.
+mod new_hotkey_tests;

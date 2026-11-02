@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use desk_core::{HopAction, HopMode, PositionMemory};
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use self::config::{Config, ConfigStore};
 use self::hotkeys::{compile, key_texts, problems_text, Binding, DeskAction, HotkeyConfig, Problem};
 use super::host::{DeskHost, DisplayInfo, HookHealth, HostEvent, HostSink};
+use super::port::{LinkAction, LinkPort};
 
 /// What the page can ask for. Wire form: `{ "type": "hop_to", "screen": 2 }`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -43,6 +44,10 @@ pub enum Cmd {
     /// Pause releases everything (hooks off); resuming installs them again if hops are on.
     Pause { paused: bool },
     SetHopMode { mode: HopMode },
+    /// Put the pointer in the middle of the screen it is on.
+    Center,
+    /// Keep the pointer on the screen it is on, or free it.
+    SetPointerLock { locked: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -52,6 +57,8 @@ pub struct Status {
     pub hops_enabled: bool,
     pub paused: bool,
     pub hooks_installed: bool,
+    /// The pointer is held on one screen (and cannot cross to another computer) until it is freed.
+    pub pointer_locked: bool,
     /// How many times the watchdog had to put a dropped hook back.
     pub hook_reinstalls: u32,
     /// Stays until the next command that works. Polling does not clear it.
@@ -141,6 +148,8 @@ pub struct EngineParts {
     pub notifier: Arc<Mutex<Option<Notifier>>>,
     /// Watchdog period.
     pub tick: Duration,
+    /// Where jump/return-home go and where the pointer lock is published for the link.
+    pub port: Arc<LinkPort>,
 }
 
 pub struct EngineHandle {
@@ -151,13 +160,18 @@ pub struct EngineHandle {
 }
 
 const COMMAND_WAIT: Duration = Duration::from_secs(5);
+/// How often a locked pointer is looked at.
+const LOCK_LOOK: Duration = Duration::from_millis(25);
 
 impl EngineHandle {
     pub fn start(parts: EngineParts) -> Result<Self, String> {
         let (tx, rx) = mpsc::sync_channel::<Msg>(64);
         let loaded = parts.store.load();
         let bindings = compile(&loaded.config.hotkeys).unwrap_or_default();
+        publish_return_chord(&parts.port, &bindings);
         let mut state = State {
+            port: parts.port,
+            lock: None,
             host: parts.host,
             store: parts.store,
             labs: parts.labs,
@@ -224,7 +238,15 @@ impl EngineHandle {
     }
 }
 
+/// The hub matches this one chord itself, on the keys it captures while the pointer is on another computer.
+fn publish_return_chord(port: &LinkPort, bindings: &[Binding]) {
+    port.set_return_chord(bindings.iter().find(|b| b.action == DeskAction::ReturnHome).map(|b| b.chord));
+}
+
 struct State {
+    port: Arc<LinkPort>,
+    /// The pointer is held on one screen (not saved: a restart starts free).
+    lock: Option<desk_core::PhysRect>,
     host: Arc<dyn DeskHost>,
     store: Arc<dyn ConfigStore>,
     labs: Arc<AtomicBool>,
@@ -248,8 +270,10 @@ struct State {
 }
 
 fn run(mut st: State, rx: Receiver<Msg>, tick: Duration, shared: Arc<Mutex<Snapshot>>) {
+    let mut last_watch = Instant::now();
     loop {
-        match rx.recv_timeout(tick) {
+        let wait = if st.lock.is_some() { tick.min(LOCK_LOOK) } else { tick };
+        match rx.recv_timeout(wait) {
             Ok(Msg::Cmd(cmd, reply)) => {
                 let result = st.handle(cmd);
                 st.publish(&shared);
@@ -271,9 +295,14 @@ fn run(mut st: State, rx: Receiver<Msg>, tick: Duration, shared: Arc<Mutex<Snaps
                 return;
             }
             Err(RecvTimeoutError::Timeout) => {
-                st.ticks += 1;
-                st.watchdog();
-                st.publish(&shared);
+                // While the pointer is locked the wait is short; the watchdog still runs once per `tick`.
+                st.keep_in_lock();
+                if st.lock.is_none() || last_watch.elapsed() >= tick {
+                    last_watch = Instant::now();
+                    st.ticks += 1;
+                    st.watchdog();
+                    st.publish(&shared);
+                }
             }
             Err(RecvTimeoutError::Disconnected) => {
                 st.teardown();
@@ -315,6 +344,7 @@ impl State {
         } else if !want && self.installed {
             self.host.remove_hooks();
             self.host.release_all();
+            self.clear_lock();
             self.installed = false;
         }
     }
@@ -343,6 +373,7 @@ impl State {
     fn teardown(&mut self) {
         self.host.remove_hooks();
         self.host.release_all();
+        self.clear_lock();
         self.installed = false;
     }
 
@@ -389,12 +420,15 @@ impl State {
                     // Everything back to the system now, whether or not a hook was up.
                     self.reconcile();
                     self.host.release_all();
+                    self.clear_lock();
                 } else {
                     self.retry_at_tick = 0;
                     self.reconcile();
                 }
                 Ok(())
             }
+            Cmd::Center => self.hop(HopAction::Center),
+            Cmd::SetPointerLock { locked } => self.set_lock(locked),
             Cmd::SetHopMode { mode } => {
                 self.cfg.hop_mode = mode;
                 self.save();
@@ -412,6 +446,7 @@ impl State {
     fn set_hotkeys(&mut self, hotkeys: HotkeyConfig) -> Result<(), String> {
         let bindings: Vec<Binding> = compile(&hotkeys).map_err(|p: Vec<Problem>| problems_text(&p))?;
         self.cfg.hotkeys = hotkeys;
+        publish_return_chord(&self.port, &bindings);
         self.bindings = bindings;
         self.host.set_hotkeys(self.bindings.clone());
         self.save();
@@ -444,6 +479,9 @@ impl State {
         if self.cfg.paused {
             return Err("Screen hops are paused".into());
         }
+        if self.lock.is_some() && !matches!(action, HopAction::Center) {
+            return Err("The pointer is locked to this screen. Press the lock keys again to free it".into());
+        }
         let displays = self.host.displays()?;
         let pointer = self.host.cursor_pos()?;
         let layout = hops::layout_of(&displays);
@@ -451,6 +489,39 @@ impl State {
         self.host.move_cursor(target.x, target.y)?;
         self.refresh();
         Ok(())
+    }
+
+    /// Hold the pointer on the screen it is on (and keep it from crossing to another computer), or free it.
+    /// No OS clip (the guard tests forbid it): the engine puts the pointer back a few times a second instead.
+    fn set_lock(&mut self, locked: bool) -> Result<(), String> {
+        if !locked {
+            self.clear_lock();
+            return Ok(());
+        }
+        let displays = self.host.displays()?;
+        let (x, y) = self.host.cursor_pos()?;
+        let layout = hops::layout_of(&displays);
+        let here = hops::locate(&layout, x, y).ok_or("No screens found")?;
+        self.lock = Some(here.bounds);
+        self.port.set_locked(true);
+        Ok(())
+    }
+
+    /// Free the pointer. Safe when it was not locked.
+    fn clear_lock(&mut self) {
+        self.lock = None;
+        self.port.set_locked(false);
+    }
+
+    /// While locked: a pointer that got out (a fast move, a game, the screen under it going away) is put back on
+    /// the nearest point of the locked screen.
+    fn keep_in_lock(&mut self) {
+        let Some(b) = self.lock else { return };
+        let Ok((x, y)) = self.host.cursor_pos() else { return };
+        let (cx, cy) = (x.clamp(b.x, b.right() - 1), y.clamp(b.y, b.bottom() - 1));
+        if (cx, cy) != (x, y) {
+            let _ = self.host.move_cursor(cx, cy);
+        }
     }
 
     fn find_pointer(&mut self) -> Result<(), String> {
@@ -479,6 +550,10 @@ impl State {
             DeskAction::Screen(n) => self.hop(HopAction::Number(n)),
             DeskAction::Find => self.find_pointer(),
             DeskAction::Pause => self.apply(Cmd::Pause { paused: true }),
+            DeskAction::Center => self.hop(HopAction::Center),
+            DeskAction::LockPointer => self.set_lock(self.lock.is_none()),
+            DeskAction::Jump(n) => self.port.request(LinkAction::Jump(n)),
+            DeskAction::ReturnHome => self.port.request(LinkAction::ReturnHome),
         };
         match result {
             Ok(()) => self.error = None,
@@ -538,6 +613,7 @@ impl State {
                 hops_enabled: self.cfg.hops_enabled,
                 paused: self.cfg.paused,
                 hooks_installed: self.installed,
+                pointer_locked: self.lock.is_some(),
                 hook_reinstalls: self.reinstalls,
                 error: self.error.clone(),
             },

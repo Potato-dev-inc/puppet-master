@@ -45,6 +45,8 @@ export interface DeskStatus {
   hops_enabled: boolean;
   paused: boolean;
   hooks_installed: boolean;
+  /** The pointer is held on one screen and cannot cross to another computer. */
+  pointer_locked: boolean;
   /** Times the watchdog put a dropped keyboard hook back. */
   hook_reinstalls: number;
   /** Stays until the next command that works; polling does not clear it. */
@@ -79,10 +81,18 @@ export interface DeskHotkeyConfig {
   screen_n: string;
   find_pointer: string;
   pause: string;
+  /** Put the pointer in the middle of the screen it is on. */
+  center: string;
+  /** Hold the pointer on the screen it is on, or free it. */
+  lock_pointer: string;
+  /** Must contain `{n}`: the Nth paired computer, in the order the page lists them. */
+  jump_n: string;
+  /** Bring the pointer back from the other computer. */
+  return_home: string;
 }
 
 export interface DeskBinding {
-  /** `next`, `prev`, `screen:3`, `find`, `pause`. */
+  /** `next`, `prev`, `screen:3`, `find`, `pause`, `center`, `lock`, `jump:2`, `return_home`. */
   action: string;
   keys: string;
 }
@@ -125,7 +135,9 @@ export type DeskCommand =
   | { type: 'reset_hotkeys' }
   | { type: 'set_hops_enabled'; enabled: boolean }
   | { type: 'pause'; paused: boolean }
-  | { type: 'set_hop_mode'; mode: DeskHopMode };
+  | { type: 'set_hop_mode'; mode: DeskHopMode }
+  | { type: 'center' }
+  | { type: 'set_pointer_lock'; locked: boolean };
 
 /** The error text every desk command returns while Labs `desk_enabled` is off. */
 export const DESK_FEATURE_OFF_PREFIX = 'FEATURE_OFF';

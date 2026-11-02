@@ -11,25 +11,34 @@ const ROWS: { field: Field; label: string; action: string }[] = [
   { field: 'screen_n', label: 'Go to screen N', action: 'screen' },
   { field: 'find_pointer', label: 'Find my pointer', action: 'find' },
   { field: 'pause', label: 'Pause sharing', action: 'pause' },
+  { field: 'center', label: 'Center the pointer', action: 'center' },
+  { field: 'lock_pointer', label: 'Lock pointer to this screen', action: 'lock' },
+  { field: 'jump_n', label: 'Jump to computer N', action: 'jump' },
+  { field: 'return_home', label: 'Bring the pointer back', action: 'return_home' },
 ];
 
-/** "screen:3" becomes "Go to screen 3"; other actions use the row label. */
+/** The rows that record one digit and stand for nine shortcuts, with the prefix of the engine's names for them. */
+const NUMBERED: Partial<Record<Field, string>> = { screen_n: 'screen:', jump_n: 'jump:' };
+
+/** "screen:3" becomes "Go to screen 3", "jump:2" "Jump to computer 2"; other actions use the row label. */
 function bindingName(action: string): string {
   if (action.startsWith('screen:')) return `Go to screen ${action.slice('screen:'.length)}`;
+  if (action.startsWith('jump:')) return `Jump to computer ${action.slice('jump:'.length)}`;
   return ROWS.find((r) => r.action === action)?.label ?? action;
 }
 
 /** The message when `keys` would clash with another shortcut, or null. */
 export function conflictMessage(rowAction: string, keys: string, bindings: DeskBinding[]): string | null {
   const wanted = normalizeKeys(keys);
+  const prefix = rowAction === 'screen' ? 'screen:' : rowAction === 'jump' ? 'jump:' : null;
   const clash = bindings.find((b) => {
-    const sameRow = rowAction === 'screen' ? b.action.startsWith('screen:') : b.action === rowAction;
+    const sameRow = prefix ? b.action.startsWith(prefix) : b.action === rowAction;
     return !sameRow && normalizeKeys(b.keys) === wanted;
   });
   return clash ? `${formatKeys(keys)} is already used by ${bindingName(clash.action)}.` : null;
 }
 
-/** The screen row records one digit; the engine stores it as `{n}`. */
+/** The numbered rows record one digit; the engine stores it as `{n}`. */
 export function toTemplate(keys: string): string {
   return keys.replace(/\+([1-9])$/, '+{n}');
 }
@@ -46,7 +55,7 @@ export function KeysView({
 
   const save = useCallback(
     (field: Field, keys: string) => {
-      const value = field === 'screen_n' ? toTemplate(keys) : keys;
+      const value = NUMBERED[field] ? toTemplate(keys) : keys;
       void run({ type: 'set_hotkeys', hotkeys: { ...config, [field]: value } });
     },
     [config, run],
@@ -77,7 +86,7 @@ export function KeysView({
                 label={row.label}
                 value={value}
                 check={(keys) => {
-                  if (row.field === 'screen_n' && !/\+[1-9]$/.test(keys)) {
+                  if (NUMBERED[row.field] && !/\+[1-9]$/.test(keys)) {
                     return 'Press a number from 1 to 9 with the same keys.';
                   }
                   return conflictMessage(row.action, keys, hotkeys.bindings);
