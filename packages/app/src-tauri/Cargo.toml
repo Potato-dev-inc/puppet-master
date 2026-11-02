@@ -97,6 +97,7 @@ desk-proto = { path = "crates/desk-proto" }
 # iroh is MIT OR Apache-2.0, pinned exactly; default features off (no metrics, no portmapper, no Apple fast path),
 # only the ring TLS provider (ring is already built for rustls). Relays are used only when a capability allows them.
 iroh = { version = "=1.4.1", default-features = false, features = ["tls-ring"] }
+mdns-sd = "=0.13.11"
 async-trait = "0.1"
 bytes = "1"
 

@@ -788,9 +788,17 @@ impl PairManager {
             });
         });
         self.changed();
+        // If this wait is dropped (the other computer left, the session was aborted) the question must not stay on
+        // screen with an Allow that can no longer reach anyone.
+        struct ClearOnDrop(Arc<PairManager>);
+        impl Drop for ClearOnDrop {
+            fn drop(&mut self) {
+                self.0.with(|s| s.pending = None);
+                self.0.changed();
+            }
+        }
+        let _clear = ClearOnDrop(self.clone());
         let answer = tokio::time::timeout(CONFIRM_TIMEOUT, rx).await;
-        self.with(|s| s.pending = None);
-        self.changed();
         matches!(answer, Ok(Ok(true)))
     }
 
