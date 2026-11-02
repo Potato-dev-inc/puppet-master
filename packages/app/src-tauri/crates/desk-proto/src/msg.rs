@@ -145,6 +145,12 @@ pub enum StreamMsg {
         x: i32,
         y: i32,
     },
+    /// Puppet Master addition (kept last): the computer the pointer tried to cross to said no, in plain words the
+    /// person can act on ("Puppet Master needs Accessibility access ..."). Always followed by `Leave`. Never carries
+    /// keys, clipboard contents or anything the person typed.
+    Refused {
+        reason: String,
+    },
 }
 
 pub fn fits_inline(len: usize) -> bool {
@@ -255,6 +261,7 @@ mod tests {
             StreamMsg::TransferRequest { token: 3 },
             StreamMsg::Return { t_milli: 640 },
             StreamMsg::ReturnAt { x: -1280, y: 300 },
+            StreamMsg::Refused { reason: "Accessibility is off".into() },
         ]
     }
 
@@ -278,6 +285,8 @@ mod tests {
         assert_eq!(ret[4], transfer[4] + 1);
         let ret_at = encode_frame(&StreamMsg::ReturnAt { x: 0, y: 0 }).unwrap();
         assert_eq!(ret_at[4], ret[4] + 1);
+        let refused = encode_frame(&StreamMsg::Refused { reason: String::new() }).unwrap();
+        assert_eq!(refused[4], ret_at[4] + 1);
     }
 
     #[test]

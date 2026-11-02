@@ -349,6 +349,66 @@ async fn a_paused_computer_refuses_the_pointer_and_the_sender_comes_home() {
     assert!(!a.host.capturing());
     assert!(b.host.with(|s| s.log.is_empty()));
     assert!(!b.link.view().devices[0].controls_me);
+    // And the person at a is told why, in plain words.
+    let err = a.link.view().error.unwrap_or_default();
+    assert!(err.contains("Laptop did not take the mouse") && err.contains("paused on Laptop"), "{err}");
+}
+
+/// A Mac without Accessibility cannot send input. It says so at the edge: the sender keeps its mouse, both pages say
+/// why, and nothing on the Mac was moved.
+#[tokio::test(start_paused = true)]
+async fn a_computer_that_cannot_be_controlled_says_why_at_the_edge() {
+    const WHY: &str = "Puppet Master needs Accessibility access to control this Mac.";
+    let (_net, a, b) = together();
+    b.host.with(|s| s.refuse_control = Some(WHY.into()));
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 540);
+    wait_until("a is told", || a.link.view().error.is_some()).await;
+    wait_until("a is home", || !a.host.capturing()).await;
+    let err = a.link.view().error.unwrap();
+    assert_eq!(err, format!("Laptop did not take the mouse: {WHY}"));
+    assert_eq!(b.link.view().error.as_deref(), Some(WHY), "the Mac's own page says it too");
+    assert!(b.host.with(|s| s.moves.is_empty() && s.log.is_empty()), "nothing on the Mac was touched");
+    assert!(!b.link.view().devices[0].controls_me);
+    assert_eq!(state_of(&a, &b), "online", "a refusal does not cost the link");
+}
+
+/// After a no, the pointer is not thrown at that computer again every 20 ms while the person keeps pushing.
+#[tokio::test(start_paused = true)]
+async fn a_refused_crossing_is_not_retried_at_once() {
+    let (_net, a, b) = together();
+    b.host.with(|s| s.refuse_control = Some("no Accessibility".into()));
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 540);
+    wait_until("refused", || a.link.view().error.is_some() && !a.host.capturing()).await;
+    assert_eq!(a.host.with(|s| s.captures_started), 1);
+    // The person keeps pushing at the edge.
+    for _ in 0..15 {
+        a.host.put_cursor(1919, 540);
+        sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(a.host.with(|s| s.captures_started), 1, "tried again inside the pause");
+    // Fixed on the other computer: the next push goes across.
+    b.host.with(|s| s.refuse_control = None);
+    sleep(Duration::from_millis(600)).await;
+    a.host.put_cursor(1919, 540);
+    wait_until("crosses once it is allowed", || a.host.capturing() && b.link.view().devices[0].controls_me).await;
+    assert_eq!(a.link.view().error, None, "a crossing that works clears the old reason");
+}
+
+/// Input that stops working while the pointer is over there (Accessibility switched off mid-way): the other computer
+/// gets its mouse back with the reason, instead of swallowing every move for nothing.
+#[tokio::test(start_paused = true)]
+async fn input_that_stops_working_gives_the_mouse_back_with_the_reason() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    b.host.with(|s| s.fail_inject = Some("macOS said no".into()));
+    a.host.person(Capture::Motion { dx: 5, dy: 0 });
+    wait_until("a is home", || !a.host.capturing()).await;
+    let err = a.link.view().error.unwrap_or_default();
+    assert!(err.contains("Laptop could not move the pointer: macOS said no"), "{err}");
+    assert!(!b.link.view().devices[0].controls_me);
 }
 
 // ----- safety -----

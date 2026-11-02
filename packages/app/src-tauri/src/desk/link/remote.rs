@@ -71,6 +71,13 @@ pub trait RemoteHost: Send + Sync {
         false
     }
 
+    /// Whether another computer could drive this one right now. Asked before the pointer is let in, so a computer
+    /// that cannot send input (macOS without Accessibility) says no in plain words at the edge instead of taking the
+    /// mouse and then ignoring every move.
+    fn can_be_controlled(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Do one thing to this computer. Remembers what it pressed so `release_injected` can undo it.
     fn inject(&self, event: Inject) -> Result<(), String>;
     /// Key-up and button-up for everything `inject` pressed and has not released.
@@ -104,6 +111,9 @@ impl RemoteHost for NoRemote {
         Err(NO.into())
     }
     fn move_cursor(&self, _x: i32, _y: i32) -> Result<(), String> {
+        Err(NO.into())
+    }
+    fn can_be_controlled(&self) -> Result<(), String> {
         Err(NO.into())
     }
     fn inject(&self, _event: Inject) -> Result<(), String> {

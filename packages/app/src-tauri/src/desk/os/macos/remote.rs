@@ -174,6 +174,10 @@ impl RemoteHost for MacosRemote {
         (0..3).any(|b| unsafe { ffi::CGEventSourceButtonState(ffi::CG_EVENT_SOURCE_STATE_COMBINED_SESSION, b) })
     }
 
+    fn can_be_controlled(&self) -> Result<(), String> {
+        require_access()
+    }
+
     fn inject(&self, event: Inject) -> Result<(), String> {
         require_access()?;
         let mut held = self.held.lock().unwrap_or_else(|p| p.into_inner());

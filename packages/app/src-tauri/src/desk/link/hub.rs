@@ -25,7 +25,7 @@ use crate::p2p::endpoint::{Link, NodeId};
 use crate::p2p::session::{DialLedger, Reach, Sessions};
 
 use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
-use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side};
+use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
 use super::remote::{Capture, Inject};
 use super::{clip_link, io, Inner, CLOSE_REPLACED, CLOSE_STOPPED};
 use crate::desk::host::DisplayInfo;
@@ -38,6 +38,16 @@ const UPKEEP: Duration = Duration::from_millis(250);
 const DWELL_LOOKS: u32 = 2;
 /// Most keys remembered as held on the controlled side.
 const MAX_HELD: usize = 256;
+/// After the other computer said no, the pointer does not try it again for this long (it would only be refused again
+/// every 20 ms while the person keeps pushing).
+const REFUSED_PAUSE_MS: u64 = 2_000;
+/// Longest refusal reason taken from the other computer.
+const MAX_REASON_CHARS: usize = 300;
+
+/// The first 8 hex digits of a node id: enough to tell computers apart in a log, nothing secret.
+fn short(peer: &NodeId) -> String {
+    peer.to_hex().chars().take(8).collect()
+}
 
 mod actions;
 
@@ -156,6 +166,8 @@ pub struct Hub {
     shapes: Vec<Shape>,
     origin: (i32, i32),
     edge_candidate: Option<(NodeId, u32)>,
+    /// A computer that said no to the pointer, and until when it is not tried again.
+    refused_until: HashMap<NodeId, u64>,
     upkeeps: u64,
     error: Option<String>,
 }
@@ -177,6 +189,7 @@ impl Hub {
             shapes: Vec::new(),
             origin: (0, 0),
             edge_candidate: None,
+            refused_until: HashMap::new(),
             upkeeps: 0,
             error: None,
         }
@@ -233,8 +246,28 @@ impl Hub {
         }
     }
 
+    /// The page shows `what` ("Mouse sharing hit a problem: ..."), and the log says it too.
     fn fail(&mut self, what: &str) {
+        tracing::warn!(reason = what, "desk: mouse sharing hit a problem");
         self.error = Some(what.to_string());
+    }
+
+    /// The name the person gave a paired computer, for plain-words messages.
+    fn peer_name(&self, peer: &NodeId) -> String {
+        self.inner.trust.list().iter().find(|d| d.node == *peer).map_or_else(|| "The other computer".to_string(), |d| d.name.clone())
+    }
+
+    /// Says no to the pointer `peer` tried to send here: the reason goes to that computer (shown on its page) and
+    /// into this computer's log, then `Leave` sends its pointer home.
+    fn refuse_enter(&mut self, peer: NodeId, reason: &str, show_here: bool) {
+        tracing::warn!(peer = short(&peer).as_str(), reason = reason, "desk: did not let the pointer in");
+        if show_here {
+            self.error = Some(reason.to_string());
+        }
+        if let Some(l) = self.live.get(&peer) {
+            let _ = l.ctl.send(StreamMsg::Refused { reason: reason.to_string() });
+            let _ = l.ctl.send(StreamMsg::Leave);
+        }
     }
 
     // ---- messages ----------------------------------------------------------------------------------------
@@ -261,11 +294,15 @@ impl Hub {
             }
             Msg::Stalled { peer, link_id } => {
                 if self.sessions.is_current(&peer, link_id) {
+                    if self.remote.as_ref().is_some_and(|r| r.peer == peer) || self.controlled.as_ref().is_some_and(|c| c.peer == peer) {
+                        tracing::info!(peer = short(&peer).as_str(), "desk: the other computer went quiet, the pointer comes home");
+                    }
                     self.session_lost(&peer);
                 }
             }
             Msg::Ended { peer, link_id } => {
                 if self.sessions.link_ended(&peer, link_id) {
+                    tracing::info!(peer = short(&peer).as_str(), "desk: link to a computer ended");
                     self.live.remove(&peer);
                     self.session_lost(&peer);
                 }
@@ -298,6 +335,7 @@ impl Hub {
     fn on_install(&mut self, req: InstallReq) {
         let local = self.inner.p2p.node_id().unwrap_or(NodeId([0; 32]));
         if !self.inner.labs() || !self.inner.input_allowed(&req.peer) {
+            tracing::warn!(peer = short(&req.peer).as_str(), labs = self.inner.labs(), "desk: refused a link: Mouse and keyboard is off for that computer here");
             req.link.close(CLOSE_STOPPED, "bye");
             let _ = req.reply.send(false);
             return;
@@ -321,6 +359,8 @@ impl Hub {
                     Live { link_id: req.link_id, link: req.link, ctl: req.ctl, dg: req.dg, os: req.os, motion_seq: 0 },
                 );
                 self.ledger.succeeded(&req.peer);
+                let mac = matches!(req.os, OsKind::Macos);
+                tracing::info!(peer = short(&req.peer).as_str(), dialed = req.dialed, peer_is_mac = mac, "desk: linked with a computer");
                 let _ = req.reply.send(true);
                 // First thing on a new link: our screens and where we think the two computers sit.
                 self.send_layout(req.peer);
@@ -337,8 +377,13 @@ impl Hub {
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
+        let now = self.ms();
+        self.refused_until.retain(|_, until| *until > now);
         let mut hit = None;
         for peer in self.live.keys() {
+            if self.refused_until.contains_key(peer) {
+                continue;
+            }
             if let Some(dep) = self.inner.depart_to(peer, &self.shapes, local, &ALL_SIDES) {
                 hit = Some((*peer, dep));
                 break;
@@ -384,6 +429,7 @@ impl Hub {
         self.control.handle(ControlEvent::CrossTo { peer: desk_core::DeviceId(peer.to_hex()), button_held: false });
         self.remote = Some(Remote { peer, home, side });
         self.error = None;
+        tracing::info!(peer = short(&peer).as_str(), side = side_name(side), "desk: the pointer left for another computer");
         clip_link::spawn_send(&self.inner, peer);
         true
     }
@@ -430,6 +476,7 @@ impl Hub {
     fn go_home(&mut self, arrival: Option<(i32, i32)>) {
         let Some(r) = self.remote.take() else { return };
         let peer = r.peer;
+        tracing::info!(peer = short(&peer).as_str(), "desk: the pointer is back on this computer");
         // The machine keeps the phase in step; what must happen does not depend on what it thinks.
         let _ = self.control.handle(ControlEvent::CrossHome);
         if let Some(l) = self.live.get(&peer) {
@@ -520,6 +567,17 @@ impl Hub {
                     self.go_home(Some(at));
                 }
             }
+            StreamMsg::Refused { reason } => {
+                // The computer we tried to cross to said no (its `Leave` follows and brings the pointer home). Say
+                // why on this page, and do not push the pointer at it again for a moment.
+                let reason: String = reason.chars().filter(|c| !c.is_control()).take(MAX_REASON_CHARS).collect();
+                let name = self.peer_name(&peer);
+                self.refused_until.insert(peer, self.ms() + REFUSED_PAUSE_MS);
+                self.fail(&format!("{name} did not take the mouse: {reason}"));
+                if self.remote.as_ref().is_some_and(|r| r.peer == peer) {
+                    self.go_home(None);
+                }
+            }
             StreamMsg::Return { t_milli } => {
                 if self.remote.as_ref().is_some_and(|r| r.peer == peer) {
                     let side = self.remote.as_ref().map_or(Side::Right, |r| r.side);
@@ -540,11 +598,32 @@ impl Hub {
             }
         };
         let busy = self.remote.is_some() || self.controlled.as_ref().is_some_and(|c| c.peer != peer);
+        let me = self.inner.self_name.clone();
         // `left@3,540`: the exact point, in this computer's local space. A plain `left` is an edge and a fraction.
         let exact = arrange::parse_enter_tag(monitor_id);
-        let Some(entry) = exact.map(|(s, _)| s).or_else(|| parse_side(monitor_id)) else { return refuse(self) };
-        if self.paused || busy || !self.inner.labs() || !self.inner.input_allowed(&peer) {
+        let Some(entry) = exact.map(|(s, _)| s).or_else(|| parse_side(monitor_id)) else {
+            let why = format!("{me} did not understand where the pointer came in. Update both computers to the same version.");
+            return self.refuse_enter(peer, &why, true);
+        };
+        if busy {
+            // Both pointers crossed at once, or a third computer has this one: an ordinary race, not a problem.
+            tracing::info!(peer = short(&peer).as_str(), "desk: did not let the pointer in: the mouse is busy here");
             return refuse(self);
+        }
+        if self.paused {
+            return self.refuse_enter(peer, &format!("Mouse sharing is paused on {me}."), false);
+        }
+        if !self.inner.labs() {
+            return self.refuse_enter(peer, &format!("My computers is switched off in Labs on {me}."), false);
+        }
+        if !self.inner.input_allowed(&peer) {
+            let them = self.peer_name(&peer);
+            return self.refuse_enter(peer, &format!("Mouse and keyboard is off for {them} on {me}. Turn it on there under My computers."), true);
+        }
+        // Asked before anything moves: a computer that cannot send input says so now, instead of taking the pointer
+        // and then ignoring every move while the other computer's mouse is swallowed.
+        if let Err(e) = self.inner.host.can_be_controlled() {
+            return self.refuse_enter(peer, &e, true);
         }
         if self.controlled.is_some() {
             self.release_controlled();
@@ -558,13 +637,15 @@ impl Hub {
             Some((_, p)) => Some(onto_screens(&self.displays, (p.0.saturating_add(self.origin.0), p.1.saturating_add(self.origin.1)), entry)),
             None => entry_point(&self.displays, entry, t),
         };
-        let Some(at) = at else { return refuse(self) };
+        let Some(at) = at else {
+            return self.refuse_enter(peer, &format!("{me} could not find a screen to put the pointer on."), true);
+        };
         if let Err(e) = self.inner.host.move_cursor(at.0, at.1) {
-            self.fail(&format!("Could not place the pointer: {e}"));
-            return refuse(self);
+            return self.refuse_enter(peer, &format!("{me} could not place the pointer: {e}"), true);
         }
         self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new() });
         self.error = None;
+        tracing::info!(peer = short(&peer).as_str(), side = side_name(entry), "desk: another computer is using this one");
     }
 
     fn inject_held(&mut self, peer: NodeId, ev: Inject, note: impl FnOnce(&mut Controlled)) {
@@ -580,8 +661,11 @@ impl Hub {
             return;
         }
         if let Err(e) = self.inner.host.inject(Inject::Move { dx, dy }) {
-            self.fail(&format!("Could not move the pointer: {e}"));
-            return;
+            // The pointer cannot move here, so being controlled is useless: give the other computer its mouse back,
+            // with the reason, rather than leave it swallowing every move.
+            let me = self.inner.self_name.clone();
+            self.release_controlled();
+            return self.refuse_enter(peer, &format!("{me} could not move the pointer: {e}"), true);
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
         // Pushing on through an edge that faces the other computer sends the pointer back, to the matching spot.
@@ -654,6 +738,9 @@ impl Hub {
             match inner.p2p.dial(&addr, capability::DESK_INPUT).await {
                 Ok(link) => io::run_link(inner, peer, link, true).await,
                 Err(_) => {
+                    // Usually: that computer's app is not running, its My computers page was not opened since it
+                    // started, or Mouse and keyboard is off for this computer there.
+                    tracing::debug!(peer = short(&peer).as_str(), "desk: could not reach a computer for mouse sharing");
                     let _ = tx.send(Msg::DialResult { peer, ok: false });
                 }
             }
