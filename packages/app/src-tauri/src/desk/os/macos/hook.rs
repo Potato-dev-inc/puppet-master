@@ -1,3 +1,4 @@
+// Behaviour from desktoplab (github.com/v7ren/desktoplab), commit 6e5360e, MIT.
 //! The keyboard hook, on its own thread with its own run loop. A Quartz event tap sees each key press before the
 //! apps do. Its callback makes the same decision as the Windows hook (the pure `HotkeyMatcher`) and never waits.
 //! macOS turns a tap off when a callback is slow or secure input is on, so the callback turns it back on.
@@ -45,7 +46,7 @@ pub struct Hook {
 /// Each modifier key's mac keycode and the bit that says it is down in the event flags (the device bits from
 /// IOKit's NX_DEVICE*KEYMASK), so the left and right keys can be told apart. Caps lock and fn are left out: caps
 /// lock's flag is a toggle that stays set while the lock is on, and `desk-proto` has no HID code for fn.
-const MODIFIER_BITS: [(u16, u64); 8] = [
+pub(super) const MODIFIER_BITS: [(u16, u64); 8] = [
     (0x37, 0x0000_0008), // left command
     (0x36, 0x0000_0010), // right command
     (0x38, 0x0000_0002), // left shift
@@ -61,14 +62,14 @@ fn now_ms() -> u64 {
 }
 
 /// Whether a modifier key is down, from the event flags. `None` for keys that are not modifiers.
-fn modifier_down(keycode: u16, flags: u64) -> Option<bool> {
+pub(super) fn modifier_down(keycode: u16, flags: u64) -> Option<bool> {
     MODIFIER_BITS
         .iter()
         .find(|(code, _)| *code == keycode)
         .map(|(_, bit)| flags & bit != 0)
 }
 
-fn is_modifier(keycode: u16) -> bool {
+pub(super) fn is_modifier(keycode: u16) -> bool {
     MODIFIER_BITS.iter().any(|(code, _)| *code == keycode)
 }
 
@@ -208,6 +209,10 @@ unsafe extern "C" fn tap_proc(_proxy: CGEventTapProxy, kind: u32, event: CGEvent
         return event;
     }
     ctx.last_callback_ms.store(now_ms(), Ordering::Relaxed);
+    // Keys this computer sent itself (the remote host's injection) are not the person typing a hotkey.
+    if ffi::CGEventGetIntegerValueField(event, ffi::CG_EVENT_SOURCE_UNIX_PROCESS_ID) == i64::from(ffi::getpid()) {
+        return event;
+    }
     let keycode = ffi::CGEventGetIntegerValueField(event, ffi::CG_KEYBOARD_EVENT_KEYCODE) as u16;
     let Some(hid) = mac_to_hid(keycode) else {
         return event;

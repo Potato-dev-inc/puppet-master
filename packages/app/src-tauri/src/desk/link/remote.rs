@@ -87,10 +87,10 @@ pub trait RemoteHost: Send + Sync {
 }
 
 /// Any system without a real implementation yet. Every call says so.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
 pub struct NoRemote;
 
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
 const NO: &str = "My computers does not work on this system yet";
 
 impl RemoteHost for NoRemote {
@@ -128,7 +128,11 @@ pub fn default_remote() -> Arc<dyn RemoteHost> {
     {
         Arc::new(super::super::os::windows::WindowsRemote::new())
     }
-    #[cfg(not(all(windows, not(test))))]
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        Arc::new(super::super::os::macos::MacosRemote::new())
+    }
+    #[cfg(not(any(all(windows, not(test)), all(target_os = "macos", not(test)))))]
     {
         Arc::new(NoRemote)
     }

@@ -55,6 +55,39 @@ pub const CG_EVENT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 pub const CG_KEYBOARD_EVENT_KEYCODE: u32 = 9;
 pub const CG_EVENT_SOURCE_STATE_COMBINED_SESSION: i32 = 0;
 pub const CG_SUCCESS: CGError = 0;
+pub const CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
+pub const CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
+pub const CG_EVENT_RIGHT_MOUSE_DOWN: u32 = 3;
+pub const CG_EVENT_RIGHT_MOUSE_UP: u32 = 4;
+pub const CG_EVENT_MOUSE_MOVED: u32 = 5;
+pub const CG_EVENT_LEFT_MOUSE_DRAGGED: u32 = 6;
+pub const CG_EVENT_RIGHT_MOUSE_DRAGGED: u32 = 7;
+pub const CG_EVENT_SCROLL_WHEEL: u32 = 22;
+pub const CG_EVENT_OTHER_MOUSE_DOWN: u32 = 25;
+pub const CG_EVENT_OTHER_MOUSE_UP: u32 = 26;
+pub const CG_EVENT_OTHER_MOUSE_DRAGGED: u32 = 27;
+pub const CG_MOUSE_EVENT_CLICK_STATE: u32 = 1;
+pub const CG_MOUSE_EVENT_BUTTON_NUMBER: u32 = 3;
+pub const CG_MOUSE_EVENT_DELTA_X: u32 = 4;
+pub const CG_MOUSE_EVENT_DELTA_Y: u32 = 5;
+pub const CG_SCROLL_WHEEL_EVENT_POINT_DELTA_AXIS_1: u32 = 96;
+pub const CG_SCROLL_WHEEL_EVENT_POINT_DELTA_AXIS_2: u32 = 97;
+/// The process that posted the event (ours, for everything `RemoteHost::inject` sends).
+pub const CG_EVENT_SOURCE_UNIX_PROCESS_ID: u32 = 41;
+pub const CG_HID_EVENT_TAP: u32 = 0;
+pub const CG_SCROLL_EVENT_UNIT_PIXEL: u32 = 0;
+/// Mouse buttons, key flags and the scroll wheel, the events a capture tap swallows besides keys.
+pub const POINTER_EVENTS_MASK: u64 = (1 << CG_EVENT_LEFT_MOUSE_DOWN)
+    | (1 << CG_EVENT_LEFT_MOUSE_UP)
+    | (1 << CG_EVENT_RIGHT_MOUSE_DOWN)
+    | (1 << CG_EVENT_RIGHT_MOUSE_UP)
+    | (1 << CG_EVENT_MOUSE_MOVED)
+    | (1 << CG_EVENT_LEFT_MOUSE_DRAGGED)
+    | (1 << CG_EVENT_RIGHT_MOUSE_DRAGGED)
+    | (1 << CG_EVENT_SCROLL_WHEEL)
+    | (1 << CG_EVENT_OTHER_MOUSE_DOWN)
+    | (1 << CG_EVENT_OTHER_MOUSE_UP)
+    | (1 << CG_EVENT_OTHER_MOUSE_DRAGGED);
 /// Key down, key up and flags changed (the modifier keys).
 pub const KEY_EVENTS_MASK: u64 = (1 << CG_EVENT_KEY_DOWN) | (1 << CG_EVENT_KEY_UP) | (1 << CG_EVENT_FLAGS_CHANGED);
 
@@ -74,6 +107,21 @@ extern "C" {
     pub fn CGEventGetFlags(event: CGEventRef) -> u64;
     pub fn CGEventSourceFlagsState(state_id: i32) -> u64;
     pub fn CGEventSourceKeyState(state_id: i32, key: u16) -> bool;
+    pub fn CGEventCreateMouseEvent(source: CGEventSourceRef, kind: u32, at: CGPoint, button: u32) -> CGEventRef;
+    pub fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, keycode: u16, down: bool) -> CGEventRef;
+    pub fn CGEventCreateScrollWheelEvent2(
+        source: CGEventSourceRef,
+        units: u32,
+        wheel_count: u32,
+        wheel1: i32,
+        wheel2: i32,
+        wheel3: i32,
+    ) -> CGEventRef;
+    pub fn CGEventPost(tap: u32, event: CGEventRef);
+    pub fn CGEventSetFlags(event: CGEventRef, flags: u64);
+    pub fn CGEventSetType(event: CGEventRef, kind: u32);
+    pub fn CGEventSetIntegerValueField(event: CGEventRef, field: u32, value: i64);
+    pub fn CGEventSourceButtonState(state_id: i32, button: u32) -> bool;
     pub fn CGEventCreate(source: CGEventSourceRef) -> CGEventRef;
     pub fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
     pub fn CGWarpMouseCursorPosition(point: CGPoint) -> CGError;
@@ -101,3 +149,20 @@ extern "C" {
     pub fn CFRunLoopRunInMode(mode: CFStringRef, seconds: f64, return_after_source_handled: u8) -> i32;
     pub fn CFRelease(cf: CFTypeRef);
 }
+
+extern "C" {
+    pub fn getpid() -> i32;
+}
+
+// The Objective-C runtime, for the one place that needs it: the pasteboard (`clipboard.rs`).
+#[link(name = "objc")]
+extern "C" {
+    pub fn objc_getClass(name: *const std::os::raw::c_char) -> *mut c_void;
+    pub fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
+    /// Declared without arguments on purpose: each call site casts it to the exact function type it needs.
+    pub fn objc_msgSend();
+}
+
+#[link(name = "Foundation", kind = "framework")]
+#[link(name = "AppKit", kind = "framework")]
+extern "C" {}
