@@ -66,6 +66,7 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
+
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -189,65 +190,37 @@ describe('DeskPage', () => {
     expect(h.invoke).toHaveBeenCalledWith('desk_link_pause', { paused: true });
   });
 
-  it('keys and scrolling for a computer reach the app commands with that computer and the whole choice', async () => {
+  it('shows the layout of every computer and follows a move pushed by the other one', async () => {
     const node = 'cd'.repeat(32);
     /** Test-only fixtures. */
-    const pairView = {
-      hosting: null, pending: null, joining: null, message: null, locked_until: null, tampered: false,
-      devices: [{ node, name: 'Laptop', added_at: 1, online: null, allowed: ['desk/input'] }],
-    };
-    const prefs = { alt_cmd: true, win_option: true, natural: false, speed: 1, reverse_incoming: false };
-    const linkDevice = { node, name: 'Laptop', state: 'online', side: 'right', mouse_here: false, controls_me: false, input_on: true, clipboard_on: false, prefs };
-    const linkView = (p = prefs) => ({
-      seq: 1, devices: [{ ...linkDevice, prefs: p }], mouse_on: null, controlled_by: null, paused: false, sharing: true,
-      tray: 'Mouse sharing is on', admin_note: "Can't control windows that run as admin.", error: null, clipboard_note: null, supported: true,
+    const pairView = { hosting: null, pending: null, joining: null, message: null, locked_until: null, tampered: false, devices: [{ node, name: 'Laptop', added_at: 1, online: null, allowed: ['desk/input'] }] };
+    const layout = (laptopY: number) => ({
+      touch_gap: 80,
+      computers: [
+        { node: '', name: 'Ren-PC', me: true, online: true, known: true, x: 0, y: 0, width: 1920, height: 1080, screens: [{ id: 'm', name: 'm', x: 0, y: 0, width: 1920, height: 1080, primary: true }] },
+        { node, name: 'Laptop', me: false, online: true, known: true, x: 1920, y: laptopY, width: 1280, height: 800, screens: [{ id: 'l', name: 'l', x: 1920, y: laptopY, width: 1280, height: 800, primary: true }] },
+      ],
     });
     h.invoke.mockImplementation(async (name: string) => {
       if (name === 'desk_snapshot') return snap();
       if (name === 'pair_view') return pairView;
-      if (name === 'desk_link_view') return linkView();
-      if (name === 'desk_link_set_keymap') return linkView({ ...prefs, alt_cmd: false });
-      if (name === 'desk_link_set_scroll') return linkView({ ...prefs, natural: true, speed: 2 });
+      if (name === 'desk_link_layout') return layout(0);
+      if (name === 'desk_link_set_place') return layout(300);
       return undefined;
     });
     await act(async () => root.render(<DeskPage />));
     await flush();
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Swap Alt and Command for Laptop"]')!.click());
-    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_keymap', { node, altCmd: false, winOption: true });
-    // The app's answer is what the switch shows now.
-    await flush();
-    expect(host.querySelector('[aria-label="Swap Alt and Command for Laptop"]')!.getAttribute('aria-checked')).toBe('false');
-    const speed = host.querySelector<HTMLSelectElement>('.ck-desk-more select')!;
+    const laptop = () => host.querySelector<HTMLElement>('[aria-label="Move Laptop"]')!;
+    expect(host.textContent).toContain('Layout');
+    const top = laptop().style.top;
+    // The other computer moved it: the page follows.
+    await act(async () => h.listeners.get('desk://layout')!({ payload: layout(300) }));
+    expect(laptop().style.top).not.toBe(top);
+    // Moving it from the keyboard saves through the engine.
     await act(async () => {
-      speed.value = '2';
-      speed.dispatchEvent(new Event('change', { bubbles: true }));
+      laptop().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
     });
-    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_scroll', { node, natural: false, speed: 2, reverseIncoming: false });
-    await flush();
-    expect(host.querySelector('[aria-label="Reverse scrolling when I use Laptop"]')!.getAttribute('aria-checked')).toBe('true');
-  });
-
-  it('tells a Mac to switch Accessibility on, and says nothing on a computer that does not ask', async () => {
-    h.invoke.mockImplementation(async (name: string) => {
-      if (name === 'desk_snapshot') return snap();
-      if (name === 'desk_permissions') return { accessibility: false };
-      return undefined;
-    });
-    await act(async () => root.render(<DeskPage />));
-    await flush();
-    const banner = host.querySelector('[data-testid="permission-banner"]');
-    expect(banner?.textContent).toContain('Privacy & Security');
-    expect(banner?.textContent).toContain('Accessibility');
-    act(() => root.unmount());
-    root = createRoot(host);
-    h.invoke.mockImplementation(async (name: string) => {
-      if (name === 'desk_snapshot') return snap();
-      if (name === 'desk_permissions') return { accessibility: null };
-      return undefined;
-    });
-    await act(async () => root.render(<DeskPage />));
-    await flush();
-    expect(host.querySelector('[data-testid="permission-banner"]')).toBeNull();
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_place', { node, x: 1920, y: 320 });
   });
 
   it('draws nothing while the Labs switch is off', async () => {
@@ -326,6 +299,67 @@ describe('DeskPage', () => {
     const center = host.querySelector<HTMLInputElement>('input[value="center"]')!;
     await act(async () => center.click());
     expect(h.invoke).toHaveBeenLastCalledWith('desk_command', { cmd: { type: 'set_hop_mode', mode: 'center' } });
+  });
+
+  it('keys and scrolling for a computer reach the app commands with that computer and the whole choice', async () => {
+    const node = 'cd'.repeat(32);
+    /** Test-only fixtures. */
+    const pairView = {
+      hosting: null, pending: null, joining: null, message: null, locked_until: null, tampered: false,
+      devices: [{ node, name: 'Laptop', added_at: 1, online: null, allowed: ['desk/input'] }],
+    };
+    const prefs = { alt_cmd: true, win_option: true, natural: false, speed: 1, reverse_incoming: false };
+    const linkDevice = { node, name: 'Laptop', state: 'online', side: 'right', mouse_here: false, controls_me: false, input_on: true, clipboard_on: false, prefs };
+    const linkView = (p = prefs) => ({
+      seq: 1, devices: [{ ...linkDevice, prefs: p }], mouse_on: null, controlled_by: null, paused: false, sharing: true,
+      tray: 'Mouse sharing is on', admin_note: "Can't control windows that run as admin.", error: null, clipboard_note: null, supported: true,
+    });
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'pair_view') return pairView;
+      if (name === 'desk_link_view') return linkView();
+      if (name === 'desk_link_set_keymap') return linkView({ ...prefs, alt_cmd: false });
+      if (name === 'desk_link_set_scroll') return linkView({ ...prefs, natural: true, speed: 2 });
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Swap Alt and Command for Laptop"]')!.click());
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_keymap', { node, altCmd: false, winOption: true });
+    // The app's answer is what the switch shows now.
+    await flush();
+    expect(host.querySelector('[aria-label="Swap Alt and Command for Laptop"]')!.getAttribute('aria-checked')).toBe('false');
+    const speed = host.querySelector<HTMLSelectElement>('.ck-desk-more select')!;
+    await act(async () => {
+      speed.value = '2';
+      speed.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_scroll', { node, natural: false, speed: 2, reverseIncoming: false });
+    await flush();
+    expect(host.querySelector('[aria-label="Reverse scrolling when I use Laptop"]')!.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('tells a Mac to switch Accessibility on, and says nothing on a computer that does not ask', async () => {
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'desk_permissions') return { accessibility: false };
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    const banner = host.querySelector('[data-testid="permission-banner"]');
+    expect(banner?.textContent).toContain('Privacy & Security');
+    expect(banner?.textContent).toContain('Accessibility');
+    act(() => root.unmount());
+    root = createRoot(host);
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'desk_permissions') return { accessibility: null };
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    expect(host.querySelector('[data-testid="permission-banner"]')).toBeNull();
   });
 });
 

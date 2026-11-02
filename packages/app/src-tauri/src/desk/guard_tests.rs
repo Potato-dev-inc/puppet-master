@@ -113,14 +113,14 @@ fn the_two_commands_are_the_only_desk_entry_points() {
 #[test]
 fn the_link_commands_are_desktop_window_commands_only() {
     let lib = read(&tauri_src().join("lib.rs"));
-    for name in ["desk_link_view", "desk_link_set_side", "desk_link_pause", "desk_link_panic"] {
+    for name in ["desk_link_view", "desk_link_set_side", "desk_link_pause", "desk_link_panic", "desk_link_layout", "desk_link_set_place"] {
         assert_eq!(lib.matches(&format!("desk::link::commands::{name}")).count(), 1, "{name}");
     }
     let commands = read(&tauri_src().join("desk").join("link").join("commands.rs"));
-    assert_eq!(commands.matches("#[tauri::command]").count(), 4);
+    assert_eq!(commands.matches("#[tauri::command]").count(), 6);
     assert!(!commands.contains("pub fn "));
     // Every one goes through `link_ready`, which says FEATURE_OFF while Labs is off.
-    assert_eq!(commands.matches("link_ready(&app)?").count(), 4);
+    assert_eq!(commands.matches("link_ready(&app)?").count(), 6);
 }
 
 /// Nothing starts sharing by itself: the link starts only from the page's command (or a person's settings change),

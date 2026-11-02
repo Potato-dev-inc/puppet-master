@@ -24,7 +24,8 @@ use crate::p2p::capability;
 use crate::p2p::endpoint::{Link, NodeId};
 use crate::p2p::session::{DialLedger, Reach, Sessions};
 
-use super::geometry::{edge_hit, entry_point, from_milli, inward, milli, parse_side, pushing_back, side_name};
+use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
+use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side};
 use super::remote::{Capture, Inject};
 use super::{clip_link, io, Inner, CLOSE_REPLACED, CLOSE_STOPPED};
 use crate::desk::host::DisplayInfo;
@@ -67,6 +68,8 @@ pub enum Msg {
     ReturnHome,
     Panic,
     Kick,
+    /// The placement of a computer changed here: tell the linked computers.
+    LayoutChanged,
     Shutdown,
 }
 
@@ -91,8 +94,6 @@ struct Remote {
 /// `peer` is using this computer.
 struct Controlled {
     peer: NodeId,
-    /// The edge of this computer's screens the pointer came in through.
-    entry: Side,
     keys: BTreeSet<u16>,
     buttons: BTreeSet<u8>,
 }
@@ -151,6 +152,9 @@ pub struct Hub {
     paused: bool,
     chords: Chords,
     displays: Vec<DisplayInfo>,
+    /// `displays` in local space (the box around them starts at 0, 0) and where that space's origin is.
+    shapes: Vec<Shape>,
+    origin: (i32, i32),
     edge_candidate: Option<(NodeId, u32)>,
     upkeeps: u64,
     error: Option<String>,
@@ -170,6 +174,8 @@ impl Hub {
             paused: false,
             chords: Chords::default(),
             displays: Vec::new(),
+            shapes: Vec::new(),
+            origin: (0, 0),
             edge_candidate: None,
             upkeeps: 0,
             error: None,
@@ -202,6 +208,28 @@ impl Hub {
     fn refresh_displays(&mut self) {
         if let Ok(d) = self.inner.host.displays() {
             self.displays = d;
+            let (shapes, origin) = localize(&self.displays);
+            self.shapes = shapes.clone();
+            self.origin = origin;
+            // New screens change the layout: show it, and tell the linked computers.
+            if self.inner.set_my_shapes((shapes, origin)) {
+                self.inner.notify_layout();
+                self.send_layouts();
+            }
+        }
+    }
+
+    /// Tells `peer` our screens and where we sit relative to it.
+    fn send_layout(&self, peer: NodeId) {
+        if let (Some(bytes), Some(l)) = (self.inner.layout_bytes(&peer), self.live.get(&peer)) {
+            let _ = l.ctl.send(StreamMsg::Layout { bytes });
+        }
+    }
+
+    fn send_layouts(&self) {
+        let peers: Vec<NodeId> = self.live.keys().copied().collect();
+        for p in peers {
+            self.send_layout(p);
         }
     }
 
@@ -261,6 +289,7 @@ impl Hub {
             Msg::Jump(n) => self.jump_to(n),
             Msg::ReturnHome => self.return_home(),
             Msg::Kick => self.upkeep(),
+            Msg::LayoutChanged => self.send_layouts(),
             Msg::Shutdown => {}
         }
         self.publish();
@@ -293,6 +322,8 @@ impl Hub {
                 );
                 self.ledger.succeeded(&req.peer);
                 let _ = req.reply.send(true);
+                // First thing on a new link: our screens and where we think the two computers sit.
+                self.send_layout(req.peer);
             }
         }
     }
@@ -305,15 +336,15 @@ impl Hub {
             return;
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
+        let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
         let mut hit = None;
         for peer in self.live.keys() {
-            let side = self.inner.side_of(peer);
-            if let Some(t) = edge_hit(&self.displays, pos, side) {
-                hit = Some((*peer, side, t));
+            if let Some(dep) = self.inner.depart_to(peer, &self.shapes, local, &ALL_SIDES) {
+                hit = Some((*peer, dep));
                 break;
             }
         }
-        let Some((peer, side, t)) = hit else {
+        let Some((peer, dep)) = hit else {
             self.edge_candidate = None;
             return;
         };
@@ -322,13 +353,14 @@ impl Hub {
             _ => 1,
         };
         self.edge_candidate = Some((peer, looks));
-        if looks >= DWELL_LOOKS && self.cross_to(peer, side, t, pos) {
+        if looks >= DWELL_LOOKS && self.cross_to(peer, &dep, pos) {
             self.edge_candidate = None;
             self.publish();
         }
     }
 
-    fn cross_to(&mut self, peer: NodeId, side: Side, t: f64, pos: (i32, i32)) -> bool {
+    fn cross_to(&mut self, peer: NodeId, dep: &arrange::Departure, pos: (i32, i32)) -> bool {
+        let side = dep.side;
         if !self.inner.input_allowed(&peer) || self.inner.host.buttons_held() {
             return false;
         }
@@ -344,13 +376,11 @@ impl Hub {
         let home = inward(pos, side);
         self.inner.set_emergency(true, home);
         let entry = side.opposite();
-        let (nx, ny) = match entry {
-            Side::Left => (0, milli(t)),
-            Side::Right => (1000, milli(t)),
-            Side::Top => (milli(t), 0),
-            Side::Bottom => (milli(t), 1000),
-        };
-        let _ = live.ctl.send(StreamMsg::Enter { monitor_id: side_name(entry).to_string(), nx_milli: nx, ny_milli: ny });
+        // The exact arrival point travels in the id; the fractions are the same point along the other computer's box.
+        let theirs = self.inner.peer_box(&peer);
+        let frac = |v: i32, len: i32| milli(f64::from(v) / f64::from((len - 1).max(1)));
+        let (nx, ny) = (frac(dep.to.0, theirs.0), frac(dep.to.1, theirs.1));
+        let _ = live.ctl.send(StreamMsg::Enter { monitor_id: arrange::enter_tag(entry, dep.to), nx_milli: nx, ny_milli: ny });
         self.control.handle(ControlEvent::CrossTo { peer: desk_core::DeviceId(peer.to_hex()), button_held: false });
         self.remote = Some(Remote { peer, home, side });
         self.error = None;
@@ -475,6 +505,21 @@ impl Hub {
                     self.go_home(None);
                 }
             }
+            StreamMsg::Layout { bytes } => {
+                if let Some(m) = arrange::decode_msg(&bytes) {
+                    if self.inner.apply_layout(&peer, m) {
+                        self.send_layout(peer);
+                    }
+                }
+            }
+            StreamMsg::ReturnAt { x, y } => {
+                if self.remote.as_ref().is_some_and(|r| r.peer == peer) {
+                    let side = self.remote.as_ref().map_or(Side::Right, |r| r.side);
+                    self.refresh_displays();
+                    let at = onto_screens(&self.displays, (x.saturating_add(self.origin.0), y.saturating_add(self.origin.1)), side);
+                    self.go_home(Some(at));
+                }
+            }
             StreamMsg::Return { t_milli } => {
                 if self.remote.as_ref().is_some_and(|r| r.peer == peer) {
                     let side = self.remote.as_ref().map_or(Side::Right, |r| r.side);
@@ -483,7 +528,7 @@ impl Hub {
                     self.go_home(arrival);
                 }
             }
-            // Hello again, layout, clipboard on the wrong stream, drag: not part of this link.
+            // Hello again, clipboard on the wrong stream, drag: not part of this link.
             _ => {}
         }
     }
@@ -495,7 +540,9 @@ impl Hub {
             }
         };
         let busy = self.remote.is_some() || self.controlled.as_ref().is_some_and(|c| c.peer != peer);
-        let Some(entry) = parse_side(monitor_id) else { return refuse(self) };
+        // `left@3,540`: the exact point, in this computer's local space. A plain `left` is an edge and a fraction.
+        let exact = arrange::parse_enter_tag(monitor_id);
+        let Some(entry) = exact.map(|(s, _)| s).or_else(|| parse_side(monitor_id)) else { return refuse(self) };
         if self.paused || busy || !self.inner.labs() || !self.inner.input_allowed(&peer) {
             return refuse(self);
         }
@@ -507,12 +554,16 @@ impl Hub {
             Side::Left | Side::Right => from_milli(ny),
             Side::Top | Side::Bottom => from_milli(nx),
         };
-        let Some(at) = entry_point(&self.displays, entry, t) else { return refuse(self) };
+        let at = match exact {
+            Some((_, p)) => Some(onto_screens(&self.displays, (p.0.saturating_add(self.origin.0), p.1.saturating_add(self.origin.1)), entry)),
+            None => entry_point(&self.displays, entry, t),
+        };
+        let Some(at) = at else { return refuse(self) };
         if let Err(e) = self.inner.host.move_cursor(at.0, at.1) {
             self.fail(&format!("Could not place the pointer: {e}"));
             return refuse(self);
         }
-        self.controlled = Some(Controlled { peer, entry, keys: BTreeSet::new(), buttons: BTreeSet::new() });
+        self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new() });
         self.error = None;
     }
 
@@ -525,21 +576,26 @@ impl Hub {
     }
 
     fn on_motion(&mut self, peer: NodeId, dx: i32, dy: i32) {
-        let Some(entry) = self.controlled.as_ref().filter(|c| c.peer == peer).map(|c| c.entry) else { return };
+        if !self.controlled.as_ref().is_some_and(|c| c.peer == peer) {
+            return;
+        }
         if let Err(e) = self.inner.host.inject(Inject::Move { dx, dy }) {
             self.fail(&format!("Could not move the pointer: {e}"));
             return;
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
-        if let Some(t) = pushing_back(&self.displays, entry, pos, (dx, dy)) {
+        // Pushing on through an edge that faces the other computer sends the pointer back, to the matching spot.
+        let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
+        if let Some(dep) = self.inner.depart_to(&peer, &self.shapes, local, &outward((dx, dy))) {
             if let Some(l) = self.live.get(&peer) {
-                let _ = l.ctl.send(StreamMsg::Return { t_milli: milli(t) });
+                let _ = l.ctl.send(StreamMsg::ReturnAt { x: dep.to.0, y: dep.to.1 });
             }
             self.release_controlled();
             // Step off the edge. Resting on it, this computer would take the pointer straight back across (when it
             // sees the other computer on this same edge, as after the layout was swapped) and be left holding the
             // mouse the person is not using.
-            let _ = self.inner.host.move_cursor(inward(pos, entry).0, inward(pos, entry).1);
+            let off = inward(pos, dep.side);
+            let _ = self.inner.host.move_cursor(off.0, off.1);
             clip_link::spawn_send(&self.inner, peer);
         }
     }

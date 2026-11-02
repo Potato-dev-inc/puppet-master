@@ -2,7 +2,7 @@
 //! A child of `hub` so it can use the hub's own state; kept apart so `hub.rs` stays about the link itself.
 
 use super::{Chords, Hub, Inner, Side};
-use crate::desk::link::geometry::side_name;
+use crate::desk::link::arrange::ALL_SIDES;
 
 impl Hub {
     /// Cross to the Nth paired computer (the order the page lists them) without moving the mouse: the pointer
@@ -27,12 +27,28 @@ impl Hub {
             return self.fail(&format!("{name} is not connected"));
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return self.fail("Could not find the pointer") };
-        let side: Side = self.inner.side_of(&peer);
-        if !self.cross_to(peer, side, 0.5, pos) && self.error.is_none() {
+        // Leave through the middle of whichever screen edge faces that computer in the layout.
+        let mut dep = None;
+        'find: for shape in self.shapes.clone() {
+            let r = shape.rect;
+            for side in ALL_SIDES {
+                let at = match side {
+                    Side::Right => (r.right() - 1, r.y + r.height as i32 / 2),
+                    Side::Left => (r.x, r.y + r.height as i32 / 2),
+                    Side::Bottom => (r.x + r.width as i32 / 2, r.bottom() - 1),
+                    Side::Top => (r.x + r.width as i32 / 2, r.y),
+                };
+                if let Some(d) = self.inner.depart_to(&peer, &self.shapes, at, &[side]) {
+                    dep = Some(d);
+                    break 'find;
+                }
+            }
+        }
+        let Some(dep) = dep else { return self.fail(&format!("{name} is not next to any of this computer's screens in the layout")) };
+        if !self.cross_to(peer, &dep, pos) && self.error.is_none() {
             self.fail(&format!("Could not move the mouse to {name} (a button may be held, or its mouse switch is off)"));
         }
         self.edge_candidate = None;
-        let _ = side_name; // the entry edge is named on the wire by `cross_to`
     }
 
     /// Bring the pointer back from the other computer, or take it back from one using this computer. Nothing to do

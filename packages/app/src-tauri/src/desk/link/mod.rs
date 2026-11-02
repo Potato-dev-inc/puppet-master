@@ -23,8 +23,15 @@
 //! a key, install a hook, register a hotkey or touch the real clipboard.
 //!
 //! Layout: `hub` (decisions), `io` (one link's tasks), `clip_link` (clipboard streams), `clipboard` (chunk rules),
-//! `geometry` (edges), `remote` (the OS trait), `wire` (framing), `commands` (the page's commands).
+//! `geometry` (edges), `arrange` (where each computer sits in one shared space, and where the pointer crosses),
+//! `remote` (the OS trait), `wire` (framing), `commands` (the page's commands).
+//!
+//! **The layout**: each paired computer is placed at a spot relative to this one (`arrange::Spot`). The two computers
+//! send each other their screens and the placement (`StreamMsg::Layout`, newest revision wins, ties go to the lower
+//! node id) so both agree; moving a computer on either one updates the other. The pointer crosses only where screens
+//! touch and appears at the same place in the shared space.
 
+pub mod arrange;
 pub mod clip_link;
 pub mod clipboard;
 pub mod commands;
@@ -49,7 +56,7 @@ use std::sync::{Arc, Mutex, Weak};
 use async_trait::async_trait;
 use desk_core::Side;
 use desk_proto::OsKind;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -61,6 +68,7 @@ use crate::p2p::session::Reach;
 use crate::p2p::trust::TrustList;
 use crate::p2p::P2p;
 
+use self::arrange::{collide, default_spot, dominant_side, localize, shifted, size_of, Shape, Spot};
 use self::geometry::{parse_side, side_name};
 use self::hub::{Hub, Msg};
 use self::io::LinkShared;
@@ -115,6 +123,46 @@ impl LinkStore for FileLinkStore {
     }
 }
 
+/// What this computer remembers about one paired computer's place in the layout.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PeerRec {
+    /// Where it sits relative to this computer. `None` until anyone moved it (then `arrange::default_spot`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spot: Option<Spot>,
+    /// When that was decided (milliseconds since 1970 on the computer where it was decided). 0 = never.
+    #[serde(default)]
+    pub rev: u64,
+    /// Its screens the last time it told us (in its own local space), so the layout can be drawn while it is off.
+    #[serde(default)]
+    pub screens: Vec<Shape>,
+}
+
+/// The store keeps one string per computer: JSON of [`PeerRec`], or one of the old words left/right/top/bottom.
+fn decode_store(raw: BTreeMap<String, String>) -> BTreeMap<String, PeerRec> {
+    let mut out = BTreeMap::new();
+    for (node, text) in raw {
+        let rec = if text.trim_start().starts_with('{') {
+            serde_json::from_str(&text).unwrap_or_default()
+        } else {
+            match parse_side(&text) {
+                Some(side) => PeerRec { spot: Some(Spot::Side(side)), rev: 1, screens: Vec::new() },
+                None => PeerRec::default(),
+            }
+        };
+        out.insert(node, rec);
+    }
+    out
+}
+
+fn encode_store(peers: &BTreeMap<String, PeerRec>) -> BTreeMap<String, String> {
+    peers.iter().filter_map(|(k, v)| serde_json::to_string(v).ok().map(|s| (k.clone(), s))).collect()
+}
+
+fn next_rev(prev: u64) -> u64 {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    now.max(prev + 1)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DeviceLink {
     pub node: String,
@@ -153,6 +201,47 @@ pub struct LinkView {
     pub supported: bool,
 }
 
+/// One screen in the shared space (this computer's local space, so this computer starts at 0, 0).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct LayoutScreen {
+    pub id: String,
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub primary: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct LayoutComputer {
+    /// Empty for this computer, the node id of a paired one.
+    pub node: String,
+    pub name: String,
+    pub me: bool,
+    pub online: bool,
+    /// False until it has told us its screens (then this computer's own screens are drawn as a stand-in).
+    pub known: bool,
+    /// Top-left corner of the box around its screens, and the size of that box.
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub screens: Vec<LayoutScreen>,
+    /// Zero until someone moved it.
+    pub rev: u64,
+}
+
+/// Every computer's screens in one coordinate space. This computer's box starts at (0, 0).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct LayoutView {
+    pub computers: Vec<LayoutComputer>,
+    /// Edges closer than this (shared-space pixels) count as touching, so the page can snap to it.
+    pub touch_gap: i32,
+}
+
+pub type LayoutNotifier = Arc<dyn Fn(&LayoutView) + Send + Sync>;
+
 static SHARING: AtomicBool = AtomicBool::new(false);
 
 /// Whether the tray's tooltip should say "Mouse sharing is on".
@@ -171,6 +260,7 @@ struct Mirror {
     error: Option<String>,
     seq: u64,
     last: Option<LinkView>,
+    last_layout: Option<LayoutView>,
 }
 
 #[derive(Default)]
@@ -198,9 +288,12 @@ pub(super) struct Inner {
     labs: AtomicBool,
     hub: Mutex<Option<(mpsc::UnboundedSender<Msg>, JoinHandle<()>)>>,
     store: Arc<dyn LinkStore>,
-    sides: Mutex<BTreeMap<String, String>>,
+    peers: Mutex<BTreeMap<String, PeerRec>>,
+    /// This computer's screens in local space and where that space's origin is on the desktop. Kept by the hub.
+    shapes: Mutex<(Vec<Shape>, (i32, i32))>,
     mirror: Mutex<Mirror>,
     notifier: Mutex<Option<Notifier>>,
+    layout_notifier: Mutex<Option<LayoutNotifier>>,
     emergency: Mutex<Emergency>,
     stats: Mutex<HashMap<NodeId, Arc<LinkShared>>>,
     clip: Mutex<ClipState>,
@@ -256,8 +349,169 @@ impl Inner {
         self.labs() && self.trust.allowed(peer, capability::DESK_CLIPBOARD)
     }
 
-    pub(super) fn side_of(&self, peer: &NodeId) -> Side {
-        lock(&self.sides).get(&peer.to_hex()).and_then(|s| parse_side(s)).unwrap_or(Side::Right)
+    /// This computer's screens in local space, and the desktop position of that space's origin.
+    pub(super) fn my_shapes(&self) -> (Vec<Shape>, (i32, i32)) {
+        let cached = lock(&self.shapes).clone();
+        if !cached.0.is_empty() {
+            return cached;
+        }
+        let fresh = self.host.displays().map(|d| localize(&d)).unwrap_or_default();
+        if !fresh.0.is_empty() {
+            *lock(&self.shapes) = fresh.clone();
+        }
+        fresh
+    }
+
+    pub(super) fn set_my_shapes(&self, s: (Vec<Shape>, (i32, i32))) -> bool {
+        let mut cur = lock(&self.shapes);
+        let changed = *cur != s;
+        *cur = s;
+        changed
+    }
+
+    /// Where `hex` sits relative to this computer, and when that was decided.
+    fn spot_of(&self, peers: &BTreeMap<String, PeerRec>, hex: &str) -> (Spot, u64) {
+        match peers.get(hex) {
+            Some(PeerRec { spot: Some(s), rev, .. }) => (*s, *rev),
+            _ => (default_spot(&self.node_hex(), hex), 0),
+        }
+    }
+
+    /// The pointer rests at `pos` (this computer's local space): where does it go on `peer`?
+    pub(super) fn depart_to(&self, peer: &NodeId, mine: &[Shape], pos: (i32, i32), sides: &[Side]) -> Option<arrange::Departure> {
+        let hex = peer.to_hex();
+        let peers = lock(&self.peers);
+        let (spot, _) = self.spot_of(&peers, &hex);
+        let theirs = peers.get(&hex).map(|r| r.screens.as_slice()).filter(|s| !s.is_empty()).unwrap_or(mine);
+        let at = spot.resolve(size_of(mine), size_of(theirs));
+        arrange::depart(mine, theirs, at, pos, sides)
+    }
+
+    /// Width and height of the box around `peer`'s screens (this computer's own size until it has told us).
+    pub(super) fn peer_box(&self, peer: &NodeId) -> (i32, i32) {
+        let told = lock(&self.peers).get(&peer.to_hex()).map(|r| size_of(&r.screens)).filter(|s| s.0 > 0);
+        told.unwrap_or_else(|| size_of(&self.my_shapes().0))
+    }
+
+    /// The layout message for `peer`: our screens, and where we sit relative to it.
+    pub(super) fn layout_bytes(&self, peer: &NodeId) -> Option<Vec<u8>> {
+        let screens = self.my_shapes().0;
+        if screens.is_empty() {
+            return None;
+        }
+        let (spot, rev) = self.spot_of(&lock(&self.peers), &peer.to_hex());
+        Some(arrange::encode_msg(&arrange::LayoutMsg { v: arrange::LAYOUT_V, screens, spot: spot.mirror(), rev }))
+    }
+
+    /// A layout message arrived. Returns whether our answer is newer, so it should be said back.
+    pub(super) fn apply_layout(&self, peer: &NodeId, m: arrange::LayoutMsg) -> bool {
+        let hex = peer.to_hex();
+        let peer_lower = hex < self.node_hex();
+        let (changed, reply) = {
+            let mut peers = lock(&self.peers);
+            let (local, local_rev) = self.spot_of(&peers, &hex);
+            let rec = peers.entry(hex).or_default();
+            let mut changed = rec.screens != m.screens;
+            rec.screens = m.screens;
+            // `m.spot` is where the sender sits relative to us: exactly what we keep for it.
+            let theirs = m.spot;
+            let (mut adopt, mut reply) = (false, false);
+            if m.rev > local_rev {
+                adopt = true;
+            } else if m.rev == local_rev {
+                if local_rev > 0 && theirs != local {
+                    adopt = peer_lower;
+                    reply = !peer_lower;
+                }
+            } else {
+                reply = true;
+            }
+            if adopt && (rec.spot != Some(theirs) || rec.rev != m.rev) {
+                rec.spot = Some(theirs);
+                rec.rev = m.rev;
+                changed = true;
+            }
+            (changed, reply)
+        };
+        if changed {
+            self.persist();
+            self.notify();
+            self.notify_layout();
+        }
+        reply
+    }
+
+    fn persist(&self) {
+        let _ = self.store.save(&encode_store(&lock(&self.peers)));
+    }
+
+    pub(super) fn build_layout(&self) -> LayoutView {
+        let (mine, _) = self.my_shapes();
+        let devices = self.trust.list();
+        let m = lock(&self.mirror);
+        let peers = lock(&self.peers);
+        let (mw, mh) = size_of(&mine);
+        let screens_at = |shapes: &[Shape], by: (i32, i32)| -> Vec<LayoutScreen> {
+            shifted(shapes, by)
+                .into_iter()
+                .map(|s| LayoutScreen { id: s.id, name: s.name, x: s.rect.x, y: s.rect.y, width: s.rect.width, height: s.rect.height, primary: s.primary })
+                .collect()
+        };
+        let mut computers = vec![LayoutComputer {
+            node: String::new(),
+            name: self.self_name.clone(),
+            me: true,
+            online: true,
+            known: !mine.is_empty(),
+            x: 0,
+            y: 0,
+            width: mw,
+            height: mh,
+            screens: screens_at(&mine, (0, 0)),
+            rev: 0,
+        }];
+        for d in devices.iter().filter(|d| d.allowed.contains(capability::DESK_INPUT)) {
+            let hex = d.node.to_hex();
+            let told = peers.get(&hex).map(|r| r.screens.clone()).filter(|s| !s.is_empty());
+            let known = told.is_some();
+            let theirs = told.unwrap_or_else(|| mine.clone());
+            let (spot, rev) = self.spot_of(&peers, &hex);
+            let (tw, th) = size_of(&theirs);
+            let at = spot.resolve((mw, mh), (tw, th));
+            computers.push(LayoutComputer {
+                node: hex,
+                name: d.name.clone(),
+                me: false,
+                online: m.reach.get(&d.node).copied() == Some(Reach::Online),
+                known,
+                x: at.0,
+                y: at.1,
+                width: tw,
+                height: th,
+                screens: screens_at(&theirs, at),
+                rev,
+            });
+        }
+        LayoutView { computers, touch_gap: desk_core::MAX_GAP_PX }
+    }
+
+    pub(super) fn notify_layout(&self) {
+        let view = self.build_layout();
+        let send = {
+            let mut m = lock(&self.mirror);
+            if m.last_layout.as_ref() == Some(&view) {
+                false
+            } else {
+                m.last_layout = Some(view.clone());
+                true
+            }
+        };
+        if send {
+            let n = lock(&self.layout_notifier).clone();
+            if let Some(n) = n {
+                n(&view);
+            }
+        }
     }
 
     pub(super) fn set_emergency(&self, capturing: bool, home: (i32, i32)) {
@@ -319,21 +573,34 @@ impl Inner {
         lock(&self.clip_links).remove(peer);
     }
 
+    /// The plain word for where `peer` sits: by where its middle is.
     fn side_name_of(&self, peer: &NodeId) -> &'static str {
-        side_name(self.side_of(peer))
+        let (mine, _) = self.my_shapes();
+        let peers = lock(&self.peers);
+        let hex = peer.to_hex();
+        let (spot, _) = self.spot_of(&peers, &hex);
+        let theirs = peers.get(&hex).map(|r| r.screens.as_slice()).filter(|s| !s.is_empty()).unwrap_or(mine.as_slice());
+        let (ms, ts) = (size_of(&mine), size_of(theirs));
+        side_name(dominant_side(ms, ts, spot.resolve(ms, ts)))
     }
 
     /// Called by the hub after every message.
     pub(super) fn publish(&self, reach: HashMap<NodeId, Reach>, mouse_on: Option<NodeId>, controlled_by: Option<NodeId>, paused: bool, error: Option<String>) {
-        {
+        let reach_changed = {
             let mut m = lock(&self.mirror);
+            let changed = m.reach != reach;
             m.reach = reach;
             m.mouse_on = mouse_on;
             m.controlled_by = controlled_by;
             m.paused = paused;
             m.error = error;
-        }
+            changed
+        };
         self.notify();
+        // The layout page shows who is online: only when that changed, since this runs on every message.
+        if reach_changed {
+            self.notify_layout();
+        }
     }
 
     pub(super) fn build_view(&self) -> LinkView {
@@ -467,7 +734,7 @@ pub struct DeskLink {
 impl DeskLink {
     /// Registers `desk/input` and `desk/clipboard` on the PC link. Opens no socket, reads no key, starts no task.
     pub fn new(p2p: Arc<P2p>, trust: Arc<TrustList>, host: Arc<dyn RemoteHost>, store: Arc<dyn LinkStore>, name: &str) -> Result<Arc<Self>, P2pError> {
-        let sides = store.load();
+        let peers = decode_store(store.load());
         let inner = Arc::new(Inner {
             p2p: p2p.clone(),
             trust,
@@ -480,9 +747,11 @@ impl DeskLink {
             labs: AtomicBool::new(false),
             hub: Mutex::new(None),
             store,
-            sides: Mutex::new(sides),
+            peers: Mutex::new(peers),
+            shapes: Mutex::new((Vec::new(), (0, 0))),
             mirror: Mutex::new(Mirror::default()),
             notifier: Mutex::new(None),
+            layout_notifier: Mutex::new(None),
             emergency: Mutex::new(Emergency::default()),
             stats: Mutex::new(HashMap::new()),
             clip: Mutex::new(ClipState::default()),
@@ -501,6 +770,10 @@ impl DeskLink {
 
     pub fn set_notifier(&self, n: Notifier) {
         *lock(&self.inner.notifier) = Some(n);
+    }
+
+    pub fn set_layout_notifier(&self, n: LayoutNotifier) {
+        *lock(&self.inner.layout_notifier) = Some(n);
     }
 
     /// The Labs switch. Off is the kill switch: links close, the pointer comes home, the endpoint stops listening.
@@ -545,14 +818,62 @@ impl DeskLink {
         self.inner.build_view()
     }
 
-    /// Where a computer sits relative to this one.
+    /// Where a computer sits relative to this one, as a snapped placement: touching on that side, top edges aligned.
     pub fn set_side(&self, node: &NodeId, side: &str) -> Result<(), String> {
-        parse_side(side).ok_or_else(|| "Pick left, right, above or below.".to_string())?;
-        let mut sides = lock(&self.inner.sides);
-        sides.insert(node.to_hex(), side.to_string());
-        self.inner.store.save(&sides).map_err(|e| format!("Could not save the layout: {e}"))?;
-        drop(sides);
+        let side = parse_side(side).ok_or_else(|| "Pick left, right, above or below.".to_string())?;
+        self.place(node, Spot::Side(side))
+    }
+
+    /// Puts a computer's screens at (x, y): the top-left corner of the box around them, in the space where this
+    /// computer's own box starts at (0, 0). The other computer is told, and agrees.
+    pub fn set_position(&self, node: &NodeId, x: i32, y: i32) -> Result<(), String> {
+        if x.abs() > arrange::MAX_COORD || y.abs() > arrange::MAX_COORD {
+            return Err("That is too far away.".to_string());
+        }
+        // Its own box, not the box of the whole layout: the page sends where the box is.
+        self.place(node, Spot::At { x, y })
+    }
+
+    /// Everything the layout page draws.
+    pub fn layout(&self) -> LayoutView {
+        self.inner.build_layout()
+    }
+
+    fn place(&self, node: &NodeId, spot: Spot) -> Result<(), String> {
+        let hex = node.to_hex();
+        {
+            let mut peers = lock(&self.inner.peers);
+            let (mine, _) = self.inner.my_shapes();
+            // Screens never lie on top of each other, this computer's or another paired computer's.
+            let screens_of = |peers: &BTreeMap<String, PeerRec>, h: &str| -> Vec<Shape> {
+                peers.get(h).map(|r| r.screens.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| mine.clone())
+            };
+            let theirs = screens_of(&peers, &hex);
+            let at = spot.resolve(size_of(&mine), size_of(&theirs));
+            let placed = shifted(&theirs, at);
+            if collide(&mine, &placed) {
+                return Err("That would put the screens on top of each other.".to_string());
+            }
+            for other in peers.keys().filter(|k| **k != hex) {
+                let is_paired = self.inner.trust.list().iter().any(|d| d.node.to_hex() == *other && d.allowed.contains(capability::DESK_INPUT));
+                if !is_paired {
+                    continue;
+                }
+                let o = screens_of(&peers, other);
+                let (o_spot, _) = self.inner.spot_of(&peers, other);
+                let o_at = o_spot.resolve(size_of(&mine), size_of(&o));
+                if collide(&shifted(&o, o_at), &placed) {
+                    return Err("That would put the screens on top of another computer.".to_string());
+                }
+            }
+            let rec = peers.entry(hex).or_default();
+            rec.spot = Some(spot);
+            rec.rev = next_rev(rec.rev);
+        }
+        self.inner.store.save(&encode_store(&lock(&self.inner.peers))).map_err(|e| format!("Could not save the layout: {e}"))?;
         self.inner.notify();
+        self.inner.notify_layout();
+        self.send(Msg::LayoutChanged);
         Ok(())
     }
 

@@ -10,7 +10,7 @@ use serde_json::json;
 use tokio::time::{sleep, Instant};
 
 use super::clipboard::{self, Assembler, ClipError, CAP, CHUNK};
-use super::mock::MockRemote;
+use super::mock::{display, MockRemote};
 use super::remote::{Capture, ClipItem, Inject, RemoteHost};
 use super::wire::{read_frame, write_frame, write_kind, CONTROL_FRAME_MAX, KIND_CONTROL};
 use super::{DeskLink, MemLinkStore, CLOSE_PROTOCOL};
@@ -37,13 +37,16 @@ struct Pc {
 }
 
 fn pc(net: &MemoryNet, name: &str) -> Pc {
+    pc_with(net, name, MockRemote::standard())
+}
+
+fn pc_with(net: &MemoryNet, name: &str, host: MockRemote) -> Pc {
     let backend: Arc<dyn SecretBackend> = Arc::new(MemoryBackend::new());
     let keys = KeyStore::with_backend(backend, name);
     let ident = DeviceIdentity::load(&keys).unwrap();
     let trust = TrustList::open(MemoryTrustStorage::new(), Arc::new(KeyStoreSigner::new(keys.clone())));
     let p2p = Arc::new(P2p::new(keys, net.factory(), Arc::new(Registry::new()), trust.clone()));
     p2p.apply_settings(&json!({ "desk_enabled": true }));
-    let host = MockRemote::standard();
     let link = DeskLink::new(p2p.clone(), trust.clone(), Arc::new(host.clone()), Arc::new(MemLinkStore::default()), name).unwrap();
     link.apply_settings(true);
     Pc { name: name.to_string(), id: ident.id(), device_pub: ident.binding().device_pub, trust, p2p, link, host }
@@ -64,8 +67,18 @@ const ALL: [&str; 2] = [capability::DESK_INPUT, capability::DESK_CLIPBOARD];
 
 /// Two paired computers with both switches on for each other.
 fn together() -> (MemoryNet, Pc, Pc) {
+    together_with(MockRemote::standard())
+}
+
+/// The same, with a chosen screen setup for the second computer.
+fn together_with(host_b: MockRemote) -> (MemoryNet, Pc, Pc) {
     let net = MemoryNet::new();
-    let (a, b) = (pc(&net, "Ren-PC"), pc(&net, "Laptop"));
+    // The lower node id has the other computer on its right until someone moves it, so `a` is the lower one.
+    let a = pc(&net, "Ren-PC");
+    let mut b = pc_with(&net, "Laptop", host_b.clone());
+    while b.id.to_hex() < a.id.to_hex() {
+        b = pc_with(&net, "Laptop", host_b.clone());
+    }
     pair(&a, &b);
     allow(&a, &b, &ALL);
     allow(&b, &a, &ALL);
@@ -925,3 +938,172 @@ mod hotkey_tests;
 
 // Per-computer keys and scrolling.
 mod prefs_tests;
+
+// ----- the layout -----
+
+fn laptop() -> MockRemote {
+    MockRemote::new(vec![display("main", 0, 0, 1280, 800)], (640, 400))
+}
+
+fn spot_of_in(p: &Pc, other: &Pc) -> (i32, i32) {
+    let v = p.link.layout();
+    let c = v.computers.iter().find(|c| c.node == other.id.to_hex()).unwrap();
+    (c.x, c.y)
+}
+
+/// Both computers have told each other their screens.
+async fn knows_screens(a: &Pc, b: &Pc) {
+    wait_until("a knows b's screens", || a.link.layout().computers.iter().any(|c| c.node == b.id.to_hex() && c.known)).await;
+    wait_until("b knows a's screens", || b.link.layout().computers.iter().any(|c| c.node == a.id.to_hex() && c.known)).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_layout_view_has_every_computer_in_one_space() {
+    let (_net, a, b) = together_with(laptop());
+    up(&a, &b).await;
+    knows_screens(&a, &b).await;
+    let v = a.link.layout();
+    assert_eq!(v.computers.len(), 2);
+    let me = &v.computers[0];
+    assert!(me.me && me.node.is_empty() && (me.x, me.y, me.width, me.height) == (0, 0, 1920, 1080));
+    let other = &v.computers[1];
+    assert_eq!((other.x, other.y, other.width, other.height), (1920, 0, 1280, 800), "the default: on the right, tops aligned");
+    assert_eq!((other.screens[0].x, other.screens[0].width), (1920, 1280));
+    assert!(other.known && other.online);
+    // The other computer sees the mirror.
+    assert_eq!(spot_of_in(&b, &a), (-1920, 0));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_pointer_crosses_only_where_the_screens_touch_and_lands_at_the_matching_spot() {
+    let (_net, a, b) = together_with(laptop());
+    up(&a, &b).await;
+    knows_screens(&a, &b).await;
+    // The laptop sits on the right, 200 px lower than the top of the big screen.
+    a.link.set_position(&b.id, 1920, 200).unwrap();
+    wait_until("b agrees", || spot_of_in(&b, &a) == (-1920, -200)).await;
+    // Above the laptop and below it, the edge is a wall.
+    for y in [100, 199, 1000, 1070] {
+        a.host.put_cursor(1919, y);
+        sleep(Duration::from_millis(200)).await;
+        assert!(!a.host.capturing(), "y={y} is beside the laptop");
+        a.host.put_cursor(960, 540);
+        sleep(Duration::from_millis(30)).await;
+    }
+    a.host.put_cursor(1919, 500);
+    wait_until("crossed", || a.host.capturing() && b.link.view().devices[0].controls_me).await;
+    let (bx, by) = b.host.cursor();
+    assert_eq!((bx, by), (3, 300), "500 down the big screen is 300 down the laptop");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_way_back_lands_at_the_matching_spot_of_the_big_screen() {
+    let (_net, a, b) = together_with(laptop());
+    up(&a, &b).await;
+    knows_screens(&a, &b).await;
+    a.link.set_position(&b.id, 1920, 200).unwrap();
+    wait_until("b agrees", || spot_of_in(&b, &a) == (-1920, -200)).await;
+    a.host.put_cursor(1919, 500);
+    wait_until("crossed", || a.host.capturing()).await;
+    for _ in 0..8 {
+        a.host.person(Capture::Motion { dx: -30, dy: 0 });
+        sleep(Duration::from_millis(5)).await;
+    }
+    wait_until("pointer home", || !a.host.capturing()).await;
+    let (x, y) = a.host.cursor();
+    assert_eq!((x, y), (1916, 500), "came back to the same height");
+    assert!(b.link.view().controlled_by.is_none());
+    sleep(Duration::from_millis(300)).await;
+    assert!(!a.host.capturing(), "it does not cross again by itself");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_gap_between_the_computers_is_a_wall() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    knows_screens(&a, &b).await;
+    a.link.set_position(&b.id, 2300, 0).unwrap();
+    wait_until("b agrees", || spot_of_in(&b, &a) == (-2300, 0)).await;
+    a.host.put_cursor(1919, 540);
+    sleep(Duration::from_millis(300)).await;
+    assert!(!a.host.capturing());
+    // Closing the gap makes it cross again.
+    a.link.set_position(&b.id, 1950, 0).unwrap();
+    wait_until("crosses", || a.host.capturing()).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn moving_a_computer_on_either_side_moves_it_on_the_other() {
+    let (_net, a, b) = together_with(laptop());
+    up(&a, &b).await;
+    knows_screens(&a, &b).await;
+    a.link.set_position(&b.id, 1920, 300).unwrap();
+    wait_until("b sees a left of it and 300 higher", || spot_of_in(&b, &a) == (-1920, -300)).await;
+    // And the other way: the person moves it on the laptop (the big screen at x -1920, y 0 from the laptop).
+    sleep(Duration::from_millis(5)).await;
+    b.link.set_position(&a.id, -1920, 0).unwrap();
+    wait_until("a sees the laptop at 1920, 0", || spot_of_in(&a, &b) == (1920, 0)).await;
+    // The newer decision wins everywhere; neither side keeps its old answer.
+    sleep(Duration::from_millis(500)).await;
+    assert_eq!(spot_of_in(&a, &b), (1920, 0));
+    assert_eq!(spot_of_in(&b, &a), (-1920, 0));
+}
+
+#[tokio::test(start_paused = true)]
+async fn set_side_is_a_snapped_placement_both_agree_on() {
+    let (_net, a, b) = together_with(laptop());
+    up(&a, &b).await;
+    knows_screens(&a, &b).await;
+    a.link.set_side(&b.id, "bottom").unwrap();
+    wait_until("b has a above it", || spot_of_in(&b, &a) == (0, -1080)).await;
+    assert_eq!(spot_of_in(&a, &b), (0, 1080));
+    assert_eq!(a.link.view().devices[0].side, "bottom");
+    assert_eq!(b.link.view().devices[0].side, "top");
+    b.link.set_side(&a.id, "right").unwrap();
+    wait_until("a has b on its left", || a.link.view().devices[0].side == "left").await;
+    assert_eq!(spot_of_in(&a, &b), (-1280, 0));
+}
+
+#[tokio::test(start_paused = true)]
+async fn screens_cannot_be_put_on_top_of_each_other() {
+    let (_net, a, b) = together_with(laptop());
+    up(&a, &b).await;
+    knows_screens(&a, &b).await;
+    assert!(a.link.set_position(&b.id, 100, 100).is_err());
+    assert!(a.link.set_position(&b.id, 10_000_000, 0).is_err());
+    assert_eq!(spot_of_in(&a, &b), (1920, 0), "a refused placement changes nothing");
+    assert!(a.link.set_position(&b.id, 1919, 0).is_err(), "one pixel over is over");
+    assert!(a.link.set_position(&b.id, 1920, 0).is_ok(), "touching is fine");
+}
+
+#[test]
+fn the_old_side_words_are_still_read_from_the_store() {
+    let raw = std::collections::BTreeMap::from([("aa".to_string(), "left".to_string()), ("bb".to_string(), "sideways".to_string())]);
+    let peers = super::decode_store(raw);
+    assert_eq!(peers["aa"].spot, Some(super::arrange::Spot::Side(Side::Left)));
+    assert!(peers["aa"].rev > 0, "an old choice beats the default");
+    assert_eq!(peers["bb"].spot, None);
+    // And what is written now reads back.
+    let mut m = std::collections::BTreeMap::new();
+    m.insert("cc".to_string(), super::PeerRec { spot: Some(super::arrange::Spot::At { x: -5, y: 9 }), rev: 77, screens: vec![] });
+    assert_eq!(super::decode_store(super::encode_store(&m)), m);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_older_decision_does_not_win() {
+    let (_net, a, b) = together_with(laptop());
+    up(&a, &b).await;
+    knows_screens(&a, &b).await;
+    a.link.set_position(&b.id, 1920, 100).unwrap();
+    wait_until("b agrees", || spot_of_in(&b, &a) == (-1920, -100)).await;
+    // A message with an older revision is answered with the newer decision, not adopted.
+    let old = super::arrange::LayoutMsg {
+        v: super::arrange::LAYOUT_V,
+        screens: vec![super::arrange::Shape { id: "main".into(), name: "main".into(), primary: true, rect: desk_core::PhysRect::new(0, 0, 1920, 1080) }],
+        spot: super::arrange::Spot::At { x: -1920, y: -900 },
+        rev: 2,
+    };
+    let reply = b.link.inner.apply_layout(&a.id, old);
+    assert!(reply, "the newer decision is said back");
+    assert_eq!(spot_of_in(&b, &a), (-1920, -100));
+}

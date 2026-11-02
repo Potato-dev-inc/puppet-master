@@ -474,4 +474,97 @@
 }
 .cockpit .ck-desk-banner p {
   margin: 0;
+/* The layout: every computer's screens in one picture. Blocks are grey; the one you drag lifts, and one that cannot
+   go where you hold it turns dashed. State is also said in words, never by tone alone. */
+.cockpit .ck-desk-lay {
+  max-height: 360px;
+  touch-action: none;
+  user-select: none;
+}
+.cockpit .ck-desk-lay-block {
+  position: absolute;
+  box-sizing: border-box;
+  display: block;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--label-2);
+  font: inherit;
+  cursor: grab;
+  transition: left 120ms var(--ease), top 120ms var(--ease), box-shadow 120ms var(--ease);
+}
+.cockpit .ck-desk-lay-block.is-me {
+  cursor: default;
+  color: var(--label);
+}
+.cockpit .ck-desk-lay-block.is-dragging {
+  cursor: grabbing;
+  z-index: 2;
+  transition: box-shadow 120ms var(--ease);
+  box-shadow: 0 6px 18px var(--sep);
+}
+.cockpit .ck-desk-lay-block:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cockpit .ck-desk-lay-screen {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  padding: 4px 6px;
+  border: 1px solid var(--label-3);
+  border-radius: 4px;
+  background: var(--bg-float);
+  font-size: 11px;
+  overflow: hidden;
+}
+.cockpit .ck-desk-lay-block.is-me .ck-desk-lay-screen,
+.cockpit .ck-desk-lay-screen.is-main {
+  border-color: var(--label-2);
+}
+.cockpit .ck-desk-lay-block:hover:not(.is-me) .ck-desk-lay-screen {
+  background: var(--fill-hover);
+}
+.cockpit .ck-desk-lay-block.is-offline .ck-desk-lay-screen {
+  opacity: 0.6;
+}
+.cockpit .ck-desk-lay-block.is-unknown .ck-desk-lay-screen,
+.cockpit .ck-desk-lay-block.is-blocked .ck-desk-lay-screen {
+  border-style: dashed;
+}
+.cockpit .ck-desk-lay-block.is-blocked {
+  opacity: 0.7;
+}
+.cockpit .ck-desk-lay-chip {
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: calc(100% - 12px);
+  pointer-events: none;
+  text-align: left;
+}
+.cockpit .ck-desk-lay-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cockpit .ck-desk-lay-note {
+  font-size: 11px;
+  color: var(--label-3);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-desk-lay-block {
+    transition: none;
+  }
 }
