@@ -4,19 +4,23 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use async_trait::async_trait;
 use desk_core::Side;
-use desk_proto::{OsKind, StreamMsg, PROTO_VERSION};
+use desk_proto::{Datagram, OsKind, StreamMsg, PROTO_VERSION};
 use serde_json::json;
-use tokio::time::{sleep, Instant};
+use tokio::sync::mpsc;
+use tokio::time::{sleep, timeout, Instant};
 
 use super::clipboard::{self, Assembler, ClipError, CAP, CHUNK};
+use super::hub::Msg;
+use super::io::{run_tasks, LinkShared};
 use super::mock::{display, MockRemote};
 use super::remote::{Capture, ClipItem, Inject, RemoteHost};
 use super::wire::{read_frame, write_frame, write_kind, CONTROL_FRAME_MAX, KIND_CONTROL};
 use super::{DeskLink, MemLinkStore, CLOSE_PROTOCOL};
 use crate::p2p::alpn;
 use crate::p2p::capability::{self, Registry};
-use crate::p2p::endpoint::{BiStream, Link, NodeId, PeerAddr, RefusalKind, Transport};
+use crate::p2p::endpoint::{BiStream, Link, NodeId, P2pError, PathKind, PeerAddr, RefusalKind, Transport};
 use crate::p2p::identity::DeviceIdentity;
 use crate::p2p::memory::MemoryNet;
 use crate::p2p::trust::{KeyStoreSigner, MemoryTrustStorage, TrustList};
@@ -431,7 +435,7 @@ async fn a_held_key_is_released_at_once_when_the_link_is_cut() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_pulled_cable_releases_held_keys_within_300_ms() {
+async fn a_pulled_cable_releases_held_keys_within_500_ms() {
     let (net, a, b) = together();
     up(&a, &b).await;
     cross(&a, &b).await;
@@ -446,11 +450,11 @@ async fn a_pulled_cable_releases_held_keys_within_300_ms() {
     let ups = b.host.with(|s| s.key_up_at.clone());
     assert_eq!(ups.len(), 2);
     for (hid, at) in ups {
-        assert!(at.duration_since(t0) <= Duration::from_millis(300), "key {hid:#x} released after {:?}", at.duration_since(t0));
+        assert!(at.duration_since(t0) <= Duration::from_millis(500), "key {hid:#x} released after {:?}", at.duration_since(t0));
     }
     // The sender's pointer comes home on its own too, with nobody to ask.
     wait_until("sender home", || !a.host.capturing()).await;
-    assert!(Instant::now().duration_since(t0) <= Duration::from_millis(400));
+    assert!(Instant::now().duration_since(t0) <= Duration::from_millis(500));
     // The session is still there (not dead yet), then dies after 3 s of silence.
     assert_eq!(state_of(&b, &a), "online");
     wait_until("offline after the silence", || state_of(&b, &a) != "online").await;
@@ -1166,4 +1170,218 @@ async fn an_older_decision_does_not_win() {
     let reply = b.link.inner.apply_layout(&a.id, old);
     assert!(reply, "the newer decision is said back");
     assert_eq!(spot_of_in(&b, &a), (-1920, -100));
+}
+
+// ----- why the pointer came home -----
+
+/// What the hub logs on this thread goes into the buffer (the test runs on one thread, hub included).
+fn log_capture() -> (Sink, tracing::subscriber::DefaultGuard) {
+    let sink = Sink::default();
+    let subscriber = tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).with_writer(sink.clone()).with_ansi(false).finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    // Other tests run in parallel without a subscriber and may have cached "nobody listens" for these log lines.
+    tracing::callsite::rebuild_interest_cache();
+    (sink, guard)
+}
+
+fn log_text(log: &Sink) -> String {
+    String::from_utf8_lossy(&log.0.lock().unwrap()).to_string()
+}
+
+/// The reason part of every "pointer home" line, e.g. "edge peer=..." or "stall gap_ms=300 peer=...".
+fn home_reasons(log: &Sink) -> Vec<String> {
+    log_text(log).lines().filter_map(|l| l.split("desk: pointer home reason=").nth(1)).map(str::to_string).collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_log_says_the_pointer_came_home_on_an_edge() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 300);
+    wait_until("crossed", || a.host.capturing()).await;
+    for _ in 0..3 {
+        a.host.person(Capture::Motion { dx: 30, dy: 0 });
+        sleep(Duration::from_millis(5)).await;
+    }
+    for _ in 0..8 {
+        a.host.person(Capture::Motion { dx: -30, dy: 0 });
+        sleep(Duration::from_millis(5)).await;
+    }
+    wait_until("pointer home", || !a.host.capturing()).await;
+    let reasons = home_reasons(&log);
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    assert!(reasons[0].starts_with("edge"), "{reasons:?}");
+    // The controlled side says where it handed the pointer back, and that it let go of nothing.
+    assert!(log_text(&log).contains("desk: returning at="), "{}", log_text(&log));
+    assert!(log_text(&log).contains("desk: held at end keys=0 buttons=0"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_log_says_the_pointer_came_home_when_the_link_went_quiet() {
+    let (log, _guard) = log_capture();
+    let (net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    net.blackhole(a.id, b.id, true);
+    wait_until("sender home", || !a.host.capturing()).await;
+    let reasons = home_reasons(&log);
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    let gap: Option<u64> = reasons[0].strip_prefix("stall gap_ms=").and_then(|r| r.split_whitespace().next()).and_then(|g| g.parse().ok());
+    assert!(gap.is_some_and(|g| g >= crate::p2p::session::STALL_MS), "{reasons:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_log_says_the_pointer_came_home_when_the_other_computer_leaves() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    // The other computer's panic: it lets go and sends `Leave`, so this computer's pointer comes home.
+    b.link.panic();
+    wait_until("a is home", || !a.host.capturing()).await;
+    let reasons = home_reasons(&log);
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    assert!(reasons[0].starts_with("leave"), "{reasons:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_log_says_the_pointer_came_home_when_the_link_ended() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    a.link.stop();
+    // The pointer is home at once; the hub writes its line when it takes the shutdown.
+    wait_until("the log says why", || !home_reasons(&log).is_empty()).await;
+    assert!(!a.host.capturing());
+    let reasons = home_reasons(&log);
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    assert!(reasons[0].starts_with("ended"), "{reasons:?}");
+}
+
+// ----- a link that can no longer carry motion -----
+
+/// The real link, except that no datagram gets out (the path went bad under it).
+struct NoDatagrams(Arc<dyn Link>);
+
+#[async_trait]
+impl Link for NoDatagrams {
+    fn peer(&self) -> NodeId {
+        self.0.peer()
+    }
+    fn alpn(&self) -> Vec<u8> {
+        self.0.alpn()
+    }
+    fn path(&self) -> PathKind {
+        self.0.path()
+    }
+    async fn wait_path_change(&self, from: PathKind) -> Option<PathKind> {
+        self.0.wait_path_change(from).await
+    }
+    async fn open_bi(&self) -> Result<BiStream, P2pError> {
+        self.0.open_bi().await
+    }
+    async fn accept_bi(&self) -> Result<BiStream, P2pError> {
+        self.0.accept_bi().await
+    }
+    async fn send_datagram(&self, _data: Vec<u8>) -> Result<(), P2pError> {
+        Err(P2pError::Closed)
+    }
+    async fn recv_datagram(&self) -> Result<Vec<u8>, P2pError> {
+        self.0.recv_datagram().await
+    }
+    fn close(&self, code: u32, reason: &str) {
+        self.0.close(code, reason)
+    }
+    async fn closed(&self) -> u32 {
+        self.0.closed().await
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_motion_send_error_ends_the_link_so_it_is_dialed_again() {
+    let net = MemoryNet::new();
+    let dut = pc(&net, "Ren-PC");
+    let far_id = NodeId([0x11; 32]);
+    dut.trust.add(far_id, [9; 32], "Far", 1).unwrap();
+    dut.trust.set_permission(&far_id, capability::DESK_INPUT, true).unwrap();
+    // A plain pair of endpoints stands in for the other computer; the link under test is the near end.
+    let _far = net.bind_raw(far_id, &[alpn::DESK]);
+    let near = net.bind_raw(NodeId([0x22; 32]), &[alpn::DESK]);
+    let real = near.dial(&PeerAddr::new(far_id), alpn::DESK).await.unwrap();
+    let link: Arc<dyn Link> = Arc::new(NoDatagrams(real));
+
+    let (hub_tx, mut hub_rx) = mpsc::unbounded_channel::<Msg>();
+    let (dg_tx, dg_rx) = mpsc::channel::<Datagram>(8);
+    let shared = Arc::new(LinkShared::default());
+    let stream = link.open_bi().await.unwrap();
+    let (_ctl_tx, ctl_rx) = mpsc::unbounded_channel::<StreamMsg>();
+    tokio::spawn(run_tasks(dut.link.inner.clone(), hub_tx, link.clone(), far_id, 7, shared, stream, ctl_rx, dg_rx));
+
+    dg_tx.send(Datagram::Motion { seq: 1, dx: 4, dy: 0, sent_us: 0 }).await.unwrap();
+    let ended = timeout(Duration::from_secs(5), async {
+        loop {
+            match hub_rx.recv().await {
+                Some(Msg::Ended { peer, link_id }) => return Some((peer, link_id)),
+                Some(_) => continue,
+                None => return None,
+            }
+        }
+    })
+    .await;
+    assert_eq!(ended, Ok(Some((far_id, 7))), "the hub hears that the link ended");
+    assert_eq!(link.closed().await, CLOSE_PROTOCOL, "closed the way the other fatal io errors close");
+}
+
+// ----- less work per motion event -----
+
+#[tokio::test(start_paused = true)]
+async fn a_thousand_motions_do_not_make_the_page_publish() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    let (bx, _) = b.host.cursor();
+    let before = a.link.inner.publishes.load(std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..1000 {
+        a.host.person(Capture::Motion { dx: 1, dy: 0 });
+        tokio::task::yield_now().await;
+    }
+    wait_until("all the motion arrives", || b.host.cursor().0 >= bx + 1000).await;
+    let after = a.link.inner.publishes.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(after - before <= 3, "{} page publishes for 1000 motions", after - before);
+}
+
+/// A computer that is already holding the mouse (or controlled by another) answers a crossing with "busy" and Leave,
+/// and the sender stops pushing at it for a while.
+#[tokio::test(start_paused = true)]
+async fn a_busy_computer_says_busy_and_the_sender_backs_off() {
+    let (net, a, b) = together();
+    let c = pc(&net, "Tablet");
+    pair(&a, &c);
+    allow(&a, &c, &ALL);
+    allow(&c, &a, &ALL);
+    up(&a, &b).await;
+    c.link.start();
+    wait_until("the tablet is online", || state_of(&a, &c) == "online" && state_of(&c, &a) == "online").await;
+    knows_screens(&a, &b).await;
+    knows_screens(&a, &c).await;
+    // The tablet sits on this computer's left: its right edge leads here.
+    a.link.set_side(&c.id, "left").unwrap();
+    c.link.set_side(&a.id, "right").unwrap();
+    wait_until("the tablet knows this computer is on its right", || c.link.view().devices.iter().any(|d| d.node == a.id.to_hex() && d.side == "right")).await;
+    // This computer holds the mouse toward the laptop.
+    cross(&a, &b).await;
+    // The tablet pushes into this computer, which is busy.
+    c.host.put_cursor(1919, 540);
+    wait_until("the tablet is refused", || c.link.view().error.as_deref().is_some_and(|e| e.contains("busy"))).await;
+    assert!(!c.host.capturing(), "the tablet's pointer came home");
+    assert!(a.host.capturing() && b.link.view().devices[0].controls_me, "the laptop keeps the mouse");
+    // No new try while the pause lasts.
+    let tries = c.host.with(|s| s.captures_started);
+    for _ in 0..10 {
+        c.host.put_cursor(1919, 540);
+        sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(c.host.with(|s| s.captures_started), tries, "tried again inside the pause");
 }

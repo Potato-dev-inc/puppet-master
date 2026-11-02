@@ -11,20 +11,23 @@
 //! Coordinates are points, as in the rest of this module.
 
 use std::collections::BTreeSet;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use desk_proto::hid_to_mac;
 
 use super::capture::{self, ACCESS_NEEDED, WHEEL_UNITS_PER_PIXEL};
-use super::ffi::{self, CFTypeRef, CGEventRef, CGPoint};
+use super::ffi::{self, CFTypeRef, CGEventRef, CGEventSourceRef, CGPoint};
 use super::{clipboard, cursor, display, hook};
 use crate::desk::host::DisplayInfo;
+use crate::desk::link::clickstate::{next_click_count, LastClick};
 use crate::desk::link::remote::{CaptureSink, ClipItem, Inject, RemoteHost};
 
-/// Two presses of one button this close in time and space are a double click.
-const DOUBLE_CLICK: Duration = Duration::from_millis(500);
-const DOUBLE_CLICK_SLOP: i32 = 4;
+/// The screen list is reused for this long on the move path; it is read on every injected move otherwise.
+const SCREEN_CACHE: Duration = Duration::from_millis(500);
+
+/// Shift up with no flags. Sent after the keys are released, so no app keeps a modifier latched.
+const MODIFIER_RESET_KEY: u16 = 0x38;
 
 const FLAG_SHIFT: u64 = 0x0002_0000;
 const FLAG_CONTROL: u64 = 0x0004_0000;
@@ -36,19 +39,34 @@ struct Held {
     /// HID codes of keys this host pressed.
     keys: BTreeSet<u16>,
     buttons: BTreeSet<u8>,
-    /// Button, when, where, and how many presses in a row.
-    last_click: Option<(u8, Instant, (i32, i32), i64)>,
+    /// What the last button-down left behind (see `clickstate.rs`).
+    last_click: Option<LastClick>,
 }
 
 pub struct MacosRemote {
     capture: Mutex<Option<capture::CaptureHook>>,
     held: Mutex<Held>,
+    /// The screen list and when it was read (see `SCREEN_CACHE`).
+    screen_cache: Mutex<Option<(Vec<DisplayInfo>, Instant)>>,
 }
 
 impl MacosRemote {
     /// No side effects: no tap, no key press, no clipboard access.
     pub fn new() -> Self {
-        Self { capture: Mutex::new(None), held: Mutex::new(Held::default()) }
+        Self { capture: Mutex::new(None), held: Mutex::new(Held::default()), screen_cache: Mutex::new(None) }
+    }
+
+    /// The screens, read again only once the cached list is older than `SCREEN_CACHE`.
+    fn screens(&self) -> Result<Vec<DisplayInfo>, String> {
+        let mut cache = self.screen_cache.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((list, read)) = cache.as_ref() {
+            if read.elapsed() <= SCREEN_CACHE {
+                return Ok(list.clone());
+            }
+        }
+        let list = display::list()?;
+        *cache = Some((list.clone(), Instant::now()));
+        Ok(list)
     }
 }
 
@@ -65,6 +83,32 @@ fn require_access() -> Result<(), String> {
     } else {
         Err(ACCESS_NEEDED.into())
     }
+}
+
+/// The one event source for every event this file posts, made from the HID system state (the state the hardware and
+/// the modifier keys write to). It lives for the whole process and is never released. If macOS refuses to make it,
+/// the source is null, which means the default source, as before.
+fn source() -> CGEventSourceRef {
+    static SOURCE: OnceLock<usize> = OnceLock::new();
+    *SOURCE.get_or_init(|| {
+        // SAFETY: plain call; the result is stored as an address and only ever handed back to Quartz.
+        unsafe { ffi::CGEventSourceCreate(ffi::CG_EVENT_SOURCE_STATE_HID_SYSTEM) as usize }
+    }) as CGEventSourceRef
+}
+
+/// Milliseconds since the first call, from a clock that never goes back (the click count is measured on it).
+fn now_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+/// Puts the modifier flags on an event made by this file. A null event is left as it is for `post` to refuse.
+fn with_flags(event: CGEventRef, flags: u64) -> CGEventRef {
+    if !event.is_null() {
+        // SAFETY: a non-null event from the calls in this file.
+        unsafe { ffi::CGEventSetFlags(event, flags) };
+    }
+    event
 }
 
 /// Posts an event and releases it.
@@ -94,8 +138,8 @@ fn flags_for(keys: &BTreeSet<u16>) -> u64 {
 }
 
 fn key_event(code: u16, down: bool, flags: u64) -> Result<(), String> {
-    // SAFETY: a null source is the default source.
-    let event = unsafe { ffi::CGEventCreateKeyboardEvent(std::ptr::null(), code, down) };
+    // SAFETY: `source()` is the shared source (or null, the default one).
+    let event = unsafe { ffi::CGEventCreateKeyboardEvent(source(), code, down) };
     if event.is_null() {
         return Err("macOS refused to make the key event".into());
     }
@@ -124,15 +168,18 @@ fn post_mouse(
     button: u32,
     click_state: Option<i64>,
     delta: Option<(i32, i32)>,
+    flags: u64,
 ) -> Result<(), String> {
     let point = CGPoint { x: f64::from(at.0), y: f64::from(at.1) };
-    // SAFETY: a null source is the default source.
-    let event = unsafe { ffi::CGEventCreateMouseEvent(std::ptr::null(), kind, point, button) };
+    // SAFETY: `source()` is the shared source (or null, the default one).
+    let event = unsafe { ffi::CGEventCreateMouseEvent(source(), kind, point, button) };
     if event.is_null() {
         return Err("macOS refused to make the mouse event".into());
     }
     // SAFETY: valid event.
     unsafe {
+        // Without the flags a Shift or Command held on the other computer would not reach the click or the drag.
+        ffi::CGEventSetFlags(event, flags);
         if let Some(n) = click_state {
             ffi::CGEventSetIntegerValueField(event, ffi::CG_MOUSE_EVENT_CLICK_STATE, n);
         }
@@ -197,23 +244,15 @@ impl RemoteHost for MacosRemote {
                 let at = cursor::position()?;
                 let (down_type, up_type, _, number) = button_types(button);
                 let click = if down {
-                    let n = match held.last_click {
-                        Some((b, when, pos, n))
-                            if b == button
-                                && when.elapsed() <= DOUBLE_CLICK
-                                && (pos.0 - at.0).abs() <= DOUBLE_CLICK_SLOP
-                                && (pos.1 - at.1).abs() <= DOUBLE_CLICK_SLOP =>
-                        {
-                            n + 1
-                        }
-                        _ => 1,
-                    };
-                    held.last_click = Some((button, Instant::now(), at, n));
+                    let now = now_ms();
+                    let n = next_click_count(held.last_click, button, now, at);
+                    held.last_click = Some((button, now, at, n));
                     n
                 } else {
                     held.last_click.filter(|(b, ..)| *b == button).map_or(1, |(.., n)| n)
                 };
-                post_mouse(if down { down_type } else { up_type }, at, number, Some(click), None)?;
+                let flags = flags_for(&held.keys);
+                post_mouse(if down { down_type } else { up_type }, at, number, Some(click), None, flags)?;
                 if down {
                     held.buttons.insert(button);
                 } else {
@@ -222,7 +261,7 @@ impl RemoteHost for MacosRemote {
             }
             Inject::Move { dx, dy } => {
                 let (x, y) = cursor::position()?;
-                let target = clamp_to_screens(&display::list()?, (x.saturating_add(dx), y.saturating_add(dy)));
+                let target = clamp_to_screens(&self.screens()?, (x.saturating_add(dx), y.saturating_add(dy)));
                 // A move with a button down is a drag; apps ignore a plain move then.
                 let (kind, number) = match held.buttons.iter().next() {
                     Some(b) => {
@@ -233,7 +272,7 @@ impl RemoteHost for MacosRemote {
                 };
                 // Warp first, then post: the warp puts the pointer there for certain, the event lets apps see the move.
                 cursor::warp(target.0, target.1)?;
-                post_mouse(kind, target, number, None, Some((target.0 - x, target.1 - y)))?;
+                post_mouse(kind, target, number, None, Some((target.0 - x, target.1 - y)), flags_for(&held.keys))?;
             }
             Inject::Wheel { dx, dy } => {
                 if dx == 0 && dy == 0 {
@@ -241,11 +280,11 @@ impl RemoteHost for MacosRemote {
                 }
                 // Positive vertical is up on both systems. Positive horizontal is right on Windows and left here.
                 let (v, h) = (dy / WHEEL_UNITS_PER_PIXEL, -(dx / WHEEL_UNITS_PER_PIXEL));
-                // SAFETY: a null source is the default source.
+                // SAFETY: `source()` is the shared source (or null, the default one).
                 let e = unsafe {
-                    ffi::CGEventCreateScrollWheelEvent2(std::ptr::null(), ffi::CG_SCROLL_EVENT_UNIT_PIXEL, 2, v, h, 0)
+                    ffi::CGEventCreateScrollWheelEvent2(source(), ffi::CG_SCROLL_EVENT_UNIT_PIXEL, 2, v, h, 0)
                 };
-                post(e)?;
+                post(with_flags(e, flags_for(&held.keys)))?;
             }
         }
         Ok(())
@@ -265,10 +304,12 @@ impl RemoteHost for MacosRemote {
                 let _ = key_event(code, false, flags_for(&remaining));
             }
         }
+        // All keys are up now: a flags-changed event with no flags tells apps that no modifier is held any more.
+        let _ = key_event(MODIFIER_RESET_KEY, false, 0);
         if let Ok(at) = cursor::position() {
             for button in buttons {
                 let (_, up, _, number) = button_types(button);
-                let _ = post_mouse(up, at, number, Some(1), None);
+                let _ = post_mouse(up, at, number, Some(1), None, 0);
             }
         }
     }

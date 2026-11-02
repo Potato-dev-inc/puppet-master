@@ -347,6 +347,7 @@ export const tauri = {
   diagnosticShow: (path: string) => safeInvoke<string>('diagnostic_show', { path }),
   diagnosticSave: (path: string, exclude: string[]) =>
     safeInvoke<DiagnosticSaved>('diagnostic_save', { path, exclude }),
+  appLogLines: (needle: string, max: number) => safeInvoke<string[]>('app_log_lines', { needle, max }, [], true),
   getAppInstallInfo: () =>
     safeInvoke<AppInstallInfo>(
       'get_app_install_info',

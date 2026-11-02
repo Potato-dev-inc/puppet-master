@@ -15,6 +15,10 @@ import { LinkStatus } from './LinkStatus';
 import { AddComputerSheet } from './AddComputerSheet';
 import { DeviceRow } from './DeviceRow';
 import { InboundPairSheet } from './InboundPairSheet';
+import { tauri } from '../../lib/tauri';
+
+/** How many My computers lines the copy button takes from the app log (the newest). */
+const LOG_COPY_LINES = 300;
 
 const HOP_MODES: { mode: DeskHopMode; label: string }[] = [
   { mode: 'relative', label: 'Same spot on the next screen' },
@@ -30,8 +34,24 @@ export function DeskPage() {
   const link = useLink(snapshot !== null);
   const access = useDeskPermissions(snapshot !== null);
   const [adding, setAdding] = useState(false);
+  const [logNote, setLogNote] = useState<string | null>(null);
   const computersTitleId = useId();
   const pairView = pair.view;
+
+  // The newest My computers lines of the app log, to paste into a bug report. Nothing leaves the computer.
+  const copyLog = async () => {
+    try {
+      const lines = await tauri.appLogLines('desk:', LOG_COPY_LINES);
+      if (lines.length === 0) {
+        setLogNote('No My computers lines in the log yet.');
+        return;
+      }
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setLogNote(`Copied ${lines.length} lines.`);
+    } catch (e) {
+      setLogNote(`Could not copy the log: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
 
   // Labs off (or the engine says so): the page draws nothing. The left bar row is hidden too.
   if (isDeskFeatureOff(loadError) || snapshot?.status.state === 'labs_off') return null;
@@ -216,6 +236,19 @@ export function DeskPage() {
           onClose={() => setAdding(false)}
         />
       )}
+      <section className="ck-desk-section" aria-label="Diagnostics">
+        <div className="ck-desk-section-head">
+          <span className="ck-desk-hint">Copy the recent My computers lines from the app log for a bug report.</span>
+          <button type="button" className="ck-desk-btn" onClick={() => void copyLog()}>
+            Copy My computers log
+          </button>
+        </div>
+        {logNote && (
+          <p className="ck-desk-hint" role="status">
+            {logNote}
+          </p>
+        )}
+      </section>
       <InboundPairSheet pending={pairView?.pending ?? null} onAnswer={(id, allow) => void pair.answer(id, allow)} />
     </section>
   );

@@ -15,13 +15,14 @@ use std::sync::Mutex;
 
 use desk_proto::hid_to_vk;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
+    GetAsyncKeyState, GetKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
     MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN,
     MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
 };
 
 use super::{capture, clipboard, cursor, display};
 use crate::desk::host::DisplayInfo;
+use crate::desk::link::release;
 use crate::desk::link::remote::{CaptureSink, ClipItem, Inject, RemoteHost};
 
 #[derive(Default)]
@@ -78,6 +79,18 @@ fn mouse_input(flags: windows::Win32::UI::Input::KeyboardAndMouse::MOUSE_EVENT_F
         r#type: INPUT_MOUSE,
         Anonymous: INPUT_0 { mi: MOUSEINPUT { dx: 0, dy: 0, mouseData: data as u32, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
     }
+}
+
+/// The modifier keys the system thinks are down (`GetKeyState`: the state the input queue reports).
+fn modifiers_logically_down() -> Vec<u16> {
+    // SAFETY: plain call per key.
+    release::MODIFIER_VKS.iter().copied().filter(|vk| unsafe { GetKeyState(i32::from(*vk)) } < 0).collect()
+}
+
+/// The modifier keys the person is holding right now (`GetAsyncKeyState`).
+fn modifiers_physically_down() -> Vec<u16> {
+    // SAFETY: plain call per key.
+    release::MODIFIER_VKS.iter().copied().filter(|vk| unsafe { GetAsyncKeyState(i32::from(*vk)) } < 0).collect()
 }
 
 fn center_of(displays: &[DisplayInfo], pos: (i32, i32)) -> (i32, i32) {
@@ -190,6 +203,11 @@ impl RemoteHost for WindowsRemote {
             for vk in hook.stop() {
                 let _ = send(&[key_input(vk, false)]);
             }
+        }
+        // A modifier the system still thinks is down, but the person is not holding, would make every later click
+        // here a Ctrl-click or Alt-click. Release those (the same rule the old app applied when remote mode ended).
+        for vk in release::modifiers_to_release(&modifiers_logically_down(), &modifiers_physically_down()) {
+            let _ = send(&[key_input(vk, false)]);
         }
     }
 

@@ -66,3 +66,10 @@ pub async fn diagnostic_save(
     };
     bundle::save(&bundle, &exclude, &dest)
 }
+
+/// The newest app log lines that contain `needle`, at most `max`, oldest first. Plain text, as the log has it.
+#[tauri::command]
+pub fn app_log_lines(needle: String, max: usize) -> Vec<String> {
+    let hits: Vec<String> = crate::flight::applog::tail().into_iter().filter(|l| l.contains(&needle)).collect();
+    hits[hits.len().saturating_sub(max)..].to_vec()
+}

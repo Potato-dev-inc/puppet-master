@@ -1,7 +1,7 @@
 //! The hub's answers to hotkeys (see `desk::port`): jump to a computer by number, and bring the pointer home.
 //! A child of `hub` so it can use the hub's own state; kept apart so `hub.rs` stays about the link itself.
 
-use super::{Chords, Hub, Inner, Side};
+use super::{Chords, Home, Hub, Inner, Side};
 use crate::desk::link::arrange::ALL_SIDES;
 
 impl Hub {
@@ -55,7 +55,7 @@ impl Hub {
     /// when it is already here.
     pub(super) fn return_home(&mut self) {
         if self.remote.is_some() || self.controlled.is_some() {
-            self.stop_all();
+            self.stop_all(Home::Hotkey);
         }
     }
 
