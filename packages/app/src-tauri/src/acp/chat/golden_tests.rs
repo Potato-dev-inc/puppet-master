@@ -235,10 +235,12 @@ fn the_last_message_of_a_finished_turn_is_the_final_answer_and_the_turn_end_has_
     run.event(&SessionEvent::TurnEnded(summary(1, StopKind::EndTurn)));
     let all = serde_json::to_value(run.feed.all()).unwrap();
     assert_eq!(all[1]["finalAnswer"], true);
-    assert_eq!(all[2]["kind"], "turnEnd");
-    assert_eq!(all[2]["id"], "end:1");
-    assert_eq!(all[2]["outcome"], "completed");
-    assert!(all[2]["durationMs"].as_u64().unwrap() > 0);
+    assert_eq!(all[2]["noticeKind"], "ending:done");
+    assert!(all[2]["text"].as_str().unwrap().starts_with("Done"));
+    assert_eq!(all[3]["kind"], "turnEnd");
+    assert_eq!(all[3]["id"], "end:1");
+    assert_eq!(all[3]["outcome"], "completed");
+    assert!(all[3]["durationMs"].as_u64().unwrap() > 0);
 }
 
 #[test]
@@ -293,7 +295,9 @@ fn a_cancelled_turn_is_interrupted_and_closes_the_tools_it_left_open() {
     assert_eq!(result["ok"], false);
     assert_eq!(result["output"], "Stopped before it finished.");
     assert_eq!(list.last().unwrap()["outcome"], "interrupted");
-    assert!(list.iter().all(|i| i["kind"] != "notice"), "stopping on purpose is not an error");
+    let notices: Vec<&Value> = list.iter().filter(|i| i["kind"] == "notice").collect();
+    assert_eq!(notices.len(), 1, "stopping on purpose is one grey line, not an error");
+    assert_eq!((notices[0]["noticeKind"].as_str(), notices[0]["text"].as_str()), (Some("ending:stopped"), Some("You stopped it")));
 }
 
 #[test]
@@ -317,7 +321,8 @@ fn a_crash_mid_turn_keeps_the_stream_consistent_and_a_late_turn_end_changes_noth
     assert_eq!(ends[0]["outcome"], "failed");
     assert_eq!(list.iter().find(|i| i["kind"] == "toolResult").unwrap()["ok"], false, "the open tool does not keep spinning");
     let notice = list.iter().find(|i| i["kind"] == "notice").unwrap();
-    assert_eq!(notice["noticeKind"], "error");
+    assert_eq!(notice["noticeKind"], "ending:failed");
+    assert!(notice["text"].as_str().unwrap().starts_with("Something went wrong: "));
     assert!(notice["text"].as_str().unwrap().contains("exit code 3"));
     // The session's own report of the same end arrives: no second end, nothing new.
     let mut failed = summary(1, StopKind::Failed);
@@ -329,7 +334,7 @@ fn a_crash_mid_turn_keeps_the_stream_consistent_and_a_late_turn_end_changes_noth
 }
 
 #[test]
-fn an_empty_end_turn_says_the_agent_may_need_to_sign_in() {
+fn an_end_turn_with_no_answer_says_so() {
     let mut run = Run::new();
     run.turn(1, "hi");
     let mut s = summary(1, StopKind::EndTurn);
@@ -337,7 +342,8 @@ fn an_empty_end_turn_says_the_agent_may_need_to_sign_in() {
     run.event(&SessionEvent::TurnEnded(s));
     let all = serde_json::to_value(run.feed.all()).unwrap();
     let notice = all.as_array().unwrap().iter().find(|i| i["kind"] == "notice").unwrap();
-    assert!(notice["text"].as_str().unwrap().contains("sign in"));
+    assert_eq!(notice["noticeKind"], "ending:empty");
+    assert_eq!(notice["text"], "The turn ended with no answer");
 }
 
 #[test]
@@ -350,8 +356,121 @@ fn a_turn_that_failed_with_the_sign_in_code_says_so() {
     run.event(&SessionEvent::TurnEnded(s));
     let all = serde_json::to_value(run.feed.all()).unwrap();
     let notice = all.as_array().unwrap().iter().find(|i| i["kind"] == "notice").unwrap();
-    assert_eq!(notice["text"], "The agent needs you to sign in.");
+    assert_eq!(notice["noticeKind"], "ending:signed_out");
+    assert_eq!(notice["text"], "Probably signed out");
     assert_eq!(all.as_array().unwrap().last().unwrap()["outcome"], "failed");
+}
+
+/// The grey line a finished turn ends with: (notice kind, text).
+fn ending_line(run: &Run) -> (String, String) {
+    let all = run.json();
+    let notice = all.as_array().unwrap().iter().rev().find(|i| i["kind"] == "notice").expect("a turn end line");
+    (notice["noticeKind"].as_str().unwrap().to_string(), notice["text"].as_str().unwrap().to_string())
+}
+
+fn say(text: &str) -> Value {
+    json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+}
+
+#[test]
+fn a_turn_that_changed_files_says_how_many_and_how_long() {
+    let mut run = Run::new();
+    run.turn(1, "go");
+    for (id, path, kind) in [("e1", "a.txt", "edit"), ("e2", "b.txt", "edit"), ("e3", "a.txt", "edit"), ("r1", "c.txt", "read")] {
+        run.updates(
+            &[
+                json!({"sessionUpdate": "tool_call", "toolCallId": id, "title": "t", "kind": kind, "status": "pending", "locations": [{"path": path}]}),
+                json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed"}),
+            ],
+            false,
+        );
+    }
+    // A refused edit changed nothing.
+    run.updates(
+        &[
+            json!({"sessionUpdate": "tool_call", "toolCallId": "e4", "title": "t", "kind": "edit", "status": "pending", "locations": [{"path": "d.txt"}]}),
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "e4", "status": "failed"}),
+            say("All set."),
+        ],
+        false,
+    );
+    run.event(&SessionEvent::TurnEnded(summary(1, StopKind::EndTurn)));
+    let (kind, text) = ending_line(&run);
+    assert_eq!(kind, "ending:done");
+    assert!(text.starts_with("Done · 2 files · "), "{text}");
+}
+
+#[test]
+fn a_usage_limit_names_the_agent_by_its_label() {
+    let mut run = Run::new();
+    run.started(StartKind::New);
+    run.turn(1, "go");
+    let mut s = summary(1, StopKind::Failed);
+    s.error = Some("Usage limit reached. Resets at 5pm.".into());
+    run.event(&SessionEvent::TurnEnded(s));
+    assert_eq!(ending_line(&run), ("ending:usage_limit".to_string(), "Agent hit its usage limit".to_string()));
+    assert_eq!(run.json().as_array().unwrap().last().unwrap()["outcome"], "failed");
+}
+
+#[test]
+fn a_turn_the_agent_left_quiet_ends_as_no_answer() {
+    let mut run = Run::new();
+    run.turn(1, "go");
+    run.event(&SessionEvent::TurnEnded(summary(1, StopKind::Hung)));
+    assert_eq!(ending_line(&run), ("ending:no_answer".to_string(), "No answer for 5 min".to_string()));
+}
+
+#[test]
+fn an_end_turn_with_only_thoughts_or_only_leaked_markup_is_a_silent_failure() {
+    // The session saw a thought chunk, so its own `empty` flag is false; the person has nothing to read.
+    let mut run = Run::new();
+    run.turn(1, "go");
+    run.updates(&[json!({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hmm"}})], false);
+    run.event(&SessionEvent::TurnEnded(summary(1, StopKind::EndTurn)));
+    assert_eq!(ending_line(&run).0, "ending:empty");
+    assert_eq!(run.json().as_array().unwrap().last().unwrap()["outcome"], "failed");
+
+    let mut run = Run::new();
+    run.turn(1, "go");
+    run.updates(&[say("<|im_end|>"), say("<|endoftext|>")], false);
+    run.event(&SessionEvent::TurnEnded(summary(1, StopKind::EndTurn)));
+    let all = run.json();
+    assert!(all.as_array().unwrap().iter().all(|i| i["kind"] != "assistant"), "a message that is only markup is not shown");
+    assert_eq!(ending_line(&run).0, "ending:empty");
+}
+
+#[test]
+fn a_turn_that_only_ran_tools_is_done_not_silent() {
+    let mut run = Run::new();
+    run.turn(1, "go");
+    run.updates(&[json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Run build", "kind": "execute", "status": "completed"})], false);
+    run.event(&SessionEvent::TurnEnded(summary(1, StopKind::EndTurn)));
+    assert_eq!(ending_line(&run).0, "ending:done");
+}
+
+#[test]
+fn leaked_markup_is_stripped_from_the_answer_even_when_a_token_arrives_in_pieces() {
+    let mut run = Run::new();
+    run.turn(1, "go");
+    run.updates(&[say("The answer is 4.<|im"), say("_end|><|endoftext|>"), say("
+<function_calls>
+<invoke name=\"x\">
+</invoke>
+</function_calls>")], false);
+    run.event(&SessionEvent::TurnEnded(summary(1, StopKind::EndTurn)));
+    let all = run.json();
+    let answer = all.as_array().unwrap().iter().find(|i| i["kind"] == "assistant").unwrap();
+    assert_eq!(answer["text"], "The answer is 4.");
+    assert_eq!(answer["finalAnswer"], true);
+}
+
+#[test]
+fn a_chat_closed_in_a_turn_ends_it_as_stopped() {
+    let mut run = Run::new();
+    run.turn(1, "go");
+    run.updates(&[say("working")], false);
+    run.event(&SessionEvent::Exited(ExitSummary { kind: ExitKind::Closed, code: None, stderr_tail: vec![], reason: None }));
+    assert_eq!(ending_line(&run).0, "ending:stopped");
 }
 
 #[test]

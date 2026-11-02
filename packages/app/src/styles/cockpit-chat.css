@@ -932,3 +932,16 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* How a turn of a chat ended: one grey line, wrapping like a sentence, with plain text buttons after it. */
+.cockpit .ck-chat-end-text.ck-chat-ending {
+  white-space: normal;
+  text-align: center;
+}
+.cockpit .ck-chat-ending-action {
+  white-space: nowrap;
+}
+.cockpit .ck-chat-ending .ck-chat-link:disabled {
+  opacity: 0.6;
+  text-decoration: none;
+}

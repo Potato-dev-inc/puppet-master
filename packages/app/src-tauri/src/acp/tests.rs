@@ -612,7 +612,8 @@ fn the_write_stall_is_detected_on_a_bare_connection_too() {
 #[test]
 fn a_hung_turn_is_asked_to_stop_and_then_killed() {
     let rig = Rig::with("", |cfg| {
-        cfg.timeouts.inactivity_secs = 5;
+        // The progress window runs out (the quiet window only asks the person).
+        cfg.timeouts.progress_secs = 5;
         cfg.timeouts.hung_grace_secs = 5;
     });
     rig.run_turn("stream 1");
@@ -637,8 +638,41 @@ fn a_hung_turn_is_asked_to_stop_and_then_killed() {
 }
 
 #[test]
-fn an_agent_that_honours_the_stop_request_ends_the_turn_without_being_killed() {
+fn a_quiet_agent_asks_the_person_instead_of_being_stopped_and_keep_waiting_starts_the_window_again() {
     let rig = Rig::with("", |cfg| cfg.timeouts.inactivity_secs = 5);
+    rig.run_turn("stream 1");
+    let from = rig.mark();
+    rig.session.prompt_text("quiet").unwrap();
+    rig.wait_phase(Phase::Working);
+    let now = Instant::now();
+    assert_eq!(rig.session.tick(now), TickAction::Nothing, "not quiet yet");
+    assert_eq!(rig.session.tick(now + Duration::from_secs(10)), TickAction::QuietAsked);
+    let snap = rig.session.snapshot();
+    assert_eq!(snap.quiet_secs, Some(5), "the state says the person is asked");
+    assert_eq!(snap.phase, Phase::Working, "nothing was stopped");
+    assert_eq!(rig.session.tick(now + Duration::from_secs(60)), TickAction::Nothing, "asked once, then it waits for the person");
+    // Keep waiting: the question is over and the window runs again from now.
+    assert!(rig.session.keep_waiting());
+    assert_eq!(rig.session.snapshot().quiet_secs, None);
+    let later = Instant::now() + Duration::from_secs(2);
+    assert_eq!(rig.session.tick(later), TickAction::Nothing);
+    assert_eq!(rig.session.tick(Instant::now() + Duration::from_secs(10)), TickAction::QuietAsked, "quiet again: asked again");
+    // Stop is the other answer.
+    assert!(rig.session.cancel().unwrap());
+    let summary = rig.wait_turn_end(from);
+    assert_eq!(summary.stop, StopKind::Cancelled);
+    assert_eq!(rig.session.snapshot().quiet_secs, None);
+}
+
+#[test]
+fn keep_waiting_with_no_turn_running_does_nothing() {
+    let rig = Rig::with("", |_| {});
+    assert!(!rig.session.keep_waiting());
+}
+
+#[test]
+fn an_agent_that_honours_the_stop_request_ends_the_turn_without_being_killed() {
+    let rig = Rig::with("", |cfg| cfg.timeouts.progress_secs = 5);
     let from = rig.mark();
     rig.session.prompt_text("quiet").unwrap();
     rig.wait_phase(Phase::Working);

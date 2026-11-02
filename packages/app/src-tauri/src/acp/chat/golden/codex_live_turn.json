@@ -55,6 +55,13 @@
   },
   {
     "at": "2026-11-01T10:00:00.000Z",
+    "id": "n:ending:done:1",
+    "kind": "notice",
+    "noticeKind": "ending:done",
+    "text": "Done · 14 s"
+  },
+  {
+    "at": "2026-11-01T10:00:00.000Z",
     "durationMs": 14250,
     "id": "end:1",
     "kind": "turnEnd",

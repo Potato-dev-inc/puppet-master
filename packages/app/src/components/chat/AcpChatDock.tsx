@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { useAcpChatState } from '../../hooks/useAcpChatState';
-import { errorSentence, interruptedStrip, permissionCards, runStrip, stoppedStrip, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
+import { errorSentence, interruptedStrip, permissionCards, quietStrip, runStrip, stoppedStrip, tauriAcpChatApi, type AcpChatApi } from '../../lib/acpChat';
 import { QuestionCard } from '../cockpit/QuestionCard';
 import { AgentAnsweringSwitch } from './AgentAnsweringSwitch';
 import { SignInCard } from '../acp/SignInCard';
@@ -62,9 +62,13 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
   };
 
   const cards = permissionCards(c.asked.questions, paneId);
-  const strip = runStrip(state, asked);
+  const quiet = quietStrip(state, asked);
+  const strip = quiet ? null : runStrip(state, asked);
   const signIn = state && !state.closed && state.signIn?.needed ? state : null;
-  if (cards.length === 0 && !strip && !signIn && !stopped && !interrupted) return null;
+  if (cards.length === 0 && !strip && !quiet && !signIn && !stopped && !interrupted) return null;
+  const keepWaiting = () => {
+    api.keepWaiting?.(paneId).catch(() => undefined);
+  };
   const stop = () => {
     setAsked(true);
     api.cancel(paneId).catch(() => setAsked(false));
@@ -112,6 +116,21 @@ export function AcpChatDock({ c, paneId, paneName, api = tauriAcpChatApi }: { c:
           {api.restart && (
             <button type="button" className="ck-btn ck-btn--secondary ck-acp-stop" onClick={restart} disabled={restarting}>
               {restarting ? 'Restarting…' : restartError ? 'Retry' : 'Restart chat'}
+            </button>
+          )}
+        </div>
+      )}
+      {quiet && (
+        <div className="ck-acp-strip" data-testid="acp-quiet">
+          <span className="ck-acp-strip-text" role="status">
+            {quiet.text}
+          </span>
+          <button type="button" className="ck-btn ck-btn--secondary ck-acp-stop" onClick={stop}>
+            Stop
+          </button>
+          {api.keepWaiting && (
+            <button type="button" className="ck-btn ck-btn--secondary ck-acp-stop" onClick={keepWaiting}>
+              Keep waiting
             </button>
           )}
         </div>

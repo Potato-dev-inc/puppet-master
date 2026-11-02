@@ -26,15 +26,18 @@ pub struct TurnClock {
     pub paused: bool,
     /// When we asked the agent to stop (by the person or because a window ran out).
     pub stop_asked_at: Option<Instant>,
+    /// The person was asked what to do about the quiet agent and has not answered yet.
+    pub quiet_asked: bool,
 }
 
 impl TurnClock {
     pub fn new(now: Instant) -> Self {
-        Self { started: now, last_frame: now, last_progress: now, paused: false, stop_asked_at: None }
+        Self { started: now, last_frame: now, last_progress: now, paused: false, stop_asked_at: None, quiet_asked: false }
     }
 
     pub fn frame(&mut self, now: Instant, progress: bool) {
         self.last_frame = now;
+        self.quiet_asked = false;
         if progress {
             self.last_progress = now;
         }
@@ -43,8 +46,16 @@ impl TurnClock {
     /// The last open question was answered: the agent is working again, with fresh windows.
     pub fn resume(&mut self, now: Instant) {
         self.paused = false;
+        self.quiet_asked = false;
         self.last_frame = now;
         self.last_progress = now;
+    }
+
+    /// "Keep waiting": the quiet window starts again. The progress window does not, so a turn that never does
+    /// real work is still stopped in the end.
+    pub fn keep_waiting(&mut self, now: Instant) {
+        self.quiet_asked = false;
+        self.last_frame = now;
     }
 }
 
@@ -141,6 +152,30 @@ mod tests {
         clock.resume(t0 + secs(86_400));
         assert_eq!(verdict(&clock, &policy(), t0 + secs(86_400 + 99)), Verdict::Healthy);
         assert_eq!(verdict(&clock, &policy(), t0 + secs(86_400 + 100)), Verdict::Quiet);
+    }
+
+    #[test]
+    fn keep_waiting_restarts_the_quiet_window_but_not_the_progress_window() {
+        let t0 = Instant::now();
+        let mut clock = TurnClock::new(t0);
+        assert_eq!(verdict(&clock, &policy(), t0 + secs(100)), Verdict::Quiet);
+        clock.quiet_asked = true;
+        clock.keep_waiting(t0 + secs(100));
+        assert!(!clock.quiet_asked);
+        assert_eq!(verdict(&clock, &policy(), t0 + secs(199)), Verdict::Healthy);
+        assert_eq!(verdict(&clock, &policy(), t0 + secs(200)), Verdict::Quiet);
+        // Waiting for ever is not an option: with no real work the progress window still runs out.
+        clock.keep_waiting(t0 + secs(990));
+        assert_eq!(verdict(&clock, &policy(), t0 + secs(1000)), Verdict::Stalled);
+    }
+
+    #[test]
+    fn a_frame_after_the_question_ends_the_question() {
+        let t0 = Instant::now();
+        let mut clock = TurnClock::new(t0);
+        clock.quiet_asked = true;
+        clock.frame(t0 + secs(101), false);
+        assert!(!clock.quiet_asked);
     }
 
     #[test]

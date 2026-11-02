@@ -74,6 +74,13 @@ pub async fn acp_chat_cancel(pane_id: String) -> Result<bool, String> {
     session.cancel().map_err(|e| e.to_string())
 }
 
+/// "Keep waiting": the agent was quiet, the person chose to wait; the quiet window starts again. True when a turn was running.
+#[tauri::command]
+pub async fn acp_chat_keep_waiting(pane_id: String) -> Result<bool, String> {
+    let session = chat::get(&pane_id).ok_or_else(|| format!("PANE_NOT_FOUND: {pane_id} is not a chat session"))?;
+    Ok(session.keep_waiting())
+}
+
 /// "Restart chat": brings the adapter of a chat that stopped back. Resolves with the new state; fails with the reason
 /// the adapter could not start (the chat then still says it stopped).
 #[tauri::command]
