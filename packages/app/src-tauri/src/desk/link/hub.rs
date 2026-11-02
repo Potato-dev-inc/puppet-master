@@ -27,6 +27,7 @@ use crate::p2p::session::{DialLedger, Reach, Sessions};
 use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
 use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
 use super::pushback::PushBack;
+use super::ratelog::RateLimit;
 use super::remote::{Capture, Inject};
 use super::pointer_speed::PointerSpeed;
 use super::{clip_link, io, Inner, CLOSE_REPLACED, CLOSE_STOPPED};
@@ -43,6 +44,11 @@ const MAX_HELD: usize = 256;
 /// After the other computer said no, the pointer does not try it again for this long (it would only be refused again
 /// every 20 ms while the person keeps pushing).
 const REFUSED_PAUSE_MS: u64 = 2_000;
+/// After this computer hands the pointer back, or the other computer lets go of it, this computer does not take the
+/// pointer straight back across the same edge. The other computer may leave its pointer resting on that edge.
+const RETURN_PAUSE_MS: u64 = 1_000;
+/// "desk: not crossing" is written at most once a second for each reason.
+const NOT_CROSSING_EVERY_MS: u64 = 1_000;
 /// The page is handed a new view at most this often. A change inside that window is handed over at the next tick.
 const PUBLISH_EVERY_MS: u64 = 50;
 /// Longest refusal reason taken from the other computer.
@@ -119,6 +125,35 @@ enum Home {
     Panic,
     Pause,
     Hotkey,
+    /// Both computers crossed at once; this one lets the other keep its crossing.
+    Crossed,
+}
+
+/// Why the pointer does not cross, for the log (see `poll_edge`).
+#[derive(Clone, Copy)]
+enum Block {
+    Paused,
+    Holding(NodeId),
+    ControlledBy(NodeId),
+    Locked,
+    Waiting(NodeId),
+    ButtonHeld(NodeId),
+    InputOff(NodeId),
+}
+
+impl Block {
+    /// The limiter's key (one line per second per key) and the words after `reason=`.
+    fn text(self) -> (&'static str, String) {
+        match self {
+            Block::Paused => ("paused", "paused".to_string()),
+            Block::Holding(p) => ("holding", format!("holding the mouse peer={}", short(&p))),
+            Block::ControlledBy(p) => ("controlled", format!("controlled by peer={}", short(&p))),
+            Block::Locked => ("locked", "pointer locked".to_string()),
+            Block::Waiting(p) => ("waiting", format!("waiting after a refusal peer={}", short(&p))),
+            Block::ButtonHeld(p) => ("button", format!("button held peer={}", short(&p))),
+            Block::InputOff(p) => ("input", format!("input off peer={}", short(&p))),
+        }
+    }
 }
 
 impl Home {
@@ -133,6 +168,7 @@ impl Home {
             Home::Panic => "panic".to_string(),
             Home::Pause => "pause".to_string(),
             Home::Hotkey => "hotkey".to_string(),
+            Home::Crossed => "crossed".to_string(),
         }
     }
 }
@@ -194,6 +230,8 @@ pub struct Hub {
     edge_candidate: Option<(NodeId, u32)>,
     /// A computer that said no to the pointer, and until when it is not tried again.
     refused_until: HashMap<NodeId, u64>,
+    /// Keeps "desk: not crossing" to one line a second for each reason.
+    not_crossing: RateLimit,
     upkeeps: u64,
     error: Option<String>,
     /// When the page was last handed a view, and whether a change is waiting for the next tick.
@@ -219,6 +257,7 @@ impl Hub {
             origin: (0, 0),
             edge_candidate: None,
             refused_until: HashMap::new(),
+            not_crossing: RateLimit::new(NOT_CROSSING_EVERY_MS),
             upkeeps: 0,
             error: None,
             published_at: None,
@@ -247,6 +286,11 @@ impl Hub {
 
     fn ms(&self) -> u64 {
         self.inner.now_ms()
+    }
+
+    /// This computer's node id (all zeros before the endpoint has one).
+    fn local_id(&self) -> NodeId {
+        self.inner.p2p.node_id().unwrap_or(NodeId([0; 32]))
     }
 
     fn refresh_displays(&mut self) {
@@ -410,7 +454,7 @@ impl Hub {
 
     fn poll_edge(&mut self) {
         self.flush_publish();
-        if self.paused || self.remote.is_some() || self.controlled.is_some() || !self.inner.labs() || self.inner.pointer_locked() {
+        if !self.inner.labs() {
             self.edge_candidate = None;
             return;
         }
@@ -418,18 +462,42 @@ impl Hub {
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
         let now = self.ms();
         self.refused_until.retain(|_, until| *until > now);
+        let blocked = if self.paused {
+            Some(Block::Paused)
+        } else if let Some(r) = &self.remote {
+            Some(Block::Holding(r.peer))
+        } else if let Some(c) = &self.controlled {
+            Some(Block::ControlledBy(c.peer))
+        } else if self.inner.pointer_locked() {
+            Some(Block::Locked)
+        } else {
+            None
+        };
+        if let Some(why) = blocked {
+            self.edge_candidate = None;
+            // Only worth a line when the pointer rests on an edge that faces a connected computer.
+            let on_edge = self.live.keys().any(|p| self.inner.depart_to(p, &self.shapes, local, &ALL_SIDES).is_some());
+            if on_edge {
+                self.say_not_crossing(why);
+            }
+            return;
+        }
         let mut hit = None;
+        let mut waiting = None;
         for peer in self.live.keys() {
+            let Some(dep) = self.inner.depart_to(peer, &self.shapes, local, &ALL_SIDES) else { continue };
             if self.refused_until.contains_key(peer) {
+                waiting.get_or_insert(*peer);
                 continue;
             }
-            if let Some(dep) = self.inner.depart_to(peer, &self.shapes, local, &ALL_SIDES) {
-                hit = Some((*peer, dep));
-                break;
-            }
+            hit = Some((*peer, dep));
+            break;
         }
         let Some((peer, dep)) = hit else {
             self.edge_candidate = None;
+            if let Some(p) = waiting {
+                self.say_not_crossing(Block::Waiting(p));
+            }
             return;
         };
         let looks = match self.edge_candidate {
@@ -437,9 +505,26 @@ impl Hub {
             _ => 1,
         };
         self.edge_candidate = Some((peer, looks));
-        if looks >= DWELL_LOOKS && self.cross_to(peer, &dep, pos) {
+        if looks < DWELL_LOOKS {
+            return;
+        }
+        if !self.inner.input_allowed(&peer) {
+            return self.say_not_crossing(Block::InputOff(peer));
+        }
+        if self.inner.host.buttons_held() {
+            return self.say_not_crossing(Block::ButtonHeld(peer));
+        }
+        if self.cross_to(peer, &dep, pos) {
             self.edge_candidate = None;
             self.publish();
+        }
+    }
+
+    /// Writes why the pointer is not crossing, at most once a second for each reason.
+    fn say_not_crossing(&mut self, why: Block) {
+        let (key, text) = why.text();
+        if self.not_crossing.allow(key, self.ms()) {
+            tracing::info!("desk: not crossing reason={text}");
         }
     }
 
@@ -550,6 +635,11 @@ impl Hub {
             self.go_home(None, why);
         }
         if self.controlled.as_ref().is_some_and(|c| &c.peer == peer) {
+            // The link may still be up (it went quiet, it was not ended): say so, so the other computer comes home
+            // too, instead of staying on `remote` and answering every crossing with "busy".
+            if let Some(l) = self.live.get(peer) {
+                let _ = l.ctl.send(StreamMsg::Leave);
+            }
             self.release_controlled();
         }
     }
@@ -589,6 +679,8 @@ impl Hub {
                 let leave = matches!(msg, StreamMsg::Leave);
                 if self.controlled.as_ref().is_some_and(|c| c.peer == peer) {
                     self.release_controlled();
+                    // The other computer let go of its pointer here: do not take it straight back across that edge.
+                    self.refused_until.insert(peer, self.ms() + RETURN_PAUSE_MS);
                 }
                 // "Leave" from the computer we hold: it refuses, or its pointer came home on its own.
                 if leave && self.remote.as_ref().is_some_and(|r| r.peer == peer) {
@@ -616,7 +708,12 @@ impl Hub {
                 let reason: String = reason.chars().filter(|c| !c.is_control()).take(MAX_REASON_CHARS).collect();
                 let name = self.peer_name(&peer);
                 self.refused_until.insert(peer, self.ms() + REFUSED_PAUSE_MS);
-                self.fail(&format!("{name} did not take the mouse: {reason}"));
+                // Both crossed at once and that computer kept its own: this one's crossing was cancelled, and it is
+                // being used by that computer now. Nothing for the page to complain about.
+                let kept_its_own = self.controlled.as_ref().is_some_and(|c| c.peer == peer);
+                if !kept_its_own {
+                    self.fail(&format!("{name} did not take the mouse: {reason}"));
+                }
                 if self.remote.as_ref().is_some_and(|r| r.peer == peer) {
                     self.go_home(None, Home::Refused);
                 }
@@ -635,7 +732,6 @@ impl Hub {
     }
 
     fn on_enter(&mut self, peer: NodeId, monitor_id: &str, nx: u16, ny: u16) {
-        let busy = self.remote.is_some() || self.controlled.as_ref().is_some_and(|c| c.peer != peer);
         let me = self.inner.self_name.clone();
         // `left@3,540`: the exact point, in this computer's local space. A plain `left` is an edge and a fraction.
         let exact = arrange::parse_enter_tag(monitor_id);
@@ -643,6 +739,24 @@ impl Hub {
             let why = format!("{me} did not understand where the pointer came in. Update both computers to the same version.");
             return self.refuse_enter(peer, &why, true);
         };
+        // Each computer holds the other's pointer: both crossed at once, or one of them missed the other's Leave. Both
+        // accepting would leave each controlling the other with nobody holding anything, so one side keeps its crossing:
+        // the computer with the lower id. It says no to the other's Enter (with `Refused`, not `Leave`, which would
+        // undo its own crossing); the other comes home and takes the Enter.
+        let holding_it = self.remote.as_ref().is_some_and(|r| r.peer == peer);
+        let mutual = holding_it && self.controlled.as_ref().map_or(true, |c| c.peer == peer);
+        if mutual && self.local_id().to_hex() < peer.to_hex() {
+            tracing::info!(peer = short(&peer).as_str(), "desk: did not let the pointer in: both crossed at once, this computer keeps its own");
+            if let Some(l) = self.live.get(&peer) {
+                let _ = l.ctl.send(StreamMsg::Refused { reason: "busy".to_string() });
+            }
+            return;
+        }
+        let busy = !mutual && (self.remote.is_some() || self.controlled.as_ref().is_some_and(|c| c.peer != peer));
+        if mutual {
+            // The other computer kept its crossing: this one's is cancelled before anything else is checked.
+            self.go_home(None, Home::Crossed);
+        }
         if busy {
             // Both pointers crossed at once, or a third computer has this one: an ordinary race, not a problem.
             tracing::info!(peer = short(&peer).as_str(), "desk: did not let the pointer in: the mouse is busy here");
@@ -725,6 +839,8 @@ impl Hub {
                 let _ = l.ctl.send(StreamMsg::ReturnAt { x, y });
             }
             self.release_controlled();
+            // Not straight back across this edge (see RETURN_PAUSE_MS).
+            self.refused_until.insert(peer, self.ms() + RETURN_PAUSE_MS);
             // Step off the edge. Resting on it, this computer would take the pointer straight back across (when it
             // sees the other computer on this same edge, as after the layout was swapped) and be left holding the
             // mouse the person is not using.

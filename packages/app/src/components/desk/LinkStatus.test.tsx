@@ -59,6 +59,13 @@ describe('LinkStatus', () => {
     expect(h.onPanic).toHaveBeenCalledTimes(1);
   });
 
+  it('says when another computer is using this one, and offers to bring the mouse back', () => {
+    const h = render(view({ controlled_by: 'Laptop' }));
+    expect(host.querySelector('[role="status"]')!.textContent).toContain('Laptop is using this computer');
+    act(() => button('Bring the mouse back')!.click());
+    expect(h.onPanic).toHaveBeenCalledTimes(1);
+  });
+
   it('changes with the state: on, then on the other computer, then paused', () => {
     const none = { onPause: () => {}, onPanic: () => {} };
     render(view());

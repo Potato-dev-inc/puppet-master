@@ -20,7 +20,8 @@ export function LinkStatus({
       {text && (
         <p className={`ck-desk-status${view.error ? ' is-error' : ''}`} role={view.error ? 'alert' : 'status'} data-testid="link-status">
           <span>{text}</span>
-          {view.mouse_on && (
+          {/* Being used from the other computer: the same button makes that computer let go and come home. */}
+          {(view.mouse_on || view.controlled_by) && (
             <button type="button" className="ck-desk-btn" onClick={onPanic}>
               Bring the mouse back
             </button>
