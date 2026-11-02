@@ -4,10 +4,15 @@
 //! Coordinates are points, the space macOS uses for the cursor and the screens. (Windows reports physical pixels;
 //! the engine only compares positions inside one host, so each host stays in its own space.)
 
+mod capture;
+mod clipboard;
 mod cursor;
 mod display;
 mod ffi;
 mod hook;
+mod remote;
+
+pub use remote::MacosRemote;
 
 use std::sync::{Arc, Mutex, MutexGuard};
 

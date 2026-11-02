@@ -1,3 +1,4 @@
+// Behaviour from desktoplab (github.com/v7ren/desktoplab), commit 6e5360e, MIT.
 //! Cursor position and move, in points (the space macOS uses for the cursor and the screens).
 
 use std::ptr;

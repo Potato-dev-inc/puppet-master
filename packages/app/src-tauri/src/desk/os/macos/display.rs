@@ -1,3 +1,4 @@
+// Behaviour from desktoplab (github.com/v7ren/desktoplab), commit 6e5360e, MIT.
 //! Screen list in points, origins can be negative (a screen left of or above the main one). `scale` is the
 //! backing scale (2 on a Retina screen), so a UI can still show pixels.
 
