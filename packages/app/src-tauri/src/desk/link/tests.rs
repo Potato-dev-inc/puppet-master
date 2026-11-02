@@ -261,6 +261,32 @@ async fn two_pointers_crossing_at_once_both_come_home() {
     wait_until("crosses", || a.host.capturing()).await;
 }
 
+/// The controlled side hands the pointer back, and the other computer's pointer is left resting on the edge facing it
+/// (an injected move can leave it there). It does not cross straight back: for one second. After that, the same
+/// resting pointer crosses, which is normal.
+#[tokio::test(start_paused = true)]
+async fn a_handed_back_pointer_resting_on_the_edge_is_not_taken_straight_back() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 300);
+    wait_until("crossed", || a.host.capturing()).await;
+    // Two pushes in a row through b's left edge send the pointer home.
+    for _ in 0..8 {
+        a.host.person(Capture::Motion { dx: -30, dy: 0 });
+        sleep(Duration::from_millis(5)).await;
+    }
+    wait_until("a is home", || !a.host.capturing()).await;
+    assert_eq!(b.link.view().controlled_by, None);
+    // b's pointer is put on the edge facing a and stays there.
+    b.host.put_cursor(0, 300);
+    sleep(Duration::from_millis(600)).await;
+    assert!(!b.host.capturing(), "b took the pointer straight back across the edge");
+    assert_eq!(a.link.view().controlled_by, None);
+    // The pause is over: the pointer resting on the edge crosses now.
+    sleep(Duration::from_millis(500)).await;
+    wait_until("b crosses once the pause is over", || b.host.capturing() && a.link.view().controlled_by.as_deref() == Some("Laptop")).await;
+}
+
 #[tokio::test(start_paused = true)]
 async fn the_pointer_crosses_the_edge_and_the_other_computer_is_driven() {
     let (_net, a, b) = together();

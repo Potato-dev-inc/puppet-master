@@ -43,6 +43,9 @@ const MAX_HELD: usize = 256;
 /// After the other computer said no, the pointer does not try it again for this long (it would only be refused again
 /// every 20 ms while the person keeps pushing).
 const REFUSED_PAUSE_MS: u64 = 2_000;
+/// After this computer hands the pointer back, or the other computer lets go of it, this computer does not take the
+/// pointer straight back across the same edge. The other computer may leave its pointer resting on that edge.
+const RETURN_PAUSE_MS: u64 = 1_000;
 /// The page is handed a new view at most this often. A change inside that window is handed over at the next tick.
 const PUBLISH_EVERY_MS: u64 = 50;
 /// Longest refusal reason taken from the other computer.
@@ -589,6 +592,8 @@ impl Hub {
                 let leave = matches!(msg, StreamMsg::Leave);
                 if self.controlled.as_ref().is_some_and(|c| c.peer == peer) {
                     self.release_controlled();
+                    // The other computer let go of its pointer here: do not take it straight back across that edge.
+                    self.refused_until.insert(peer, self.ms() + RETURN_PAUSE_MS);
                 }
                 // "Leave" from the computer we hold: it refuses, or its pointer came home on its own.
                 if leave && self.remote.as_ref().is_some_and(|r| r.peer == peer) {
@@ -725,6 +730,8 @@ impl Hub {
                 let _ = l.ctl.send(StreamMsg::ReturnAt { x, y });
             }
             self.release_controlled();
+            // Not straight back across this edge (see RETURN_PAUSE_MS).
+            self.refused_until.insert(peer, self.ms() + RETURN_PAUSE_MS);
             // Step off the edge. Resting on it, this computer would take the pointer straight back across (when it
             // sees the other computer on this same edge, as after the layout was swapped) and be left holding the
             // mouse the person is not using.
