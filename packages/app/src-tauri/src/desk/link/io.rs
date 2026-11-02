@@ -7,7 +7,7 @@
 //!   links to the same computer survives (`p2p/session.rs`).
 //! - **Writers**: control messages and motion each have their own queue and writer task. The hub only pushes; it never
 //!   awaits a stream (DevHop's loop awaited writes inline, so one slow write stopped the heartbeat).
-//! - **Heartbeat**: its own task, every 100 ms, independent of the hub. It also notices silence (250 ms: keys are
+//! - **Heartbeat**: its own task, every 100 ms, independent of the hub. It also notices silence (400 ms: keys are
 //!   released; 3 s: the link is closed) and a switch that was turned off (the link is closed within 100 ms).
 //! - **Readers** never decide anything. A stream the peer opens after the control stream is dropped, not parsed as
 //!   something else.
@@ -179,6 +179,7 @@ async fn watch(inner: &Arc<Inner>, hub: &mpsc::UnboundedSender<Msg>, link: &Arc<
                 match silence.check(now) {
                     SilenceVerdict::Fine => {}
                     SilenceVerdict::Stalled => {
+                        tracing::warn!(gap_ms = silence.quiet_for(now), "desk: the other computer went quiet, the keys are let go");
                         let _ = hub.send(Msg::Stalled { peer, link_id });
                     }
                     SilenceVerdict::Dead => {

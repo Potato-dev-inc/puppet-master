@@ -10,8 +10,9 @@
 //!    flight per peer, with a growing wait after each failure.
 //! 3. The close of an old link tore down the session that had replaced it. Every link has a number; the close of a
 //!    number that is no longer current changes nothing (`Sessions::link_ended`).
-//! 4. Silence. A heartbeat is 100 ms; 250 ms without a sign of life releases the keys (within 300 ms with the watchdog's
-//!    25 ms look), 3 s closes the link.
+//! 4. Silence. A heartbeat is 100 ms; 400 ms without a sign of life releases the keys (within 425 ms with the watchdog's
+//!    25 ms look), 3 s closes the link. DevHop's 3 missed heartbeats were 300-400 ms; 250 ms sent the pointer home on
+//!    ordinary Wi-Fi hiccups.
 
 use std::collections::HashMap;
 
@@ -19,9 +20,9 @@ use super::endpoint::NodeId;
 
 /// Milliseconds between heartbeats.
 pub const HEARTBEAT_MS: u64 = 100;
-/// This much silence and the keys are released. DevHop's 300 ms deadline is met with room for the 25 ms the
-/// watchdog looks at it: 250 + 25 < 300.
-pub const STALL_MS: u64 = 250;
+/// This much silence and the keys are released. Long enough to ride out a Wi-Fi hiccup (the old app used 3 missed
+/// 100 ms beats, 300-400 ms), short enough that a pulled cable still frees the keys well within half a second.
+pub const STALL_MS: u64 = 400;
 /// A session this old is settled: a link that shows up later is a stray duplicate, whatever its direction. The
 /// tie-break is only for the race of the first moments, when both computers dial at once.
 pub const SETTLE_MS: u64 = 2_000;
@@ -257,6 +258,11 @@ impl Silence {
     pub fn is_stalled(&self) -> bool {
         self.stalled
     }
+
+    /// Milliseconds since anything was heard (for the log line that says how long the silence lasted).
+    pub fn quiet_for(&self, now_ms: u64) -> u64 {
+        now_ms.saturating_sub(self.last_ms)
+    }
 }
 
 #[cfg(test)]
@@ -395,15 +401,17 @@ mod tests {
     }
 
     #[test]
-    fn a_quarter_second_of_silence_stalls_and_three_seconds_kill() {
+    fn a_wifi_hiccup_is_not_a_stall_but_400_ms_of_silence_is() {
         let mut w = Silence::new(0);
-        assert_eq!(w.check(249), SilenceVerdict::Fine);
-        assert_eq!(w.check(250), SilenceVerdict::Stalled);
-        assert_eq!(w.check(400), SilenceVerdict::Fine, "stall is reported once");
+        assert_eq!(w.check(350), SilenceVerdict::Fine, "350 ms of silence is a hiccup, not a stall");
+        assert_eq!(w.check(399), SilenceVerdict::Fine);
+        assert_eq!(w.check(450), SilenceVerdict::Stalled, "450 ms of silence stalls");
+        assert_eq!(w.check(470), SilenceVerdict::Fine, "stall is reported once");
+        assert_eq!(w.quiet_for(470), 470);
         assert_eq!(w.check(3_000), SilenceVerdict::Dead);
         w.heard(3_100);
         assert!(!w.is_stalled());
-        assert_eq!(w.check(3_349), SilenceVerdict::Fine);
-        assert_eq!(w.check(3_350), SilenceVerdict::Stalled);
+        assert_eq!(w.check(3_499), SilenceVerdict::Fine);
+        assert_eq!(w.check(3_500), SilenceVerdict::Stalled);
     }
 }

@@ -431,7 +431,7 @@ async fn a_held_key_is_released_at_once_when_the_link_is_cut() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_pulled_cable_releases_held_keys_within_300_ms() {
+async fn a_pulled_cable_releases_held_keys_within_500_ms() {
     let (net, a, b) = together();
     up(&a, &b).await;
     cross(&a, &b).await;
@@ -446,11 +446,11 @@ async fn a_pulled_cable_releases_held_keys_within_300_ms() {
     let ups = b.host.with(|s| s.key_up_at.clone());
     assert_eq!(ups.len(), 2);
     for (hid, at) in ups {
-        assert!(at.duration_since(t0) <= Duration::from_millis(300), "key {hid:#x} released after {:?}", at.duration_since(t0));
+        assert!(at.duration_since(t0) <= Duration::from_millis(500), "key {hid:#x} released after {:?}", at.duration_since(t0));
     }
     // The sender's pointer comes home on its own too, with nobody to ask.
     wait_until("sender home", || !a.host.capturing()).await;
-    assert!(Instant::now().duration_since(t0) <= Duration::from_millis(400));
+    assert!(Instant::now().duration_since(t0) <= Duration::from_millis(500));
     // The session is still there (not dead yet), then dies after 3 s of silence.
     assert_eq!(state_of(&b, &a), "online");
     wait_until("offline after the silence", || state_of(&b, &a) != "online").await;
