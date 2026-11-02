@@ -1154,3 +1154,56 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Model Bridge (Settings > Orchestrator & Models): connected services, the preview card and the connect form. Tokens only. */
+.settings .st-mb-list {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+.settings .st-mb-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+.settings .st-mb-item + .st-mb-item {
+  border-top: 1px solid var(--sep);
+}
+.settings .st-mb-name {
+  min-width: 0;
+  flex: 1;
+}
+.settings .st-mb-name small {
+  display: block;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.settings .st-mb-card {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.settings .st-mb-card p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.settings .st-mb-card pre {
+  margin: 0 0 8px;
+  overflow: auto;
+  font: 12px/1.6 var(--font-mono);
+  color: var(--label-2);
+}
+.settings .st-mb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.settings .st-mb-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}

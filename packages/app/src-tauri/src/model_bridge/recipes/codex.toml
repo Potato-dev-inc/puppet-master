@@ -1,0 +1,23 @@
+# "Plug into Codex": which file to edit and which tables to write. Generic code reads only this data.
+id = "codex"
+display_name = "Codex"
+agent_id = "codex"
+requires_shape = "responses"
+
+# The settings file: $CODEX_HOME, else the .codex folder in the home folder.
+config_path = "{env:CODEX_HOME|~/.codex}/config.toml"
+
+# Written as [model_providers.<provider_id>]. {…} fields come from the adapter.
+[provider]
+table = "model_providers"
+id_prefix = "pm-"
+name = "{display_name}"
+base_url = "{base_url}"
+env_key = "{env_var}"
+wire_api = "responses"
+
+# Optional, written as [profiles.<provider_id>]. Nothing changes until the person picks the profile.
+[profile]
+table = "profiles"
+model_provider = "{provider_id}"
+model = "{model}"

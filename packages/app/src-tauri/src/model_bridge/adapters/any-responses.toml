@@ -1,0 +1,15 @@
+# The blank adapter: any service that speaks the Responses API. The person fills in a name and an address.
+id = "any-responses"
+display_name = "Any service that speaks the Responses API"
+base_url = ""
+custom = true
+note = "Type the name and the address your service gave you."
+
+[auth]
+header = "Authorization"
+scheme = "Bearer"
+env_var = "PM_MODEL_KEY"
+
+[[routes]]
+shape = "responses"
+models = []

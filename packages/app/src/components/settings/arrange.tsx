@@ -57,6 +57,7 @@ export const LAYOUT: Partial<Record<SectionId, LayoutGroup[]>> = {
     { group: 'Orchestrator', rows: ['orchestrator-backend', 'librarian-indexer'] },
     { group: 'OpenCode', rows: ['opencode-provider', 'opencode-model'] },
     { group: 'Model for the API orchestrator', rows: ['default-provider', 'default-model', 'custom-models'] },
+    { group: 'Model Bridge', rows: ['model-bridge'] },
   ],
   keys: [
     { group: 'Provider keys', rows: ['key-anthropic', 'key-openai', 'key-openrouter'] },

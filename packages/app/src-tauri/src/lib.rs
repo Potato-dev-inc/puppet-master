@@ -128,6 +128,7 @@ pub mod watch_command;
 pub mod env_probe;
 mod webview_service_worker;
 mod live_room;
+mod model_bridge;
 mod wsl;
 mod collision;
 
@@ -224,6 +225,13 @@ pub fn run() {
             commands::live_room_copy_link,
             commands::live_room_config_get,
             commands::live_room_config_set,
+            commands::model_bridge_list,
+            commands::model_bridge_save_key,
+            commands::model_bridge_remove,
+            commands::model_bridge_add_custom,
+            commands::model_bridge_preview,
+            commands::model_bridge_apply,
+            commands::model_bridge_undo,
             commands::clip_plan,
             commands::clip_stage,
             commands::clip_save,

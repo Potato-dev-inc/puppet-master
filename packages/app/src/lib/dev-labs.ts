@@ -12,6 +12,7 @@ export const DEV_LABS_KEYS = [
   'potato_sandbox_enabled',
   'acp_chat_enabled',
   'desk_enabled',
+  'model_bridge_enabled',
 ] as const;
 
 /** The one line the Labs page shows while the override is on. */

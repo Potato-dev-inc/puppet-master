@@ -1,0 +1,19 @@
+# A model service Puppet Master can plug into an app. Generic code reads only this data.
+id = "opencode-go"
+display_name = "OpenCode Go"
+base_url = "https://opencode.ai/inference/go/openai/v1"
+needs_review = true
+note = "Check OpenCode's terms for your plan."
+
+[auth]
+header = "Authorization"
+scheme = "Bearer"
+env_var = "OPENCODE_API_KEY"
+
+# Which wire API each model family speaks. v1 plugs in the Responses route directly.
+[[routes]]
+shape = "responses"
+models = ["kimi-k3"]
+
+[limits]
+note = "A monthly dollar limit, plus 5-hour and weekly windows. They may change."
