@@ -263,6 +263,28 @@ describe('DeskPage', () => {
     expect(h.invoke).toHaveBeenLastCalledWith('desk_command', { cmd: { type: 'hop_to', screen: 2 } });
   });
 
+  it('the copy button takes the newest My computers lines of the app log and copies them', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    try {
+      h.invoke.mockImplementation(async (name: string) => {
+        if (name === 'desk_snapshot') return snap();
+        if (name === 'app_log_lines') return ['desk: pointer home reason=edge', 'desk: held at end keys=0 buttons=0'];
+        return undefined;
+      });
+      await act(async () => root.render(<DeskPage />));
+      await flush();
+      await act(async () => button('Copy My computers log')?.click());
+      await flush();
+      expect(h.invoke).toHaveBeenCalledWith('app_log_lines', { needle: 'desk:', max: 300 });
+      expect(writeText).toHaveBeenCalledWith('desk: pointer home reason=edge\ndesk: held at end keys=0 buttons=0');
+      expect(host.textContent).toContain('Copied 2 lines.');
+    } finally {
+      delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    }
+  });
+
   it('shows a plain line when a command fails', async () => {
     h.invoke.mockResolvedValue(snap());
     await act(async () => root.render(<DeskPage />));

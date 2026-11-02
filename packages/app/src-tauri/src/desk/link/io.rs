@@ -179,8 +179,9 @@ async fn watch(inner: &Arc<Inner>, hub: &mpsc::UnboundedSender<Msg>, link: &Arc<
                 match silence.check(now) {
                     SilenceVerdict::Fine => {}
                     SilenceVerdict::Stalled => {
-                        tracing::warn!(gap_ms = silence.quiet_for(now), "desk: the other computer went quiet, the keys are let go");
-                        let _ = hub.send(Msg::Stalled { peer, link_id });
+                        let gap_ms = silence.quiet_for(now);
+                        tracing::warn!(gap_ms, "desk: the other computer went quiet, the keys are let go");
+                        let _ = hub.send(Msg::Stalled { peer, link_id, gap_ms });
                     }
                     SilenceVerdict::Dead => {
                         link.close(CLOSE_DEAD, "bye");

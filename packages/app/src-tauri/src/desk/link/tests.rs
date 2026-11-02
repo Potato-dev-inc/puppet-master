@@ -1167,3 +1167,91 @@ async fn an_older_decision_does_not_win() {
     assert!(reply, "the newer decision is said back");
     assert_eq!(spot_of_in(&b, &a), (-1920, -100));
 }
+
+// ----- why the pointer came home -----
+
+/// What the hub logs on this thread goes into the buffer (the test runs on one thread, hub included).
+fn log_capture() -> (Sink, tracing::subscriber::DefaultGuard) {
+    let sink = Sink::default();
+    let subscriber = tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).with_writer(sink.clone()).with_ansi(false).finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    // Other tests run in parallel without a subscriber and may have cached "nobody listens" for these log lines.
+    tracing::callsite::rebuild_interest_cache();
+    (sink, guard)
+}
+
+fn log_text(log: &Sink) -> String {
+    String::from_utf8_lossy(&log.0.lock().unwrap()).to_string()
+}
+
+/// The reason part of every "pointer home" line, e.g. "edge peer=..." or "stall gap_ms=300 peer=...".
+fn home_reasons(log: &Sink) -> Vec<String> {
+    log_text(log).lines().filter_map(|l| l.split("desk: pointer home reason=").nth(1)).map(str::to_string).collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_log_says_the_pointer_came_home_on_an_edge() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 300);
+    wait_until("crossed", || a.host.capturing()).await;
+    for _ in 0..3 {
+        a.host.person(Capture::Motion { dx: 30, dy: 0 });
+        sleep(Duration::from_millis(5)).await;
+    }
+    for _ in 0..8 {
+        a.host.person(Capture::Motion { dx: -30, dy: 0 });
+        sleep(Duration::from_millis(5)).await;
+    }
+    wait_until("pointer home", || !a.host.capturing()).await;
+    let reasons = home_reasons(&log);
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    assert!(reasons[0].starts_with("edge"), "{reasons:?}");
+    // The controlled side says where it handed the pointer back, and that it let go of nothing.
+    assert!(log_text(&log).contains("desk: returning at="), "{}", log_text(&log));
+    assert!(log_text(&log).contains("desk: held at end keys=0 buttons=0"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_log_says_the_pointer_came_home_when_the_link_went_quiet() {
+    let (log, _guard) = log_capture();
+    let (net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    net.blackhole(a.id, b.id, true);
+    wait_until("sender home", || !a.host.capturing()).await;
+    let reasons = home_reasons(&log);
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    let gap: Option<u64> = reasons[0].strip_prefix("stall gap_ms=").and_then(|r| r.split_whitespace().next()).and_then(|g| g.parse().ok());
+    assert!(gap.is_some_and(|g| g >= crate::p2p::session::STALL_MS), "{reasons:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_log_says_the_pointer_came_home_when_the_other_computer_leaves() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    // The other computer's panic: it lets go and sends `Leave`, so this computer's pointer comes home.
+    b.link.panic();
+    wait_until("a is home", || !a.host.capturing()).await;
+    let reasons = home_reasons(&log);
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    assert!(reasons[0].starts_with("leave"), "{reasons:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_log_says_the_pointer_came_home_when_the_link_ended() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    a.link.stop();
+    // The pointer is home at once; the hub writes its line when it takes the shutdown.
+    wait_until("the log says why", || !home_reasons(&log).is_empty()).await;
+    assert!(!a.host.capturing());
+    let reasons = home_reasons(&log);
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    assert!(reasons[0].starts_with("ended"), "{reasons:?}");
+}

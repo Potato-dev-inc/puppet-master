@@ -67,7 +67,7 @@ pub enum Msg {
     Install(Box<InstallReq>),
     Frame { peer: NodeId, link_id: u64, msg: StreamMsg },
     Motion { peer: NodeId, link_id: u64, dx: i32, dy: i32 },
-    Stalled { peer: NodeId, link_id: u64 },
+    Stalled { peer: NodeId, link_id: u64, gap_ms: u64 },
     Ended { peer: NodeId, link_id: u64 },
     Capture(Capture),
     DialResult { peer: NodeId, ok: bool },
@@ -99,6 +99,36 @@ struct Remote {
     /// Where the pointer comes back to when nothing says otherwise: inside the edge it left through.
     home: (i32, i32),
     side: Side,
+}
+
+/// Why the pointer came home on this computer. The log says it in one line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Home {
+    Edge,
+    Stall { gap_ms: u64 },
+    Ended,
+    Replaced,
+    Leave,
+    Refused,
+    Panic,
+    Pause,
+    Hotkey,
+}
+
+impl Home {
+    fn text(self) -> String {
+        match self {
+            Home::Edge => "edge".to_string(),
+            Home::Stall { gap_ms } => format!("stall gap_ms={gap_ms}"),
+            Home::Ended => "ended".to_string(),
+            Home::Replaced => "replaced".to_string(),
+            Home::Leave => "leave".to_string(),
+            Home::Refused => "refused".to_string(),
+            Home::Panic => "panic".to_string(),
+            Home::Pause => "pause".to_string(),
+            Home::Hotkey => "hotkey".to_string(),
+        }
+    }
 }
 
 /// `peer` is using this computer.
@@ -292,19 +322,19 @@ impl Hub {
                     self.on_motion(peer, dx, dy);
                 }
             }
-            Msg::Stalled { peer, link_id } => {
+            Msg::Stalled { peer, link_id, gap_ms } => {
                 if self.sessions.is_current(&peer, link_id) {
                     if self.remote.as_ref().is_some_and(|r| r.peer == peer) || self.controlled.as_ref().is_some_and(|c| c.peer == peer) {
                         tracing::info!(peer = short(&peer).as_str(), "desk: the other computer went quiet, the pointer comes home");
                     }
-                    self.session_lost(&peer);
+                    self.session_lost(&peer, Home::Stall { gap_ms });
                 }
             }
             Msg::Ended { peer, link_id } => {
                 if self.sessions.link_ended(&peer, link_id) {
                     tracing::info!(peer = short(&peer).as_str(), "desk: link to a computer ended");
                     self.live.remove(&peer);
-                    self.session_lost(&peer);
+                    self.session_lost(&peer, Home::Ended);
                 }
             }
             Msg::Capture(c) => self.on_capture(c),
@@ -319,10 +349,10 @@ impl Hub {
             Msg::Pause(p) => {
                 self.paused = p;
                 if p {
-                    self.stop_all();
+                    self.stop_all(Home::Pause);
                 }
             }
-            Msg::Panic => self.stop_all(),
+            Msg::Panic => self.stop_all(Home::Panic),
             Msg::Jump(n) => self.jump_to(n),
             Msg::ReturnHome => self.return_home(),
             Msg::Kick => self.upkeep(),
@@ -349,7 +379,7 @@ impl Hub {
             Accept | ReplaceExisting => {
                 if replaced.is_some() {
                     // A session on the old link ends: everything held on it is let go before the new one starts.
-                    self.session_lost(&req.peer);
+                    self.session_lost(&req.peer, Home::Replaced);
                     if let Some(old) = self.live.remove(&req.peer) {
                         old.link.close(CLOSE_REPLACED, "bye");
                     }
@@ -443,15 +473,15 @@ impl Hub {
         match c {
             Capture::Key { hid, down } => {
                 match self.chords.on_key(hid, down) {
-                    Some(Chord::Panic) => return self.stop_all(),
+                    Some(Chord::Panic) => return self.stop_all(Home::Panic),
                     Some(Chord::Pause) => {
                         self.paused = true;
-                        return self.stop_all();
+                        return self.stop_all(Home::Pause);
                     }
                     None => {}
                 }
                 if down && Hub::return_chord_pressed(&self.inner, &self.chords, hid) {
-                    return self.go_home(None);
+                    return self.go_home(None, Home::Hotkey);
                 }
                 self.control.handle(if down { ControlEvent::KeyDown(hid) } else { ControlEvent::KeyUp(hid) });
                 let _ = live.ctl.send(StreamMsg::Key { hid, down });
@@ -473,10 +503,11 @@ impl Hub {
     }
 
     /// Back to this computer. `arrival` is where the pointer appears; without it, where it left.
-    fn go_home(&mut self, arrival: Option<(i32, i32)>) {
+    fn go_home(&mut self, arrival: Option<(i32, i32)>, why: Home) {
         let Some(r) = self.remote.take() else { return };
         let peer = r.peer;
-        tracing::info!(peer = short(&peer).as_str(), "desk: the pointer is back on this computer");
+        let why = why.text();
+        tracing::info!(peer = short(&peer).as_str(), "desk: pointer home reason={why}");
         // The machine keeps the phase in step; what must happen does not depend on what it thinks.
         let _ = self.control.handle(ControlEvent::CrossHome);
         if let Some(l) = self.live.get(&peer) {
@@ -492,8 +523,8 @@ impl Hub {
     }
 
     /// Panic and pause: the pointer is here, nothing is held anywhere, on both computers.
-    fn stop_all(&mut self) {
-        self.go_home(None);
+    fn stop_all(&mut self, why: Home) {
+        self.go_home(None, why);
         if let Some(c) = self.controlled.as_ref().map(|c| c.peer) {
             // The other computer holds the mouse: tell it to come home too.
             if let Some(l) = self.live.get(&c) {
@@ -504,9 +535,9 @@ impl Hub {
     }
 
     /// The session with `peer` is over (link ended, replaced, or gone quiet): let go of everything tied to it.
-    fn session_lost(&mut self, peer: &NodeId) {
+    fn session_lost(&mut self, peer: &NodeId, why: Home) {
         if self.remote.as_ref().is_some_and(|r| &r.peer == peer) {
-            self.go_home(None);
+            self.go_home(None, why);
         }
         if self.controlled.as_ref().is_some_and(|c| &c.peer == peer) {
             self.release_controlled();
@@ -549,7 +580,7 @@ impl Hub {
                 }
                 // "Leave" from the computer we hold: it refuses, or its pointer came home on its own.
                 if leave && self.remote.as_ref().is_some_and(|r| r.peer == peer) {
-                    self.go_home(None);
+                    self.go_home(None, Home::Leave);
                 }
             }
             StreamMsg::Layout { bytes } => {
@@ -564,7 +595,7 @@ impl Hub {
                     let side = self.remote.as_ref().map_or(Side::Right, |r| r.side);
                     self.refresh_displays();
                     let at = onto_screens(&self.displays, (x.saturating_add(self.origin.0), y.saturating_add(self.origin.1)), side);
-                    self.go_home(Some(at));
+                    self.go_home(Some(at), Home::Edge);
                 }
             }
             StreamMsg::Refused { reason } => {
@@ -575,7 +606,7 @@ impl Hub {
                 self.refused_until.insert(peer, self.ms() + REFUSED_PAUSE_MS);
                 self.fail(&format!("{name} did not take the mouse: {reason}"));
                 if self.remote.as_ref().is_some_and(|r| r.peer == peer) {
-                    self.go_home(None);
+                    self.go_home(None, Home::Refused);
                 }
             }
             StreamMsg::Return { t_milli } => {
@@ -583,7 +614,7 @@ impl Hub {
                     let side = self.remote.as_ref().map_or(Side::Right, |r| r.side);
                     self.refresh_displays();
                     let arrival = entry_point(&self.displays, side, from_milli(t_milli));
-                    self.go_home(arrival);
+                    self.go_home(arrival, Home::Edge);
                 }
             }
             // Hello again, clipboard on the wrong stream, drag: not part of this link.
@@ -671,8 +702,11 @@ impl Hub {
         // Pushing on through an edge that faces the other computer sends the pointer back, to the matching spot.
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
         if let Some(dep) = self.inner.depart_to(&peer, &self.shapes, local, &outward((dx, dy))) {
+            let (x, y) = dep.to;
+            let held = self.controlled.as_ref().map_or(0, |c| c.buttons.len());
+            tracing::info!("desk: returning at={x},{y} delta={dx},{dy} buttons_held={held}");
             if let Some(l) = self.live.get(&peer) {
-                let _ = l.ctl.send(StreamMsg::ReturnAt { x: dep.to.0, y: dep.to.1 });
+                let _ = l.ctl.send(StreamMsg::ReturnAt { x, y });
             }
             self.release_controlled();
             // Step off the edge. Resting on it, this computer would take the pointer straight back across (when it
@@ -687,6 +721,8 @@ impl Hub {
     /// Key-up and button-up for everything pressed on behalf of the peer.
     fn release_controlled(&mut self) {
         let Some(c) = self.controlled.take() else { return };
+        let (keys, buttons) = (c.keys.len(), c.buttons.len());
+        tracing::info!("desk: held at end keys={keys} buttons={buttons}");
         for hid in c.keys {
             let _ = self.inner.host.inject(Inject::Key { hid, down: false });
         }
@@ -755,7 +791,7 @@ impl Hub {
     }
 
     fn teardown(&mut self) {
-        self.go_home(None);
+        self.go_home(None, Home::Ended);
         self.release_controlled();
         self.inner.host.stop_capture();
         for (_, l) in self.live.drain() {

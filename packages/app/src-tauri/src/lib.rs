@@ -431,6 +431,7 @@ pub fn run() {
             commands::diagnostic_preview,
             commands::diagnostic_show,
             commands::diagnostic_save,
+            commands::app_log_lines,
             app_lifecycle::get_app_install_info,
             app_lifecycle::open_external_url,
             app_lifecycle::launch_uninstall,
