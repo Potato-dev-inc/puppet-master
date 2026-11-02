@@ -892,3 +892,29 @@ fn the_mock_host_is_a_remote_host_and_the_real_default_is_not_built_in_tests() {
     assert!(!h.supported(), "a test build gets the stub, never the real PC");
     assert!(h.inject(Inject::Key { hid: 4, down: true }).is_err());
 }
+
+/// Swapping where the other computer sits, over and over, never leaves either computer unable to cross again.
+#[tokio::test(start_paused = true)]
+async fn crossing_there_and_back_after_every_swap_of_sides_never_sticks() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    let rounds = [("right", 0), ("left", 1), ("right", 0), ("left", 1), ("top", 2), ("bottom", 3), ("right", 0), ("left", 1), ("left", 1), ("right", 0)];
+    for (i, (side, _)) in rounds.iter().enumerate() {
+        a.link.set_side(&b.id, side).unwrap();
+        // Where a's pointer rests to leave, and which way b pushes to bring it back.
+        let (edge, push) = match *side {
+            "right" => ((1919, 300), (-30, 0)),
+            "left" => ((0, 300), (30, 0)),
+            "top" => ((600, 0), (0, 30)),
+            _ => ((600, 1079), (0, -30)),
+        };
+        a.host.put_cursor(edge.0, edge.1);
+        wait_until(&format!("round {i} ({side}): crossed"), || a.host.capturing() && b.link.view().devices[0].controls_me).await;
+        for _ in 0..8 {
+            a.host.person(Capture::Motion { dx: push.0, dy: push.1 });
+            sleep(Duration::from_millis(5)).await;
+        }
+        wait_until(&format!("round {i} ({side}): home"), || !a.host.capturing() && b.link.view().controlled_by.is_none()).await;
+        sleep(Duration::from_millis(300)).await;
+    }
+}
