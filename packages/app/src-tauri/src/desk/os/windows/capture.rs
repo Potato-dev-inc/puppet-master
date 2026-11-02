@@ -32,8 +32,16 @@ use super::dpi::DpiScope;
 use crate::desk::link::remote::{Capture, CaptureSink};
 
 const LLMHF_INJECTED: u32 = 1;
-/// A jump bigger than this in one event is not a mouse move (the pointer was warped); it is dropped.
-const MAX_STEP: i32 = 2000;
+/// A position further than this from the park point is not a mouse move (it was queued before the pointer was
+/// parked, or the pointer was warped); it is dropped. The same reach DevHop's cursor clip had (160, plus 2 of slack).
+const MAX_STEP: i32 = 162;
+
+/// What a mouse move at `pt` adds up to, given the park point: the distance from it, unless it is nothing or too far
+/// to be real hardware motion.
+fn motion_from_park(pt: (i32, i32), park: (i32, i32)) -> Option<(i32, i32)> {
+    let (dx, dy) = (pt.0 - park.0, pt.1 - park.1);
+    ((dx != 0 || dy != 0) && dx.abs() <= MAX_STEP && dy.abs() <= MAX_STEP).then_some((dx, dy))
+}
 
 struct Ctx {
     sink: CaptureSink,
@@ -142,12 +150,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
     }
     let event = match wparam.0 as u32 {
         WM_MOUSEMOVE => {
-            let (dx, dy) = (info.pt.x - ctx.park.0, info.pt.y - ctx.park.1);
-            if (dx != 0 || dy != 0) && dx.abs() < MAX_STEP && dy.abs() < MAX_STEP {
-                Some(Capture::Motion { dx, dy })
-            } else {
-                None
-            }
+            motion_from_park((info.pt.x, info.pt.y), ctx.park).map(|(dx, dy)| Capture::Motion { dx, dy })
         }
         WM_LBUTTONDOWN => Some(Capture::Button { button: 0, down: true }),
         WM_LBUTTONUP => Some(Capture::Button { button: 0, down: false }),
@@ -162,6 +165,10 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
     if let Some(e) = event {
         (ctx.sink)(e);
     }
+    // Back to the park point after every mouse event, so the next position is again the distance moved since this
+    // one. Swallowing the event does not keep the position from drifting: without this the distances grow until
+    // they hit the edge of the screen and the other computer's pointer is thrown into a corner.
+    let _ = super::cursor::warp(ctx.park.0, ctx.park.1);
     // Everything the person does with the mouse stays off this computer while the pointer is away.
     LRESULT(1)
 }
@@ -193,4 +200,23 @@ unsafe extern "system" fn key_proc(code: i32, wparam: WPARAM, lparam: LPARAM) ->
         (ctx.sink)(Capture::Key { hid, down });
     }
     LRESULT(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn motion_is_the_distance_from_the_park_point() {
+        assert_eq!(motion_from_park((1003, 497), (1000, 500)), Some((3, -3)));
+    }
+
+    #[test]
+    fn no_motion_and_far_away_positions_are_not_forwarded() {
+        assert_eq!(motion_from_park((1000, 500), (1000, 500)), None);
+        // A position queued before the pointer was parked, from the screen edge: dropped, not thrown at the other side.
+        assert_eq!(motion_from_park((1919, 500), (1000, 500)), None);
+        assert_eq!(motion_from_park((1000 + MAX_STEP, 500), (1000, 500)), Some((MAX_STEP, 0)));
+        assert_eq!(motion_from_park((1000 + MAX_STEP + 1, 500), (1000, 500)), None);
+    }
 }
