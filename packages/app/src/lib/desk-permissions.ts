@@ -22,7 +22,7 @@ export function accessibilityHelp(p: DeskPermissions | null): { title: string; s
   return {
     title: 'This Mac has not allowed Puppet Master to control the mouse and keyboard yet.',
     steps:
-      'Open System Settings, go to Privacy & Security, then Accessibility, and switch on Puppet Master. If it is not in the list, add it with the + button. Then come back here.',
+      'Open System Settings, go to Privacy & Security, then Accessibility, and switch on Puppet Master. If it is not in the list, add it with the + button. If you started Puppet Master from a terminal (npm run tauri dev), switch on that terminal app instead and start it again. Then come back here.',
   };
 }
 

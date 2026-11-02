@@ -56,6 +56,15 @@ describe('DeviceRow', () => {
     expect(host.querySelector('.ck-desk-dot')!.className).not.toContain('is-on');
   });
 
+  it('says what to check on the other computer when the link stays offline', () => {
+    render({ allowed: ['desk/input'] }, { state: 'offline' });
+    expect(host.textContent).toContain('Open My computers on Laptop and turn on Mouse and keyboard for this computer there too.');
+    render({ allowed: ['desk/input'] }, { state: 'online' });
+    expect(host.textContent).not.toContain('Open My computers on Laptop');
+    render({}, { state: 'off', input_on: false });
+    expect(host.textContent).not.toContain('Open My computers on Laptop');
+  });
+
   it('says Paired while the mouse switch is off, and says where the mouse is', () => {
     render({}, { state: 'off', input_on: false });
     expect(host.querySelector('[role="status"]')!.textContent).toBe('Paired');

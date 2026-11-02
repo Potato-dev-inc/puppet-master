@@ -12,6 +12,11 @@ export function deviceStatus(online: boolean | null): string {
   return 'Paired';
 }
 
+/** What to check when "Mouse and keyboard" is on here but the link does not come up. */
+export function offlineHint(name: string): string {
+  return `Open My computers on ${name} and turn on Mouse and keyboard for this computer there too.`;
+}
+
 export function DeviceRow({
   device,
   link,
@@ -49,6 +54,9 @@ export function DeviceRow({
             {statusText}
             {link?.mouse_here ? ' · Mouse is here' : ''}
           </span>
+          {link?.state === 'offline' && (
+            <span className="ck-desk-hint">{offlineHint(device.name)}</span>
+          )}
         </div>
         {!asking && (
           <button type="button" className="ck-desk-btn" aria-label={`Remove ${device.name}`} onClick={() => setAsking(true)}>

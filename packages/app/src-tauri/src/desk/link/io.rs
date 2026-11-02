@@ -87,6 +87,8 @@ async fn handshake(inner: &Inner, link: &Arc<dyn Link>, dialed: bool) -> Option<
 /// Runs a link until it ends. For an accepted link, called by the capability handler; for a dialed one, by the dial task.
 pub(super) async fn run_link(inner: Arc<Inner>, peer: NodeId, link: Arc<dyn Link>, dialed: bool) {
     let Some(hub) = inner.hub_tx() else {
+        // Mouse sharing starts when the person opens My computers on this computer (never by itself at app start).
+        tracing::warn!(dialed, "desk: refused a link: mouse sharing is not started here yet, open My computers on this computer");
         link.close(CLOSE_STOPPED, "bye");
         return;
     };
@@ -99,11 +101,13 @@ pub(super) async fn run_link(inner: Arc<Inner>, peer: NodeId, link: Arc<dyn Link
     let shake = timeout(HANDSHAKE_TIMEOUT, handshake(&inner, &link, dialed)).await;
     let _ = hub.send(Msg::Handshaking { peer, on: false });
     let Some((stream, hello)) = shake.ok().flatten() else {
+        tracing::warn!(dialed, "desk: the hello with a computer failed (no answer in time, or a different version)");
         link.close(CLOSE_PROTOCOL, "bye");
         dial_done(false);
         return;
     };
     if hello.device_id != peer.to_hex() {
+        tracing::warn!(dialed, "desk: refused a link: the hello named a different computer than the encrypted link");
         link.close(CLOSE_PROTOCOL, "bye");
         dial_done(false);
         return;
@@ -230,7 +234,11 @@ async fn control_reader(
                 }
             }
             // The other side ended its control stream, or sent something that is not a frame.
-            _ => {
+            other => {
+                if matches!(other, Err(super::wire::WireError::Bad) | Err(super::wire::WireError::TooLarge)) {
+                    // Most often two different builds: a message one of them added that the other does not know.
+                    tracing::warn!("desk: the other computer sent a message this version does not understand, update both computers to the same build");
+                }
                 link.close(CLOSE_PROTOCOL, "bye");
                 return;
             }

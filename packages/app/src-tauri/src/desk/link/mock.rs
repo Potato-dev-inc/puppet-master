@@ -30,6 +30,10 @@ pub struct MockState {
     pub fail_capture: bool,
     pub releases: u32,
     pub unsupported: bool,
+    /// What `can_be_controlled` says (a Mac without Accessibility). `None`: it can be.
+    pub refuse_control: Option<String>,
+    /// What `inject` says while set (input that stopped working mid-way).
+    pub fail_inject: Option<String>,
 }
 
 #[derive(Clone)]
@@ -118,7 +122,14 @@ impl RemoteHost for MockRemote {
         self.with(|s| s.buttons_down)
     }
 
+    fn can_be_controlled(&self) -> Result<(), String> {
+        self.with(|s| s.refuse_control.clone()).map_or(Ok(()), Err)
+    }
+
     fn inject(&self, event: Inject) -> Result<(), String> {
+        if let Some(e) = self.with(|s| s.fail_inject.clone()) {
+            return Err(e);
+        }
         self.with(|s| {
             s.log.push(event);
             match event {
