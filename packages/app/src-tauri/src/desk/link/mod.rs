@@ -40,6 +40,7 @@ pub mod geometry;
 pub mod hub;
 pub mod io;
 pub mod park;
+mod pointer_speed;
 mod port_link;
 pub mod prefs;
 pub mod prefs_commands;

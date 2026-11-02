@@ -556,6 +556,7 @@ pub fn run() {
             desk::link::commands::desk_link_panic,
             desk::link::prefs_commands::desk_link_set_keymap,
             desk::link::prefs_commands::desk_link_set_scroll,
+            desk::link::prefs_commands::desk_link_set_pointer_speed,
             desk::link::commands::desk_link_layout,
             desk::link::commands::desk_link_set_place,
             pairing_commands::pair_view,

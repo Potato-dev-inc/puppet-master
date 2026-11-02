@@ -28,6 +28,7 @@ use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
 use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
 use super::pushback::PushBack;
 use super::remote::{Capture, Inject};
+use super::pointer_speed::PointerSpeed;
 use super::{clip_link, io, Inner, CLOSE_REPLACED, CLOSE_STOPPED};
 use crate::desk::host::DisplayInfo;
 
@@ -94,6 +95,8 @@ struct Live {
     dg: mpsc::Sender<Datagram>,
     os: OsKind,
     motion_seq: u32,
+    /// The part of a motion step not yet sent to that computer (see `pointer_speed.rs`).
+    pointer: PointerSpeed,
 }
 
 /// The pointer is on `peer`.
@@ -403,7 +406,7 @@ impl Hub {
                 }
                 self.live.insert(
                     req.peer,
-                    Live { link_id: req.link_id, link: req.link, ctl: req.ctl, dg: req.dg, os: req.os, motion_seq: 0 },
+                    Live { link_id: req.link_id, link: req.link, ctl: req.ctl, dg: req.dg, os: req.os, motion_seq: 0, pointer: PointerSpeed::default() },
                 );
                 self.ledger.succeeded(&req.peer);
                 let mac = matches!(req.os, OsKind::Macos);
@@ -513,6 +516,8 @@ impl Hub {
                 let _ = live.ctl.send(StreamMsg::Wheel { dx, dy });
             }
             Capture::Motion { dx, dy } => {
+                let speed = self.inner.peer_prefs(&peer).pointer_speed;
+                let (dx, dy) = live.pointer.scale(speed, dx, dy);
                 live.motion_seq = live.motion_seq.wrapping_add(1);
                 // A full queue drops motion; it never waits.
                 let _ = live.dg.try_send(Datagram::Motion { seq: live.motion_seq, dx, dy, sent_us: self.inner.now_ms() * 1000 });

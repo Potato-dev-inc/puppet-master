@@ -38,9 +38,22 @@ export interface PeerPrefs {
   speed: number;
   /** Flip the wheel when that computer uses this one. */
   reverse_incoming: boolean;
+  /** How far that computer's pointer moves per step of my mouse; 1 = as is. */
+  pointer_speed: number;
 }
 
-export const DEFAULT_PEER_PREFS: PeerPrefs = { alt_cmd: true, win_option: true, natural: false, speed: 1, reverse_incoming: false };
+export const DEFAULT_PEER_PREFS: PeerPrefs = {
+  alt_cmd: true,
+  win_option: true,
+  natural: false,
+  speed: 1,
+  reverse_incoming: false,
+  pointer_speed: 1,
+};
+
+/** The pointer speeds the slider takes; the app accepts exactly this range (Rust: desk/link/pointer_speed.rs). */
+export const POINTER_SPEED_MIN = 0.25;
+export const POINTER_SPEED_MAX = 3;
 
 /** The speeds the page offers; the app accepts anything from 0.25 to 4. */
 export const SCROLL_SPEEDS = [0.5, 0.75, 1, 1.5, 2, 3];
@@ -115,6 +128,7 @@ export const linkSetKeymap = (node: string, altCmd: boolean, winOption: boolean)
   invoke<LinkView>('desk_link_set_keymap', { node, altCmd, winOption });
 export const linkSetScroll = (node: string, natural: boolean, speed: number, reverseIncoming: boolean) =>
   invoke<LinkView>('desk_link_set_scroll', { node, natural, speed, reverseIncoming });
+export const linkSetPointerSpeed = (node: string, speed: number) => invoke<LinkView>('desk_link_set_pointer_speed', { node, speed });
 
 /** Plain words for a computer's link state. `null` when nothing is being tried (the switch is off). */
 export function linkStateText(state: LinkState | undefined): string | null {
@@ -159,6 +173,7 @@ export interface LinkApi {
   setSide: (node: string, side: LinkSide) => Promise<void>;
   setKeymap: (node: string, altCmd: boolean, winOption: boolean) => Promise<void>;
   setScroll: (node: string, natural: boolean, speed: number, reverseIncoming: boolean) => Promise<void>;
+  setPointerSpeed: (node: string, speed: number) => Promise<void>;
   /** Puts a computer's box at (x, y) in the layout. Resolves false (and sets `error`) when it was refused. */
   setPlace: (node: string, x: number, y: number) => Promise<boolean>;
   pause: (paused: boolean) => Promise<void>;
@@ -235,6 +250,9 @@ export function useLink(enabled: boolean): LinkApi {
     },
     setScroll: async (node, natural, speed, reverseIncoming) => {
       await call(() => linkSetScroll(node, natural, speed, reverseIncoming));
+    },
+    setPointerSpeed: async (node, speed) => {
+      await call(() => linkSetPointerSpeed(node, speed));
     },
     pause: async (paused) => {
       await call(() => linkPause(paused));

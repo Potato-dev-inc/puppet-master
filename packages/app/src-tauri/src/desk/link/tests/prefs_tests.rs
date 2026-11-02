@@ -127,6 +127,44 @@ async fn a_scroll_speed_that_cannot_work_is_refused_and_nothing_changes() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_pointer_speed_outside_the_range_is_refused_and_nothing_changes() {
+    let (_net, a, b) = together();
+    for bad in [0.0, 0.2, 3.5, -1.0, f64::NAN, f64::INFINITY] {
+        let err = a.link.update_peer_prefs(&b.id, |p| p.pointer_speed = bad).unwrap_err();
+        assert!(err.contains("Pointer speed must be between 0.25 and 3"), "{bad}: {err}");
+    }
+    assert_eq!(prefs_of(&a, &b.id), PeerPrefs::default());
+    a.link.update_peer_prefs(&b.id, |p| p.pointer_speed = 0.25).unwrap();
+    a.link.update_peer_prefs(&b.id, |p| p.pointer_speed = 3.0).unwrap();
+    assert_eq!(a.link.view().devices[0].prefs.pointer_speed, 3.0, "the page shows the saved speed");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_pointer_moves_at_the_speed_chosen_for_the_computer_that_drives_it() {
+    let (_net, a, b) = together();
+    a.link.update_peer_prefs(&b.id, |p| p.pointer_speed = 2.0).unwrap();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    let (start, _) = b.host.cursor();
+    a.host.person(Capture::Motion { dx: 10, dy: 0 });
+    wait_until("twice as far", || b.host.cursor().0 == start + 20).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_slow_pointer_speed_loses_no_motion_over_small_steps() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    a.link.update_peer_prefs(&b.id, |p| p.pointer_speed = 0.5).unwrap();
+    let (start, _) = b.host.cursor();
+    for _ in 0..20 {
+        a.host.person(Capture::Motion { dx: 1, dy: 0 });
+        sleep(Duration::from_millis(5)).await;
+    }
+    wait_until("half of twenty", || b.host.cursor().0 == start + 10).await;
+}
+
+#[tokio::test(start_paused = true)]
 async fn the_view_carries_each_computers_choices_and_changes_when_they_do() {
     let (_net, a, b) = together();
     assert_eq!(a.link.view().devices[0].prefs, PeerPrefs::default());
@@ -170,6 +208,10 @@ fn the_file_is_plain_json_next_to_the_layout_and_a_bad_speed_in_it_means_normal_
     // Missing fields (an older file) take their defaults.
     std::fs::write(&path, format!("{{\"{}\":{{\"natural\":true}}}}", "cd".repeat(32))).unwrap();
     let p = *store.load().values().next().unwrap();
-    assert!(p.natural && p.alt_cmd && p.win_option && p.speed == 1.0);
+    assert!(p.natural && p.alt_cmd && p.win_option && p.speed == 1.0 && p.pointer_speed == 1.0);
+    // A pointer speed that cannot be used gets the normal speed, and the other choices stay.
+    std::fs::write(&path, format!("{{\"{}\":{{\"natural\":true,\"pointer_speed\":9.0}}}}", "ef".repeat(32))).unwrap();
+    let p = *store.load().values().next().unwrap();
+    assert!(p.natural && p.pointer_speed == 1.0);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -21,17 +21,27 @@ afterEach(() => {
 });
 
 function render(prefs?: Partial<PeerPrefs>) {
-  const h = { onKeymap: vi.fn(), onScroll: vi.fn() };
+  const h = { onKeymap: vi.fn(), onScroll: vi.fn(), onPointerSpeed: vi.fn() };
   act(() => root.render(<PeerPrefsPanel name="Laptop" prefs={prefs ? { ...DEFAULT_PEER_PREFS, ...prefs } : undefined} {...h} />));
   return h;
 }
 const sw = (label: string) => host.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`)!;
 const speed = () => host.querySelector<HTMLSelectElement>('select')!;
+const pointer = () => host.querySelector<HTMLInputElement>('input[type="range"]')!;
+
+/** Sets a range input the way a person's drag does, so React sees the change. */
+function dragTo(el: HTMLInputElement, value: string) {
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  act(() => {
+    set.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
 
 describe('PeerPrefsPanel', () => {
   it('shows the defaults when the app has not said anything yet: swaps on, scrolling as is', () => {
     render();
-    expect(host.textContent).toContain('Keys and scrolling with Laptop');
+    expect(host.textContent).toContain('Keys, pointer and scrolling with Laptop');
     expect(sw('Swap Alt and Command for Laptop').getAttribute('aria-checked')).toBe('true');
     expect(sw('Swap Windows key and Option for Laptop').getAttribute('aria-checked')).toBe('true');
     expect(sw('Reverse scrolling when I use Laptop').getAttribute('aria-checked')).toBe('false');
@@ -75,5 +85,25 @@ describe('PeerPrefsPanel', () => {
   it('writes a speed as a multiplier', () => {
     expect(speedLabel(1)).toBe('1×');
     expect(speedLabel(0.75)).toBe('0.75×');
+  });
+
+  it('the pointer speed slider is labelled, shows its number and sends the speed it is dragged to', () => {
+    const h = render({ pointer_speed: 1.5 });
+    const label = [...host.querySelectorAll('label')].find((l) => l.textContent === 'Pointer speed');
+    expect(label?.getAttribute('for')).toBe(pointer().id);
+    expect(pointer().min).toBe('0.25');
+    expect(pointer().max).toBe('3');
+    expect(pointer().value).toBe('1.5');
+    expect(host.querySelector('output')!.textContent).toBe('1.5×');
+    dragTo(pointer(), '2.35');
+    expect(h.onPointerSpeed).toHaveBeenLastCalledWith(2.35);
+  });
+
+  it('the pointer speed reads 1× by default, and is not shown when the page gives no way to change it', () => {
+    render();
+    expect(pointer().value).toBe('1');
+    expect(host.querySelector('output')!.textContent).toBe('1×');
+    act(() => root.render(<PeerPrefsPanel name="Laptop" onKeymap={vi.fn()} onScroll={vi.fn()} />));
+    expect(host.querySelector('input[type="range"]')).toBeNull();
   });
 });

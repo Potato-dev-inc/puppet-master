@@ -8,6 +8,8 @@
 //!   (Windows and Mac), Alt becomes Command and the Windows key becomes Option, or not. Both on by default.
 //! - **Scrolling when I use it** (`natural`, `speed`): the wheel is flipped and scaled on its way out.
 //! - **Scrolling when it uses me** (`reverse_incoming`): the wheel is flipped on its way in.
+//! - **Pointer speed when I use it** (`pointer_speed`): how far its pointer moves per step of my mouse (see
+//!   `pointer_speed.rs`). Windows pixels and Mac points differ, so the default is 1.0 and the person sets it.
 //!
 //! Plain JSON in the app data folder (`desk/peers.json`), like the layout. Only choices that differ from the
 //! defaults are written, so a computer you never touched leaves no trace.
@@ -19,6 +21,7 @@ use std::sync::{Arc, Mutex};
 use desk_core::{ModifierMap, ScrollNorm};
 use serde::{Deserialize, Serialize};
 
+use super::pointer_speed::{self, POINTER_SPEED_MAX, POINTER_SPEED_MIN};
 use super::{lock, DeskLink, Inner};
 use crate::p2p::endpoint::NodeId;
 
@@ -38,11 +41,13 @@ pub struct PeerPrefs {
     pub speed: f64,
     /// Flip the wheel when that computer uses this one.
     pub reverse_incoming: bool,
+    /// How far that computer's pointer moves for each step of my mouse, from 0.25 to 3. 1.0 = as is.
+    pub pointer_speed: f64,
 }
 
 impl Default for PeerPrefs {
     fn default() -> Self {
-        Self { alt_cmd: true, win_option: true, natural: false, speed: 1.0, reverse_incoming: false }
+        Self { alt_cmd: true, win_option: true, natural: false, speed: 1.0, reverse_incoming: false, pointer_speed: 1.0 }
     }
 }
 
@@ -65,6 +70,9 @@ impl PeerPrefs {
     pub fn check(&self) -> Result<(), String> {
         if !self.speed.is_finite() || self.speed < SPEED_MIN || self.speed > SPEED_MAX {
             return Err(format!("Scroll speed must be between {SPEED_MIN} and {SPEED_MAX}."));
+        }
+        if !pointer_speed::is_valid(self.pointer_speed) {
+            return Err(format!("Pointer speed must be between {POINTER_SPEED_MIN} and {POINTER_SPEED_MAX}."));
         }
         Ok(())
     }
@@ -98,10 +106,13 @@ impl PrefsStore for FilePrefsStore {
     fn load(&self) -> BTreeMap<String, PeerPrefs> {
         let Ok(text) = std::fs::read_to_string(&self.path) else { return BTreeMap::new() };
         let mut map: BTreeMap<String, PeerPrefs> = serde_json::from_str(&text).unwrap_or_default();
-        // A hand-edited file with a speed that cannot be used gets the normal speed, not a frozen wheel.
+        // A hand-edited file with a speed that cannot be used gets the normal speed, not a frozen wheel or pointer.
         for p in map.values_mut() {
-            if p.check().is_err() {
+            if p.speed.is_nan() || !(SPEED_MIN..=SPEED_MAX).contains(&p.speed) {
                 p.speed = 1.0;
+            }
+            if !pointer_speed::is_valid(p.pointer_speed) {
+                p.pointer_speed = 1.0;
             }
         }
         map
