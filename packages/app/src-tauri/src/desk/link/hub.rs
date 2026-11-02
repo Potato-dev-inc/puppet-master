@@ -41,6 +41,8 @@ const MAX_HELD: usize = 256;
 /// After the other computer said no, the pointer does not try it again for this long (it would only be refused again
 /// every 20 ms while the person keeps pushing).
 const REFUSED_PAUSE_MS: u64 = 2_000;
+/// The page is handed a new view at most this often. A change inside that window is handed over at the next tick.
+const PUBLISH_EVERY_MS: u64 = 50;
 /// Longest refusal reason taken from the other computer.
 const MAX_REASON_CHARS: usize = 300;
 
@@ -200,6 +202,9 @@ pub struct Hub {
     refused_until: HashMap<NodeId, u64>,
     upkeeps: u64,
     error: Option<String>,
+    /// When the page was last handed a view, and whether a change is waiting for the next tick.
+    published_at: Option<u64>,
+    publish_waiting: bool,
 }
 
 impl Hub {
@@ -222,6 +227,8 @@ impl Hub {
             refused_until: HashMap::new(),
             upkeeps: 0,
             error: None,
+            published_at: None,
+            publish_waiting: false,
         }
     }
 
@@ -303,6 +310,9 @@ impl Hub {
     // ---- messages ----------------------------------------------------------------------------------------
 
     fn on_msg(&mut self, msg: Msg) {
+        // Motion changes what the page shows only when it moves the pointer on or off a computer.
+        let motion = matches!(msg, Msg::Motion { .. } | Msg::Capture(Capture::Motion { .. }));
+        let shown = self.shown();
         match msg {
             Msg::Handshaking { peer, on } => {
                 if on {
@@ -359,7 +369,11 @@ impl Hub {
             Msg::LayoutChanged => self.send_layouts(),
             Msg::Shutdown => {}
         }
-        self.publish();
+        if !motion {
+            self.publish();
+        } else if self.shown() != shown {
+            self.publish_capped();
+        }
     }
 
     fn on_install(&mut self, req: InstallReq) {
@@ -401,6 +415,7 @@ impl Hub {
     // ---- the edge ----------------------------------------------------------------------------------------
 
     fn poll_edge(&mut self) {
+        self.flush_publish();
         if self.paused || self.remote.is_some() || self.controlled.is_some() || !self.inner.labs() || self.inner.pointer_locked() {
             self.edge_candidate = None;
             return;
@@ -623,11 +638,6 @@ impl Hub {
     }
 
     fn on_enter(&mut self, peer: NodeId, monitor_id: &str, nx: u16, ny: u16) {
-        let refuse = |hub: &Hub| {
-            if let Some(l) = hub.live.get(&peer) {
-                let _ = l.ctl.send(StreamMsg::Leave);
-            }
-        };
         let busy = self.remote.is_some() || self.controlled.as_ref().is_some_and(|c| c.peer != peer);
         let me = self.inner.self_name.clone();
         // `left@3,540`: the exact point, in this computer's local space. A plain `left` is an edge and a fraction.
@@ -639,7 +649,12 @@ impl Hub {
         if busy {
             // Both pointers crossed at once, or a third computer has this one: an ordinary race, not a problem.
             tracing::info!(peer = short(&peer).as_str(), "desk: did not let the pointer in: the mouse is busy here");
-            return refuse(self);
+            // Refused, then Leave: the sender backs off for a while instead of pushing again at every move.
+            if let Some(l) = self.live.get(&peer) {
+                let _ = l.ctl.send(StreamMsg::Refused { reason: "busy".to_string() });
+                let _ = l.ctl.send(StreamMsg::Leave);
+            }
+            return;
         }
         if self.paused {
             return self.refuse_enter(peer, &format!("Mouse sharing is paused on {me}."), false);
@@ -735,6 +750,7 @@ impl Hub {
     // ---- upkeep ------------------------------------------------------------------------------------------
 
     fn upkeep(&mut self) {
+        self.flush_publish();
         self.upkeeps += 1;
         if !self.inner.labs() {
             return;
@@ -785,7 +801,37 @@ impl Hub {
 
     // ---- the page ----------------------------------------------------------------------------------------
 
+    /// What the page shows that the hub decides (the reach of each computer comes from the sessions).
+    fn shown(&self) -> (Option<NodeId>, Option<NodeId>, bool, Option<String>) {
+        (self.remote.as_ref().map(|r| r.peer), self.controlled.as_ref().map(|c| c.peer), self.paused, self.error.clone())
+    }
+
+    /// Hands the page a new view now.
     fn publish(&mut self) {
+        let now = self.ms();
+        self.publish_now(now);
+    }
+
+    /// Like `publish`, but at most once per `PUBLISH_EVERY_MS`: a change inside that window waits for the next tick
+    /// (`flush_publish`). Used for what motion changes, which can arrive a thousand times a second.
+    fn publish_capped(&mut self) {
+        let now = self.ms();
+        if self.published_at.is_some_and(|t| now.saturating_sub(t) < PUBLISH_EVERY_MS) {
+            self.publish_waiting = true;
+            return;
+        }
+        self.publish_now(now);
+    }
+
+    fn flush_publish(&mut self) {
+        if self.publish_waiting {
+            self.publish_capped();
+        }
+    }
+
+    fn publish_now(&mut self, now: u64) {
+        self.published_at = Some(now);
+        self.publish_waiting = false;
         let reach: HashMap<NodeId, Reach> = self.inner.trust.list().iter().map(|d| (d.node, self.sessions.reach(&d.node))).collect();
         self.inner.publish(reach, self.remote.as_ref().map(|r| r.peer), self.controlled.as_ref().map(|c| c.peer), self.paused, self.error.clone());
     }

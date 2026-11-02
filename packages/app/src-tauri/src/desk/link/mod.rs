@@ -42,6 +42,7 @@ pub mod io;
 mod port_link;
 pub mod prefs;
 pub mod prefs_commands;
+pub mod release;
 pub mod remote;
 pub mod wire;
 
@@ -302,6 +303,8 @@ pub(super) struct Inner {
     clip_note: Mutex<Option<String>>,
     reconciling: AtomicBool,
     wanted: Mutex<(bool, bool)>,
+    /// How many times the page was handed a new view (the hub's publishes), for the tests.
+    publishes: AtomicU64,
     /// The screen engine's port (hotkeys in, pointer lock out), once attached.
     port: Mutex<Option<Arc<crate::desk::port::LinkPort>>>,
     /// Per-computer keys and scrolling choices (see `prefs.rs`).
@@ -587,6 +590,7 @@ impl Inner {
 
     /// Called by the hub after every message.
     pub(super) fn publish(&self, reach: HashMap<NodeId, Reach>, mouse_on: Option<NodeId>, controlled_by: Option<NodeId>, paused: bool, error: Option<String>) {
+        self.publishes.fetch_add(1, Ordering::SeqCst);
         let reach_changed = {
             let mut m = lock(&self.mirror);
             let changed = m.reach != reach;
@@ -760,6 +764,7 @@ impl DeskLink {
             clip_note: Mutex::new(None),
             reconciling: AtomicBool::new(false),
             wanted: Mutex::new((false, false)),
+            publishes: AtomicU64::new(0),
             port: Mutex::new(None),
             prefs: Mutex::new(prefs::Prefs::new(Arc::new(prefs::MemPrefsStore::default()))),
         });

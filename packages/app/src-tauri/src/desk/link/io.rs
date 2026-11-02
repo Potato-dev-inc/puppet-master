@@ -128,7 +128,22 @@ pub(super) async fn run_link(inner: Arc<Inner>, peer: NodeId, link: Arc<dyn Link
     let shared = Arc::new(LinkShared::default());
     shared.last_rx.store(inner.now_ms(), Ordering::SeqCst);
     inner.register_stats(peer, shared.clone());
+    run_tasks(inner, hub, link, peer, link_id, shared, stream, ctl_rx, dg_rx).await;
+}
 
+/// The tasks of one installed link, until the link ends. Then the hub is told it ended.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn run_tasks(
+    inner: Arc<Inner>,
+    hub: mpsc::UnboundedSender<Msg>,
+    link: Arc<dyn Link>,
+    peer: NodeId,
+    link_id: u64,
+    shared: Arc<LinkShared>,
+    stream: BiStream,
+    ctl_rx: mpsc::UnboundedReceiver<StreamMsg>,
+    dg_rx: mpsc::Receiver<Datagram>,
+) {
     let BiStream { send, recv } = stream;
     let tasks = [
         tokio::spawn(control_writer(send, ctl_rx, link.clone())),
@@ -147,7 +162,7 @@ pub(super) async fn run_link(inner: Arc<Inner>, peer: NodeId, link: Arc<dyn Link
 }
 
 /// The heartbeat and the watchdog, until the link closes.
-async fn watch(inner: &Arc<Inner>, hub: &mpsc::UnboundedSender<Msg>, link: &Arc<dyn Link>, peer: NodeId, link_id: u64, shared: &Arc<LinkShared>) {
+pub(super) async fn watch(inner: &Arc<Inner>, hub: &mpsc::UnboundedSender<Msg>, link: &Arc<dyn Link>, peer: NodeId, link_id: u64, shared: &Arc<LinkShared>) {
     let mut beat = interval(Duration::from_millis(HEARTBEAT_MS));
     beat.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut dog = interval(Duration::from_millis(WATCH_MS));
@@ -208,10 +223,14 @@ async fn control_writer(mut send: Box<dyn tokio::io::AsyncWrite + Send + Unpin>,
     }
 }
 
-async fn datagram_writer(link: Arc<dyn Link>, mut rx: mpsc::Receiver<Datagram>) {
+/// Sends motion and beats. A send error means this link can no longer carry motion, while heartbeats keep the link
+/// looking alive: so the link is ended here, and the dialer redials it, instead of motion being dropped for good.
+pub(super) async fn datagram_writer(link: Arc<dyn Link>, mut rx: mpsc::Receiver<Datagram>) {
     while let Some(d) = rx.recv().await {
         if let Ok(bytes) = encode_datagram(&d) {
             if link.send_datagram(bytes).await.is_err() {
+                tracing::warn!("desk: could not send pointer moves to the other computer, the link is ended and dialed again");
+                link.close(CLOSE_PROTOCOL, "bye");
                 return;
             }
         }
