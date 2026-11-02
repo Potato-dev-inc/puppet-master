@@ -6,6 +6,7 @@ import { useDesk, isDeskFeatureOff, type DeskHopMode } from '../../lib/desk';
 import { StatusLine } from './StatusLine';
 import { ScreensView } from './ScreensView';
 import { KeysView } from './KeysView';
+import { LayoutEditor } from './LayoutEditor';
 import { usePair } from '../../lib/desk-pair';
 import { useLink } from '../../lib/desk-link';
 import { LinkStatus } from './LinkStatus';
@@ -117,6 +118,8 @@ export function DeskPage() {
             onFind={() => void run({ type: 'find_pointer' })}
             onRetry={() => void run({ type: 'refresh' })}
           />
+
+          <LayoutEditor layout={link.layout} onPlace={link.setPlace} />
 
           <KeysView hotkeys={snapshot.hotkeys} run={run} />
 

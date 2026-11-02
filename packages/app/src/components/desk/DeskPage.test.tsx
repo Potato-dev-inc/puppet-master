@@ -189,6 +189,39 @@ describe('DeskPage', () => {
     expect(h.invoke).toHaveBeenCalledWith('desk_link_pause', { paused: true });
   });
 
+  it('shows the layout of every computer and follows a move pushed by the other one', async () => {
+    const node = 'cd'.repeat(32);
+    /** Test-only fixtures. */
+    const pairView = { hosting: null, pending: null, joining: null, message: null, locked_until: null, tampered: false, devices: [{ node, name: 'Laptop', added_at: 1, online: null, allowed: ['desk/input'] }] };
+    const layout = (laptopY: number) => ({
+      touch_gap: 80,
+      computers: [
+        { node: '', name: 'Ren-PC', me: true, online: true, known: true, x: 0, y: 0, width: 1920, height: 1080, screens: [{ id: 'm', name: 'm', x: 0, y: 0, width: 1920, height: 1080, primary: true }] },
+        { node, name: 'Laptop', me: false, online: true, known: true, x: 1920, y: laptopY, width: 1280, height: 800, screens: [{ id: 'l', name: 'l', x: 1920, y: laptopY, width: 1280, height: 800, primary: true }] },
+      ],
+    });
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'pair_view') return pairView;
+      if (name === 'desk_link_layout') return layout(0);
+      if (name === 'desk_link_set_place') return layout(300);
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    const laptop = () => host.querySelector<HTMLElement>('[aria-label="Move Laptop"]')!;
+    expect(host.textContent).toContain('Layout');
+    const top = laptop().style.top;
+    // The other computer moved it: the page follows.
+    await act(async () => h.listeners.get('desk://layout')!({ payload: layout(300) }));
+    expect(laptop().style.top).not.toBe(top);
+    // Moving it from the keyboard saves through the engine.
+    await act(async () => {
+      laptop().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    });
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_place', { node, x: 1920, y: 320 });
+  });
+
   it('draws nothing while the Labs switch is off', async () => {
     h.invoke.mockRejectedValue('FEATURE_OFF: My computers is off in Labs');
     await act(async () => root.render(<DeskPage />));

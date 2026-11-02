@@ -43,6 +43,40 @@ export interface LinkView {
   supported: boolean;
 }
 
+/** One screen in the shared layout space (this computer's box starts at 0, 0). */
+export interface LayoutScreen {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  primary: boolean;
+}
+
+/** One computer in the layout: the box around its screens and the screens in it. */
+export interface LayoutComputer {
+  /** Empty for this computer. */
+  node: string;
+  name: string;
+  me: boolean;
+  online: boolean;
+  /** False until it has told us its screens; the screens drawn are a stand-in. */
+  known: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  screens: LayoutScreen[];
+}
+
+/** Every computer's screens in one space. */
+export interface LayoutView {
+  computers: LayoutComputer[];
+  /** Edges closer than this count as touching. */
+  touch_gap: number;
+}
+
 export const SIDES: { side: LinkSide; label: string }[] = [
   { side: 'left', label: 'On the left' },
   { side: 'right', label: 'On the right' },
@@ -52,6 +86,8 @@ export const SIDES: { side: LinkSide; label: string }[] = [
 
 export const linkView = () => invoke<LinkView>('desk_link_view');
 export const linkSetSide = (node: string, side: LinkSide) => invoke<LinkView>('desk_link_set_side', { node, side });
+export const linkLayout = () => invoke<LayoutView>('desk_link_layout');
+export const linkSetPlace = (node: string, x: number, y: number) => invoke<LayoutView>('desk_link_set_place', { node, x, y });
 export const linkPause = (paused: boolean) => invoke<LinkView>('desk_link_pause', { paused });
 export const linkPanic = () => invoke<LinkView>('desk_link_panic');
 
@@ -81,15 +117,23 @@ export function linkStatusText(view: LinkView | null): string | null {
   return online.length ? `Mouse sharing is on · ${online.join(', ')} connected` : (view.tray ?? 'Mouse sharing is on');
 }
 
+function isLayout(v: unknown): v is LayoutView {
+  return typeof v === 'object' && v !== null && Array.isArray((v as LayoutView).computers);
+}
+
 function isView(v: unknown): v is LinkView {
   return typeof v === 'object' && v !== null && Array.isArray((v as LinkView).devices) && typeof (v as LinkView).sharing === 'boolean';
 }
 
 export interface LinkApi {
   view: LinkView | null;
+  /** Every computer's screens in one space, or null until the engine answers. */
+  layout: LayoutView | null;
   /** The last command that failed. Cleared by the next one. */
   error: string | null;
   setSide: (node: string, side: LinkSide) => Promise<void>;
+  /** Puts a computer's box at (x, y) in the layout. Resolves false (and sets `error`) when it was refused. */
+  setPlace: (node: string, x: number, y: number) => Promise<boolean>;
   pause: (paused: boolean) => Promise<void>;
   /** Pointer home and everything let go, on both computers. */
   panic: () => Promise<void>;
@@ -98,6 +142,7 @@ export interface LinkApi {
 /** Follows the link state pushed by the desktop app. Reads nothing until `enabled`. */
 export function useLink(enabled: boolean): LinkApi {
   const [view, setView] = useState<LinkView | null>(null);
+  const [layout, setLayout] = useState<LayoutView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
 
@@ -105,41 +150,64 @@ export function useLink(enabled: boolean): LinkApi {
     if (alive.current && isView(next)) setView(next);
   }, []);
 
+  const applyLayout = useCallback((next: unknown) => {
+    if (alive.current && isLayout(next)) setLayout(next);
+  }, []);
+
   useEffect(() => {
     alive.current = true;
     if (!enabled) return () => void (alive.current = false);
-    let off: UnlistenFn | undefined;
+    const offs: UnlistenFn[] = [];
     let disposed = false;
+    const keep = (u: UnlistenFn) => (disposed ? u() : offs.push(u));
     listen<LinkView>('desk://link', (e) => apply(e.payload))
-      .then((u) => (disposed ? u() : (off = u)))
+      .then(keep)
+      .catch(() => {});
+    listen<LayoutView>('desk://layout', (e) => applyLayout(e.payload))
+      .then(keep)
       .catch(() => {});
     Promise.resolve(linkView())
       .then(apply)
       .catch(() => {});
+    Promise.resolve(linkLayout())
+      .then(applyLayout)
+      .catch(() => {});
     return () => {
       disposed = true;
       alive.current = false;
-      off?.();
+      offs.forEach((u) => u());
     };
-  }, [enabled, apply]);
+  }, [enabled, apply, applyLayout]);
 
   const call = useCallback(
-    async (f: () => Promise<unknown>) => {
+    async (f: () => Promise<unknown>): Promise<boolean> => {
       setError(null);
       try {
-        apply(await f());
+        const next = await f();
+        apply(next);
+        applyLayout(next);
+        return true;
       } catch (e) {
         if (alive.current) setError(pairErrorText(e));
+        return false;
       }
     },
-    [apply],
+    [apply, applyLayout],
   );
 
   return {
     view,
+    layout,
     error,
-    setSide: (node, side) => call(() => linkSetSide(node, side)),
-    pause: (paused) => call(() => linkPause(paused)),
-    panic: () => call(linkPanic),
+    setSide: async (node, side) => {
+      await call(() => linkSetSide(node, side));
+    },
+    setPlace: (node, x, y) => call(() => linkSetPlace(node, x, y)),
+    pause: async (paused) => {
+      await call(() => linkPause(paused));
+    },
+    panic: async () => {
+      await call(linkPanic);
+    },
   };
 }

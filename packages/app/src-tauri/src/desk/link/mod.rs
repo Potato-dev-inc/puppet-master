@@ -577,15 +577,21 @@ impl Inner {
 
     /// Called by the hub after every message.
     pub(super) fn publish(&self, reach: HashMap<NodeId, Reach>, mouse_on: Option<NodeId>, controlled_by: Option<NodeId>, paused: bool, error: Option<String>) {
-        {
+        let reach_changed = {
             let mut m = lock(&self.mirror);
+            let changed = m.reach != reach;
             m.reach = reach;
             m.mouse_on = mouse_on;
             m.controlled_by = controlled_by;
             m.paused = paused;
             m.error = error;
-        }
+            changed
+        };
         self.notify();
+        // The layout page shows who is online: only when that changed, since this runs on every message.
+        if reach_changed {
+            self.notify_layout();
+        }
     }
 
     pub(super) fn build_view(&self) -> LinkView {
