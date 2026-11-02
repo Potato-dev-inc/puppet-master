@@ -1,12 +1,12 @@
-//! Any OS without a real host yet (macOS comes later). Every call says so; nothing is faked.
+//! Any OS without a real host (Linux, and every test build). Every call says so; nothing is faked.
 
 use super::super::engine::hotkeys::Binding;
 use super::super::host::{DeskHost, DisplayInfo, HookHealth, HostSink};
 
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
 pub struct StubHost;
 
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
 const NO: &str = "My computers does not work on this system yet";
 
 impl DeskHost for StubHost {
