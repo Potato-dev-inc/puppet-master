@@ -7,7 +7,7 @@
 //!   pressed is remembered and released by `release_injected`.
 //! - **UIPI**: Windows drops injected input aimed at a window that runs as admin. Nothing can be done about it from a
 //!   normal process; the page says so ("Can't control windows that run as admin.").
-//! - **Capture** (`capture.rs`) holds the pointer still in the middle of the screen and reports what the person does.
+//! - **Capture** (`capture.rs`) parks the pointer near the edge it left by (`link::park`) and reports what the person does.
 
 use std::collections::BTreeSet;
 use std::mem::size_of;
@@ -22,6 +22,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 
 use super::{capture, clipboard, cursor, display};
 use crate::desk::host::DisplayInfo;
+use crate::desk::link::park::{park_point, PARK_SPAN};
 use crate::desk::link::release;
 use crate::desk::link::remote::{CaptureSink, ClipItem, Inject, RemoteHost};
 
@@ -93,11 +94,12 @@ fn modifiers_physically_down() -> Vec<u16> {
     release::MODIFIER_VKS.iter().copied().filter(|vk| unsafe { GetAsyncKeyState(i32::from(*vk)) } < 0).collect()
 }
 
+fn contains(d: &DisplayInfo, pos: (i32, i32)) -> bool {
+    pos.0 >= d.x && pos.0 < d.x + d.width as i32 && pos.1 >= d.y && pos.1 < d.y + d.height as i32
+}
+
 fn center_of(displays: &[DisplayInfo], pos: (i32, i32)) -> (i32, i32) {
-    let d = displays
-        .iter()
-        .find(|d| pos.0 >= d.x && pos.0 < d.x + d.width as i32 && pos.1 >= d.y && pos.1 < d.y + d.height as i32)
-        .or_else(|| displays.first());
+    let d = displays.iter().find(|d| contains(d, pos)).or_else(|| displays.first());
     d.map_or(pos, |d| (d.x + d.width as i32 / 2, d.y + d.height as i32 / 2))
 }
 
@@ -184,13 +186,18 @@ impl RemoteHost for WindowsRemote {
         }
     }
 
-    fn start_capture(&self, sink: CaptureSink) -> Result<(), String> {
+    fn start_capture(&self, sink: CaptureSink, exit: (i32, i32)) -> Result<(), String> {
         let mut slot = self.capture.lock().unwrap_or_else(|p| p.into_inner());
         if slot.is_some() {
             return Ok(());
         }
         let displays = display::list()?;
-        let park = center_of(&displays, cursor::position()?);
+        // Park near the exit point, on the monitor it left from. If no monitor holds it, the centre of the monitor
+        // the pointer is on.
+        let park = match displays.iter().find(|d| contains(d, exit)) {
+            Some(d) => park_point(exit, (d.x, d.y, d.width as i32, d.height as i32), PARK_SPAN),
+            None => center_of(&displays, cursor::position()?),
+        };
         cursor::warp(park.0, park.1)?;
         *slot = Some(capture::start(sink, park)?);
         Ok(())

@@ -330,7 +330,7 @@ describe('DeskPage', () => {
       hosting: null, pending: null, joining: null, message: null, locked_until: null, tampered: false,
       devices: [{ node, name: 'Laptop', added_at: 1, online: null, allowed: ['desk/input'] }],
     };
-    const prefs = { alt_cmd: true, win_option: true, natural: false, speed: 1, reverse_incoming: false };
+    const prefs = { alt_cmd: true, win_option: true, natural: false, speed: 1, reverse_incoming: false, pointer_speed: 1 };
     const linkDevice = { node, name: 'Laptop', state: 'online', side: 'right', mouse_here: false, controls_me: false, input_on: true, clipboard_on: false, prefs };
     const linkView = (p = prefs) => ({
       seq: 1, devices: [{ ...linkDevice, prefs: p }], mouse_on: null, controlled_by: null, paused: false, sharing: true,
@@ -359,6 +359,14 @@ describe('DeskPage', () => {
     expect(h.invoke).toHaveBeenCalledWith('desk_link_set_scroll', { node, natural: false, speed: 2, reverseIncoming: false });
     await flush();
     expect(host.querySelector('[aria-label="Reverse scrolling when I use Laptop"]')!.getAttribute('aria-checked')).toBe('true');
+    // The pointer speed slider goes to its own command with that computer and the chosen speed.
+    const pointer = host.querySelector<HTMLInputElement>('.ck-desk-slider input')!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setValue.call(pointer, '1.5');
+      pointer.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_pointer_speed', { node, speed: 1.5 });
   });
 
   it('tells a Mac to switch Accessibility on, and says nothing on a computer that does not ask', async () => {

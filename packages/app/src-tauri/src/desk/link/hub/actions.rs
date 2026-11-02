@@ -65,4 +65,10 @@ impl Hub {
     pub(super) fn return_chord_pressed(inner: &Inner, chords: &Chords, hid: u16) -> bool {
         inner.port().is_some_and(|p| p.is_return_home(&chords.down, hid))
     }
+
+    /// Whether the key just pressed completes the pause chord (the configured `pause` hotkey, copied to the port).
+    /// Same reason and same rule as `return_chord_pressed`.
+    pub(super) fn pause_chord_pressed(inner: &Inner, chords: &Chords, hid: u16) -> bool {
+        inner.port().is_some_and(|p| p.is_pause(&chords.down, hid))
+    }
 }

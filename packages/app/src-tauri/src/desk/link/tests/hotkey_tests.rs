@@ -24,7 +24,7 @@ async fn jump_crosses_to_the_numbered_computer_without_the_pointer_touching_an_e
     wait_until("crossed", || a.host.capturing() && b.link.view().devices[0].controls_me).await;
     // It enters b in the middle of the edge facing a.
     let (bx, by) = b.host.cursor();
-    assert!(bx <= 5 && (by - 540).abs() <= 3, "{bx},{by}");
+    assert!(bx <= 6 && (by - 540).abs() <= 3, "{bx},{by}");
     assert_eq!(a.link.view().mouse_on.as_deref(), Some("Laptop"));
     assert_eq!(a.link.view().error, None);
     // And what is typed now goes to b.
@@ -122,6 +122,40 @@ async fn the_return_chord_is_matched_on_the_keys_captured_while_the_pointer_is_a
     wait_until("home", || !a.host.capturing()).await;
     wait_until("released on b", || b.host.held_keys().is_empty()).await;
     assert!(!b.host.with(|s| s.log.iter().filter(|e| matches!(e, Inject::Key { hid: 0x0B, down: true })).count() > 1));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_pause_chord_pauses_and_the_pointer_stays_home_until_resumed() {
+    let (_net, a, b) = together();
+    let port = with_port(&a);
+    port.set_pause_chord(parse_chord("ctrl+alt+p"));
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    a.host.person(Capture::Key { hid: 0xE0, down: true });
+    a.host.person(Capture::Key { hid: 0xE2, down: true });
+    a.host.person(Capture::Key { hid: 0x13, down: true });
+    wait_until("home", || !a.host.capturing()).await;
+    assert!(a.link.view().paused);
+    a.host.put_cursor(1919, 540);
+    sleep(Duration::from_millis(300)).await;
+    assert!(!a.host.capturing(), "paused: no crossing");
+    a.link.pause(false);
+    wait_until("crosses again", || a.host.capturing()).await;
+    assert!(!a.link.view().paused);
+}
+
+#[tokio::test(start_paused = true)]
+async fn scroll_lock_is_typed_on_the_other_computer_while_the_pointer_is_away() {
+    let (_net, a, b) = together();
+    let port = with_port(&a);
+    port.set_pause_chord(parse_chord("ctrl+alt+p"));
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    a.host.person(Capture::Key { hid: 0x47, down: true });
+    wait_until("typed on b", || b.host.held_keys().contains(&0x47)).await;
+    assert!(a.host.capturing(), "Scroll Lock is not pause any more: the pointer stays away");
+    assert!(!a.link.view().paused);
+    a.host.person(Capture::Key { hid: 0x47, down: false });
 }
 
 #[tokio::test(start_paused = true)]

@@ -9,7 +9,7 @@ use crate::desk::port::LinkAction;
 
 const SHIFT: u16 = 0xE1;
 const KEY_C: u16 = 0x06;
-const KEY_L: u16 = 0x0F;
+const SCROLL_LOCK: u16 = 0x47;
 const KEY_H: u16 = 0x0B;
 const KEY_2: u16 = 0x1F;
 
@@ -32,6 +32,28 @@ fn a_file_saved_before_these_keys_existed_still_loads_with_its_own_keys_kept() {
     assert_eq!(h.next, "ctrl+alt+up");
     assert_eq!(h.center, HotkeyConfig::default().center);
     assert_eq!(h.jump_n, HotkeyConfig::default().jump_n);
+    // Saved values win: Scroll Lock stays the pause key. The lock key was not saved, so it keeps the key it had
+    // before (the new default would be the same key and two actions cannot share one).
+    assert_eq!(h.pause, "scrolllock");
+    assert_eq!(h.lock_pointer, "ctrl+alt+l");
+    assert!(loaded.config.hops_enabled);
+}
+
+#[test]
+fn the_defaults_are_scroll_lock_to_lock_the_pointer_and_ctrl_alt_p_to_pause() {
+    let d = HotkeyConfig::default();
+    assert_eq!(d.lock_pointer, "scrolllock");
+    assert_eq!(d.pause, "ctrl+alt+p");
+    assert!(compile(&d).is_ok());
+}
+
+#[test]
+fn a_file_that_saved_both_keys_as_scroll_lock_is_refused_with_a_note_and_its_other_settings_stay() {
+    let text = r#"{"hops_enabled":true,"hotkeys":{"next":"ctrl+alt+up","pause":"scrolllock","lock_pointer":"scrolllock"}}"#;
+    let loaded = config::parse(text);
+    assert_eq!(loaded.config.hotkeys, HotkeyConfig::default(), "the hotkeys fall back as before, with a note");
+    assert!(loaded.note.is_some());
+    assert!(loaded.config.hops_enabled, "the rest of the file is kept");
 }
 
 #[test]
@@ -84,8 +106,12 @@ fn the_matcher_fires_the_new_actions_and_keeps_jump_apart_from_screen() {
     m.on_key(ALT, true, false);
     assert_eq!(m.on_key(KEY_C, true, false), Verdict::Fire(DeskAction::Center));
     m.on_key(KEY_C, false, false);
-    assert_eq!(m.on_key(KEY_L, true, false), Verdict::Fire(DeskAction::LockPointer));
-    m.on_key(KEY_L, false, false);
+    m.on_key(CTRL, false, false);
+    m.on_key(ALT, false, false);
+    assert_eq!(m.on_key(SCROLL_LOCK, true, false), Verdict::Fire(DeskAction::LockPointer));
+    m.on_key(SCROLL_LOCK, false, false);
+    m.on_key(CTRL, true, false);
+    m.on_key(ALT, true, false);
     assert_eq!(m.on_key(KEY_2, true, false), Verdict::Fire(DeskAction::Screen(2)));
     m.on_key(KEY_2, false, false);
     m.on_key(SHIFT, true, false);
@@ -153,10 +179,10 @@ fn locking_holds_the_pointer_on_its_screen_and_says_so_everywhere() {
 fn the_lock_key_toggles() {
     let host = main_screen_host((100, 100));
     let desk = desk_hops(&host);
-    press_chord(&host, &[CTRL, ALT], KEY_L);
+    press_chord(&host, &[], SCROLL_LOCK);
     wait_until("locked", || desk.port().is_locked());
     assert!(desk.port().is_locked());
-    press_chord(&host, &[CTRL, ALT], KEY_L);
+    press_chord(&host, &[], SCROLL_LOCK);
     wait_until("free", || !desk.port().is_locked());
     assert!(!desk.port().is_locked());
 }

@@ -40,6 +40,9 @@ pub trait ConfigStore: Send + Sync {
 
 /// Parse saved text. A file that does not parse, or whose hotkeys fail the checks, gives the defaults
 /// for what is wrong and says so (the original swallowed it).
+/// The lock-pointer key before Scroll Lock became its default (the pause key moved to Ctrl+Alt+P at the same time).
+const LOCK_POINTER_BEFORE: &str = "ctrl+alt+l";
+
 pub fn parse(text: &str) -> Loaded {
     let mut config: Config = match serde_json::from_str(text) {
         Ok(c) => c,
@@ -47,12 +50,22 @@ pub fn parse(text: &str) -> Loaded {
             return Loaded { config: Config::default(), note: Some(format!("Saved settings could not be read ({e}); using the defaults")) }
         }
     };
+    // A file that saved `pause` as Scroll Lock but has no `lock_pointer` would get the new lock default, which is the
+    // same key. Saved values win, so the missing one takes the key it had before, and the saved keys stay.
+    if compile(&config.hotkeys).is_err() && !saved_hotkey(text, "lock_pointer") {
+        config.hotkeys.lock_pointer = LOCK_POINTER_BEFORE.to_string();
+    }
     let mut note = None;
     if compile(&config.hotkeys).is_err() {
         config.hotkeys = HotkeyConfig::default();
         note = Some("Saved hotkeys were not valid; using the default keys".to_string());
     }
     Loaded { config, note }
+}
+
+/// Whether the saved file has this hotkey field. A file saved by an older build may lack some of them.
+fn saved_hotkey(text: &str, field: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(text).ok().and_then(|v| v.get("hotkeys")?.get(field).cloned()).is_some()
 }
 
 pub struct FileStore {

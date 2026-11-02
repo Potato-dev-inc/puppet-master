@@ -7,7 +7,7 @@
 //! Two roles at once, per computer pair:
 //! - **Holding the mouse** (`remote`): the pointer left through an edge. Input is captured here (the host hides and
 //!   holds the pointer) and sent to the other computer: keys and buttons on the control stream, motion as datagrams.
-//!   Back home on `Return`, on panic (Ctrl+Alt+Esc), on pause (Scroll Lock), on 250 ms of silence, or when the link ends.
+//!   Back home on `Return`, on panic (Ctrl+Alt+Esc), on pause (the `pause` hotkey, Ctrl+Alt+P by default), on 250 ms of silence, or when the link ends.
 //! - **Being controlled** (`controlled`): the other computer's input is injected. Every key and button pressed is
 //!   remembered and released when control ends for any reason, the link breaks, or the peer goes quiet.
 
@@ -26,7 +26,9 @@ use crate::p2p::session::{DialLedger, Reach, Sessions};
 
 use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
 use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
+use super::pushback::PushBack;
 use super::remote::{Capture, Inject};
+use super::pointer_speed::PointerSpeed;
 use super::{clip_link, io, Inner, CLOSE_REPLACED, CLOSE_STOPPED};
 use crate::desk::host::DisplayInfo;
 
@@ -93,6 +95,8 @@ struct Live {
     dg: mpsc::Sender<Datagram>,
     os: OsKind,
     motion_seq: u32,
+    /// The part of a motion step not yet sent to that computer (see `pointer_speed.rs`).
+    pointer: PointerSpeed,
 }
 
 /// The pointer is on `peer`.
@@ -138,6 +142,8 @@ struct Controlled {
     peer: NodeId,
     keys: BTreeSet<u16>,
     buttons: BTreeSet<u8>,
+    /// Pushes at the entry edge in a row (see `pushback`).
+    pushback: PushBack,
 }
 
 #[derive(Default)]
@@ -145,33 +151,21 @@ struct Chords {
     down: BTreeSet<u16>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Chord {
-    Panic,
-    Pause,
-}
-
 const HID_ESC: u16 = 0x29;
-const HID_SCROLL_LOCK: u16 = 0x47;
 
 impl Chords {
-    /// Ctrl+Alt+Esc is the panic key, Scroll Lock the pause key. Matched on the raw keys, so it works whatever
-    /// else is held, and whichever side of the keyboard the modifiers are on.
-    fn on_key(&mut self, hid: u16, down: bool) -> Option<Chord> {
+    /// Ctrl+Alt+Esc is the panic key. Matched on the raw keys, so it works whatever else is held, and whichever side
+    /// of the keyboard the modifiers are on. Returns true for that press. The pause key is the configured `pause`
+    /// hotkey, matched by `Hub::pause_chord_pressed` (not Scroll Lock any more).
+    fn on_key(&mut self, hid: u16, down: bool) -> bool {
         if !down {
             self.down.remove(&hid);
-            return None;
+            return false;
         }
         self.down.insert(hid);
         let ctrl = self.down.contains(&0xE0) || self.down.contains(&0xE4);
         let alt = self.down.contains(&0xE2) || self.down.contains(&0xE6);
-        if hid == HID_ESC && ctrl && alt {
-            Some(Chord::Panic)
-        } else if hid == HID_SCROLL_LOCK {
-            Some(Chord::Pause)
-        } else {
-            None
-        }
+        hid == HID_ESC && ctrl && alt
     }
 }
 
@@ -400,7 +394,7 @@ impl Hub {
                 }
                 self.live.insert(
                     req.peer,
-                    Live { link_id: req.link_id, link: req.link, ctl: req.ctl, dg: req.dg, os: req.os, motion_seq: 0 },
+                    Live { link_id: req.link_id, link: req.link, ctl: req.ctl, dg: req.dg, os: req.os, motion_seq: 0, pointer: PointerSpeed::default() },
                 );
                 self.ledger.succeeded(&req.peer);
                 let mac = matches!(req.os, OsKind::Macos);
@@ -459,7 +453,7 @@ impl Hub {
         let sink: super::remote::CaptureSink = Arc::new(move |c| {
             let _ = tx.send(Msg::Capture(c));
         });
-        if let Err(e) = self.inner.host.start_capture(sink) {
+        if let Err(e) = self.inner.host.start_capture(sink, pos) {
             self.fail(&format!("Could not take the mouse: {e}"));
             return false;
         }
@@ -487,13 +481,12 @@ impl Hub {
         let Some(live) = self.live.get_mut(&peer) else { return };
         match c {
             Capture::Key { hid, down } => {
-                match self.chords.on_key(hid, down) {
-                    Some(Chord::Panic) => return self.stop_all(Home::Panic),
-                    Some(Chord::Pause) => {
-                        self.paused = true;
-                        return self.stop_all(Home::Pause);
-                    }
-                    None => {}
+                if self.chords.on_key(hid, down) {
+                    return self.stop_all(Home::Panic);
+                }
+                if down && Hub::pause_chord_pressed(&self.inner, &self.chords, hid) {
+                    self.paused = true;
+                    return self.stop_all(Home::Pause);
                 }
                 if down && Hub::return_chord_pressed(&self.inner, &self.chords, hid) {
                     return self.go_home(None, Home::Hotkey);
@@ -510,6 +503,8 @@ impl Hub {
                 let _ = live.ctl.send(StreamMsg::Wheel { dx, dy });
             }
             Capture::Motion { dx, dy } => {
+                let speed = self.inner.peer_prefs(&peer).pointer_speed;
+                let (dx, dy) = live.pointer.scale(speed, dx, dy);
                 live.motion_seq = live.motion_seq.wrapping_add(1);
                 // A full queue drops motion; it never waits.
                 let _ = live.dg.try_send(Datagram::Motion { seq: live.motion_seq, dx, dy, sent_us: self.inner.now_ms() * 1000 });
@@ -568,6 +563,7 @@ impl Hub {
                 let from = self.live.get(&peer).map_or(HostOs::Windows, |l| host_os(l.os));
                 let hid = translate_hid(self.inner.peer_prefs(&peer).modifier_map(), from, host_os(io::os_here()), hid);
                 self.inject_held(peer, Inject::Key { hid, down }, |c| {
+                    c.pushback.reset();
                     if down {
                         if c.keys.len() < MAX_HELD {
                             c.keys.insert(hid);
@@ -578,6 +574,7 @@ impl Hub {
                 });
             }
             StreamMsg::Button { button, down } => self.inject_held(peer, Inject::Button { button, down }, |c| {
+                c.pushback.reset();
                 if down {
                     c.buttons.insert(button);
                 } else {
@@ -689,7 +686,7 @@ impl Hub {
         if let Err(e) = self.inner.host.move_cursor(at.0, at.1) {
             return self.refuse_enter(peer, &format!("{me} could not place the pointer: {e}"), true);
         }
-        self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new() });
+        self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new(), pushback: PushBack::default() });
         self.error = None;
         tracing::info!(peer = short(&peer).as_str(), side = side_name(entry), "desk: another computer is using this one");
     }
@@ -714,9 +711,13 @@ impl Hub {
             return self.refuse_enter(peer, &format!("{me} could not move the pointer: {e}"), true);
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
-        // Pushing on through an edge that faces the other computer sends the pointer back, to the matching spot.
+        // Pushing on through an edge that faces the other computer sends the pointer back, to the matching spot, but
+        // only after deliberate pushes in a row (`pushback`): one jitter at the edge does nothing.
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
-        if let Some(dep) = self.inner.depart_to(&peer, &self.shapes, local, &outward((dx, dy))) {
+        let pushing = self.inner.depart_to(&peer, &self.shapes, local, &outward((dx, dy)));
+        let Some(c) = self.controlled.as_mut() else { return };
+        let home = c.pushback.motion(pushing.is_some(), !c.buttons.is_empty());
+        if let Some(dep) = pushing.filter(|_| home) {
             let (x, y) = dep.to;
             let held = self.controlled.as_ref().map_or(0, |c| c.buttons.len());
             tracing::info!("desk: returning at={x},{y} delta={dx},{dy} buttons_held={held}");

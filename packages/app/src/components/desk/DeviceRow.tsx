@@ -25,6 +25,7 @@ export function DeviceRow({
   onSide,
   onKeymap,
   onScroll,
+  onPointerSpeed,
 }: {
   device: PairDevice;
   /** What the desk link says about this computer; absent until it answers. */
@@ -35,6 +36,8 @@ export function DeviceRow({
   /** Keys and scrolling for this computer; the panel shows only when both are given. */
   onKeymap?: (altCmd: boolean, winOption: boolean) => void;
   onScroll?: (natural: boolean, speed: number, reverseIncoming: boolean) => void;
+  /** Pointer speed when I drive this computer. */
+  onPointerSpeed?: (speed: number) => void;
 }) {
   const [asking, setAsking] = useState(false);
   const id = useId();
@@ -117,7 +120,7 @@ export function DeviceRow({
           </label>
         )}
         {device.allowed.includes('desk/input') && onKeymap && onScroll && (
-          <PeerPrefsPanel name={device.name} prefs={link?.prefs} onKeymap={onKeymap} onScroll={onScroll} />
+          <PeerPrefsPanel name={device.name} prefs={link?.prefs} onKeymap={onKeymap} onScroll={onScroll} onPointerSpeed={onPointerSpeed} />
         )}
         </>
       )}

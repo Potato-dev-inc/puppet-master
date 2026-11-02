@@ -10,8 +10,9 @@ use desk_core::Side;
 
 use super::super::host::DisplayInfo;
 
-/// How far inside the edge the pointer appears, so a small jiggle does not send it straight back.
-pub const INSET: i32 = 3;
+/// How far inside the edge the pointer appears, so a small jiggle does not send it straight back. Six points: on a Mac
+/// (points, not pixels) three was inside a hand's jitter. The return also needs deliberate pushes (`pushback`).
+pub const INSET: i32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bounds {
@@ -217,7 +218,9 @@ mod tests {
         let theirs = [d("x", 0, 0, 1280, 800)];
         let at = entry_point(&theirs, Side::Left, 0.5).unwrap();
         // Entered INSET pixels inside: a small move outward does not rest on the edge.
+        assert!(at.0 > 2, "entry is inside the edge");
         assert_eq!(pushing_back(&theirs, Side::Left, (at.0 - 2, at.1), (-2, 0)), None);
+        assert_eq!(pushing_back(&theirs, Side::Left, (at.0 - INSET + 1, at.1), (-2, 0)), None, "one pixel off the edge");
         // Pushing on until the edge does.
         assert!(pushing_back(&theirs, Side::Left, (0, at.1), (-5, 0)).is_some());
         // Moving inward on the edge is not a push back.

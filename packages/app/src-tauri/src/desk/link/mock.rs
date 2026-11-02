@@ -181,7 +181,7 @@ impl RemoteHost for MockRemote {
         });
     }
 
-    fn start_capture(&self, sink: CaptureSink) -> Result<(), String> {
+    fn start_capture(&self, sink: CaptureSink, _exit: (i32, i32)) -> Result<(), String> {
         self.with(|s| {
             if s.fail_capture {
                 return Err("capture refused".to_string());

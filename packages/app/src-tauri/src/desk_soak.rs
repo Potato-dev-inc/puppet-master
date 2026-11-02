@@ -92,7 +92,7 @@ impl RemoteHost for SimHost {
     fn release_injected(&self) {
         self.held.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
-    fn start_capture(&self, sink: CaptureSink) -> Result<(), String> {
+    fn start_capture(&self, sink: CaptureSink, _exit: (i32, i32)) -> Result<(), String> {
         *self.capture.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink);
         Ok(())
     }

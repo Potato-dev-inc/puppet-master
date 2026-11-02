@@ -321,7 +321,7 @@ mod tests {
         let d = depart(&a, &b, (1920, 0), (1919, 300), &[Side::Right]).unwrap();
         assert_eq!(d.side, Side::Right);
         assert_eq!(d.screen, "a");
-        assert_eq!(d.to, (3, 300));
+        assert_eq!(d.to, (6, 300));
     }
 
     #[test]
@@ -350,8 +350,8 @@ mod tests {
         assert_eq!(depart(&a, &b, (1920, 200), (1919, 100), &ALL_SIDES), None, "above B");
         assert_eq!(depart(&a, &b, (1920, 200), (1919, 1050), &ALL_SIDES), None, "below B");
         let d = depart(&a, &b, (1920, 200), (1919, 500), &ALL_SIDES).unwrap();
-        assert_eq!(d.to, (3, 300), "the same place in the shared space: 500 down A is 300 down B");
-        assert_eq!(depart(&a, &b, (1920, 200), (1919, 200), &ALL_SIDES).unwrap().to, (3, 0));
+        assert_eq!(d.to, (6, 300), "the same place in the shared space: 500 down A is 300 down B");
+        assert_eq!(depart(&a, &b, (1920, 200), (1919, 200), &ALL_SIDES).unwrap().to, (6, 0));
     }
 
     #[test]
@@ -363,7 +363,7 @@ mod tests {
         // B's pointer pushes left from where it arrived (the edge pixel at the same height).
         let back = depart(&b, &a, Spot::At { x: at.0, y: at.1 }.mirror().resolve(size_of(&b), size_of(&a)), (0, there.to.1), &[Side::Left]).unwrap();
         assert_eq!(back.side, Side::Left);
-        assert_eq!(back.to, (1920 - 1 - 3, 500));
+        assert_eq!(back.to, (1920 - 1 - 6, 500));
     }
 
     #[test]
@@ -398,10 +398,10 @@ mod tests {
         assert_eq!(pa, (2000, -300));
         assert_eq!(pb, (-2000, 300));
         let out = depart(&a, &b, pa, (1999, 100), &ALL_SIDES).unwrap();
-        assert_eq!(out.to, (3, 400));
+        assert_eq!(out.to, (6, 400));
         let back = depart(&b, &a, pb, (0, 400), &ALL_SIDES).unwrap();
         assert_eq!(back.screen, "a2");
-        assert_eq!(back.to, (1996, 100));
+        assert_eq!(back.to, (1993, 100));
     }
 
     #[test]
@@ -431,7 +431,7 @@ mod tests {
         assert_eq!(at, (-800, 0));
         let pos = (0, 400); // OS (-1280, 400)
         let d = depart(&a, &b, at, pos, &ALL_SIDES).unwrap();
-        assert_eq!((d.side, d.to), (Side::Left, (800 - 1 - 3, 400)));
+        assert_eq!((d.side, d.to), (Side::Left, (800 - 1 - 6, 400)));
         // The top of that screen is above where B's screen ends only if y < 600: y 700 is below B.
         assert_eq!(depart(&a, &b, at, (0, 700), &ALL_SIDES), None);
         // Negative placement of the other computer.
@@ -446,7 +446,7 @@ mod tests {
         let b = one(1000, 1000);
         // B below A, 500 px to the right.
         let d = depart(&a, &b, (500, 1080), (1000, 1079), &[Side::Bottom]).unwrap();
-        assert_eq!(d.to, (500, 3));
+        assert_eq!(d.to, (500, 6));
         assert_eq!(depart(&a, &b, (500, 1080), (100, 1079), &[Side::Bottom]), None);
     }
 

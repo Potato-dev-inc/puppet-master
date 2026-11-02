@@ -271,7 +271,8 @@ async fn the_pointer_crosses_the_edge_and_the_other_computer_is_driven() {
     cross(&a, &b).await;
     // It appears just inside b's left edge at the same relative height; b says who has the mouse.
     let (bx, by) = b.host.cursor();
-    assert!((bx - 3).abs() <= 1 && (by - 540).abs() <= 2, "{bx},{by}");
+    // INSET (6) points inside the left edge.
+    assert!((bx - 6).abs() <= 1 && (by - 540).abs() <= 2, "{bx},{by}");
     assert_eq!(a.link.view().mouse_on.as_deref(), Some("Laptop"));
     assert_eq!(b.link.view().controlled_by.as_deref(), Some("Ren-PC"));
     // Motion, keys, buttons and wheel arrive.
@@ -311,6 +312,63 @@ async fn pushing_back_through_the_edge_brings_the_pointer_home_at_the_same_heigh
     // It does not cross again by itself: it is inside the edge.
     sleep(Duration::from_millis(300)).await;
     assert!(!a.host.capturing());
+}
+
+/// One outward push that lands on the edge does nothing: the pointer stays on the other computer.
+#[tokio::test(start_paused = true)]
+async fn one_push_at_the_edge_does_not_send_the_pointer_home() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 300);
+    wait_until("crossed", || a.host.capturing()).await;
+    // b's pointer entered INSET (6) inside: this push lands on its left edge.
+    a.host.person(Capture::Motion { dx: -30, dy: 0 });
+    wait_until("the push arrives", || b.host.cursor().0 == 0).await;
+    sleep(Duration::from_millis(200)).await;
+    assert!(a.host.capturing(), "one push is a jitter");
+    assert_eq!(b.link.view().controlled_by.as_deref(), Some("Ren-PC"));
+}
+
+/// A click, then one outward jitter at the edge: still on the other computer. A second push in a row sends it home.
+#[tokio::test(start_paused = true)]
+async fn a_click_and_one_jitter_at_the_edge_stay_and_two_pushes_return() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 300);
+    wait_until("crossed", || a.host.capturing()).await;
+    a.host.person(Capture::Button { button: 0, down: true });
+    a.host.person(Capture::Button { button: 0, down: false });
+    wait_until("click arrives", || b.host.with(|s| s.log.iter().filter(|e| matches!(e, Inject::Button { .. })).count() == 2)).await;
+    a.host.person(Capture::Motion { dx: -30, dy: 0 });
+    wait_until("the jitter arrives", || b.host.cursor().0 == 0).await;
+    sleep(Duration::from_millis(200)).await;
+    assert!(a.host.capturing(), "a click and one jitter at the edge do not send the pointer home");
+    // The person is still at the edge: the next push in a row returns the pointer.
+    a.host.person(Capture::Motion { dx: -5, dy: 0 });
+    wait_until("pointer home", || !a.host.capturing()).await;
+    let (x, _) = a.host.cursor();
+    assert!(x >= 1900, "came back to {x}");
+    assert_eq!(b.link.view().controlled_by, None);
+}
+
+/// While a button is held on the other computer, three pushes in a row are needed: two do not send the pointer home.
+#[tokio::test(start_paused = true)]
+async fn a_held_button_needs_three_pushes_at_the_edge() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 300);
+    wait_until("crossed", || a.host.capturing()).await;
+    a.host.person(Capture::Button { button: 0, down: true });
+    wait_until("button held there", || b.host.with(|s| s.held_buttons.contains(&0))).await;
+    a.host.person(Capture::Motion { dx: -30, dy: 0 });
+    wait_until("first push arrives", || b.host.cursor().0 == 0).await;
+    a.host.person(Capture::Motion { dx: -5, dy: 0 });
+    sleep(Duration::from_millis(200)).await;
+    assert!(a.host.capturing(), "two pushes with a button held do not return the pointer");
+    a.host.person(Capture::Motion { dx: -5, dy: 0 });
+    wait_until("pointer home", || !a.host.capturing()).await;
+    // Releasing what was held on the other computer.
+    wait_until("held button released", || !b.host.with(|s| s.held_buttons.contains(&0))).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -478,22 +536,6 @@ async fn the_panic_key_brings_the_pointer_home_and_releases_everything() {
     assert!(!b.link.view().devices[0].controls_me);
     // Esc itself was never sent.
     assert!(!b.host.with(|s| s.log.iter().any(|e| matches!(e, Inject::Key { hid: 0x29, down: true }))));
-}
-
-#[tokio::test(start_paused = true)]
-async fn scroll_lock_pauses_and_the_pointer_stays_home_until_resumed() {
-    let (_net, a, b) = together();
-    up(&a, &b).await;
-    cross(&a, &b).await;
-    a.host.person(Capture::Key { hid: 0x47, down: true });
-    wait_until("home", || !a.host.capturing()).await;
-    assert!(a.link.view().paused);
-    a.host.put_cursor(1919, 540);
-    sleep(Duration::from_millis(300)).await;
-    assert!(!a.host.capturing(), "paused: no crossing");
-    a.link.pause(false);
-    wait_until("crosses again", || a.host.capturing()).await;
-    assert!(!a.link.view().paused);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1057,7 +1099,7 @@ async fn the_pointer_crosses_only_where_the_screens_touch_and_lands_at_the_match
     a.host.put_cursor(1919, 500);
     wait_until("crossed", || a.host.capturing() && b.link.view().devices[0].controls_me).await;
     let (bx, by) = b.host.cursor();
-    assert_eq!((bx, by), (3, 300), "500 down the big screen is 300 down the laptop");
+    assert_eq!((bx, by), (6, 300), "500 down the big screen is 300 down the laptop");
 }
 
 #[tokio::test(start_paused = true)]
@@ -1075,7 +1117,7 @@ async fn the_way_back_lands_at_the_matching_spot_of_the_big_screen() {
     }
     wait_until("pointer home", || !a.host.capturing()).await;
     let (x, y) = a.host.cursor();
-    assert_eq!((x, y), (1916, 500), "came back to the same height");
+    assert_eq!((x, y), (1913, 500), "came back to the same height");
     assert!(b.link.view().controlled_by.is_none());
     sleep(Duration::from_millis(300)).await;
     assert!(!a.host.capturing(), "it does not cross again by itself");

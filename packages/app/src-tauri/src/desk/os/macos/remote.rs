@@ -314,7 +314,9 @@ impl RemoteHost for MacosRemote {
         }
     }
 
-    fn start_capture(&self, sink: CaptureSink) -> Result<(), String> {
+    // The exit point is not used: the Mac does not park the pointer (see os/macos/capture.rs), so a swallowed move
+    // never reaches the screen.
+    fn start_capture(&self, sink: CaptureSink, _exit: (i32, i32)) -> Result<(), String> {
         let mut slot = self.capture.lock().unwrap_or_else(|p| p.into_inner());
         if slot.is_some() {
             return Ok(());
