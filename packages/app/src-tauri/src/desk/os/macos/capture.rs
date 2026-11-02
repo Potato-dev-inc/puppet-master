@@ -28,7 +28,7 @@ const MAX_STEP: i64 = 2000;
 /// Wheel units the other side uses (a Windows notch is 120) per scrolled pixel here. `remote.rs` divides by it.
 pub(super) const WHEEL_UNITS_PER_PIXEL: i32 = 4;
 
-pub(super) const ACCESS_NEEDED: &str = "Puppet Master needs Accessibility access to control this Mac. Turn it on in System Settings > Privacy & Security > Accessibility, then restart Puppet Master.";
+pub(super) const ACCESS_NEEDED: &str = "Puppet Master needs Accessibility access to control this Mac. Turn it on in System Settings > Privacy & Security > Accessibility, then restart Puppet Master. Started from a terminal (npm run tauri dev)? Turn it on for that terminal app instead.";
 const TAP_REFUSED: &str = "macOS would not let Puppet Master take the mouse and keyboard. Check Accessibility access in System Settings > Privacy & Security.";
 
 struct Ctx {
