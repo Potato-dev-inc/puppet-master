@@ -98,11 +98,11 @@ pub fn entry_point(displays: &[DisplayInfo], entry: Side, t: f64) -> Option<(i32
         Side::Top => (u.left + (t * f64::from(u.width() - 1)).round() as i32, u.top + INSET),
         Side::Bottom => (u.left + (t * f64::from(u.width() - 1)).round() as i32, u.bottom - 1 - INSET),
     };
-    Some(snap_to_screen(displays, (x, y), entry))
+    Some(onto_screens(displays, (x, y), entry))
 }
 
 /// The point, moved onto the nearest screen when the union has a hole there (screens of different sizes).
-fn snap_to_screen(displays: &[DisplayInfo], p: (i32, i32), entry: Side) -> (i32, i32) {
+pub fn onto_screens(displays: &[DisplayInfo], p: (i32, i32), entry: Side) -> (i32, i32) {
     if displays.iter().map(rect).any(|r| p.0 >= r.left && p.0 < r.right && p.1 >= r.top && p.1 < r.bottom) {
         return p;
     }

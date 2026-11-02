@@ -139,6 +139,12 @@ pub enum StreamMsg {
     Return {
         t_milli: u16,
     },
+    /// Puppet Master addition (kept last): the same, with the exact arrival point on the other computer, in that
+    /// computer's local space (the box around its screens starts at 0, 0).
+    ReturnAt {
+        x: i32,
+        y: i32,
+    },
 }
 
 pub fn fits_inline(len: usize) -> bool {
@@ -248,6 +254,7 @@ mod tests {
             StreamMsg::PairReject,
             StreamMsg::TransferRequest { token: 3 },
             StreamMsg::Return { t_milli: 640 },
+            StreamMsg::ReturnAt { x: -1280, y: 300 },
         ]
     }
 
@@ -269,6 +276,8 @@ mod tests {
         let transfer = encode_frame(&StreamMsg::TransferRequest { token: 0 }).unwrap();
         let ret = encode_frame(&StreamMsg::Return { t_milli: 0 }).unwrap();
         assert_eq!(ret[4], transfer[4] + 1);
+        let ret_at = encode_frame(&StreamMsg::ReturnAt { x: 0, y: 0 }).unwrap();
+        assert_eq!(ret_at[4], ret[4] + 1);
     }
 
     #[test]
