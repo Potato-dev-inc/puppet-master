@@ -126,8 +126,12 @@ pub(crate) fn link_ready(app: &AppHandle) -> Result<Arc<DeskLink>, String> {
     let app = app.clone();
     let link = s.link.clone();
     ATTACH.call_once(move || {
+        let layout_app = app.clone();
         link.set_notifier(Arc::new(move |view: &LinkView| {
             let _ = app.emit("desk://link", view);
+        }));
+        link.set_layout_notifier(Arc::new(move |view: &crate::desk::link::LayoutView| {
+            let _ = layout_app.emit("desk://layout", view);
         }));
     });
     s.link.start();
