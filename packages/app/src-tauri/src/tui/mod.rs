@@ -305,7 +305,6 @@ pub(crate) fn find_program_in(paths: &std::ffi::OsStr, extensions: &[String], na
     })
 }
 
-#[cfg(windows)]
 pub(crate) fn find_path_file(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?)
         .map(|dir| dir.join(name))
