@@ -319,6 +319,24 @@ async fn a_handed_back_pointer_resting_on_the_edge_is_not_taken_straight_back() 
     wait_until("b crosses once the pause is over", || b.host.capturing() && a.link.view().controlled_by.as_deref() == Some("Laptop")).await;
 }
 
+/// While a pointer rests on an edge that faces a connected computer, the log says why it does not cross, at most once a
+/// second for each reason. Away from the edges it says nothing.
+#[tokio::test(start_paused = true)]
+async fn the_log_says_why_the_pointer_is_not_crossing_at_most_once_a_second() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    a.host.put_cursor(960, 540);
+    sleep(Duration::from_millis(300)).await;
+    assert!(!log_text(&log).contains("not crossing"), "{}", log_text(&log));
+    a.host.with(|s| s.buttons_down = true);
+    a.host.put_cursor(1919, 540);
+    sleep(Duration::from_millis(1500)).await;
+    assert!(!a.host.capturing());
+    let lines = log_text(&log).lines().filter(|l| l.contains("desk: not crossing reason=button held")).count();
+    assert!((1..=2).contains(&lines), "{lines} lines in 1.5 s: {}", log_text(&log));
+}
+
 #[tokio::test(start_paused = true)]
 async fn the_pointer_crosses_the_edge_and_the_other_computer_is_driven() {
     let (_net, a, b) = together();

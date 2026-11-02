@@ -27,6 +27,7 @@ use crate::p2p::session::{DialLedger, Reach, Sessions};
 use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
 use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
 use super::pushback::PushBack;
+use super::ratelog::RateLimit;
 use super::remote::{Capture, Inject};
 use super::pointer_speed::PointerSpeed;
 use super::{clip_link, io, Inner, CLOSE_REPLACED, CLOSE_STOPPED};
@@ -46,6 +47,8 @@ const REFUSED_PAUSE_MS: u64 = 2_000;
 /// After this computer hands the pointer back, or the other computer lets go of it, this computer does not take the
 /// pointer straight back across the same edge. The other computer may leave its pointer resting on that edge.
 const RETURN_PAUSE_MS: u64 = 1_000;
+/// "desk: not crossing" is written at most once a second for each reason.
+const NOT_CROSSING_EVERY_MS: u64 = 1_000;
 /// The page is handed a new view at most this often. A change inside that window is handed over at the next tick.
 const PUBLISH_EVERY_MS: u64 = 50;
 /// Longest refusal reason taken from the other computer.
@@ -126,6 +129,33 @@ enum Home {
     Crossed,
 }
 
+/// Why the pointer does not cross, for the log (see `poll_edge`).
+#[derive(Clone, Copy)]
+enum Block {
+    Paused,
+    Holding(NodeId),
+    ControlledBy(NodeId),
+    Locked,
+    Waiting(NodeId),
+    ButtonHeld(NodeId),
+    InputOff(NodeId),
+}
+
+impl Block {
+    /// The limiter's key (one line per second per key) and the words after `reason=`.
+    fn text(self) -> (&'static str, String) {
+        match self {
+            Block::Paused => ("paused", "paused".to_string()),
+            Block::Holding(p) => ("holding", format!("holding the mouse peer={}", short(&p))),
+            Block::ControlledBy(p) => ("controlled", format!("controlled by peer={}", short(&p))),
+            Block::Locked => ("locked", "pointer locked".to_string()),
+            Block::Waiting(p) => ("waiting", format!("waiting after a refusal peer={}", short(&p))),
+            Block::ButtonHeld(p) => ("button", format!("button held peer={}", short(&p))),
+            Block::InputOff(p) => ("input", format!("input off peer={}", short(&p))),
+        }
+    }
+}
+
 impl Home {
     fn text(self) -> String {
         match self {
@@ -200,6 +230,8 @@ pub struct Hub {
     edge_candidate: Option<(NodeId, u32)>,
     /// A computer that said no to the pointer, and until when it is not tried again.
     refused_until: HashMap<NodeId, u64>,
+    /// Keeps "desk: not crossing" to one line a second for each reason.
+    not_crossing: RateLimit,
     upkeeps: u64,
     error: Option<String>,
     /// When the page was last handed a view, and whether a change is waiting for the next tick.
@@ -225,6 +257,7 @@ impl Hub {
             origin: (0, 0),
             edge_candidate: None,
             refused_until: HashMap::new(),
+            not_crossing: RateLimit::new(NOT_CROSSING_EVERY_MS),
             upkeeps: 0,
             error: None,
             published_at: None,
@@ -421,7 +454,7 @@ impl Hub {
 
     fn poll_edge(&mut self) {
         self.flush_publish();
-        if self.paused || self.remote.is_some() || self.controlled.is_some() || !self.inner.labs() || self.inner.pointer_locked() {
+        if !self.inner.labs() {
             self.edge_candidate = None;
             return;
         }
@@ -429,18 +462,42 @@ impl Hub {
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
         let now = self.ms();
         self.refused_until.retain(|_, until| *until > now);
+        let blocked = if self.paused {
+            Some(Block::Paused)
+        } else if let Some(r) = &self.remote {
+            Some(Block::Holding(r.peer))
+        } else if let Some(c) = &self.controlled {
+            Some(Block::ControlledBy(c.peer))
+        } else if self.inner.pointer_locked() {
+            Some(Block::Locked)
+        } else {
+            None
+        };
+        if let Some(why) = blocked {
+            self.edge_candidate = None;
+            // Only worth a line when the pointer rests on an edge that faces a connected computer.
+            let on_edge = self.live.keys().any(|p| self.inner.depart_to(p, &self.shapes, local, &ALL_SIDES).is_some());
+            if on_edge {
+                self.say_not_crossing(why);
+            }
+            return;
+        }
         let mut hit = None;
+        let mut waiting = None;
         for peer in self.live.keys() {
+            let Some(dep) = self.inner.depart_to(peer, &self.shapes, local, &ALL_SIDES) else { continue };
             if self.refused_until.contains_key(peer) {
+                waiting.get_or_insert(*peer);
                 continue;
             }
-            if let Some(dep) = self.inner.depart_to(peer, &self.shapes, local, &ALL_SIDES) {
-                hit = Some((*peer, dep));
-                break;
-            }
+            hit = Some((*peer, dep));
+            break;
         }
         let Some((peer, dep)) = hit else {
             self.edge_candidate = None;
+            if let Some(p) = waiting {
+                self.say_not_crossing(Block::Waiting(p));
+            }
             return;
         };
         let looks = match self.edge_candidate {
@@ -448,9 +505,26 @@ impl Hub {
             _ => 1,
         };
         self.edge_candidate = Some((peer, looks));
-        if looks >= DWELL_LOOKS && self.cross_to(peer, &dep, pos) {
+        if looks < DWELL_LOOKS {
+            return;
+        }
+        if !self.inner.input_allowed(&peer) {
+            return self.say_not_crossing(Block::InputOff(peer));
+        }
+        if self.inner.host.buttons_held() {
+            return self.say_not_crossing(Block::ButtonHeld(peer));
+        }
+        if self.cross_to(peer, &dep, pos) {
             self.edge_candidate = None;
             self.publish();
+        }
+    }
+
+    /// Writes why the pointer is not crossing, at most once a second for each reason.
+    fn say_not_crossing(&mut self, why: Block) {
+        let (key, text) = why.text();
+        if self.not_crossing.allow(key, self.ms()) {
+            tracing::info!("desk: not crossing reason={text}");
         }
     }
 
