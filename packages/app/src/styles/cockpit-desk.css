@@ -474,6 +474,7 @@
 }
 .cockpit .ck-desk-banner p {
   margin: 0;
+}
 /* The layout: every computer's screens in one picture. Blocks are grey; the one you drag lifts, and one that cannot
    go where you hold it turns dashed. State is also said in words, never by tone alone. */
 .cockpit .ck-desk-lay {
