@@ -3,6 +3,7 @@
 import { useId, useState } from 'react';
 import { DESK_CAPABILITIES, type PairDevice } from '../../lib/desk-pair';
 import { linkStateText, SIDES, type LinkDevice, type LinkSide } from '../../lib/desk-link';
+import { PeerPrefsPanel } from './PeerPrefsPanel';
 
 /** "Connected" / "Offline" / "Paired": plain words for what is known. */
 export function deviceStatus(online: boolean | null): string {
@@ -17,6 +18,8 @@ export function DeviceRow({
   onToggle,
   onRemove,
   onSide,
+  onKeymap,
+  onScroll,
 }: {
   device: PairDevice;
   /** What the desk link says about this computer; absent until it answers. */
@@ -24,6 +27,9 @@ export function DeviceRow({
   onToggle: (capability: string, on: boolean) => void;
   onRemove: () => void;
   onSide?: (side: LinkSide) => void;
+  /** Keys and scrolling for this computer; the panel shows only when both are given. */
+  onKeymap?: (altCmd: boolean, winOption: boolean) => void;
+  onScroll?: (natural: boolean, speed: number, reverseIncoming: boolean) => void;
 }) {
   const [asking, setAsking] = useState(false);
   const id = useId();
@@ -101,6 +107,9 @@ export function DeviceRow({
               ))}
             </select>
           </label>
+        )}
+        {device.allowed.includes('desk/input') && onKeymap && onScroll && (
+          <PeerPrefsPanel name={device.name} prefs={link?.prefs} onKeymap={onKeymap} onScroll={onScroll} />
         )}
         </>
       )}

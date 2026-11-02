@@ -75,6 +75,7 @@ fn service() -> Result<&'static Service, String> {
         let store = Arc::new(FileLinkStore { path: crate::app_paths::app_data_dir().join("desk").join("link.json") });
         let link = DeskLink::new(p2p.clone(), trust, crate::desk::link::remote::default_remote(), store, &computer_name()).map_err(|e| e.to_string())?;
         link.attach_port(crate::desk::global().port());
+        link.use_prefs_store(Arc::new(crate::desk::link::prefs::FilePrefsStore { path: crate::app_paths::app_data_dir().join("desk").join("peers.json") }));
         link.apply_settings(LABS.load(Ordering::SeqCst));
         Ok(Service { p2p, mgr, link })
     });

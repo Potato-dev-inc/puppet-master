@@ -32,6 +32,8 @@ pub mod geometry;
 pub mod hub;
 pub mod io;
 mod port_link;
+pub mod prefs;
+pub mod prefs_commands;
 pub mod remote;
 pub mod wire;
 
@@ -127,6 +129,8 @@ pub struct DeviceLink {
     pub controls_me: bool,
     pub input_on: bool,
     pub clipboard_on: bool,
+    /// What the person chose for keys and scrolling with this computer (the defaults until they change something).
+    pub prefs: prefs::PeerPrefs,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -206,6 +210,8 @@ pub(super) struct Inner {
     wanted: Mutex<(bool, bool)>,
     /// The screen engine's port (hotkeys in, pointer lock out), once attached.
     port: Mutex<Option<Arc<crate::desk::port::LinkPort>>>,
+    /// Per-computer keys and scrolling choices (see `prefs.rs`).
+    prefs: Mutex<prefs::Prefs>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -355,6 +361,7 @@ impl Inner {
                 controls_me: m.controlled_by == Some(d.node),
                 input_on,
                 clipboard_on: d.allowed.contains(capability::DESK_CLIPBOARD),
+                prefs: self.peer_prefs(&d.node),
             });
         }
         let sharing = self.labs() && views.iter().any(|d| d.input_on);
@@ -484,6 +491,7 @@ impl DeskLink {
             reconciling: AtomicBool::new(false),
             wanted: Mutex::new((false, false)),
             port: Mutex::new(None),
+            prefs: Mutex::new(prefs::Prefs::new(Arc::new(prefs::MemPrefsStore::default()))),
         });
         let weak = Arc::downgrade(&inner);
         p2p.registry().register(Capability::new(capability::DESK_INPUT, alpn::DESK, RelayPolicy::Never, Arc::new(InputHandler(weak.clone()))))?;

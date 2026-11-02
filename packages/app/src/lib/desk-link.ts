@@ -22,7 +22,28 @@ export interface LinkDevice {
   controls_me: boolean;
   input_on: boolean;
   clipboard_on: boolean;
+  /** What the person chose for keys and scrolling with this computer. Absent from an older app build: use the defaults. */
+  prefs?: PeerPrefs;
 }
+
+/** Keys and scrolling, per computer (Rust: desk/link/prefs.rs). */
+export interface PeerPrefs {
+  /** Windows Alt <-> Mac Command. */
+  alt_cmd: boolean;
+  /** Windows key <-> Mac Option. */
+  win_option: boolean;
+  /** Flip the wheel when I use that computer. */
+  natural: boolean;
+  /** Wheel speed when I use that computer; 1 = as is. */
+  speed: number;
+  /** Flip the wheel when that computer uses this one. */
+  reverse_incoming: boolean;
+}
+
+export const DEFAULT_PEER_PREFS: PeerPrefs = { alt_cmd: true, win_option: true, natural: false, speed: 1, reverse_incoming: false };
+
+/** The speeds the page offers; the app accepts anything from 0.25 to 4. */
+export const SCROLL_SPEEDS = [0.5, 0.75, 1, 1.5, 2, 3];
 
 export interface LinkView {
   seq: number;
@@ -54,6 +75,10 @@ export const linkView = () => invoke<LinkView>('desk_link_view');
 export const linkSetSide = (node: string, side: LinkSide) => invoke<LinkView>('desk_link_set_side', { node, side });
 export const linkPause = (paused: boolean) => invoke<LinkView>('desk_link_pause', { paused });
 export const linkPanic = () => invoke<LinkView>('desk_link_panic');
+export const linkSetKeymap = (node: string, altCmd: boolean, winOption: boolean) =>
+  invoke<LinkView>('desk_link_set_keymap', { node, altCmd, winOption });
+export const linkSetScroll = (node: string, natural: boolean, speed: number, reverseIncoming: boolean) =>
+  invoke<LinkView>('desk_link_set_scroll', { node, natural, speed, reverseIncoming });
 
 /** Plain words for a computer's link state. `null` when nothing is being tried (the switch is off). */
 export function linkStateText(state: LinkState | undefined): string | null {
@@ -90,6 +115,8 @@ export interface LinkApi {
   /** The last command that failed. Cleared by the next one. */
   error: string | null;
   setSide: (node: string, side: LinkSide) => Promise<void>;
+  setKeymap: (node: string, altCmd: boolean, winOption: boolean) => Promise<void>;
+  setScroll: (node: string, natural: boolean, speed: number, reverseIncoming: boolean) => Promise<void>;
   pause: (paused: boolean) => Promise<void>;
   /** Pointer home and everything let go, on both computers. */
   panic: () => Promise<void>;
@@ -139,6 +166,8 @@ export function useLink(enabled: boolean): LinkApi {
     view,
     error,
     setSide: (node, side) => call(() => linkSetSide(node, side)),
+    setKeymap: (node, altCmd, winOption) => call(() => linkSetKeymap(node, altCmd, winOption)),
+    setScroll: (node, natural, speed, reverseIncoming) => call(() => linkSetScroll(node, natural, speed, reverseIncoming)),
     pause: (paused) => call(() => linkPause(paused)),
     panic: () => call(linkPanic),
   };

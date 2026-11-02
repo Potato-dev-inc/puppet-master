@@ -922,3 +922,6 @@ async fn crossing_there_and_back_after_every_swap_of_sides_never_sticks() {
 // Hotkeys that reach the hub: jump to a computer, return home, lock.
 mod hotkey_tests;
 
+
+// Per-computer keys and scrolling.
+mod prefs_tests;

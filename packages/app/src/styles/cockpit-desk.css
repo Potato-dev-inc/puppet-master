@@ -447,3 +447,17 @@
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+
+/* Keys and scrolling for one computer: folded away, the same rows as the switches above. */
+.cockpit .ck-desk-more {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-desk-more > summary {
+  cursor: pointer;
+}
+.cockpit .ck-desk-more > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

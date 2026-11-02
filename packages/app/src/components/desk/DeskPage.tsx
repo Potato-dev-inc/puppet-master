@@ -175,6 +175,8 @@ export function DeskPage() {
                     device={d}
                     link={link.view?.devices.find((l) => l.node === d.node)}
                     onSide={(side) => void link.setSide(d.node, side)}
+                    onKeymap={(altCmd, winOption) => void link.setKeymap(d.node, altCmd, winOption)}
+                    onScroll={(natural, speed, reverse) => void link.setScroll(d.node, natural, speed, reverse)}
                     onToggle={(cap, on) => void pair.setPermission(d.node, cap, on)}
                     onRemove={() => void pair.remove(d.node)}
                   />

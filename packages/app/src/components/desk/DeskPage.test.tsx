@@ -189,6 +189,44 @@ describe('DeskPage', () => {
     expect(h.invoke).toHaveBeenCalledWith('desk_link_pause', { paused: true });
   });
 
+  it('keys and scrolling for a computer reach the app commands with that computer and the whole choice', async () => {
+    const node = 'cd'.repeat(32);
+    /** Test-only fixtures. */
+    const pairView = {
+      hosting: null, pending: null, joining: null, message: null, locked_until: null, tampered: false,
+      devices: [{ node, name: 'Laptop', added_at: 1, online: null, allowed: ['desk/input'] }],
+    };
+    const prefs = { alt_cmd: true, win_option: true, natural: false, speed: 1, reverse_incoming: false };
+    const linkDevice = { node, name: 'Laptop', state: 'online', side: 'right', mouse_here: false, controls_me: false, input_on: true, clipboard_on: false, prefs };
+    const linkView = (p = prefs) => ({
+      seq: 1, devices: [{ ...linkDevice, prefs: p }], mouse_on: null, controlled_by: null, paused: false, sharing: true,
+      tray: 'Mouse sharing is on', admin_note: "Can't control windows that run as admin.", error: null, clipboard_note: null, supported: true,
+    });
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'pair_view') return pairView;
+      if (name === 'desk_link_view') return linkView();
+      if (name === 'desk_link_set_keymap') return linkView({ ...prefs, alt_cmd: false });
+      if (name === 'desk_link_set_scroll') return linkView({ ...prefs, natural: true, speed: 2 });
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Swap Alt and Command for Laptop"]')!.click());
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_keymap', { node, altCmd: false, winOption: true });
+    // The app's answer is what the switch shows now.
+    await flush();
+    expect(host.querySelector('[aria-label="Swap Alt and Command for Laptop"]')!.getAttribute('aria-checked')).toBe('false');
+    const speed = host.querySelector<HTMLSelectElement>('.ck-desk-more select')!;
+    await act(async () => {
+      speed.value = '2';
+      speed.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(h.invoke).toHaveBeenCalledWith('desk_link_set_scroll', { node, natural: false, speed: 2, reverseIncoming: false });
+    await flush();
+    expect(host.querySelector('[aria-label="Reverse scrolling when I use Laptop"]')!.getAttribute('aria-checked')).toBe('true');
+  });
+
   it('draws nothing while the Labs switch is off', async () => {
     h.invoke.mockRejectedValue('FEATURE_OFF: My computers is off in Labs');
     await act(async () => root.render(<DeskPage />));
