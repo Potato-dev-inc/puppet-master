@@ -7,7 +7,7 @@
 //! Two roles at once, per computer pair:
 //! - **Holding the mouse** (`remote`): the pointer left through an edge. Input is captured here (the host hides and
 //!   holds the pointer) and sent to the other computer: keys and buttons on the control stream, motion as datagrams.
-//!   Back home on `Return`, on panic (Ctrl+Alt+Esc), on pause (Scroll Lock), on 250 ms of silence, or when the link ends.
+//!   Back home on `Return`, on panic (Ctrl+Alt+Esc), on pause (the `pause` hotkey, Ctrl+Alt+P by default), on 250 ms of silence, or when the link ends.
 //! - **Being controlled** (`controlled`): the other computer's input is injected. Every key and button pressed is
 //!   remembered and released when control ends for any reason, the link breaks, or the peer goes quiet.
 
@@ -151,33 +151,21 @@ struct Chords {
     down: BTreeSet<u16>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Chord {
-    Panic,
-    Pause,
-}
-
 const HID_ESC: u16 = 0x29;
-const HID_SCROLL_LOCK: u16 = 0x47;
 
 impl Chords {
-    /// Ctrl+Alt+Esc is the panic key, Scroll Lock the pause key. Matched on the raw keys, so it works whatever
-    /// else is held, and whichever side of the keyboard the modifiers are on.
-    fn on_key(&mut self, hid: u16, down: bool) -> Option<Chord> {
+    /// Ctrl+Alt+Esc is the panic key. Matched on the raw keys, so it works whatever else is held, and whichever side
+    /// of the keyboard the modifiers are on. Returns true for that press. The pause key is the configured `pause`
+    /// hotkey, matched by `Hub::pause_chord_pressed` (not Scroll Lock any more).
+    fn on_key(&mut self, hid: u16, down: bool) -> bool {
         if !down {
             self.down.remove(&hid);
-            return None;
+            return false;
         }
         self.down.insert(hid);
         let ctrl = self.down.contains(&0xE0) || self.down.contains(&0xE4);
         let alt = self.down.contains(&0xE2) || self.down.contains(&0xE6);
-        if hid == HID_ESC && ctrl && alt {
-            Some(Chord::Panic)
-        } else if hid == HID_SCROLL_LOCK {
-            Some(Chord::Pause)
-        } else {
-            None
-        }
+        hid == HID_ESC && ctrl && alt
     }
 }
 
@@ -493,13 +481,12 @@ impl Hub {
         let Some(live) = self.live.get_mut(&peer) else { return };
         match c {
             Capture::Key { hid, down } => {
-                match self.chords.on_key(hid, down) {
-                    Some(Chord::Panic) => return self.stop_all(Home::Panic),
-                    Some(Chord::Pause) => {
-                        self.paused = true;
-                        return self.stop_all(Home::Pause);
-                    }
-                    None => {}
+                if self.chords.on_key(hid, down) {
+                    return self.stop_all(Home::Panic);
+                }
+                if down && Hub::pause_chord_pressed(&self.inner, &self.chords, hid) {
+                    self.paused = true;
+                    return self.stop_all(Home::Pause);
                 }
                 if down && Hub::return_chord_pressed(&self.inner, &self.chords, hid) {
                     return self.go_home(None, Home::Hotkey);

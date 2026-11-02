@@ -75,9 +75,9 @@ impl Default for HotkeyConfig {
             prev: "ctrl+alt+left".into(),
             screen_n: "ctrl+alt+{n}".into(),
             find_pointer: "ctrl+alt+f".into(),
-            pause: "scrolllock".into(),
+            pause: "ctrl+alt+p".into(),
             center: "ctrl+alt+c".into(),
-            lock_pointer: "ctrl+alt+l".into(),
+            lock_pointer: "scrolllock".into(),
             jump_n: "ctrl+alt+shift+{n}".into(),
             return_home: "ctrl+alt+shift+h".into(),
         }

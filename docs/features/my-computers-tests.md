@@ -16,7 +16,7 @@ Words: **PC A** is the one you sit at. **PC B** is the one on its right.
 - Put the PCs side by side. PC B is on the right of PC A.
 - Know the three ways out if the pointer gets lost:
   1. **Ctrl + Alt + Esc** (panic): the pointer comes home and every key is let go, on both PCs.
-  2. **Scroll Lock** (pause), then **Resume sharing** on the page when you want it back.
+  2. **Ctrl + Alt + P** (pause; the pause key is set under Keys), then **Resume sharing** on the page when you want it back.
   3. Quit Puppet Master. The pointer comes home when it quits.
 - Windows Security (or your antivirus): write down if it warned about anything when you turned sharing on.
 
@@ -87,7 +87,7 @@ Write down: how long the letters kept coming, seconds to Offline, seconds to Con
 ## 6. Panic, pause, off and quit (4 minutes)
 
 1. Pointer on PC B, hold Ctrl and Alt, press **Esc**. Pointer home, nothing stuck. (Panic.)
-2. Pointer on PC B, press **Scroll Lock**. Pointer home, the page says "Mouse sharing is paused". Push at the edge:
+2. Pointer on PC B, press **Ctrl + Alt + P**. Pointer home, the page says "Mouse sharing is paused". Push at the edge:
    nothing crosses. Press **Resume sharing**: it crosses again.
 3. Pointer on PC B. You drive PC B with PC A's mouse, so use it on PC B's page: turn **Mouse and keyboard** off for
    PC A. The link closes and the pointer must be home on PC A at once. Turn it on again, on PC B.

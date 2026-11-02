@@ -125,6 +125,40 @@ async fn the_return_chord_is_matched_on_the_keys_captured_while_the_pointer_is_a
 }
 
 #[tokio::test(start_paused = true)]
+async fn the_pause_chord_pauses_and_the_pointer_stays_home_until_resumed() {
+    let (_net, a, b) = together();
+    let port = with_port(&a);
+    port.set_pause_chord(parse_chord("ctrl+alt+p"));
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    a.host.person(Capture::Key { hid: 0xE0, down: true });
+    a.host.person(Capture::Key { hid: 0xE2, down: true });
+    a.host.person(Capture::Key { hid: 0x13, down: true });
+    wait_until("home", || !a.host.capturing()).await;
+    assert!(a.link.view().paused);
+    a.host.put_cursor(1919, 540);
+    sleep(Duration::from_millis(300)).await;
+    assert!(!a.host.capturing(), "paused: no crossing");
+    a.link.pause(false);
+    wait_until("crosses again", || a.host.capturing()).await;
+    assert!(!a.link.view().paused);
+}
+
+#[tokio::test(start_paused = true)]
+async fn scroll_lock_is_typed_on_the_other_computer_while_the_pointer_is_away() {
+    let (_net, a, b) = together();
+    let port = with_port(&a);
+    port.set_pause_chord(parse_chord("ctrl+alt+p"));
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    a.host.person(Capture::Key { hid: 0x47, down: true });
+    wait_until("typed on b", || b.host.held_keys().contains(&0x47)).await;
+    assert!(a.host.capturing(), "Scroll Lock is not pause any more: the pointer stays away");
+    assert!(!a.link.view().paused);
+    a.host.person(Capture::Key { hid: 0x47, down: false });
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_locked_pointer_does_not_cross_and_crosses_again_once_free() {
     let (_net, a, b) = together();
     let port = with_port(&a);

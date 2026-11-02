@@ -338,6 +338,7 @@ fn keys_that_would_eat_normal_typing_or_system_shortcuts_are_refused() {
     for good in ["scrolllock", "ctrl+alt+f", "win+shift+left", "ctrl+f9"] {
         let mut cfg = HotkeyConfig::default();
         cfg.pause = "ctrl+alt+p".into();
+        cfg.lock_pointer = "ctrl+alt+l".into();
         cfg.find_pointer = good.into();
         assert!(compile(&cfg).is_ok(), "{good} should be allowed");
     }
@@ -441,12 +442,14 @@ fn bug_modifiers_come_from_the_hooks_own_events() {
 }
 
 #[test]
-fn pause_key_works_alone_and_screen_numbers_use_the_digit_row() {
+fn scroll_lock_locks_the_pointer_ctrl_alt_p_pauses_and_screen_numbers_use_the_digit_row() {
     let mut m = matcher();
-    assert_eq!(m.on_key(0x47, true, false), Verdict::Fire(DeskAction::Pause));
+    assert_eq!(m.on_key(0x47, true, false), Verdict::Fire(DeskAction::LockPointer), "Scroll Lock alone locks");
     m.on_key(0x47, false, false);
     m.on_key(CTRL, true, false);
     m.on_key(ALT, true, false);
+    assert_eq!(m.on_key(0x13, true, false), Verdict::Fire(DeskAction::Pause));
+    m.on_key(0x13, false, false);
     assert_eq!(m.on_key(0x20, true, false), Verdict::Fire(DeskAction::Screen(3)));
 }
 
@@ -597,7 +600,7 @@ fn pause_releases_even_when_no_hook_was_up() {
 fn the_pause_hotkey_pauses() {
     let host = MockHost::new(three(), (960, 540));
     let desk = desk_hops(&host);
-    host.key(0x47, true, false);
+    press_chord(&host, &[CTRL, ALT], 0x13);
     wait_until("paused by hotkey", || desk.snapshot().unwrap().status.paused);
     wait_until("hook gone", || !host.hook_installed());
 }

@@ -12,7 +12,7 @@
 //! **Safety** (each has a test in `tests.rs`):
 //! - Every key and button pressed on a computer for the other one is released when control ends, the link ends, or
 //!   the other side goes quiet for 250 ms (the heartbeat is 100 ms; 3 s of silence closes the link).
-//! - Ctrl+Alt+Esc (panic) and Scroll Lock (pause) are matched on the raw keys while the pointer is away: the pointer
+//! - Ctrl+Alt+Esc (panic) and the pause hotkey (Ctrl+Alt+P by default) are matched on the raw keys while the pointer is away: the pointer
 //!   comes home and everything is released, on both computers.
 //! - The pointer always comes home when Puppet Master quits or Labs is switched off (`DeskLink::shutdown`).
 //! - Nothing here is reachable by agents, MCP or the phone, and no agent can start sharing (`guard_tests.rs`).

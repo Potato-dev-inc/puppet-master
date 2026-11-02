@@ -539,22 +539,6 @@ async fn the_panic_key_brings_the_pointer_home_and_releases_everything() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn scroll_lock_pauses_and_the_pointer_stays_home_until_resumed() {
-    let (_net, a, b) = together();
-    up(&a, &b).await;
-    cross(&a, &b).await;
-    a.host.person(Capture::Key { hid: 0x47, down: true });
-    wait_until("home", || !a.host.capturing()).await;
-    assert!(a.link.view().paused);
-    a.host.put_cursor(1919, 540);
-    sleep(Duration::from_millis(300)).await;
-    assert!(!a.host.capturing(), "paused: no crossing");
-    a.link.pause(false);
-    wait_until("crosses again", || a.host.capturing()).await;
-    assert!(!a.link.view().paused);
-}
-
-#[tokio::test(start_paused = true)]
 async fn quitting_brings_the_pointer_home_and_lets_go_of_everything() {
     let (_net, a, b) = together();
     up(&a, &b).await;

@@ -168,7 +168,7 @@ impl EngineHandle {
         let (tx, rx) = mpsc::sync_channel::<Msg>(64);
         let loaded = parts.store.load();
         let bindings = compile(&loaded.config.hotkeys).unwrap_or_default();
-        publish_return_chord(&parts.port, &bindings);
+        publish_link_chords(&parts.port, &bindings);
         let mut state = State {
             port: parts.port,
             lock: None,
@@ -238,9 +238,12 @@ impl EngineHandle {
     }
 }
 
-/// The hub matches this one chord itself, on the keys it captures while the pointer is on another computer.
-fn publish_return_chord(port: &LinkPort, bindings: &[Binding]) {
-    port.set_return_chord(bindings.iter().find(|b| b.action == DeskAction::ReturnHome).map(|b| b.chord));
+/// The hub matches the return-home and pause chords itself, on the keys it captures while the pointer is on another
+/// computer (the keyboard hook does not see those keys).
+fn publish_link_chords(port: &LinkPort, bindings: &[Binding]) {
+    let chord = |action: DeskAction| bindings.iter().find(|b| b.action == action).map(|b| b.chord);
+    port.set_return_chord(chord(DeskAction::ReturnHome));
+    port.set_pause_chord(chord(DeskAction::Pause));
 }
 
 struct State {
@@ -446,7 +449,7 @@ impl State {
     fn set_hotkeys(&mut self, hotkeys: HotkeyConfig) -> Result<(), String> {
         let bindings: Vec<Binding> = compile(&hotkeys).map_err(|p: Vec<Problem>| problems_text(&p))?;
         self.cfg.hotkeys = hotkeys;
-        publish_return_chord(&self.port, &bindings);
+        publish_link_chords(&self.port, &bindings);
         self.bindings = bindings;
         self.host.set_hotkeys(self.bindings.clone());
         self.save();
