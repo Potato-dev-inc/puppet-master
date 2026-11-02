@@ -26,6 +26,7 @@ use crate::p2p::session::{DialLedger, Reach, Sessions};
 
 use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
 use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
+use super::pushback::PushBack;
 use super::remote::{Capture, Inject};
 use super::{clip_link, io, Inner, CLOSE_REPLACED, CLOSE_STOPPED};
 use crate::desk::host::DisplayInfo;
@@ -138,6 +139,8 @@ struct Controlled {
     peer: NodeId,
     keys: BTreeSet<u16>,
     buttons: BTreeSet<u8>,
+    /// Pushes at the entry edge in a row (see `pushback`).
+    pushback: PushBack,
 }
 
 #[derive(Default)]
@@ -568,6 +571,7 @@ impl Hub {
                 let from = self.live.get(&peer).map_or(HostOs::Windows, |l| host_os(l.os));
                 let hid = translate_hid(self.inner.peer_prefs(&peer).modifier_map(), from, host_os(io::os_here()), hid);
                 self.inject_held(peer, Inject::Key { hid, down }, |c| {
+                    c.pushback.reset();
                     if down {
                         if c.keys.len() < MAX_HELD {
                             c.keys.insert(hid);
@@ -578,6 +582,7 @@ impl Hub {
                 });
             }
             StreamMsg::Button { button, down } => self.inject_held(peer, Inject::Button { button, down }, |c| {
+                c.pushback.reset();
                 if down {
                     c.buttons.insert(button);
                 } else {
@@ -689,7 +694,7 @@ impl Hub {
         if let Err(e) = self.inner.host.move_cursor(at.0, at.1) {
             return self.refuse_enter(peer, &format!("{me} could not place the pointer: {e}"), true);
         }
-        self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new() });
+        self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new(), pushback: PushBack::default() });
         self.error = None;
         tracing::info!(peer = short(&peer).as_str(), side = side_name(entry), "desk: another computer is using this one");
     }
@@ -714,9 +719,13 @@ impl Hub {
             return self.refuse_enter(peer, &format!("{me} could not move the pointer: {e}"), true);
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
-        // Pushing on through an edge that faces the other computer sends the pointer back, to the matching spot.
+        // Pushing on through an edge that faces the other computer sends the pointer back, to the matching spot, but
+        // only after deliberate pushes in a row (`pushback`): one jitter at the edge does nothing.
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
-        if let Some(dep) = self.inner.depart_to(&peer, &self.shapes, local, &outward((dx, dy))) {
+        let pushing = self.inner.depart_to(&peer, &self.shapes, local, &outward((dx, dy)));
+        let Some(c) = self.controlled.as_mut() else { return };
+        let home = c.pushback.motion(pushing.is_some(), !c.buttons.is_empty());
+        if let Some(dep) = pushing.filter(|_| home) {
             let (x, y) = dep.to;
             let held = self.controlled.as_ref().map_or(0, |c| c.buttons.len());
             tracing::info!("desk: returning at={x},{y} delta={dx},{dy} buttons_held={held}");

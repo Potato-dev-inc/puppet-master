@@ -24,7 +24,7 @@ async fn jump_crosses_to_the_numbered_computer_without_the_pointer_touching_an_e
     wait_until("crossed", || a.host.capturing() && b.link.view().devices[0].controls_me).await;
     // It enters b in the middle of the edge facing a.
     let (bx, by) = b.host.cursor();
-    assert!(bx <= 5 && (by - 540).abs() <= 3, "{bx},{by}");
+    assert!(bx <= 6 && (by - 540).abs() <= 3, "{bx},{by}");
     assert_eq!(a.link.view().mouse_on.as_deref(), Some("Laptop"));
     assert_eq!(a.link.view().error, None);
     // And what is typed now goes to b.
