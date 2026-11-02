@@ -227,6 +227,8 @@ impl RemoteHost for MacosRemote {
                     }
                     None => (ffi::CG_EVENT_MOUSE_MOVED, 0),
                 };
+                // Warp first, then post: the warp puts the pointer there for certain, the event lets apps see the move.
+                cursor::warp(target.0, target.1)?;
                 post_mouse(kind, target, number, None, Some((target.0 - x, target.1 - y)))?;
             }
             Inject::Wheel { dx, dy } => {
