@@ -122,6 +122,8 @@ enum Home {
     Panic,
     Pause,
     Hotkey,
+    /// Both computers crossed at once; this one lets the other keep its crossing.
+    Crossed,
 }
 
 impl Home {
@@ -136,6 +138,7 @@ impl Home {
             Home::Panic => "panic".to_string(),
             Home::Pause => "pause".to_string(),
             Home::Hotkey => "hotkey".to_string(),
+            Home::Crossed => "crossed".to_string(),
         }
     }
 }
@@ -250,6 +253,11 @@ impl Hub {
 
     fn ms(&self) -> u64 {
         self.inner.now_ms()
+    }
+
+    /// This computer's node id (all zeros before the endpoint has one).
+    fn local_id(&self) -> NodeId {
+        self.inner.p2p.node_id().unwrap_or(NodeId([0; 32]))
     }
 
     fn refresh_displays(&mut self) {
@@ -553,6 +561,11 @@ impl Hub {
             self.go_home(None, why);
         }
         if self.controlled.as_ref().is_some_and(|c| &c.peer == peer) {
+            // The link may still be up (it went quiet, it was not ended): say so, so the other computer comes home
+            // too, instead of staying on `remote` and answering every crossing with "busy".
+            if let Some(l) = self.live.get(peer) {
+                let _ = l.ctl.send(StreamMsg::Leave);
+            }
             self.release_controlled();
         }
     }
@@ -621,7 +634,12 @@ impl Hub {
                 let reason: String = reason.chars().filter(|c| !c.is_control()).take(MAX_REASON_CHARS).collect();
                 let name = self.peer_name(&peer);
                 self.refused_until.insert(peer, self.ms() + REFUSED_PAUSE_MS);
-                self.fail(&format!("{name} did not take the mouse: {reason}"));
+                // Both crossed at once and that computer kept its own: this one's crossing was cancelled, and it is
+                // being used by that computer now. Nothing for the page to complain about.
+                let kept_its_own = self.controlled.as_ref().is_some_and(|c| c.peer == peer);
+                if !kept_its_own {
+                    self.fail(&format!("{name} did not take the mouse: {reason}"));
+                }
                 if self.remote.as_ref().is_some_and(|r| r.peer == peer) {
                     self.go_home(None, Home::Refused);
                 }
@@ -640,7 +658,6 @@ impl Hub {
     }
 
     fn on_enter(&mut self, peer: NodeId, monitor_id: &str, nx: u16, ny: u16) {
-        let busy = self.remote.is_some() || self.controlled.as_ref().is_some_and(|c| c.peer != peer);
         let me = self.inner.self_name.clone();
         // `left@3,540`: the exact point, in this computer's local space. A plain `left` is an edge and a fraction.
         let exact = arrange::parse_enter_tag(monitor_id);
@@ -648,6 +665,24 @@ impl Hub {
             let why = format!("{me} did not understand where the pointer came in. Update both computers to the same version.");
             return self.refuse_enter(peer, &why, true);
         };
+        // Each computer holds the other's pointer: both crossed at once, or one of them missed the other's Leave. Both
+        // accepting would leave each controlling the other with nobody holding anything, so one side keeps its crossing:
+        // the computer with the lower id. It says no to the other's Enter (with `Refused`, not `Leave`, which would
+        // undo its own crossing); the other comes home and takes the Enter.
+        let holding_it = self.remote.as_ref().is_some_and(|r| r.peer == peer);
+        let mutual = holding_it && self.controlled.as_ref().map_or(true, |c| c.peer == peer);
+        if mutual && self.local_id().to_hex() < peer.to_hex() {
+            tracing::info!(peer = short(&peer).as_str(), "desk: did not let the pointer in: both crossed at once, this computer keeps its own");
+            if let Some(l) = self.live.get(&peer) {
+                let _ = l.ctl.send(StreamMsg::Refused { reason: "busy".to_string() });
+            }
+            return;
+        }
+        let busy = !mutual && (self.remote.is_some() || self.controlled.as_ref().is_some_and(|c| c.peer != peer));
+        if mutual {
+            // The other computer kept its crossing: this one's is cancelled before anything else is checked.
+            self.go_home(None, Home::Crossed);
+        }
         if busy {
             // Both pointers crossed at once, or a third computer has this one: an ordinary race, not a problem.
             tracing::info!(peer = short(&peer).as_str(), "desk: did not let the pointer in: the mouse is busy here");

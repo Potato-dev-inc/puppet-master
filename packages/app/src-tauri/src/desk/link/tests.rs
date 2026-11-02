@@ -244,21 +244,53 @@ async fn a_stray_duplicate_link_never_takes_the_pointer_away() {
     }
 }
 
-/// Both people push at their edges in the same moment: each side says no to the other and both come home.
+/// Both people push at their edges in the same moment: each computer holds the other's pointer. Exactly one of them
+/// keeps its crossing and the other is controlled by it. Never both controlling each other, and the holder can come
+/// home and cross again.
 #[tokio::test(start_paused = true)]
-async fn two_pointers_crossing_at_once_both_come_home() {
+async fn two_pointers_crossing_at_once_settle_on_one_holder() {
     let (_net, a, b) = together();
     b.link.set_side(&a.id, "left").unwrap();
     up(&a, &b).await;
     a.host.put_cursor(1919, 540);
     b.host.put_cursor(0, 540);
     sleep(Duration::from_millis(800)).await;
-    assert!(!a.host.capturing() && !b.host.capturing(), "neither may be left holding the mouse");
-    assert!(a.link.view().mouse_on.is_none() && b.link.view().mouse_on.is_none());
+    assert!(a.host.capturing() != b.host.capturing(), "exactly one computer holds the mouse");
+    let (holder, other, edge) = if a.host.capturing() { (&a, &b, (1919, 540)) } else { (&b, &a, (0, 540)) };
+    assert_eq!(other.link.view().controlled_by.as_deref(), Some(holder.name.as_str()));
+    assert_eq!(holder.link.view().mouse_on.as_deref(), Some(other.name.as_str()));
     assert!(a.host.held_keys().is_empty() && b.host.held_keys().is_empty());
-    // And a normal crossing still works afterwards.
-    a.host.put_cursor(1919, 300);
-    wait_until("crosses", || a.host.capturing()).await;
+    // The holder comes home, and a normal crossing works afterwards.
+    holder.link.panic();
+    wait_until("the holder is home", || !holder.host.capturing() && other.link.view().controlled_by.is_none()).await;
+    holder.host.put_cursor(edge.0, edge.1);
+    wait_until("crosses again", || holder.host.capturing() && other.link.view().controlled_by.is_some()).await;
+}
+
+/// The other computer goes quiet while it is using this one. This computer lets go and says so (`Leave`), so the
+/// other computer comes home too instead of staying on `remote` and answering every crossing with "busy".
+#[tokio::test(start_paused = true)]
+async fn a_quiet_computer_using_this_one_is_told_to_come_home() {
+    let net = MemoryNet::new();
+    let dut = pc(&net, "Ren-PC");
+    let mut raw = raw_peer(&net, &dut, OsKind::Windows, NodeId([0x33; 32])).await;
+    let ack = read_frame(&mut raw.ctl.recv, CONTROL_FRAME_MAX).await.unwrap();
+    assert!(matches!(ack, Some(StreamMsg::HelloAck { .. })));
+    // The hand-played peer puts its pointer on this computer's left edge, then sends nothing more.
+    write_frame(&mut raw.ctl.send, &StreamMsg::Enter { monitor_id: "left".into(), nx_milli: 500, ny_milli: 500 }).await.unwrap();
+    wait_until("this computer is being used", || dut.link.view().controlled_by.is_some()).await;
+    let left = timeout(Duration::from_secs(3), async {
+        loop {
+            match read_frame(&mut raw.ctl.recv, CONTROL_FRAME_MAX).await {
+                Ok(Some(StreamMsg::Leave)) => return true,
+                Ok(Some(_)) => continue,
+                _ => return false,
+            }
+        }
+    })
+    .await;
+    assert_eq!(left, Ok(true), "no Leave came: the other computer would stay on remote");
+    assert_eq!(dut.link.view().controlled_by, None);
 }
 
 /// The controlled side hands the pointer back, and the other computer's pointer is left resting on the edge facing it
