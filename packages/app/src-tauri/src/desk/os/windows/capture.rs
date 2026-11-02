@@ -3,7 +3,7 @@
 //! does and report it, on a thread of their own with their own message loop. Installed only between `start` and
 //! `stop`, never while the pointer is home.
 //!
-//! The pointer is held still in the middle of the screen it left from; motion is reported as the distance the
+//! The pointer is held still at the park point near the edge it left by; motion is reported as the distance the
 //! hardware moved it from there. It is not hidden: hiding it means replacing the system cursors, and a crash would
 //! leave the person without one. (DevHop did hide it.)
 //!

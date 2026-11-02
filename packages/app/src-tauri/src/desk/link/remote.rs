@@ -84,8 +84,9 @@ pub trait RemoteHost: Send + Sync {
     fn release_injected(&self);
 
     /// The pointer leaves for another computer: hide it, hold it still, and report everything the person does through
-    /// `sink` instead of delivering it here. Safe to call when already capturing.
-    fn start_capture(&self, sink: CaptureSink) -> Result<(), String>;
+    /// `sink` instead of delivering it here. `exit` is where the pointer left, in this computer's own pixel space; a
+    /// system that parks the pointer near that point uses it (see `park.rs`). Safe to call when already capturing.
+    fn start_capture(&self, sink: CaptureSink, exit: (i32, i32)) -> Result<(), String>;
     /// Give the pointer and keyboard back. Does not move the pointer. Safe to call when not capturing.
     fn stop_capture(&self);
 
@@ -120,7 +121,7 @@ impl RemoteHost for NoRemote {
         Err(NO.into())
     }
     fn release_injected(&self) {}
-    fn start_capture(&self, _sink: CaptureSink) -> Result<(), String> {
+    fn start_capture(&self, _sink: CaptureSink, _exit: (i32, i32)) -> Result<(), String> {
         Err(NO.into())
     }
     fn stop_capture(&self) {}

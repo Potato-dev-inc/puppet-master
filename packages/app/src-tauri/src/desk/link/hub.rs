@@ -459,7 +459,7 @@ impl Hub {
         let sink: super::remote::CaptureSink = Arc::new(move |c| {
             let _ = tx.send(Msg::Capture(c));
         });
-        if let Err(e) = self.inner.host.start_capture(sink) {
+        if let Err(e) = self.inner.host.start_capture(sink, pos) {
             self.fail(&format!("Could not take the mouse: {e}"));
             return false;
         }
