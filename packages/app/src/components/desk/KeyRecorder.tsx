@@ -40,12 +40,17 @@ export function normalizeKeys(keys: string): string {
 export type RecordResult = { ok: true; keys: string } | { ok: false; message: string };
 
 /** Turn one key press into a shortcut string the engine reads. Modifier-only presses are ignored by the caller. */
-export function chordFromEvent(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey'>): RecordResult {
+export function chordFromEvent(
+  e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey'> & { code?: string },
+): RecordResult {
   let key: string | undefined;
   if (NAMED[e.key]) key = NAMED[e.key];
   else if (/^[a-zA-Z]$/.test(e.key)) key = e.key.toLowerCase();
   else if (/^[0-9]$/.test(e.key)) key = e.key;
   else if (/^F([1-9]|1[0-2])$/.test(e.key)) key = e.key.toLowerCase();
+  // With Shift held, `key` is the shifted symbol ("&" for 7): the physical key says which digit or letter it was.
+  else if (e.code && /^Digit[0-9]$/.test(e.code)) key = e.code.slice(5);
+  else if (e.code && /^Key[A-Z]$/.test(e.code)) key = e.code.slice(3).toLowerCase();
   if (!key) return { ok: false, message: "That key can't be used for a shortcut." };
   const modifiers = [e.ctrlKey && 'ctrl', e.altKey && 'alt', e.shiftKey && 'shift', e.metaKey && 'win'].filter(
     Boolean,

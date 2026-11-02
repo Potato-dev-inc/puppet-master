@@ -8,7 +8,8 @@ export function statusText(status: DeskStatus, screenCount: number): string {
   if (status.state === 'starting') return 'Starting…';
   if (!status.hops_enabled) return 'Screen hops are off';
   if (status.paused || status.state === 'paused') return 'Paused';
-  return `On · ${screenCount} ${screenCount === 1 ? 'screen' : 'screens'}`;
+  const on = `On · ${screenCount} ${screenCount === 1 ? 'screen' : 'screens'}`;
+  return status.pointer_locked ? `${on} · Pointer locked to this screen` : on;
 }
 
 export function StatusLine({

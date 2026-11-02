@@ -12,6 +12,13 @@ const none = { ctrlKey: false, altKey: false, shiftKey: false, metaKey: false };
 const press = (key: string, mods: Partial<typeof none> = {}) => ({ key, ...none, ...mods });
 
 describe('chordFromEvent', () => {
+  it('reads the physical key when Shift turns the digit or letter into a symbol', () => {
+    const mods = { ctrlKey: true, altKey: true, shiftKey: true };
+    expect(chordFromEvent({ ...press('&', mods), code: 'Digit7' })).toEqual({ ok: true, keys: 'ctrl+alt+shift+7' });
+    expect(chordFromEvent({ ...press('H', mods), code: 'KeyH' })).toEqual({ ok: true, keys: 'ctrl+alt+shift+h' });
+    expect(chordFromEvent({ ...press('?', mods), code: 'Slash' }).ok).toBe(false);
+  });
+
   it('builds the engine string from the modifiers and the key', () => {
     expect(chordFromEvent(press('k', { ctrlKey: true, altKey: true }))).toEqual({ ok: true, keys: 'ctrl+alt+k' });
     expect(chordFromEvent(press('ArrowRight', { ctrlKey: true, altKey: true }))).toEqual({ ok: true, keys: 'ctrl+alt+right' });

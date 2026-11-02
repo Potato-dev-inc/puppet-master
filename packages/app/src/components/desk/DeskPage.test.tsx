@@ -31,8 +31,8 @@ import { Sidebar } from '../cockpit/Sidebar';
 };
 
 const HOTKEYS = {
-  config: { next: 'ctrl+alt+right', prev: 'ctrl+alt+left', screen_n: 'ctrl+alt+{n}', find_pointer: 'ctrl+alt+f', pause: 'scrolllock' },
-  defaults: { next: 'ctrl+alt+right', prev: 'ctrl+alt+left', screen_n: 'ctrl+alt+{n}', find_pointer: 'ctrl+alt+f', pause: 'scrolllock' },
+  config: { next: 'ctrl+alt+right', prev: 'ctrl+alt+left', screen_n: 'ctrl+alt+{n}', find_pointer: 'ctrl+alt+f', pause: 'scrolllock', center: 'ctrl+alt+c', lock_pointer: 'ctrl+alt+l', jump_n: 'ctrl+alt+shift+{n}', return_home: 'ctrl+alt+shift+h' },
+  defaults: { next: 'ctrl+alt+right', prev: 'ctrl+alt+left', screen_n: 'ctrl+alt+{n}', find_pointer: 'ctrl+alt+f', pause: 'scrolllock', center: 'ctrl+alt+c', lock_pointer: 'ctrl+alt+l', jump_n: 'ctrl+alt+shift+{n}', return_home: 'ctrl+alt+shift+h' },
   bindings: [
     { action: 'next', keys: 'ctrl+alt+right' },
     { action: 'prev', keys: 'ctrl+alt+left' },
@@ -45,7 +45,7 @@ const HOTKEYS = {
 function snap(over: Partial<DeskSnapshot> = {}, status: Partial<DeskSnapshot['status']> = {}): DeskSnapshot {
   return {
     seq: 1,
-    status: { state: 'on', hops_enabled: true, paused: false, hooks_installed: true, hook_reinstalls: 0, error: null, ...status },
+    status: { state: 'on', hops_enabled: true, paused: false, hooks_installed: true, pointer_locked: false, hook_reinstalls: 0, error: null, ...status },
     screens: [
       { id: 'a', name: 'A', x: 0, y: 0, width: 2560, height: 1440, scale: 1, primary: true, index: 1 },
       { id: 'b', name: 'B', x: 2560, y: 0, width: 1920, height: 1080, scale: 1, primary: false, index: 2 },

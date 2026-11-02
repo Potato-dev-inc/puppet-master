@@ -31,6 +31,7 @@ pub mod commands;
 pub mod geometry;
 pub mod hub;
 pub mod io;
+mod port_link;
 pub mod remote;
 pub mod wire;
 
@@ -203,6 +204,8 @@ pub(super) struct Inner {
     clip_note: Mutex<Option<String>>,
     reconciling: AtomicBool,
     wanted: Mutex<(bool, bool)>,
+    /// The screen engine's port (hotkeys in, pointer lock out), once attached.
+    port: Mutex<Option<Arc<crate::desk::port::LinkPort>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -480,6 +483,7 @@ impl DeskLink {
             clip_note: Mutex::new(None),
             reconciling: AtomicBool::new(false),
             wanted: Mutex::new((false, false)),
+            port: Mutex::new(None),
         });
         let weak = Arc::downgrade(&inner);
         p2p.registry().register(Capability::new(capability::DESK_INPUT, alpn::DESK, RelayPolicy::Never, Arc::new(InputHandler(weak.clone()))))?;

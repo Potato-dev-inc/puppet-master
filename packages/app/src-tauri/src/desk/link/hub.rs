@@ -38,6 +38,8 @@ const DWELL_LOOKS: u32 = 2;
 /// Most keys remembered as held on the controlled side.
 const MAX_HELD: usize = 256;
 
+mod actions;
+
 pub struct InstallReq {
     pub peer: NodeId,
     pub link: Arc<dyn Link>,
@@ -59,6 +61,10 @@ pub enum Msg {
     Capture(Capture),
     DialResult { peer: NodeId, ok: bool },
     Pause(bool),
+    /// Hotkey: cross to the Nth paired computer.
+    Jump(u8),
+    /// Hotkey: bring the pointer back from the other computer.
+    ReturnHome,
     Panic,
     Kick,
     Shutdown,
@@ -252,6 +258,8 @@ impl Hub {
                 }
             }
             Msg::Panic => self.stop_all(),
+            Msg::Jump(n) => self.jump_to(n),
+            Msg::ReturnHome => self.return_home(),
             Msg::Kick => self.upkeep(),
             Msg::Shutdown => {}
         }
@@ -292,7 +300,7 @@ impl Hub {
     // ---- the edge ----------------------------------------------------------------------------------------
 
     fn poll_edge(&mut self) {
-        if self.paused || self.remote.is_some() || self.controlled.is_some() || !self.inner.labs() {
+        if self.paused || self.remote.is_some() || self.controlled.is_some() || !self.inner.labs() || self.inner.pointer_locked() {
             self.edge_candidate = None;
             return;
         }
@@ -365,6 +373,9 @@ impl Hub {
                         return self.stop_all();
                     }
                     None => {}
+                }
+                if down && Hub::return_chord_pressed(&self.inner, &self.chords, hid) {
+                    return self.go_home(None);
                 }
                 self.control.handle(if down { ControlEvent::KeyDown(hid) } else { ControlEvent::KeyUp(hid) });
                 let _ = live.ctl.send(StreamMsg::Key { hid, down });

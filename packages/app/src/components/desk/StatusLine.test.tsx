@@ -8,13 +8,14 @@ import type { DeskStatus } from '../../lib/desk';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const base: DeskStatus = { state: 'on', hops_enabled: true, paused: false, hooks_installed: true, hook_reinstalls: 0, error: null };
+const base: DeskStatus = { state: 'on', hops_enabled: true, paused: false, hooks_installed: true, pointer_locked: false, hook_reinstalls: 0, error: null };
 
 describe('statusText', () => {
   it('says what is happening, in plain words', () => {
     expect(statusText({ ...base, hops_enabled: false, state: 'off' }, 2)).toBe('Screen hops are off');
     expect(statusText(base, 3)).toBe('On · 3 screens');
     expect(statusText(base, 1)).toBe('On · 1 screen');
+    expect(statusText({ ...base, pointer_locked: true }, 2)).toBe('On · 2 screens · Pointer locked to this screen');
     expect(statusText({ ...base, paused: true, state: 'paused' }, 2)).toBe('Paused');
     expect(statusText({ ...base, state: 'unsupported' }, 0)).toBe("Screen hops don't work on this computer yet.");
   });
