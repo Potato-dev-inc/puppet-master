@@ -64,3 +64,148 @@ impl Discovery for MemoryLan {
         self.list.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 }
+
+/// The real LAN announcer: mDNS / DNS-SD service `_pmpair._udp.local.` (RFC 6763), pure Rust, no system service.
+/// The TXT record carries the node id, the name and the socket addresses; those are about to be shown on screen
+/// anyway. Nothing is registered while idle: `announce` registers, `withdraw` unregisters.
+pub struct MdnsLan {
+    daemon: mdns_sd::ServiceDaemon,
+    seen: Arc<Mutex<std::collections::HashMap<String, Announcement>>>,
+    mine: Mutex<Vec<(NodeId, String)>>,
+}
+
+const SERVICE: &str = "_pmpair._udp.local.";
+
+impl MdnsLan {
+    pub fn new() -> Result<Self, String> {
+        let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| e.to_string())?;
+        let rx = daemon.browse(SERVICE).map_err(|e| e.to_string())?;
+        let seen: Arc<Mutex<std::collections::HashMap<String, Announcement>>> = Default::default();
+        let sink = seen.clone();
+        std::thread::Builder::new()
+            .name("pm-mdns-browse".into())
+            .spawn(move || {
+                while let Ok(ev) = rx.recv() {
+                    match ev {
+                        mdns_sd::ServiceEvent::ServiceResolved(info) => {
+                            if let Some(a) = parse(&info) {
+                                sink.lock().unwrap_or_else(|p| p.into_inner()).insert(info.get_fullname().to_string(), a);
+                            }
+                        }
+                        mdns_sd::ServiceEvent::ServiceRemoved(_, full) => {
+                            sink.lock().unwrap_or_else(|p| p.into_inner()).remove(&full);
+                        }
+                        _ => {}
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(Self { daemon, seen, mine: Mutex::new(Vec::new()) })
+    }
+}
+
+fn parse(info: &mdns_sd::ServiceInfo) -> Option<Announcement> {
+    let hex = info.get_property_val_str("n")?;
+    if hex.len() != 64 || !hex.is_ascii() {
+        return None;
+    }
+    let mut id = [0u8; 32];
+    for (i, o) in id.iter_mut().enumerate() {
+        *o = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    let name = info.get_property_val_str("m").unwrap_or("A computer").to_string();
+    let mut addrs: Vec<SocketAddr> = info.get_property_val_str("a").unwrap_or("").split(',').filter_map(|s| s.parse().ok()).collect();
+    if addrs.is_empty() {
+        let port = info.get_port();
+        addrs = info.get_addresses().iter().map(|ip| SocketAddr::new(*ip, port)).collect();
+    }
+    Some(Announcement { node: NodeId(id), name, addrs })
+}
+
+impl Discovery for MdnsLan {
+    fn announce(&self, a: Announcement) {
+        let ips: Vec<String> = a.addrs.iter().map(|s| s.ip()).filter(|ip| !ip.is_unspecified()).map(|ip| ip.to_string()).collect();
+        let Some(port) = a.addrs.first().map(|s| s.port()) else { return };
+        if ips.is_empty() {
+            return;
+        }
+        let hex = a.node.to_hex();
+        let instance = format!("pm-{}", &hex[..16]);
+        let mut txt = std::collections::HashMap::new();
+        txt.insert("n".to_string(), hex);
+        txt.insert("m".to_string(), a.name.chars().take(60).collect());
+        let mut list = String::new();
+        for s in &a.addrs {
+            let next = s.to_string();
+            if list.len() + next.len() + 1 > 200 {
+                break;
+            }
+            if !list.is_empty() {
+                list.push(',');
+            }
+            list.push_str(&next);
+        }
+        txt.insert("a".to_string(), list);
+        let Ok(info) = mdns_sd::ServiceInfo::new(SERVICE, &instance, &format!("{instance}.local."), ips.join(",").as_str(), port, txt) else { return };
+        let full = info.get_fullname().to_string();
+        if self.daemon.register(info).is_ok() {
+            let mut m = self.mine.lock().unwrap_or_else(|p| p.into_inner());
+            m.retain(|(n, _)| *n != a.node);
+            m.push((a.node, full));
+        }
+    }
+
+    fn withdraw(&self, node: &NodeId) {
+        let mut m = self.mine.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(i) = m.iter().position(|(n, _)| n == node) {
+            let (_, full) = m.remove(i);
+            let _ = self.daemon.unregister(&full);
+        }
+    }
+
+    fn nearby(&self) -> Vec<Announcement> {
+        let mine: Vec<NodeId> = self.mine.lock().unwrap_or_else(|p| p.into_inner()).iter().map(|(n, _)| *n).collect();
+        self.seen.lock().unwrap_or_else(|p| p.into_inner()).values().filter(|a| !mine.contains(&a.node)).cloned().collect()
+    }
+}
+
+#[cfg(test)]
+mod mdns_tests {
+    use super::*;
+
+    /// Real multicast on this machine's network: run with `cargo test mdns_two_in_one -- --ignored`.
+    #[test]
+    #[ignore]
+    fn mdns_two_in_one_process_see_each_other() {
+        let (a, b) = (MdnsLan::new().unwrap(), MdnsLan::new().unwrap());
+        let ip = local_ip();
+        let node = NodeId([7u8; 32]);
+        a.announce(Announcement { node, name: "Alpha".into(), addrs: vec![SocketAddr::new(ip, 4455)] });
+        let mut found = Vec::new();
+        for _ in 0..40 {
+            found = b.nearby();
+            if !found.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        assert_eq!(found.len(), 1, "nothing found nearby");
+        assert_eq!(found[0].node, node);
+        assert_eq!(found[0].name, "Alpha");
+        assert!(a.nearby().is_empty(), "must not list itself");
+        a.withdraw(&node);
+        for _ in 0..40 {
+            if b.nearby().is_empty() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        panic!("withdrawn computer still listed");
+    }
+
+    fn local_ip() -> std::net::IpAddr {
+        let s = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
+        s.connect("8.8.8.8:80").unwrap();
+        s.local_addr().unwrap().ip()
+    }
+}

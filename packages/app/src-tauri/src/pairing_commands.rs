@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::desk::link::{DeskLink, FileLinkStore, LinkView};
 use crate::p2p::capability::Registry;
-use crate::p2p::discovery::NoDiscovery;
+use crate::p2p::discovery::{Discovery, MdnsLan, NoDiscovery};
 use crate::p2p::endpoint::NodeId;
 use crate::p2p::iroh_net::IrohFactory;
 use crate::p2p::pairing::{PairError, PairManager, SystemClock};
@@ -70,7 +70,7 @@ fn service() -> Result<&'static Service, String> {
         let trust = TrustList::open(storage, Arc::new(KeyStoreSigner::new(keys.clone())));
         let p2p = Arc::new(P2p::new(keys.clone(), Arc::new(IrohFactory), Arc::new(Registry::new()), trust.clone()));
         p2p.apply_settings(&json!({ "desk_enabled": LABS.load(Ordering::SeqCst) }));
-        let mgr = PairManager::new(p2p.clone(), trust.clone(), keys, Arc::new(SystemClock), Arc::new(NoDiscovery), &computer_name())
+        let mgr = PairManager::new(p2p.clone(), trust.clone(), keys, Arc::new(SystemClock), mdns_or_none(), &computer_name())
             .map_err(|e| e.to_string())?;
         let store = Arc::new(FileLinkStore { path: crate::app_paths::app_data_dir().join("desk").join("link.json") });
         let link = DeskLink::new(p2p.clone(), trust, crate::desk::link::remote::default_remote(), store, &computer_name()).map_err(|e| e.to_string())?;
@@ -201,4 +201,12 @@ pub async fn trust_remove(app: AppHandle, node: String) -> Result<Value, String>
     s.mgr.remove(&node_of(&node)?).map_err(text)?;
     s.link.permission_changed();
     Ok(s.mgr.view())
+}
+
+/// The LAN announcer, or nobody when the network radio cannot start ("Add by address" still works).
+fn mdns_or_none() -> Arc<dyn Discovery> {
+    match MdnsLan::new() {
+        Ok(m) => Arc::new(m),
+        Err(_) => Arc::new(NoDiscovery),
+    }
 }

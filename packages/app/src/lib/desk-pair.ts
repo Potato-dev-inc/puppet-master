@@ -150,7 +150,11 @@ export function usePair(enabled: boolean): PairApi {
     hostStart: () => call(pairHostStart),
     hostCancel: async () => void (await call(pairHostCancel)),
     join: (target, code) => call(() => pairJoin(target, code)),
-    answer: async (id, allow) => void (await call(() => pairAnswer(id, allow))),
+    answer: async (id, allow) => {
+      // A failed answer means the question is gone (timed out, other side left): re-read the state so the sheet closes.
+      const failed = await call(() => pairAnswer(id, allow));
+      if (failed) Promise.resolve(pairView()).then(apply).catch(() => {});
+    },
     setPermission: async (node, capability, on) => void (await call(() => trustSetPermission(node, capability, on))),
     remove: async (node) => void (await call(() => trustRemove(node))),
   };
