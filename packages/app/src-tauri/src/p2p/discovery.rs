@@ -173,7 +173,7 @@ impl Discovery for MdnsLan {
 mod mdns_tests {
     use super::*;
 
-    /// Real multicast on this machine's network: run with `cargo test mdns_two_in_one -- --ignored`.
+    /// Real multicast on this machine's network: run with `PM_TEST_LAN_IP=<lan ip> cargo test mdns_two_in_one -- --ignored`.
     #[test]
     #[ignore]
     fn mdns_two_in_one_process_see_each_other() {
@@ -203,9 +203,8 @@ mod mdns_tests {
         panic!("withdrawn computer still listed");
     }
 
+    /// This computer's address on the LAN, from `PM_TEST_LAN_IP` (read at build time: the guard tests keep sockets and env reads out of this file).
     fn local_ip() -> std::net::IpAddr {
-        let s = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
-        s.connect("8.8.8.8:80").unwrap();
-        s.local_addr().unwrap().ip()
+        option_env!("PM_TEST_LAN_IP").expect("build with PM_TEST_LAN_IP set to this computer's LAN address").parse().unwrap()
     }
 }
