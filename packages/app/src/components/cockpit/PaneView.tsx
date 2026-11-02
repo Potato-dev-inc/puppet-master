@@ -498,6 +498,8 @@ export function PaneView({
                   // A Chat (terminal) pane: while the agent works, the box shows Stop (the pane menu's Interrupt).
                   running: isTerminalChat && pane.status === 'running',
                   onStop: isTerminalChat ? () => void c.interrupt(paneId) : undefined,
+                  // "Send now" on a waiting message: stop the turn, the message goes when it ends.
+                  onInterrupt: isAcp ? () => void acp.cancel(paneId).catch(() => undefined) : isTerminalChat ? () => void c.interrupt(paneId) : undefined,
                 }}
                 onOpenPane={(id) => c.select(id)}
                 slashCommands={isAcp ? acpState?.commands : undefined}

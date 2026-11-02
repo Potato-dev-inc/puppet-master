@@ -151,6 +151,8 @@ pub struct Snapshot {
     pub title: Option<String>,
     pub usage: Option<UsageBrief>,
     pub last_stop: Option<StopKind>,
+    /// The agent has been quiet this many seconds and the person has been asked what to do (Stop or Keep waiting).
+    pub quiet_secs: Option<u64>,
     pub history_lost: Option<HistoryLost>,
     pub exit: Option<ExitSummary>,
 }
@@ -171,6 +173,7 @@ impl Snapshot {
             title: None,
             usage: None,
             last_stop: None,
+            quiet_secs: None,
             history_lost: None,
             exit: None,
         }
@@ -370,7 +373,13 @@ impl SessionState {
         w.turn
     }
 
+    /// The agent went quiet and the person is asked (`Some`), or the question is over (`None`).
+    pub fn set_quiet(&mut self, secs: Option<u64>) {
+        self.working.quiet_secs = secs;
+    }
+
     pub fn on_cancel_requested(&mut self) {
+        self.working.quiet_secs = None;
         if self.turn_active {
             self.working.phase = Phase::Cancelling;
             self.cancel_requested = true;
@@ -410,6 +419,7 @@ impl SessionState {
         }
         w.running_tools.clear();
         w.permission_waits.clear();
+        w.quiet_secs = None;
         w.last_stop = Some(stop);
         self.cancel_requested = false;
         summary

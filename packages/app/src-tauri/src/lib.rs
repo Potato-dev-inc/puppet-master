@@ -629,6 +629,7 @@ pub fn run() {
             commands::telegram_tag_remove,
             commands::acp_chat_start,
             commands::acp_chat_cancel,
+            commands::acp_chat_keep_waiting,
             commands::acp_chat_state,
             commands::acp_chat_set_config,
             commands::acp_chat_set_agent_answering,

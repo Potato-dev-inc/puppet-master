@@ -238,12 +238,13 @@ fn a_folder_that_is_not_a_folder_is_refused_before_anything_starts() {
 fn a_turn_becomes_the_persons_message_one_growing_answer_and_a_turn_end() {
     let rig = Rig::new("");
     rig.say("stream 6");
-    assert_eq!(rig.kinds(), ["session", "user", "assistant", "turnEnd"]);
+    assert_eq!(rig.kinds(), ["session", "user", "assistant", "notice", "turnEnd"]);
     let items = rig.items();
     assert_eq!(items[1]["text"], "stream 6");
     assert_eq!(items[2]["text"], "w0 w1 w2 w3 w4 w5 ");
     assert_eq!(items[2]["finalAnswer"], true);
-    assert_eq!(items[3]["outcome"], "completed");
+    assert_eq!(items[3]["noticeKind"], "ending:done");
+    assert_eq!(items[4]["outcome"], "completed");
     assert_eq!(rig.pane_status(), "idle");
 }
 
@@ -253,7 +254,7 @@ fn a_rich_turn_shows_tools_with_their_files_a_diff_a_plan_and_usage() {
     rig.say("rich");
     let items = rig.items();
     let kinds = rig.kinds();
-    assert_eq!(kinds, ["session", "user", "assistant", "toolCall", "toolResult", "plan", "toolCall", "toolResult", "usage", "assistant", "turnEnd"], "{items:#?}");
+    assert_eq!(kinds, ["session", "user", "assistant", "toolCall", "toolResult", "plan", "toolCall", "toolResult", "usage", "assistant", "notice", "turnEnd"], "{items:#?}");
     let edit = &items[3];
     assert_eq!(edit["name"], "edit");
     assert_eq!(edit["summary"], "Write notes.txt");
@@ -293,7 +294,7 @@ fn the_desktop_reader_the_phone_and_since_revisions_read_the_pushed_chat_unchang
     assert_eq!(answer["session"]["lane"], "acp");
     assert_eq!(answer["session"]["phase"], "idle");
     let kinds: Vec<&str> = answer["items"].as_array().unwrap().iter().map(|i| i["kind"].as_str().unwrap()).collect();
-    assert_eq!(kinds, ["session", "user", "assistant", "turnEnd"]);
+    assert_eq!(kinds, ["session", "user", "assistant", "notice", "turnEnd"]);
     let rev = answer["rev"].as_u64().unwrap();
 
     // Asking again with that revision: nothing new.
@@ -306,7 +307,7 @@ fn the_desktop_reader_the_phone_and_since_revisions_read_the_pushed_chat_unchang
     assert!(wait_until(10, || watchers.since(&rig.id(), Some(rev), 300).is_some_and(|d| d.items.iter().any(|i| i.id() == "end:2"))));
     let delta = phone::read(&watchers, &rig.id(), Some(&opening), Some(rev));
     let ids: Vec<&str> = delta["items"].as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["u2", "a2.1", "end:2"]);
+    assert_eq!(ids, ["u2", "a2.1", "n:ending:done:2", "end:2"]);
     assert_eq!(delta["reset"], false);
     assert!(delta["rev"].as_u64().unwrap() > rev);
     watchers.close_all();
@@ -320,7 +321,7 @@ fn a_viewer_that_opens_late_gets_the_whole_conversation() {
     let opening = Opening::for_pane(&rig.id(), "fake").unwrap();
     let items = opening.open(&watchers, &rig.id(), "desktop#late".into());
     let ids: Vec<&str> = items.iter().map(|i| i.id()).collect();
-    assert_eq!(ids, ["session", "u1", "a1.1", "end:1"]);
+    assert_eq!(ids, ["session", "u1", "a1.1", "n:ending:done:1", "end:1"]);
     watchers.close_all();
 }
 

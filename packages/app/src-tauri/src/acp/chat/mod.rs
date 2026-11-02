@@ -26,6 +26,7 @@
 
 pub mod api;
 pub mod cards;
+pub mod ending;
 pub mod mapper;
 mod start;
 pub mod surface;
@@ -256,13 +257,14 @@ fn control_only(text: &str) -> bool {
 impl AcpChat {
     pub(crate) fn build(pane_id: &str, label: &str, session: Arc<AcpSession>, host: Arc<dyn ChatHost>, conversations: Option<Conversations>) -> Arc<AcpChat> {
         let journal = conversations.as_ref().map(|c| Journal::at(c.journal_path(pane_id)));
+        let session_quiet_secs = session.config().timeouts.inactivity_secs;
         let chat = Arc::new(AcpChat {
             pane_id: pane_id.to_string(),
             agent_id: session.agent_id().to_string(),
             label: label.to_string(),
             session,
             feed: Arc::new(Feed::new()),
-            mapper: Mutex::new(Mapper::new()),
+            mapper: Mutex::new(Mapper::with_quiet_secs(session_quiet_secs)),
             host,
             handles: Mutex::new(None),
             cards: Mutex::new(BTreeMap::new()),
@@ -693,6 +695,15 @@ impl AcpChat {
         }
     }
 
+    /// "Keep waiting" on a quiet agent: the quiet window starts again. False when no turn runs.
+    pub fn keep_waiting(&self) -> bool {
+        let waiting = self.session.keep_waiting();
+        if waiting {
+            self.host.state_changed(&self.pane_id, &self.state());
+        }
+        waiting
+    }
+
     /// Stops the turn that runs. True when there was one. The state says "stopping" until the agent ends it.
     pub fn cancel(&self) -> Result<bool, AcpError> {
         let stopped = self.session.cancel()?;
@@ -772,7 +783,7 @@ impl AcpChat {
         }
         self.interrupted.store(false, Ordering::SeqCst);
         self.feed.clear();
-        *self.mapper.lock() = Mapper::new();
+        *self.mapper.lock() = Mapper::with_quiet_secs(self.session.config().timeouts.inactivity_secs);
         self.pending_user.lock().take();
     }
 
@@ -901,6 +912,7 @@ impl AcpChat {
             "status": snapshot.pane_status().as_str(),
             "turnInFlight": snapshot.turn_in_flight(),
             "stopping": snapshot.phase == Phase::Cancelling,
+            "quietSecs": snapshot.quiet_secs,
             "canSteer": self.can_steer(),
             "turn": snapshot.turn,
             "epoch": snapshot.epoch,

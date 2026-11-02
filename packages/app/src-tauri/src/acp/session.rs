@@ -96,6 +96,8 @@ pub enum TickAction {
     Killed,
     /// Idle long enough: the adapter was stopped, the session can be brought back.
     Slept,
+    /// The agent has been quiet for the inactivity window: the person is asked (Stop or Keep waiting). Nothing was stopped.
+    QuietAsked,
 }
 
 #[derive(Debug, Clone)]
@@ -759,6 +761,17 @@ impl AcpSession {
         }
     }
 
+    /// "Keep waiting": the person looked at the quiet agent and chose to wait. The quiet window starts again.
+    /// False when no turn is running.
+    pub fn keep_waiting(&self) -> bool {
+        self.with_core(|core, _| {
+            let Some(turn) = core.turn.as_mut() else { return false };
+            turn.clock.keep_waiting(Instant::now());
+            core.state.set_quiet(None);
+            true
+        })
+    }
+
     /// Answers an open question with one of the options the agent offered.
     pub fn answer_permission(&self, ask_id: u64, option_id: &str) -> Result<(), AcpError> {
         let (conn, rpc_id) = self.with_core(|core, ev| {
@@ -947,6 +960,7 @@ impl AcpSession {
         enum Plan {
             Nothing,
             AskStop(AcpConnection, String, u64, u64),
+            QuietAsked,
             Kill(AcpConnection),
             Sleep,
         }
@@ -957,10 +971,27 @@ impl AcpSession {
             let timeouts = &self.cfg.timeouts;
             if let Some(turn) = core.turn.as_mut() {
                 turn.clock.paused = !core.parked.is_empty();
+                if turn.clock.paused {
+                    turn.clock.quiet_asked = false;
+                }
+                if !turn.clock.quiet_asked {
+                    // Something was heard (or a question opened) since the person was asked: the question is over.
+                    core.state.set_quiet(None);
+                }
                 let Some(conn) = core.conn.clone().filter(AcpConnection::is_alive) else { return Plan::Nothing };
                 return match timers::verdict(&turn.clock, timeouts, now) {
                     Verdict::Healthy | Verdict::Paused | Verdict::Stopping => Plan::Nothing,
-                    Verdict::Quiet | Verdict::Stalled => {
+                    Verdict::Quiet => {
+                        // Silence is the person's call: Stop, or Keep waiting. The progress window below still ends a
+                        // turn that never does real work.
+                        if turn.clock.quiet_asked {
+                            return Plan::Nothing;
+                        }
+                        turn.clock.quiet_asked = true;
+                        core.state.set_quiet(Some(timeouts.inactivity_secs));
+                        Plan::QuietAsked
+                    }
+                    Verdict::Stalled => {
                         turn.clock.stop_asked_at = Some(now);
                         let Some(session_id) = core.state.session_id().map(str::to_string) else { return Plan::Nothing };
                         core.state.on_cancel_requested();
@@ -995,6 +1026,7 @@ impl AcpSession {
         });
         match plan {
             Plan::Nothing => TickAction::Nothing,
+            Plan::QuietAsked => TickAction::QuietAsked,
             Plan::AskStop(conn, session_id, turn_id, epoch) => {
                 let _ = conn.notify_priority("session/cancel", json!({ "sessionId": session_id }));
                 self.repeat_cancel(conn, session_id, turn_id, epoch);

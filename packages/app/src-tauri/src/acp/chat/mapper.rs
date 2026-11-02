@@ -10,7 +10,7 @@
 //! | `usage_update` | `Usage` (context in use / window) |
 //! | `session_info_update` (title), `compaction_update`, `notice` | `Notice` |
 //! | `config_option_update` (model) | `Session` |
-//! | stop reason | `TurnEnd` with the duration, plus a `Notice` when the turn ended badly |
+//! | stop reason | `TurnEnd` with the duration, plus one `Notice` (kind `ending:<reason>`, see `ending.rs`) that says how the turn ended |
 //! | `available_commands_update`, `current_mode_update` | nothing here: they are session state (`AcpChat::state`) |
 //!
 //! Ids are stable so an item sent again replaces its old copy: `u<turn>` (the person's message), `a<turn>.<n>`
@@ -19,13 +19,14 @@
 //! turn-based ids, so it never meets the live turns of the same pane. A replay is mapped only into an empty
 //! chat: when the chat already has items the replay is the same conversation again and is dropped.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Instant;
 
 use serde_json::{json, Value};
 
 use crate::acp::session::{SessionEvent, StartKind};
-use crate::acp::state::{ExitKind, ExitSummary, StopKind, TurnSummary};
+use crate::acp::chat::ending::{self, EndReason, TurnFacts};
+use crate::acp::state::{ExitKind, ExitSummary, TurnSummary};
 use crate::acp::types::{ContentChunk, SessionUpdate, ToolCall, ToolCallUpdate, ToolStatus};
 use crate::session_chat::detail::{bound_input, cut_to, paths_from_input, PlanItem, PlanStatus, ToolDetail};
 use crate::session_chat::model::{cut, ChatItem, TurnOutcome};
@@ -34,6 +35,8 @@ use crate::session_chat::model::{cut, ChatItem, TurnOutcome};
 pub const MAX_TEXT_CHARS: usize = 200_000;
 /// Longest one-line summary of a tool call.
 const MAX_SUMMARY_CHARS: usize = 300;
+/// The fallback reason for a turn closed because the chat was closed.
+const CHAT_CLOSED: &str = "The chat was closed.";
 const TRUNCATED: &str = "\n… (cut: the message was too long)";
 
 struct Segment {
@@ -299,6 +302,12 @@ pub struct Mapper {
     /// Turns that came from a journal (an earlier run of the app): live turn numbers start after them, so a new
     /// `u1` or `end:1` never replaces an item of the old chat.
     turn_offset: u64,
+    /// Files this turn changed (edits, deletes, moves), for "Done · 3 files".
+    turn_files: BTreeSet<String>,
+    /// The turn showed the person an answer or a tool call.
+    turn_visible: bool,
+    /// The quiet window, in minutes, for "No answer for 5 min".
+    quiet_minutes: u64,
 }
 
 impl Default for Mapper {
@@ -328,7 +337,21 @@ impl Mapper {
             agent_label: None,
             last_ended: None,
             turn_offset: 0,
+            turn_files: BTreeSet::new(),
+            turn_visible: false,
+            quiet_minutes: 5,
         }
+    }
+
+    pub fn with_quiet_secs(secs: u64) -> Self {
+        let mut mapper = Self::new();
+        mapper.set_quiet_secs(secs);
+        mapper
+    }
+
+    /// The quiet window of the session, so an ending can say how long the agent was quiet.
+    pub fn set_quiet_secs(&mut self, secs: u64) {
+        self.quiet_minutes = (secs / 60).max(1);
     }
 
     /// The chat already has `items` from a journal (an earlier run of the app): the replay of the agent's own
@@ -415,6 +438,8 @@ impl Mapper {
         self.steer_n = 0;
         self.assistant = None;
         self.last_assistant = None;
+        self.turn_files.clear();
+        self.turn_visible = false;
         if let Some(text) = user_text.filter(|t| !t.is_empty()) {
             out.push(ChatItem::User { id: format!("u{turn}"), at: Some(at.to_string()), text: text.to_string() });
         }
@@ -587,7 +612,15 @@ impl Mapper {
             seg.message_id = chunk.message_id.clone();
         }
         push_text(seg, &words);
-        let item = ChatItem::Assistant { id: seg.id.clone(), at: Some(at.to_string()), text: seg.text.clone(), model: self.model.clone(), final_answer: false };
+        // Control tokens a model leaked are not part of the answer.
+        let shown = ending::strip_leaked_markup(&seg.text);
+        if shown.trim().is_empty() {
+            return Vec::new();
+        }
+        if !replay {
+            self.turn_visible = true;
+        }
+        let item = ChatItem::Assistant { id: seg.id.clone(), at: Some(at.to_string()), text: shown, model: self.model.clone(), final_answer: false };
         self.last_assistant = Some((item.clone(), seg_n));
         vec![item]
     }
@@ -612,6 +645,18 @@ impl Mapper {
     /// Puts the tool back and tells what changed: its call (always: it may have a title now), and its result once
     /// it is finished.
     fn finish_tool_update(&mut self, mut tool: Tool, at: &str) -> Vec<ChatItem> {
+        if self.turn.is_some() {
+            self.turn_visible = true;
+            let changes_files = !tool.diffs.is_empty() || matches!(tool.kind.as_str(), "edit" | "delete" | "move");
+            if changes_files && tool.status == ToolStatus::Completed {
+                for path in &tool.paths {
+                    self.turn_files.insert(path.clone());
+                }
+                for diff in &tool.diffs {
+                    self.turn_files.insert(diff.path.clone());
+                }
+            }
+        }
         let mut out = vec![tool.call_item(at)];
         if !tool.shown {
             tool.shown = true;
@@ -657,10 +702,14 @@ impl Mapper {
         self.assistant = None;
         self.user = None;
         let mut out = Vec::new();
-        let (outcome, notice) = match summary {
-            Some(s) => outcome_of(s),
-            None => (TurnOutcome::Failed, Some(fallback.unwrap_or("The turn ended.").to_string())),
+        let duration_ms = now.checked_duration_since(turn.started).map(|d| d.as_millis() as u64);
+        let facts = TurnFacts { files: self.turn_files.len(), visible: self.turn_visible, duration_ms, agent: self.agent_label.as_deref(), quiet_minutes: self.quiet_minutes };
+        let end = match summary {
+            Some(s) => ending::ending_of(s, &facts),
+            None if fallback == Some(CHAT_CLOSED) => ending::Ending { reason: EndReason::Stopped, text: "The chat was closed".to_string() },
+            None => ending::ending_without_report(fallback.unwrap_or("The turn ended."), &facts),
         };
+        let outcome = outcome_of(end.reason);
         // Tools the agent never finished: closed, so nothing looks like it still runs.
         let leftover: Vec<String> = self.tool_order.iter().filter(|id| self.tools.get(*id).is_some_and(|t| !t.resulted)).cloned().collect();
         for id in leftover {
@@ -679,10 +728,8 @@ impl Mapper {
             }
         }
         self.last_assistant = None;
-        if let Some(text) = notice {
-            out.push(self.notice("error", text, at));
-        }
-        let duration_ms = now.checked_duration_since(turn.started).map(|d| d.as_millis() as u64);
+        // One grey line says how the turn ended; the view puts the buttons that fit it next to the words.
+        out.push(self.notice(&end.reason.notice_kind(), end.text, at));
         out.push(ChatItem::TurnEnd { id: format!("end:{}", turn.n), at: Some(at.to_string()), outcome, duration_ms });
         self.last_ended = Some(turn.n);
         out
@@ -691,7 +738,7 @@ impl Mapper {
     /// The adapter went away. A turn it left open ends as failed; the notice says what happened.
     fn exited(&mut self, exit: &ExitSummary, now: Instant, at: &str) -> Vec<ChatItem> {
         let reason = match exit.kind {
-            ExitKind::Closed => return self.finish_turn(None, Some("The chat was closed."), now, at),
+            ExitKind::Closed => return self.finish_turn(None, Some(CHAT_CLOSED), now, at),
             ExitKind::Crashed => match exit.code {
                 Some(code) => format!("The agent stopped unexpectedly (exit code {code})."),
                 None => "The agent stopped unexpectedly.".to_string(),
@@ -710,26 +757,12 @@ impl Mapper {
     }
 }
 
-/// How a session's report of a turn reads as a chat outcome, and the notice that goes with a bad end.
-fn outcome_of(summary: &TurnSummary) -> (TurnOutcome, Option<String>) {
-    match summary.stop {
-        StopKind::EndTurn if summary.empty && !summary.cancel_requested => {
-            (TurnOutcome::Completed, Some("The agent finished without saying anything. It may need to sign in.".to_string()))
-        }
-        StopKind::EndTurn => (TurnOutcome::Completed, None),
-        StopKind::MaxTokens => (TurnOutcome::Completed, Some("The agent stopped because it reached its length limit.".to_string())),
-        StopKind::MaxTurnRequests => (TurnOutcome::Completed, Some("The agent stopped because it reached its step limit.".to_string())),
-        StopKind::Refusal => (TurnOutcome::Failed, Some("The agent declined to continue.".to_string())),
-        StopKind::Cancelled => (TurnOutcome::Interrupted, None),
-        StopKind::Failed => {
-            let text = if summary.error_code == Some(-32000) {
-                "The agent needs you to sign in.".to_string()
-            } else {
-                summary.error.clone().filter(|e| !e.trim().is_empty()).unwrap_or_else(|| "The turn failed.".to_string())
-            };
-            (TurnOutcome::Failed, Some(text))
-        }
-        StopKind::Hung => (TurnOutcome::Failed, Some("The agent stopped answering and was stopped.".to_string())),
+/// The chat outcome an ending counts as.
+fn outcome_of(reason: EndReason) -> TurnOutcome {
+    match reason {
+        EndReason::Done | EndReason::CutShort => TurnOutcome::Completed,
+        EndReason::Stopped => TurnOutcome::Interrupted,
+        EndReason::UsageLimit | EndReason::NoAnswer | EndReason::SignedOut | EndReason::Empty | EndReason::Declined | EndReason::Failed => TurnOutcome::Failed,
     }
 }
 

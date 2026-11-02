@@ -1,7 +1,9 @@
 // The chat over a terminal pane: reads the pane's session file while it is mounted (TerminalPane mounts it
 // only when the person picked Chat). `dock` is what waits on the person, shown under the conversation.
 // `reply`: give the chat a message box (the Cockpit's Chat tab does); `blockedReason` switches the box off.
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { keepGoingContinue, keepGoingTargetKey, keepGoingTargets } from '../../lib/keep-going';
+import { openSettingsAt, SETUP_CHECK_ROW_ID } from '../../lib/openSettingsAt';
 import { usePaneOutbox } from '../../hooks/usePaneOutbox';
 import { tauriOutboxTransport } from '../../lib/paneOutbox';
 import { useComposerDraft } from '../../lib/composerDraft';
@@ -13,7 +15,8 @@ import { ChatComposer } from './ChatComposer';
 import { ChatExportMenu } from './ChatExportMenu';
 import { ClipSheet, type ClipApi } from './ClipSheet';
 import { CollisionBanner } from './CollisionBanner';
-import { KeepGoingBanner } from './KeepGoingBanner';
+import { KeepGoingBanner, plainKeepGoingError } from './KeepGoingBanner';
+import type { EndingActions } from './TurnEndingButtons';
 import { PendingMessages } from './PendingMessages';
 import { ScreenQuestionCard } from './ScreenQuestionCard';
 import { lastClippableId, SessionChatView } from './SessionChatView';
@@ -29,6 +32,52 @@ export interface ChatReply {
   running?: boolean;
   /** Stops the agent. Set for a Chat (terminal) pane only: a chat session over ACP has its own Stop (AcpChatDock). */
   onStop?: () => void;
+  /**
+   * Stops the running turn so a waiting message can go at once ("Send now"). Set for a chat session and a Chat
+   * (terminal) pane; without it a waiting message has Cancel only.
+   */
+  onInterrupt?: () => void;
+}
+
+/**
+ * The other agent a "usage limit" ending can hand the task to: the first one `keep_going_targets` says is ready.
+ * Only asked while the newest turn ended that way. Null while unknown, when none is set up, or when the pane cannot
+ * hand over (the command rejects).
+ */
+function useKeepGoingOffer(paneId: string, wanted: boolean): EndingActions['keepGoing'] {
+  const [offer, setOffer] = useState<EndingActions['keepGoing']>(null);
+  useEffect(() => {
+    if (!wanted) {
+      setOffer(null);
+      return;
+    }
+    let live = true;
+    keepGoingTargets(paneId).then(
+      (offers) => {
+        const ready = offers.find((o) => o.ok);
+        if (!live) return;
+        setOffer(
+          ready
+            ? {
+                label: ready.label,
+                run: () =>
+                  keepGoingContinue(paneId, keepGoingTargetKey(ready.target), false).then(
+                    () => null,
+                    (err: unknown) => plainKeepGoingError(err, 'Could not move the task. Try again.'),
+                  ),
+              }
+            : null,
+        );
+      },
+      () => {
+        if (live) setOffer(null);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [paneId, wanted]);
+  return offer;
 }
 
 /**
@@ -67,6 +116,17 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
   const lastClippable = useMemo(() => lastClippableId(chat.turns), [chat.turns]);
   // The Point and Fix draft ('Edit in Chat') for this pane's box: taken only while the box is shown.
   const draft = useComposerDraft(reply ? paneId : null);
+  // The buttons on the newest turn's ending line.
+  const newest = chat.turns[chat.turns.length - 1];
+  const keepGoing = useKeepGoingOffer(paneId, hasChat && !!reply && newest?.ending?.reason === 'usage_limit');
+  const newestText = newest?.user?.text;
+  const endings: EndingActions | undefined = hasChat
+    ? {
+        onRetry: reply && newestText ? () => outbox.send(newestText) : undefined,
+        onSignIn: () => openSettingsAt('agents', SETUP_CHECK_ROW_ID),
+        keepGoing,
+      }
+    : undefined;
   return (
     <>
       <SessionChatView
@@ -81,6 +141,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
         jump={jump}
         helpers={helpers}
         onOpenPane={onOpenPane}
+        endings={endings}
         remember
         emptyNote={emptyNote}
         headerExtra={chat.state === 'unavailable' ? undefined : side.button}
@@ -113,7 +174,7 @@ export function SessionChatPanel({ paneId, dock, reply, emptyNote, clipApi, onOp
             />
           )
         }
-        pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} /> : undefined}
+        pending={reply ? <PendingMessages messages={bubbles} onCancel={outbox.cancel} onHide={hide} onSendNow={reply.onInterrupt} /> : undefined}
         composer={reply ? (
           <ChatComposer onSend={outbox.send} blockedReason={reply.blockedReason} draftKey={paneId} draft={draft} slashCommands={slashCommands} toolbar={composerTop} running={reply.running} onStop={reply.onStop} />
         ) : undefined}

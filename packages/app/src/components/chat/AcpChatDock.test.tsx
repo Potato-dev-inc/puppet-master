@@ -129,6 +129,43 @@ describe('AcpChatDock', () => {
     expect(continueTurn).toHaveBeenCalledWith('p1');
   });
 
+  it('a quiet agent asks "No answer for 5 min" with Stop and Keep waiting, and each button does its own thing', async () => {
+    const { c } = cockpit([]);
+    const keepWaiting = vi.fn(async () => true);
+    const { api, cancel } = fakeApi(state({ quietSecs: 300 }), { keepWaiting });
+    await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+    await flush();
+    expect(host.querySelector('[data-testid="acp-quiet"]')?.textContent).toContain('No answer for 5 min');
+    expect(host.querySelector('[data-testid="acp-strip"]')).toBeNull();
+    await act(async () => button('Keep waiting')!.click());
+    expect(keepWaiting).toHaveBeenCalledWith('p1');
+    expect(cancel).not.toHaveBeenCalled();
+    await act(async () => button('Stop')!.click());
+    expect(cancel).toHaveBeenCalledWith('p1');
+    // Stopping now: the question is gone and the strip reads Stopping.
+    expect(host.querySelector('[data-testid="acp-quiet"]')).toBeNull();
+    expect(host.querySelector('[data-testid="acp-strip"]')?.textContent).toContain('Stopping');
+  });
+
+  it('the question goes away when the agent speaks again (the state drops quietSecs)', async () => {
+    const { c } = cockpit([]);
+    const { api, emit } = fakeApi(state({ quietSecs: 300 }));
+    await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+    await flush();
+    expect(host.querySelector('[data-testid="acp-quiet"]')).not.toBeNull();
+    await emit(state({ quietSecs: null }));
+    expect(host.querySelector('[data-testid="acp-quiet"]')).toBeNull();
+    expect(host.querySelector('[data-testid="acp-strip"]')?.textContent).toContain('Working');
+  });
+
+  it('no quiet question while a permission card waits for the person', async () => {
+    const { c } = cockpit([]);
+    const { api } = fakeApi(state({ phase: 'needs_input', quietSecs: 300 }));
+    await act(async () => root.render(<AcpChatDock c={c} paneId="p1" paneName="Codex" api={api} />));
+    await flush();
+    expect(host.querySelector('[data-testid="acp-quiet"]')).toBeNull();
+  });
+
   it('a chat that was closed on purpose shows no stopped line', async () => {
     const { c } = cockpit([]);
     const { api } = fakeApi(state({ phase: 'exited', turnInFlight: false, exit: { kind: 'closed', code: null, reason: null } }));

@@ -19,6 +19,7 @@ import { NoticeLine } from './NoticeLine';
 import { RememberSelection } from './RememberSelection';
 import { currentPlan, PlanCard } from './PlanCard';
 import { ToolRow } from './ToolRow';
+import { TurnEndingButtons, type EndingActions } from './TurnEndingButtons';
 import { ViewModeToggle } from './ViewModeToggle';
 
 export { formatDuration };
@@ -78,6 +79,8 @@ export interface SessionChatViewProps {
   helpers?: readonly ChatHelper[];
   /** A helper row was pressed: open that pane. */
   onOpenPane?: (paneId: string) => void;
+  /** What the buttons on the newest turn's ending line do (Retry, Sign in, Keep going). Without it the line has no buttons. */
+  endings?: EndingActions;
 }
 
 /** The button on a finished turn's end line. `always`: shown without hover (the newest finished turn). */
@@ -115,14 +118,23 @@ function TextStep({ step, markdown, mode }: { step: Extract<TurnStep, { kind: 't
   return <div className="whitespace-pre-wrap break-words ck-chat-text">{step.item.text}</div>;
 }
 
-function TurnEndDivider({ turn, clip, branch }: { turn: ChatTurn; clip?: TurnClip; branch?: TurnBranch }) {
+function TurnEndDivider({ turn, clip, branch, endings }: { turn: ChatTurn; clip?: TurnClip; branch?: TurnBranch; endings?: EndingActions }) {
   const parts: string[] = [];
   if (turn.outcome === 'interrupted' || turn.outcome === 'failed') parts.push(turn.outcome);
   if (turn.durationMs !== null) parts.push(`Worked for ${formatDuration(turn.durationMs)}`);
+  const ending = turn.ending;
   return (
-    <div className="flex items-center gap-2 py-0.5 text-[10px] text-pm-muted ck-chat-end">
+    <div className="flex items-center gap-2 py-0.5 text-[10px] text-pm-muted ck-chat-end" data-ending={ending?.reason}>
       <span className="h-px flex-1 bg-pm-border ck-chat-rule" />
-      {parts.length > 0 && <span className="ck-chat-end-text">{parts.join(' · ')}</span>}
+      {/* A chat that says how its turns ended has one line for it; the others keep "Worked for". */}
+      {ending ? (
+        <span className="ck-chat-end-text ck-chat-ending" data-testid="turn-ending">
+          {ending.text}
+          {endings && <TurnEndingButtons ending={ending} actions={endings} />}
+        </span>
+      ) : (
+        parts.length > 0 && <span className="ck-chat-end-text">{parts.join(' · ')}</span>
+      )}
       <span className="h-px flex-1 bg-pm-border ck-chat-rule" />
       {branch && (
         <button type="button" className={`ck-chat-branch-btn${branch.always ? ' is-always' : ''}`} onClick={branch.onBranch}>
@@ -138,7 +150,7 @@ function TurnEndDivider({ turn, clip, branch }: { turn: ChatTurn; clip?: TurnCli
   );
 }
 
-function TurnView({ turn, fromScreen, markdown, mode, clip, branch, helpers, onOpenPane }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean; mode: ChatViewMode; clip?: TurnClip; branch?: TurnBranch; helpers?: readonly ChatHelper[]; onOpenPane?: (paneId: string) => void }) {
+function TurnView({ turn, fromScreen, markdown, mode, clip, branch, helpers, onOpenPane, endings }: { turn: ChatTurn; fromScreen: boolean; markdown: boolean; mode: ChatViewMode; clip?: TurnClip; branch?: TurnBranch; helpers?: readonly ChatHelper[]; onOpenPane?: (paneId: string) => void; endings?: EndingActions }) {
   const verbose = mode === 'verbose';
   // A turn with no end yet is still running: its rows without a result are live.
   const live = turn.end === null;
@@ -169,12 +181,12 @@ function TurnView({ turn, fromScreen, markdown, mode, clip, branch, helpers, onO
         return <TextStep key={step.id} step={step} markdown={markdown} mode={mode} />;
       })}
       {helpers && helpers.length > 0 && <PaneHelperRows helpers={helpers} onOpen={onOpenPane} />}
-      {turn.end && <TurnEndDivider turn={turn} clip={clip} branch={branch} />}
+      {turn.end && <TurnEndDivider turn={turn} clip={clip} branch={branch} endings={endings} />}
     </section>
   );
 }
 
-export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, banner, overlay, aside, jump, readOnly, canClip, onMakeClip, canBranch, onBranch, helpers, onOpenPane }: SessionChatViewProps) {
+export function SessionChatView({ state, reason, waitingFor, source, turns, model, cliVersion, dock, pending, composer, paneId, remember, emptyNote, headerExtra, headerMenu, banner, overlay, aside, jump, readOnly, canClip, onMakeClip, canBranch, onBranch, helpers, onOpenPane, endings }: SessionChatViewProps) {
   const fromScreen = source === 'screen';
   // Markdown only for what the agent itself wrote (its session file or its API); an unknown source keeps the text as it is.
   const markdown = source === 'file' || source === 'api' || source === 'acp';
@@ -286,6 +298,7 @@ export function SessionChatView({ state, reason, waitingFor, source, turns, mode
               branch={canBranch && !readOnly && onBranch && isClippable(turn) ? { onBranch: () => onBranch(turn.user.id), always: turn.id === newestBranchable } : undefined}
               helpers={placedHelpers.get(turn.id)}
               onOpenPane={onOpenPane}
+              endings={endings && turn.id === turns[turns.length - 1]?.id ? endings : undefined}
             />
           ))}
         {state !== 'unavailable' && pending}

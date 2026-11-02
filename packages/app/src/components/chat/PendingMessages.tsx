@@ -10,7 +10,16 @@ export interface PendingMessagesProps {
   onCancel: (messageId: string) => Promise<string | null>;
   /** Takes a failed message off the list. */
   onHide: (messageId: string) => void;
+  /**
+   * "Send now": stops the turn that runs so the waiting message goes at once. Given only where a turn can be
+   * stopped from here (a chat session, a Chat (terminal) pane); without it a waiting message has Cancel only.
+   */
+  onSendNow?: () => void;
 }
+
+/** The backend's sentence for a message that waits for the turn to end (pane_outbox `WAIT_BUSY`). */
+const WAITING_FOR_TURN = 'The agent is working.';
+export const WAITING_FOR_TURN_WORDS = 'Waiting for the turn to end';
 
 async function copy(text: string): Promise<boolean> {
   try {
@@ -21,7 +30,7 @@ async function copy(text: string): Promise<boolean> {
   }
 }
 
-function Bubble({ message, onCancel, onHide }: { message: OutboxMessage; onCancel: PendingMessagesProps['onCancel']; onHide: (id: string) => void }) {
+function Bubble({ message, onCancel, onHide, onSendNow }: { message: OutboxMessage; onCancel: PendingMessagesProps['onCancel']; onHide: (id: string) => void; onSendNow?: () => void }) {
   const [note, setNote] = useState<string | null>(null);
   const { state } = message;
   return (
@@ -31,7 +40,16 @@ function Bubble({ message, onCancel, onHide }: { message: OutboxMessage; onCance
         <div className="ck-chat-pending-meta">
           {state === 'queued' && (
             <>
-              <span data-testid="chat-pending-waiting">{message.waitingFor ?? 'Waiting…'}</span>
+              <span data-testid="chat-pending-waiting">{onSendNow && message.waitingFor?.startsWith(WAITING_FOR_TURN) ? WAITING_FOR_TURN_WORDS : (message.waitingFor ?? 'Waiting…')}</span>
+              {onSendNow && message.waitingFor?.startsWith(WAITING_FOR_TURN) && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <button type="button" className="ck-chat-link" data-testid="chat-pending-send-now" onClick={onSendNow}>
+                    Send now
+                  </button>
+                  <span aria-hidden="true">·</span>
+                </>
+              )}
               <button
                 type="button"
                 className="ck-chat-link"
@@ -71,12 +89,12 @@ function Bubble({ message, onCancel, onHide }: { message: OutboxMessage; onCance
   );
 }
 
-export function PendingMessages({ messages, onCancel, onHide }: PendingMessagesProps) {
+export function PendingMessages({ messages, onCancel, onHide, onSendNow }: PendingMessagesProps) {
   if (messages.length === 0) return null;
   return (
     <div className="space-y-2 ck-chat-pending-list" aria-live="polite">
       {messages.map((message) => (
-        <Bubble key={message.id} message={message} onCancel={onCancel} onHide={onHide} />
+        <Bubble key={message.id} message={message} onCancel={onCancel} onHide={onHide} onSendNow={onSendNow} />
       ))}
     </div>
   );

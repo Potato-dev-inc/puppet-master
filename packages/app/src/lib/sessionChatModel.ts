@@ -133,6 +133,16 @@ export interface NoticeStep {
 
 export type TurnStep = TextStep | ToolStep | NoticeStep;
 
+/** The one grey line a turn of a chat ends with ("Done · 3 files · 2 min"). `reason` is the part after `ending:`. */
+export interface TurnEnding {
+  id: string;
+  reason: string;
+  text: string;
+}
+
+/** The notice kind prefix of a turn's ending line. */
+export const ENDING_PREFIX = 'ending:';
+
 /** One exchange: what the person typed, then the agent's steps, then how the turn ended (if it did). */
 export interface ChatTurn {
   id: string;
@@ -142,6 +152,8 @@ export interface ChatTurn {
   end: TurnEndItem | null;
   outcome: TurnOutcome | null;
   durationMs: number | null;
+  /** How the turn ended in plain words, when the session said (a chat over ACP does); null otherwise. */
+  ending: TurnEnding | null;
   /** The task list as it stood after this turn's last plan update; null when the turn did not update it. */
   plan: PlanItem[] | null;
 }
@@ -262,7 +274,7 @@ export function groupTurns(items: readonly ChatItem[]): GroupedChat {
   let title: string | null = null;
 
   const newTurn = (id: string, user: UserItem | null): ChatTurn => {
-    const turn: ChatTurn = { id, user, steps: [], end: null, outcome: null, durationMs: null, plan: null };
+    const turn: ChatTurn = { id, user, steps: [], end: null, outcome: null, durationMs: null, ending: null, plan: null };
     turns.push(turn);
     return turn;
   };
@@ -331,6 +343,11 @@ export function groupTurns(items: readonly ChatItem[]): GroupedChat {
         (current ?? turns[turns.length - 1] ?? turnFor(item.id)).plan = plan;
         break;
       case 'notice': {
+        if (item.noticeKind.startsWith(ENDING_PREFIX)) {
+          const turn = current ?? turns[turns.length - 1] ?? turnFor(item.id);
+          turn.ending = { id: item.id, reason: item.noticeKind.slice(ENDING_PREFIX.length), text: item.text };
+          break;
+        }
         if (item.noticeKind === 'title') {
           title = item.text || title;
           break;

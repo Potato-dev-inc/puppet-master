@@ -37,6 +37,8 @@ export interface AcpChatState {
   turnInFlight: boolean;
   /** Stop was asked and the agent has not ended the turn yet. */
   stopping: boolean;
+  /** The agent has said nothing for this many seconds and the person is asked: Stop or Keep waiting. Absent/null: not asked. */
+  quietSecs?: number | null;
   /** The agent takes text while it works (a message is then sent into the running turn). */
   canSteer: boolean;
   turn: number;
@@ -303,6 +305,8 @@ export interface TerminalConversation {
 export interface AcpChatApi {
   state: (paneId: string) => Promise<AcpChatState | null>;
   cancel: (paneId: string) => Promise<boolean>;
+  /** "Keep waiting" on a quiet agent: the quiet window starts again. */
+  keepWaiting?: (paneId: string) => Promise<boolean>;
   /** "I'm signed in — try again": sends the message that was waiting. Rejects with the agent's reason. */
   retrySignIn?: (paneId: string) => Promise<void>;
   watch: (cb: (paneId: string, state: AcpChatState) => void) => Promise<UnlistenFn>;
@@ -356,6 +360,7 @@ export const tauriAcpChatApi: AcpChatApi = {
     return (await invoke<AcpChatState | null>('acp_chat_state', { paneId })) ?? null;
   },
   cancel: (paneId) => call<boolean>('acp_chat_cancel', { paneId }),
+  keepWaiting: (paneId) => call<boolean>('acp_chat_keep_waiting', { paneId }),
   retrySignIn: async (paneId) => {
     if (!isTauri()) throw new Error('Desktop shell required: acp_chat_retry_sign_in');
     await invoke<void>('acp_chat_retry_sign_in', { paneId });
@@ -417,6 +422,16 @@ export function runStrip(state: AcpChatState | null, asked = false): { text: str
   if (state.stopping || asked) return { text: 'Stopping…', stopping: true };
   if (state.phase === 'needs_input') return { text: 'Waiting for your answer', stopping: false };
   return { text: 'Working…', stopping: false };
+}
+
+/**
+ * The question under a turn whose agent has said nothing for the quiet window: "No answer for 5 min", with Stop and
+ * Keep waiting. `null` when the agent is not quiet, or a stop is already on its way.
+ */
+export function quietStrip(state: AcpChatState | null, asked = false): { text: string } | null {
+  if (!state || state.closed || !state.turnInFlight || state.stopping || asked) return null;
+  if (state.phase === 'needs_input' || !state.quietSecs) return null;
+  return { text: `No answer for ${Math.max(1, Math.round(state.quietSecs / 60))} min` };
 }
 
 const STOPPED_WHY: Record<string, string> = {
