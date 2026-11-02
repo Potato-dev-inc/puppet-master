@@ -22,6 +22,7 @@ pub mod engine;
 pub mod host;
 pub mod link;
 pub mod os;
+pub mod permissions;
 pub mod port;
 
 #[cfg(test)]

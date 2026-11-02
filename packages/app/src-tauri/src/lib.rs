@@ -548,6 +548,7 @@ pub fn run() {
             commands::issue_intake_poll_now,
             desk::commands::desk_snapshot,
             desk::commands::desk_command,
+            desk::permissions::desk_permissions,
             desk::link::commands::desk_link_view,
             desk::link::commands::desk_link_set_side,
             desk::link::commands::desk_link_pause,

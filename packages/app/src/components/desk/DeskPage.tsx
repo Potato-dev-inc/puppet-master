@@ -8,6 +8,8 @@ import { ScreensView } from './ScreensView';
 import { KeysView } from './KeysView';
 import { usePair } from '../../lib/desk-pair';
 import { useLink } from '../../lib/desk-link';
+import { useDeskPermissions } from '../../lib/desk-permissions';
+import { PermissionBanner } from './PermissionBanner';
 import { LinkStatus } from './LinkStatus';
 import { AddComputerSheet } from './AddComputerSheet';
 import { DeviceRow } from './DeviceRow';
@@ -25,6 +27,7 @@ export function DeskPage() {
   const { snapshot, loadError, actionError, reload, run } = desk;
   const pair = usePair(snapshot !== null);
   const link = useLink(snapshot !== null);
+  const access = useDeskPermissions(snapshot !== null);
   const [adding, setAdding] = useState(false);
   const computersTitleId = useId();
   const pairView = pair.view;
@@ -54,6 +57,8 @@ export function DeskPage() {
           </p>
         )}
       </header>
+
+      <PermissionBanner permissions={access.permissions} onRecheck={access.recheck} />
 
       <LinkStatus view={link.view} error={link.error} onPause={(p) => void link.pause(p)} onPanic={() => void link.panic()} />
 

@@ -227,6 +227,29 @@ describe('DeskPage', () => {
     expect(host.querySelector('[aria-label="Reverse scrolling when I use Laptop"]')!.getAttribute('aria-checked')).toBe('true');
   });
 
+  it('tells a Mac to switch Accessibility on, and says nothing on a computer that does not ask', async () => {
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'desk_permissions') return { accessibility: false };
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    const banner = host.querySelector('[data-testid="permission-banner"]');
+    expect(banner?.textContent).toContain('Privacy & Security');
+    expect(banner?.textContent).toContain('Accessibility');
+    act(() => root.unmount());
+    root = createRoot(host);
+    h.invoke.mockImplementation(async (name: string) => {
+      if (name === 'desk_snapshot') return snap();
+      if (name === 'desk_permissions') return { accessibility: null };
+      return undefined;
+    });
+    await act(async () => root.render(<DeskPage />));
+    await flush();
+    expect(host.querySelector('[data-testid="permission-banner"]')).toBeNull();
+  });
+
   it('draws nothing while the Labs switch is off', async () => {
     h.invoke.mockRejectedValue('FEATURE_OFF: My computers is off in Labs');
     await act(async () => root.render(<DeskPage />));
