@@ -724,4 +724,4 @@ fn display_list_failure_is_shown() {
 }
 
 // The settings added after the first version: center, lock, jump to a computer, return home.
-mod new_hotkeys;
+mod new_hotkey_tests;
