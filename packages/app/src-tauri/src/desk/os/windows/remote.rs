@@ -95,6 +95,14 @@ fn modifiers_physically_down() -> Vec<u16> {
     release::MODIFIER_VKS.iter().copied().filter(|vk| unsafe { GetAsyncKeyState(i32::from(*vk)) } < 0).collect()
 }
 
+/// Ends a capture: the hooks go, and the keys that were down when the pointer left and were let go meanwhile are
+/// released here, because their release never reached this computer.
+fn end_hook(hook: capture::CaptureHook) {
+    for vk in hook.stop() {
+        let _ = send(&[key_input(vk, false)]);
+    }
+}
+
 fn contains(d: &DisplayInfo, pos: (i32, i32)) -> bool {
     pos.0 >= d.x && pos.0 < d.x + d.width as i32 && pos.1 >= d.y && pos.1 < d.y + d.height as i32
 }
@@ -199,18 +207,20 @@ impl RemoteHost for WindowsRemote {
             Some(d) => park_point(exit, (d.x, d.y, d.width as i32, d.height as i32), PARK_SPAN),
             None => center_of(&displays, cursor::position()?),
         };
-        cursor::warp(park.0, park.1)?;
-        *slot = Some(capture::start(sink, park)?);
+        // Remote mode is on before the warp (the hook is installed inside `start`), as DevHop did.
+        let hook = capture::start(sink, park, PARK_SPAN)?;
+        if let Err(e) = cursor::warp(park.0, park.1) {
+            end_hook(hook);
+            return Err(e);
+        }
+        *slot = Some(hook);
         Ok(())
     }
 
     fn stop_capture(&self) {
         let hook = self.capture.lock().unwrap_or_else(|p| p.into_inner()).take();
         if let Some(hook) = hook {
-            // Keys that were down when the pointer left and were let go meanwhile: tell this computer.
-            for vk in hook.stop() {
-                let _ = send(&[key_input(vk, false)]);
-            }
+            end_hook(hook);
         }
         // A modifier the system still thinks is down, but the person is not holding, would make every later click
         // here a Ctrl-click or Alt-click. Release those (the same rule the old app applied when remote mode ended).

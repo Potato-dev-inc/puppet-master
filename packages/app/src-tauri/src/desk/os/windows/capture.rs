@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwapOption;
 use desk_proto::vk_to_hid;
@@ -39,20 +39,47 @@ use super::dpi::DpiScope;
 use crate::desk::link::remote::{Capture, CaptureSink, PointerMove, PointerSink};
 
 const LLMHF_INJECTED: u32 = 1;
-/// A position further than this from the park point is not a mouse move (it was queued before the pointer was
-/// parked, or the pointer was warped); it is dropped. The same reach DevHop's cursor clip had (160, plus 2 of slack).
-const MAX_STEP: i32 = 162;
+/// Remote-mode motion in the first milliseconds after the pointer is parked is not forwarded: it is the park warp and
+/// motion queued before it (DevHop's REMOTE_SETTLE_MS).
+const REMOTE_SETTLE_MS: u64 = 10;
+/// A remote-mode position may be this far beyond the park span and still count as real motion (DevHop's slack).
+const REMOTE_MOTION_SLACK: i32 = 2;
 
-/// What a mouse move at `pt` adds up to, given the park point: the distance from it, unless it is nothing or too far
-/// to be real hardware motion.
-fn motion_from_park(pt: (i32, i32), park: (i32, i32)) -> Option<(i32, i32)> {
+/// Whether a mouse move at `(x, y)` is real hardware motion while the pointer is parked at `(park_x, park_y)`: not in
+/// the settle window, and not farther than the span (plus slack) from the park point. A position beyond that was
+/// queued before the pointer was parked, or is the warp itself, and is dropped.
+pub(super) fn should_forward_remote_motion(
+    x: i32,
+    y: i32,
+    park_x: i32,
+    park_y: i32,
+    span: i32,
+    ms_since_remote_enabled: Option<u64>,
+) -> bool {
+    if ms_since_remote_enabled.is_some_and(|ms| ms < REMOTE_SETTLE_MS) {
+        return false;
+    }
+    let limit = span + REMOTE_MOTION_SLACK;
+    (x - park_x).abs() <= limit && (y - park_y).abs() <= limit
+}
+
+/// The delta a remote-mode mouse move at `pt` reports: its distance from the park point. Nothing when there is no
+/// distance (the warp back to the park point) or the move is not real motion.
+pub(super) fn remote_motion_delta(pt: (i32, i32), park: (i32, i32), span: i32, ms_since_remote_enabled: Option<u64>) -> Option<(i32, i32)> {
+    if !should_forward_remote_motion(pt.0, pt.1, park.0, park.1, span, ms_since_remote_enabled) {
+        return None;
+    }
     let (dx, dy) = (pt.0 - park.0, pt.1 - park.1);
-    ((dx != 0 || dy != 0) && dx.abs() <= MAX_STEP && dy.abs() <= MAX_STEP).then_some((dx, dy))
+    (dx != 0 || dy != 0).then_some((dx, dy))
 }
 
 struct Ctx {
     sink: CaptureSink,
     park: (i32, i32),
+    /// The park span: the clip box is this far each way from the park point.
+    span: i32,
+    /// When the pointer was parked; the settle window counts from here.
+    parked_at: Instant,
     /// Virtual keys down when the pointer left.
     down_at_start: BTreeSet<u16>,
     /// Of those, the ones whose release was swallowed.
@@ -82,21 +109,23 @@ fn key_down(vk: u16) -> bool {
     unsafe { GetAsyncKeyState(i32::from(vk)) < 0 }
 }
 
-pub fn start(sink: CaptureSink, park: (i32, i32)) -> Result<CaptureHook, String> {
+/// Starts remote mode: the hooks are installed and the mouse is swallowed and parked from now on. Remote mode is on
+/// before the caller warps the pointer to `park`, so the warp itself is already inside the hook.
+pub fn start(sink: CaptureSink, park: (i32, i32), span: i32) -> Result<CaptureHook, String> {
     if ACTIVE.load().is_some() {
         return Err("the mouse is already taken".into());
     }
     set_remote_mode(true);
-    let result = start_hooks(sink, park);
+    let result = start_hooks(sink, park, span);
     if result.is_err() {
         set_remote_mode(false);
     }
     result
 }
 
-fn start_hooks(sink: CaptureSink, park: (i32, i32)) -> Result<CaptureHook, String> {
+fn start_hooks(sink: CaptureSink, park: (i32, i32), span: i32) -> Result<CaptureHook, String> {
     let down_at_start: BTreeSet<u16> = (0x08u16..=0xFE).filter(|vk| key_down(*vk)).collect();
-    let ctx = Arc::new(Ctx { sink, park, down_at_start, swallowed_ups: Mutex::new(BTreeSet::new()) });
+    let ctx = Arc::new(Ctx { sink, park, span, parked_at: Instant::now(), down_at_start, swallowed_ups: Mutex::new(BTreeSet::new()) });
     ACTIVE.store(Some(ctx.clone()));
     let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
     let spawned = thread::Builder::new().name("desk-capture".into()).spawn(move || {
@@ -311,7 +340,8 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
     }
     let event = match wparam.0 as u32 {
         WM_MOUSEMOVE => {
-            motion_from_park((info.pt.x, info.pt.y), ctx.park).map(|(dx, dy)| Capture::Motion { dx, dy })
+            let since = ctx.parked_at.elapsed().as_millis() as u64;
+            remote_motion_delta((info.pt.x, info.pt.y), ctx.park, ctx.span, Some(since)).map(|(dx, dy)| Capture::Motion { dx, dy })
         }
         WM_LBUTTONDOWN => Some(Capture::Button { button: 0, down: true }),
         WM_LBUTTONUP => Some(Capture::Button { button: 0, down: false }),
@@ -367,18 +397,51 @@ unsafe extern "system" fn key_proc(code: i32, wparam: WPARAM, lparam: LPARAM) ->
 mod tests {
     use super::*;
 
+    const SPAN: i32 = crate::desk::link::park::PARK_SPAN;
+
     #[test]
-    fn motion_is_the_distance_from_the_park_point() {
-        assert_eq!(motion_from_park((1003, 497), (1000, 500)), Some((3, -3)));
+    fn stale_pre_warp_position_is_dropped() {
+        assert!(!should_forward_remote_motion(100, 540, 1760, 540, SPAN, Some(50)));
     }
 
     #[test]
-    fn no_motion_and_far_away_positions_are_not_forwarded() {
-        assert_eq!(motion_from_park((1000, 500), (1000, 500)), None);
-        // A position queued before the pointer was parked, from the screen edge: dropped, not thrown at the other side.
-        assert_eq!(motion_from_park((1919, 500), (1000, 500)), None);
-        assert_eq!(motion_from_park((1000 + MAX_STEP, 500), (1000, 500)), Some((MAX_STEP, 0)));
-        assert_eq!(motion_from_park((1000 + MAX_STEP + 1, 500), (1000, 500)), None);
+    fn normal_delta_inside_clip_is_kept() {
+        assert!(should_forward_remote_motion(1761, 541, 1760, 540, SPAN, Some(50)));
+    }
+
+    #[test]
+    fn settling_window_drops_motion() {
+        assert!(!should_forward_remote_motion(1760, 540, 1760, 540, SPAN, Some(5)));
+    }
+
+    #[test]
+    fn boundary_at_span_plus_slack() {
+        let park = (1000, 500);
+        let limit = SPAN + REMOTE_MOTION_SLACK;
+        assert!(should_forward_remote_motion(park.0 + limit, park.1, park.0, park.1, SPAN, Some(20)));
+        assert!(!should_forward_remote_motion(park.0 + limit + 1, park.1, park.0, park.1, SPAN, Some(20)));
+    }
+
+    #[test]
+    fn custom_span_limits_motion() {
+        assert!(should_forward_remote_motion(1881, 300, 1880, 300, 40, Some(20)));
+        assert!(should_forward_remote_motion(1922, 300, 1880, 300, 40, Some(20)));
+        assert!(!should_forward_remote_motion(1923, 300, 1880, 300, 40, Some(20)));
+    }
+
+    #[test]
+    fn motion_is_the_distance_from_the_park_point() {
+        assert_eq!(remote_motion_delta((1003, 497), (1000, 500), SPAN, Some(50)), Some((3, -3)));
+    }
+
+    #[test]
+    fn a_zero_delta_is_not_forwarded() {
+        assert_eq!(remote_motion_delta((1000, 500), (1000, 500), SPAN, Some(50)), None);
+    }
+
+    #[test]
+    fn nothing_in_the_settle_window_is_forwarded() {
+        assert_eq!(remote_motion_delta((1003, 497), (1000, 500), SPAN, Some(9)), None);
     }
 
     fn fresh() -> WatchTrack {
