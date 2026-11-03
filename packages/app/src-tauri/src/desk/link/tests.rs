@@ -311,7 +311,9 @@ async fn a_handed_back_pointer_resting_on_the_edge_does_not_cross_until_it_leave
     }
     wait_until("a is home", || !a.host.capturing()).await;
     assert_eq!(b.link.view().controlled_by, None);
-    // b's pointer is put on the edge facing a and stays there: not across the edge during the pause, nor after it.
+    // b's pointer is put on the edge facing a and stays there: not across the edge during the pause, nor after it. (It is
+    // put there after the step-off check, which would otherwise step it in again.)
+    sleep(Duration::from_millis(300)).await;
     b.host.put_cursor(0, 300);
     sleep(Duration::from_secs(5)).await;
     assert!(!b.host.capturing(), "b took a pointer that never left the edge");
@@ -322,6 +324,29 @@ async fn a_handed_back_pointer_resting_on_the_edge_does_not_cross_until_it_leave
     sleep(Duration::from_millis(100)).await;
     b.host.put_cursor(0, 300);
     wait_until("b crosses once the pointer has left the edge", || b.host.capturing() && a.link.view().controlled_by.as_deref() == Some("Laptop")).await;
+}
+
+/// The hand-back steps the pointer off the edge. Posted mouse events still applied on the controlled computer can put it
+/// back on that edge straight after: it is stepped off a second time, about 150 ms after the first step.
+#[tokio::test(start_paused = true)]
+async fn a_pointer_put_back_on_the_edge_after_the_step_off_is_stepped_off_again() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 300);
+    wait_until("crossed", || a.host.capturing()).await;
+    for _ in 0..8 {
+        a.host.person(Capture::Motion { dx: -30, dy: 0 });
+        sleep(Duration::from_millis(5)).await;
+    }
+    wait_until("a is home", || !a.host.capturing()).await;
+    assert_eq!(b.link.view().controlled_by, None);
+    // The first step-off has happened: b's pointer is INSET (6) inside its left edge.
+    let moves_before = b.host.with(|s| s.moves.len());
+    b.host.put_cursor(0, 300);
+    sleep(Duration::from_millis(300)).await;
+    let moved = b.host.with(|s| s.moves[moves_before..].to_vec());
+    assert_eq!(moved, vec![(6, 300)], "the pointer on the edge after the step-off was not stepped off again");
+    assert_eq!(b.host.cursor(), (6, 300));
 }
 
 /// A person moves the mouse of the computer that is being controlled: it takes the mouse back, the other computer comes

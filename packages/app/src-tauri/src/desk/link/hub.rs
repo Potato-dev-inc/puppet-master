@@ -48,6 +48,9 @@ const REFUSED_PAUSE_MS: u64 = 2_000;
 /// After this computer hands the pointer back, or the other computer lets go of it, this computer does not take the
 /// pointer straight back across the same edge. The other computer may leave its pointer resting on that edge.
 const RETURN_PAUSE_MS: u64 = 1_000;
+/// After the step-off that follows a hand-back, the pointer is looked at again this long later: posted mouse events
+/// still applied on the other computer can have put it back on the edge (see `recheck_step_off`).
+const STEP_OFF_RECHECK_MS: u64 = 150;
 /// "desk: not crossing" is written at most once a second for each reason.
 const NOT_CROSSING_EVERY_MS: u64 = 1_000;
 /// The page is handed a new view at most this often. A change inside that window is handed over at the next tick.
@@ -239,6 +242,8 @@ pub struct Hub {
     refused_until: HashMap<NodeId, u64>,
     /// Which peers the pointer must first be seen away from the edges for (see `local_use::Arming`).
     arming: Arming,
+    /// A step-off was made through this side of this computer; the pointer is checked again at this time (ms).
+    step_off: Option<(Side, u64)>,
     /// Keeps "desk: not crossing" to one line a second for each reason.
     not_crossing: RateLimit,
     upkeeps: u64,
@@ -267,6 +272,7 @@ impl Hub {
             edge_candidate: None,
             refused_until: HashMap::new(),
             arming: Arming::default(),
+            step_off: None,
             not_crossing: RateLimit::new(NOT_CROSSING_EVERY_MS),
             upkeeps: 0,
             error: None,
@@ -470,6 +476,7 @@ impl Hub {
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
         let now = self.ms();
+        self.recheck_step_off(pos, now);
         // A person is using this computer's own mouse while it is being controlled: the pointer goes back to them.
         // This runs before the "controlled by" return below, which would otherwise ignore the pointer for good.
         if self.controlled.is_some() && self.hand_back_if_used_here(pos, now) {
@@ -503,8 +510,7 @@ impl Hub {
         }
         let mut hit = None;
         let mut waiting = None;
-        let mut unarmed = false;
-        for peer in self.live.keys() {
+        let mut unarmed = false;        for peer in self.live.keys() {
             let Some(dep) = self.inner.depart_to(peer, &self.shapes, local, &ALL_SIDES) else { continue };
             if self.refused_until.contains_key(peer) {
                 waiting.get_or_insert(*peer);
@@ -884,6 +890,7 @@ impl Hub {
             // mouse the person is not using.
             let off = inward(pos, dep.side);
             let _ = self.inner.host.move_cursor(off.0, off.1);
+            self.step_off = Some((dep.side, self.ms() + STEP_OFF_RECHECK_MS));
             clip_link::spawn_send(&self.inner, peer);
         }
     }
@@ -905,6 +912,25 @@ impl Hub {
         self.refused_until.insert(peer, now + RETURN_PAUSE_MS);
         self.arming.disarm(peer);
         true
+    }
+
+    /// The second step-off: after a hand-back, posted mouse events still applied on this computer can put the pointer
+    /// back on the edge it was stepped off. If it is within `EDGE_NEAR` of that edge when the check is due, it is
+    /// stepped in again. Nothing happens while this computer is holding or being controlled again.
+    fn recheck_step_off(&mut self, pos: (i32, i32), now: u64) {
+        let Some((side, due)) = self.step_off else { return };
+        if now < due {
+            return;
+        }
+        self.step_off = None;
+        if self.remote.is_some() || self.controlled.is_some() {
+            return;
+        }
+        let Some(u) = union(&self.displays) else { return };
+        if local_use::near_edge(pos, u, side, local_use::EDGE_NEAR) {
+            let off = inward(pos, side);
+            let _ = self.inner.host.move_cursor(off.0, off.1);
+        }
     }
 
     /// Key-up and button-up for everything pressed on behalf of the peer.

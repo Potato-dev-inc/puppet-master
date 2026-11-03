@@ -4,6 +4,8 @@
 
 use std::collections::HashSet;
 
+use desk_core::Side;
+
 use super::geometry::Bounds;
 use crate::p2p::endpoint::NodeId;
 
@@ -13,6 +15,18 @@ pub const JUMP_UNITS: i64 = 12;
 pub const FRESH_MOTION_MS: u64 = 80;
 /// The pointer must be at least this far from every screen edge before a computer may cross to a peer again.
 pub const ARM_MARGIN: i32 = 24;
+/// After a step-off, a pointer within this many units of the edge it left through is stepped in again.
+pub const EDGE_NEAR: i32 = 3;
+
+/// True when `pos` is within `margin` units of the outer edge of the screen union `u` on `side`.
+pub fn near_edge(pos: (i32, i32), u: Bounds, side: Side, margin: i32) -> bool {
+    match side {
+        Side::Left => pos.0 - u.left <= margin,
+        Side::Right => u.right - 1 - pos.0 <= margin,
+        Side::Top => pos.1 - u.top <= margin,
+        Side::Bottom => u.bottom - 1 - pos.1 <= margin,
+    }
+}
 
 /// True when a person is using this computer's own mouse while it is being controlled: the pointer moved far from
 /// where the hub put it with no fresh remote motion to explain it, or a button is held here that the other computer
@@ -73,6 +87,16 @@ mod tests {
         assert!(!away_from_edges((1919, 540), SCREEN, ARM_MARGIN), "on the right edge");
         assert!(!away_from_edges((960, 0), SCREEN, ARM_MARGIN), "on the top edge");
         assert!(!away_from_edges((960, 1056), SCREEN, ARM_MARGIN), "23 units from the bottom edge");
+    }
+
+    #[test]
+    fn near_edge_looks_only_at_the_side_asked_for() {
+        assert!(near_edge((2, 540), SCREEN, Side::Left, EDGE_NEAR));
+        assert!(near_edge((1917, 540), SCREEN, Side::Right, EDGE_NEAR));
+        assert!(near_edge((960, 2), SCREEN, Side::Top, EDGE_NEAR));
+        assert!(near_edge((960, 1077), SCREEN, Side::Bottom, EDGE_NEAR));
+        assert!(!near_edge((4, 540), SCREEN, Side::Left, EDGE_NEAR), "4 units is more than 3");
+        assert!(!near_edge((2, 540), SCREEN, Side::Right, EDGE_NEAR), "on the left edge, not the right");
     }
 
     #[test]
