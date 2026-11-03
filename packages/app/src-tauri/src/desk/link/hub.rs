@@ -25,7 +25,8 @@ use crate::p2p::endpoint::{Link, NodeId};
 use crate::p2p::session::{DialLedger, Reach, Sessions};
 
 use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
-use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
+use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name, union};
+use super::local_use::{self, Arming};
 use super::pushback::PushBack;
 use super::ratelog::RateLimit;
 use super::remote::{Capture, Inject};
@@ -47,6 +48,9 @@ const REFUSED_PAUSE_MS: u64 = 2_000;
 /// After this computer hands the pointer back, or the other computer lets go of it, this computer does not take the
 /// pointer straight back across the same edge. The other computer may leave its pointer resting on that edge.
 const RETURN_PAUSE_MS: u64 = 1_000;
+/// After the step-off that follows a hand-back, the pointer is looked at again this long later: posted mouse events
+/// still applied on the other computer can have put it back on the edge (see `recheck_step_off`).
+const STEP_OFF_RECHECK_MS: u64 = 150;
 /// "desk: not crossing" is written at most once a second for each reason.
 const NOT_CROSSING_EVERY_MS: u64 = 1_000;
 /// The page is handed a new view at most this often. A change inside that window is handed over at the next tick.
@@ -137,6 +141,7 @@ enum Block {
     ControlledBy(NodeId),
     Locked,
     Waiting(NodeId),
+    Unarmed,
     ButtonHeld(NodeId),
     InputOff(NodeId),
 }
@@ -150,6 +155,7 @@ impl Block {
             Block::ControlledBy(p) => ("controlled", format!("controlled by peer={}", short(&p))),
             Block::Locked => ("locked", "pointer locked".to_string()),
             Block::Waiting(p) => ("waiting", format!("waiting after a refusal peer={}", short(&p))),
+            Block::Unarmed => ("unarmed", "waiting for the pointer to leave the edge".to_string()),
             Block::ButtonHeld(p) => ("button", format!("button held peer={}", short(&p))),
             Block::InputOff(p) => ("input", format!("input off peer={}", short(&p))),
         }
@@ -180,6 +186,10 @@ struct Controlled {
     buttons: BTreeSet<u8>,
     /// Pushes at the entry edge in a row (see `pushback`).
     pushback: PushBack,
+    /// Where this computer last put the pointer (the entry placement, then each injected move), and when the last
+    /// remote motion was handled. A pointer found elsewhere, with no fresh motion, is a person here (`local_use`).
+    expected: (i32, i32),
+    last_motion: u64,
 }
 
 #[derive(Default)]
@@ -230,6 +240,10 @@ pub struct Hub {
     edge_candidate: Option<(NodeId, u32)>,
     /// A computer that said no to the pointer, and until when it is not tried again.
     refused_until: HashMap<NodeId, u64>,
+    /// Which peers the pointer must first be seen away from the edges for (see `local_use::Arming`).
+    arming: Arming,
+    /// A step-off was made through this side of this computer; the pointer is checked again at this time (ms).
+    step_off: Option<(Side, u64)>,
     /// Keeps "desk: not crossing" to one line a second for each reason.
     not_crossing: RateLimit,
     upkeeps: u64,
@@ -257,6 +271,8 @@ impl Hub {
             origin: (0, 0),
             edge_candidate: None,
             refused_until: HashMap::new(),
+            arming: Arming::default(),
+            step_off: None,
             not_crossing: RateLimit::new(NOT_CROSSING_EVERY_MS),
             upkeeps: 0,
             error: None,
@@ -459,8 +475,18 @@ impl Hub {
             return;
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
-        let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
         let now = self.ms();
+        self.recheck_step_off(pos, now);
+        // A person is using this computer's own mouse while it is being controlled: the pointer goes back to them.
+        // This runs before the "controlled by" return below, which would otherwise ignore the pointer for good.
+        if self.controlled.is_some() && self.hand_back_if_used_here(pos, now) {
+            return;
+        }
+        // The pointer seen away from every edge: every computer may be crossed to again.
+        if union(&self.displays).is_some_and(|u| local_use::away_from_edges(pos, u, local_use::ARM_MARGIN)) {
+            self.arming.saw_away();
+        }
+        let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
         self.refused_until.retain(|_, until| *until > now);
         let blocked = if self.paused {
             Some(Block::Paused)
@@ -484,10 +510,14 @@ impl Hub {
         }
         let mut hit = None;
         let mut waiting = None;
-        for peer in self.live.keys() {
+        let mut unarmed = false;        for peer in self.live.keys() {
             let Some(dep) = self.inner.depart_to(peer, &self.shapes, local, &ALL_SIDES) else { continue };
             if self.refused_until.contains_key(peer) {
                 waiting.get_or_insert(*peer);
+                continue;
+            }
+            if !self.arming.armed(peer) {
+                unarmed = true;
                 continue;
             }
             hit = Some((*peer, dep));
@@ -497,6 +527,8 @@ impl Hub {
             self.edge_candidate = None;
             if let Some(p) = waiting {
                 self.say_not_crossing(Block::Waiting(p));
+            } else if unarmed {
+                self.say_not_crossing(Block::Unarmed);
             }
             return;
         };
@@ -601,6 +633,10 @@ impl Hub {
     fn go_home(&mut self, arrival: Option<(i32, i32)>, why: Home) {
         let Some(r) = self.remote.take() else { return };
         let peer = r.peer;
+        // The pointer came back from the other computer (or it let go): it must leave the edge before crossing again.
+        if matches!(why, Home::Edge | Home::Leave) {
+            self.arming.disarm(peer);
+        }
         let why = why.text();
         tracing::info!(peer = short(&peer).as_str(), "desk: pointer home reason={why}");
         // The machine keeps the phase in step; what must happen does not depend on what it thinks.
@@ -681,6 +717,7 @@ impl Hub {
                     self.release_controlled();
                     // The other computer let go of its pointer here: do not take it straight back across that edge.
                     self.refused_until.insert(peer, self.ms() + RETURN_PAUSE_MS);
+                    self.arming.disarm(peer);
                 }
                 // "Leave" from the computer we hold: it refuses, or its pointer came home on its own.
                 if leave && self.remote.as_ref().is_some_and(|r| r.peer == peer) {
@@ -800,7 +837,8 @@ impl Hub {
         if let Err(e) = self.inner.host.move_cursor(at.0, at.1) {
             return self.refuse_enter(peer, &format!("{me} could not place the pointer: {e}"), true);
         }
-        self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new(), pushback: PushBack::default() });
+        let expected = self.inner.host.cursor_pos().unwrap_or(at);
+        self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new(), pushback: PushBack::default(), expected, last_motion: self.ms() });
         self.error = None;
         tracing::info!(peer = short(&peer).as_str(), side = side_name(entry), "desk: another computer is using this one");
     }
@@ -825,6 +863,11 @@ impl Hub {
             return self.refuse_enter(peer, &format!("{me} could not move the pointer: {e}"), true);
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
+        let now = self.ms();
+        if let Some(c) = self.controlled.as_mut() {
+            c.expected = pos;
+            c.last_motion = now;
+        }
         // Pushing on through an edge that faces the other computer sends the pointer back, to the matching spot, but
         // only after deliberate pushes in a row (`pushback`): one jitter at the edge does nothing.
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
@@ -841,12 +884,52 @@ impl Hub {
             self.release_controlled();
             // Not straight back across this edge (see RETURN_PAUSE_MS).
             self.refused_until.insert(peer, self.ms() + RETURN_PAUSE_MS);
+            self.arming.disarm(peer);
             // Step off the edge. Resting on it, this computer would take the pointer straight back across (when it
             // sees the other computer on this same edge, as after the layout was swapped) and be left holding the
             // mouse the person is not using.
             let off = inward(pos, dep.side);
             let _ = self.inner.host.move_cursor(off.0, off.1);
+            self.step_off = Some((dep.side, self.ms() + STEP_OFF_RECHECK_MS));
             clip_link::spawn_send(&self.inner, peer);
+        }
+    }
+
+    /// A person is using this computer's own mouse (see `local_use::used_here`): the mouse goes back to the other
+    /// computer, which is told to come home, and this computer does not take the pointer straight back across.
+    fn hand_back_if_used_here(&mut self, pos: (i32, i32), now: u64) -> bool {
+        let Some(c) = self.controlled.as_ref() else { return false };
+        let since = now.saturating_sub(c.last_motion);
+        if !local_use::used_here(c.expected, pos, since, self.inner.host.buttons_held(), c.buttons.len()) {
+            return false;
+        }
+        let peer = c.peer;
+        tracing::info!(peer = short(&peer).as_str(), "desk: taking the mouse back: this computer is being used locally");
+        if let Some(l) = self.live.get(&peer) {
+            let _ = l.ctl.send(StreamMsg::Leave);
+        }
+        self.release_controlled();
+        self.refused_until.insert(peer, now + RETURN_PAUSE_MS);
+        self.arming.disarm(peer);
+        true
+    }
+
+    /// The second step-off: after a hand-back, posted mouse events still applied on this computer can put the pointer
+    /// back on the edge it was stepped off. If it is within `EDGE_NEAR` of that edge when the check is due, it is
+    /// stepped in again. Nothing happens while this computer is holding or being controlled again.
+    fn recheck_step_off(&mut self, pos: (i32, i32), now: u64) {
+        let Some((side, due)) = self.step_off else { return };
+        if now < due {
+            return;
+        }
+        self.step_off = None;
+        if self.remote.is_some() || self.controlled.is_some() {
+            return;
+        }
+        let Some(u) = union(&self.displays) else { return };
+        if local_use::near_edge(pos, u, side, local_use::EDGE_NEAR) {
+            let off = inward(pos, side);
+            let _ = self.inner.host.move_cursor(off.0, off.1);
         }
     }
 

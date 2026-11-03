@@ -294,10 +294,12 @@ async fn a_quiet_computer_using_this_one_is_told_to_come_home() {
 }
 
 /// The controlled side hands the pointer back, and the other computer's pointer is left resting on the edge facing it
-/// (an injected move can leave it there). It does not cross straight back: for one second. After that, the same
-/// resting pointer crosses, which is normal.
+/// (an injected move can leave it there). It does not cross straight back. Nor does it cross after the one-second pause
+/// while it still rests on that edge: it must leave the edge first (`local_use::Arming`). Once it has left and comes
+/// back, it crosses.
 #[tokio::test(start_paused = true)]
-async fn a_handed_back_pointer_resting_on_the_edge_is_not_taken_straight_back() {
+async fn a_handed_back_pointer_resting_on_the_edge_does_not_cross_until_it_leaves() {
+    let (log, _guard) = log_capture();
     let (_net, a, b) = together();
     up(&a, &b).await;
     a.host.put_cursor(1919, 300);
@@ -309,14 +311,98 @@ async fn a_handed_back_pointer_resting_on_the_edge_is_not_taken_straight_back() 
     }
     wait_until("a is home", || !a.host.capturing()).await;
     assert_eq!(b.link.view().controlled_by, None);
-    // b's pointer is put on the edge facing a and stays there.
+    // b's pointer is put on the edge facing a and stays there: not across the edge during the pause, nor after it. (It is
+    // put there after the step-off check, which would otherwise step it in again.)
+    sleep(Duration::from_millis(300)).await;
     b.host.put_cursor(0, 300);
-    sleep(Duration::from_millis(600)).await;
-    assert!(!b.host.capturing(), "b took the pointer straight back across the edge");
+    sleep(Duration::from_secs(5)).await;
+    assert!(!b.host.capturing(), "b took a pointer that never left the edge");
     assert_eq!(a.link.view().controlled_by, None);
-    // The pause is over: the pointer resting on the edge crosses now.
-    sleep(Duration::from_millis(500)).await;
-    wait_until("b crosses once the pause is over", || b.host.capturing() && a.link.view().controlled_by.as_deref() == Some("Laptop")).await;
+    assert!(log_text(&log).contains("desk: not crossing reason=waiting for the pointer to leave the edge"), "{}", log_text(&log));
+    // The pointer leaves the edge, then comes back to it: now it crosses.
+    b.host.put_cursor(960, 540);
+    sleep(Duration::from_millis(100)).await;
+    b.host.put_cursor(0, 300);
+    wait_until("b crosses once the pointer has left the edge", || b.host.capturing() && a.link.view().controlled_by.as_deref() == Some("Laptop")).await;
+}
+
+/// The hand-back steps the pointer off the edge. Posted mouse events still applied on the controlled computer can put it
+/// back on that edge straight after: it is stepped off a second time, about 150 ms after the first step.
+#[tokio::test(start_paused = true)]
+async fn a_pointer_put_back_on_the_edge_after_the_step_off_is_stepped_off_again() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    a.host.put_cursor(1919, 300);
+    wait_until("crossed", || a.host.capturing()).await;
+    for _ in 0..8 {
+        a.host.person(Capture::Motion { dx: -30, dy: 0 });
+        sleep(Duration::from_millis(5)).await;
+    }
+    wait_until("a is home", || !a.host.capturing()).await;
+    assert_eq!(b.link.view().controlled_by, None);
+    // The first step-off has happened: b's pointer is INSET (6) inside its left edge.
+    let moves_before = b.host.with(|s| s.moves.len());
+    b.host.put_cursor(0, 300);
+    sleep(Duration::from_millis(300)).await;
+    let moved = b.host.with(|s| s.moves[moves_before..].to_vec());
+    assert_eq!(moved, vec![(6, 300)], "the pointer on the edge after the step-off was not stepped off again");
+    assert_eq!(b.host.cursor(), (6, 300));
+}
+
+/// A person moves the mouse of the computer that is being controlled: it takes the mouse back, the other computer comes
+/// home, and nothing is left held.
+#[tokio::test(start_paused = true)]
+async fn a_person_using_the_controlled_computer_takes_the_mouse_back() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    b.host.put_cursor(500, 500);
+    sleep(Duration::from_millis(300)).await;
+    assert_eq!(b.link.view().controlled_by, None, "b kept a pointer a person moved");
+    assert!(!a.host.capturing(), "a is still holding the mouse");
+    assert!(log_text(&log).contains("desk: taking the mouse back: this computer is being used locally"), "{}", log_text(&log));
+}
+
+/// Motion from the other computer is the pointer's own movement: a jump that comes with it does not take the mouse back.
+#[tokio::test(start_paused = true)]
+async fn remote_motion_keeps_the_pointer_here_even_when_it_jumps() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    b.host.put_cursor(500, 500);
+    for _ in 0..15 {
+        a.host.person(Capture::Motion { dx: 1, dy: 0 });
+        sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(b.link.view().controlled_by.as_deref(), Some("Ren-PC"));
+    assert!(a.host.capturing());
+}
+
+/// A button held on this computer, which the other computer did not press, takes the mouse back.
+#[tokio::test(start_paused = true)]
+async fn a_button_held_here_takes_the_mouse_back() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    b.host.with(|s| s.buttons_down = true);
+    sleep(Duration::from_millis(300)).await;
+    assert_eq!(b.link.view().controlled_by, None);
+    assert!(!a.host.capturing());
+}
+
+/// A button the other computer pressed is held on this computer too: that one does not count as a person here.
+#[tokio::test(start_paused = true)]
+async fn a_button_pressed_by_the_other_computer_does_not_take_the_mouse_back() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    a.host.person(Capture::Button { button: 0, down: true });
+    wait_until("button held there", || b.host.with(|s| s.held_buttons.contains(&0))).await;
+    b.host.with(|s| s.buttons_down = true);
+    sleep(Duration::from_millis(300)).await;
+    assert_eq!(b.link.view().controlled_by.as_deref(), Some("Ren-PC"));
+    assert!(a.host.capturing());
 }
 
 /// While a pointer rests on an edge that faces a connected computer, the log says why it does not cross, at most once a
@@ -1103,6 +1189,9 @@ async fn crossing_there_and_back_after_every_swap_of_sides_never_sticks() {
             "top" => ((600, 0), (0, 30)),
             _ => ((600, 1079), (0, -30)),
         };
+        // The pointer comes back inside the edge; it must leave the edge before it may cross again.
+        a.host.put_cursor(960, 540);
+        sleep(Duration::from_millis(30)).await;
         a.host.put_cursor(edge.0, edge.1);
         wait_until(&format!("round {i} ({side}): crossed"), || a.host.capturing() && b.link.view().devices[0].controls_me).await;
         for _ in 0..8 {
