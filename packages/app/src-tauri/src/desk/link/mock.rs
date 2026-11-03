@@ -8,7 +8,7 @@ use tokio::time::Instant;
 
 use super::super::host::DisplayInfo;
 use super::geometry::union;
-use super::remote::{Capture, CaptureSink, ClipItem, Inject, RemoteHost};
+use super::remote::{Capture, CaptureSink, ClipItem, Inject, PointerMove, PointerSink, RemoteHost};
 
 #[derive(Default)]
 pub struct MockState {
@@ -34,6 +34,12 @@ pub struct MockState {
     pub refuse_control: Option<String>,
     /// What `inject` says while set (input that stopped working mid-way).
     pub fail_inject: Option<String>,
+    /// Whether this pretend computer can watch its pointer (`watch_pointer`). Off: the hub polls the pointer.
+    pub watch_ok: bool,
+    /// The watch's sink while a watch is on.
+    pub pointer_sink: Option<PointerSink>,
+    pub watches: u32,
+    pub unwatches: u32,
 }
 
 #[derive(Clone)]
@@ -74,6 +80,22 @@ impl MockRemote {
 
     pub fn held_keys(&self) -> BTreeSet<u16> {
         self.with(|s| s.held_keys.clone())
+    }
+
+    /// The person moves the local pointer to (x, y), `dx`, `dy` being the move: the pointer is there, and a watch (if one
+    /// is on) reports the move. Returns whether it was reported.
+    pub fn feed_pointer(&self, x: i32, y: i32, dx: i32, dy: i32) -> bool {
+        let sink = self.with(|s| {
+            s.cursor = (x, y);
+            s.pointer_sink.clone()
+        });
+        match sink {
+            Some(sink) => {
+                sink(PointerMove { x, y, dx, dy });
+                true
+            }
+            None => false,
+        }
     }
 
     /// The person does something while the pointer is away; delivered to the capture sink if one is installed.
@@ -196,6 +218,25 @@ impl RemoteHost for MockRemote {
         self.with(|s| {
             if s.capture.take().is_some() {
                 s.captures_stopped += 1;
+            }
+        });
+    }
+
+    fn watch_pointer(&self, sink: PointerSink) -> Result<(), String> {
+        self.with(|s| {
+            if !s.watch_ok {
+                return Err("unsupported".to_string());
+            }
+            s.pointer_sink = Some(sink);
+            s.watches += 1;
+            Ok(())
+        })
+    }
+
+    fn unwatch_pointer(&self) {
+        self.with(|s| {
+            if s.pointer_sink.take().is_some() {
+                s.unwatches += 1;
             }
         });
     }

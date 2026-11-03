@@ -595,6 +595,237 @@ async fn twenty_round_trips_leave_no_state_behind() {
     assert_eq!(a.link.view().error, None);
 }
 
+// ----- the pointer watch: the host reports every local move; the 10 ms poll is only the fallback -----
+
+/// The person moves the local pointer of `p` from `from` to `to`: reported by the watch when it is on, otherwise a plain
+/// move that the poll finds.
+fn person_moves(p: &Pc, watched: bool, from: (i32, i32), to: (i32, i32)) {
+    if watched {
+        p.host.feed_pointer(to.0, to.1, to.0 - from.0, to.1 - from.1);
+    } else {
+        p.host.put_cursor(to.0, to.1);
+    }
+}
+
+/// The watch is on exactly while a computer is linked, and it is taken down when the link ends.
+#[tokio::test(start_paused = true)]
+async fn the_hub_watches_the_pointer_only_while_a_link_is_live() {
+    let (_net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    assert_eq!(a.host.with(|s| s.watches), 0, "no link, no watch");
+    up(&a, &b).await;
+    wait_until("watch on", || a.host.with(|s| s.watches) == 1).await;
+    assert!(a.host.with(|s| s.pointer_sink.is_some()));
+    a.link.stop();
+    wait_until("watch off", || a.host.with(|s| s.unwatches) == 1).await;
+    assert!(a.host.with(|s| s.pointer_sink.is_none()));
+}
+
+/// The first outward move on the edge crosses at once, and the log says the move came from the watch.
+#[tokio::test(start_paused = true)]
+async fn the_first_outward_move_on_the_edge_crosses_and_the_log_says_it_came_from_the_watch() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    up(&a, &b).await;
+    a.host.feed_pointer(960, 540, 0, 0);
+    sleep(Duration::from_millis(30)).await;
+    assert!(a.host.feed_pointer(1919, 540, 959, 0));
+    wait_until("crossed on the first move", || a.host.capturing() && b.link.view().controlled_by.is_some()).await;
+    assert!(log_text(&log).contains("by=\"event\""), "{}", log_text(&log));
+    assert!(!log_text(&log).contains("by=\"poll\""), "the poll must not decide while the watch is on");
+}
+
+/// Resting on the edge does not cross, and an inward move along the edge does not either.
+#[tokio::test(start_paused = true)]
+async fn resting_on_the_edge_and_an_inward_move_on_it_do_not_cross() {
+    let (_net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    up(&a, &b).await;
+    a.host.feed_pointer(1919, 540, 0, 0);
+    sleep(Duration::from_millis(200)).await;
+    assert!(!a.host.capturing(), "resting on the edge crossed");
+    a.host.feed_pointer(1919, 540, -5, 0);
+    sleep(Duration::from_millis(200)).await;
+    assert!(!a.host.capturing(), "an inward move on the edge crossed");
+    assert_eq!(b.link.view().controlled_by, None);
+}
+
+/// After a hand-back the pointer sits on the exact edge pixel the other computer pushed it back to, and the next outward
+/// move crosses again at once.
+#[tokio::test(start_paused = true)]
+async fn after_a_hand_back_an_outward_move_crosses_again_at_once() {
+    let (_net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    up(&a, &b).await;
+    a.host.feed_pointer(1919, 300, 959, 0);
+    wait_until("crossed", || a.host.capturing()).await;
+    a.host.person(Capture::Motion { dx: -30, dy: 0 });
+    wait_until("home", || !a.host.capturing()).await;
+    assert_eq!(a.host.cursor(), (1919, 300), "the exact edge pixel the other computer sent it back to");
+    assert!(a.host.feed_pointer(1919, 300, 5, 0));
+    wait_until("crosses again", || a.host.capturing() && b.link.view().controlled_by.is_some()).await;
+}
+
+/// Leave, a stall and the panic key bring the pointer home without moving it: it stays where it was.
+#[tokio::test(start_paused = true)]
+async fn leave_stall_and_panic_do_not_move_the_pointer() {
+    // The other computer lets go (its pause): a Leave comes back.
+    let (_net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    up(&a, &b).await;
+    a.host.feed_pointer(1919, 540, 959, 0);
+    wait_until("crossed", || a.host.capturing()).await;
+    let moves = a.host.with(|s| s.moves.len());
+    b.link.pause(true);
+    wait_until("home on leave", || !a.host.capturing()).await;
+    assert_eq!((a.host.with(|s| s.moves.len()), a.host.cursor()), (moves, (1919, 540)), "leave moved the pointer");
+
+    // The other computer goes quiet.
+    let (net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    up(&a, &b).await;
+    a.host.feed_pointer(1919, 540, 959, 0);
+    wait_until("crossed", || a.host.capturing()).await;
+    let moves = a.host.with(|s| s.moves.len());
+    net.blackhole(a.id, b.id, true);
+    wait_until("home on stall", || !a.host.capturing()).await;
+    assert_eq!((a.host.with(|s| s.moves.len()), a.host.cursor()), (moves, (1919, 540)), "a stall moved the pointer");
+
+    // The panic key, pressed here while the pointer is away.
+    let (_net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    up(&a, &b).await;
+    a.host.feed_pointer(1919, 540, 959, 0);
+    wait_until("crossed", || a.host.capturing()).await;
+    let moves = a.host.with(|s| s.moves.len());
+    a.host.person(Capture::Key { hid: 0xE0, down: true });
+    a.host.person(Capture::Key { hid: 0xE2, down: true });
+    a.host.person(Capture::Key { hid: 0x29, down: true });
+    wait_until("home on panic", || !a.host.capturing()).await;
+    assert_eq!((a.host.with(|s| s.moves.len()), a.host.cursor()), (moves, (1919, 540)), "panic moved the pointer");
+}
+
+/// A computer that says no sends the pointer home without moving it, and the sender does not push at it again for two
+/// seconds.
+#[tokio::test(start_paused = true)]
+async fn a_refusal_is_a_two_second_back_off_and_moves_nothing() {
+    let (_net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    b.host.with(|s| s.refuse_control = Some("no Accessibility".into()));
+    up(&a, &b).await;
+    a.host.feed_pointer(1919, 540, 959, 0);
+    wait_until("refused", || a.link.view().error.is_some() && !a.host.capturing()).await;
+    assert_eq!(a.host.with(|s| s.moves.len()), 0, "the refusal moved the pointer");
+    assert_eq!(a.host.with(|s| s.captures_started), 1);
+    // Pushing again inside the pause does nothing.
+    a.host.feed_pointer(960, 540, -959, 0);
+    sleep(Duration::from_millis(500)).await;
+    a.host.feed_pointer(1919, 540, 959, 0);
+    sleep(Duration::from_millis(500)).await;
+    assert_eq!(a.host.with(|s| s.captures_started), 1, "tried again inside the two seconds");
+    // After the pause, with the other computer fixed, the next outward move crosses.
+    b.host.with(|s| s.refuse_control = None);
+    sleep(Duration::from_millis(1_500)).await;
+    a.host.feed_pointer(960, 540, -959, 0);
+    a.host.feed_pointer(1919, 540, 959, 0);
+    wait_until("crosses after the pause", || a.host.capturing()).await;
+}
+
+/// A button held here does not let the pointer cross, however far it is pushed; once it is let go, a push crosses.
+#[tokio::test(start_paused = true)]
+async fn a_held_button_does_not_cross_when_the_pointer_is_watched() {
+    let (_net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    up(&a, &b).await;
+    a.host.with(|s| s.buttons_down = true);
+    a.host.feed_pointer(1919, 540, 959, 0);
+    sleep(Duration::from_millis(300)).await;
+    assert!(!a.host.capturing(), "a button held here crossed");
+    a.host.with(|s| s.buttons_down = false);
+    a.host.feed_pointer(960, 540, -959, 0);
+    a.host.feed_pointer(1919, 540, 959, 0);
+    wait_until("crosses once the button is up", || a.host.capturing()).await;
+}
+
+/// The same moves, with the watch on and with the poll only, make the same decisions: a resting pointer does not cross,
+/// and an outward move does.
+async fn decisions(watched: bool) -> Vec<bool> {
+    let (_net, a, b) = together();
+    if watched {
+        a.host.with(|s| s.watch_ok = true);
+    }
+    // The pointer rests on the edge before the link comes up.
+    a.host.put_cursor(1919, 540);
+    up(&a, &b).await;
+    let mut out = Vec::new();
+    sleep(Duration::from_millis(300)).await;
+    out.push(a.host.capturing());
+    person_moves(&a, watched, (1919, 540), (960, 540));
+    sleep(Duration::from_millis(30)).await;
+    person_moves(&a, watched, (960, 540), (1919, 540));
+    sleep(Duration::from_millis(300)).await;
+    out.push(a.host.capturing());
+    out
+}
+
+/// The watch and the fallback poll decide the same way.
+#[tokio::test(start_paused = true)]
+async fn the_watch_and_the_fallback_poll_make_the_same_decisions() {
+    let polled = decisions(false).await;
+    let watched = decisions(true).await;
+    assert_eq!(polled, vec![false, true]);
+    assert_eq!(watched, polled);
+}
+
+/// Ten crossings each with the watch on: jitter, clicks, keys and wheel in between. The pointer never comes home without
+/// a push, nothing is left held, and resting on the edge after each return does not cross again.
+#[tokio::test(start_paused = true)]
+async fn ten_crossings_with_jitter_clicks_and_keys_in_between_never_return_unasked() {
+    let (_net, a, b) = together();
+    a.host.with(|s| s.watch_ok = true);
+    b.host.with(|s| s.watch_ok = true);
+    up(&a, &b).await;
+    let mut seed: u32 = 4_242;
+    let mut jitter = move || {
+        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        ((seed >> 16) % 7) as i32 - 3
+    };
+    for round in 0..10 {
+        // Off the edge first, then outward through it.
+        a.host.feed_pointer(960, 540, -959, 0);
+        sleep(Duration::from_millis(20)).await;
+        a.host.feed_pointer(1919, 540, 959, 0);
+        wait_until(&format!("round {round}: crossed"), || a.host.capturing() && b.link.view().controlled_by.is_some()).await;
+        // Well inside the other computer, then jitter, clicks, keys and wheel.
+        a.host.person(Capture::Motion { dx: 400, dy: 0 });
+        for _ in 0..50 {
+            let (dx, dy) = (jitter(), jitter());
+            a.host.person(Capture::Motion { dx, dy });
+        }
+        for _ in 0..10 {
+            a.host.person(Capture::Button { button: 0, down: true });
+            a.host.person(Capture::Button { button: 0, down: false });
+        }
+        for _ in 0..10 {
+            a.host.person(Capture::Key { hid: 0x04, down: true });
+            a.host.person(Capture::Key { hid: 0x04, down: false });
+        }
+        a.host.person(Capture::Wheel { dx: 0, dy: -120 });
+        sleep(Duration::from_millis(300)).await;
+        assert!(a.host.capturing(), "round {round}: the pointer came home without a push");
+        assert_eq!(b.link.view().controlled_by.as_deref(), Some("Ren-PC"), "round {round}: let go without a push");
+        // One outward push through the other computer's left edge: home.
+        a.host.person(Capture::Motion { dx: -600, dy: 0 });
+        wait_until(&format!("round {round}: home"), || !a.host.capturing() && b.link.view().controlled_by.is_none()).await;
+        assert!(b.host.held_keys().is_empty(), "round {round}: a key was left held");
+        // Resting on the edge after the return does not cross again.
+        sleep(Duration::from_millis(200)).await;
+        assert!(!a.host.capturing(), "round {round}: crossed again while resting");
+    }
+    assert_eq!(a.link.view().error, None);
+}
+
 #[tokio::test(start_paused = true)]
 async fn the_layout_decides_which_edge_crosses() {
     let (_net, a, b) = together();

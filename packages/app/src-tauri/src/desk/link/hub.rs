@@ -28,7 +28,7 @@ use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
 use super::crossing::{self, ARRIVAL_INSET};
 use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
 use super::ratelog::RateLimit;
-use super::remote::{Capture, Inject};
+use super::remote::{Capture, Inject, PointerMove, PointerSink};
 use super::pointer_speed::PointerSpeed;
 use super::{clip_link, io, Inner, CLOSE_REPLACED, CLOSE_STOPPED};
 use crate::desk::host::DisplayInfo;
@@ -83,6 +83,8 @@ pub enum Msg {
     ReturnHome,
     Panic,
     Kick,
+    /// A local pointer move, reported by the pointer watch (`RemoteHost::watch_pointer`): where it is, and the move.
+    LocalMotion { x: i32, y: i32, dx: i32, dy: i32 },
     /// The placement of a computer changed here: tell the linked computers.
     LayoutChanged,
     Shutdown,
@@ -222,6 +224,10 @@ pub struct Hub {
     origin: (i32, i32),
     /// Where the pointer was last seen or put by this computer: the basis of the motion each look is judged by.
     last_look: Option<(i32, i32)>,
+    /// The pointer is watched (its moves arrive as `LocalMotion`), so the 10 ms poll is only the fallback.
+    watching: bool,
+    /// A watch was asked for while the current links were up: not asked again until they are gone.
+    watch_asked: bool,
     /// A computer that said no to the pointer, and until when it is not tried again.
     refused_until: HashMap<NodeId, u64>,
     /// Keeps "desk: not crossing" to one line a second for each reason.
@@ -250,6 +256,8 @@ impl Hub {
             shapes: Vec::new(),
             origin: (0, 0),
             last_look: None,
+            watching: false,
+            watch_asked: false,
             refused_until: HashMap::new(),
             not_crossing: RateLimit::new(NOT_CROSSING_EVERY_MS),
             upkeeps: 0,
@@ -343,7 +351,7 @@ impl Hub {
 
     fn on_msg(&mut self, msg: Msg) {
         // Motion changes what the page shows only when it moves the pointer on or off a computer.
-        let motion = matches!(msg, Msg::Motion { .. } | Msg::Capture(Capture::Motion { .. }));
+        let motion = matches!(msg, Msg::Motion { .. } | Msg::Capture(Capture::Motion { .. }) | Msg::LocalMotion { .. });
         let shown = self.shown();
         match msg {
             Msg::Handshaking { peer, on } => {
@@ -399,8 +407,10 @@ impl Hub {
             Msg::ReturnHome => self.return_home(),
             Msg::Kick => self.upkeep(),
             Msg::LayoutChanged => self.send_layouts(),
+            Msg::LocalMotion { x, y, dx, dy } => self.on_local_motion((x, y), (dx, dy)),
             Msg::Shutdown => {}
         }
+        self.sync_watch();
         if !motion {
             self.publish();
         } else if self.shown() != shown {
@@ -446,8 +456,50 @@ impl Hub {
 
     // ---- the edge ----------------------------------------------------------------------------------------
 
+    /// Watches the local pointer while a computer is linked and Labs is on (`RemoteHost::watch_pointer`); stops when
+    /// that ends. Asked once per linked period: a host that cannot watch keeps the poll for that period.
+    fn sync_watch(&mut self) {
+        let want = self.inner.labs() && !self.live.is_empty();
+        if !want {
+            if self.watching {
+                self.inner.host.unwatch_pointer();
+                self.watching = false;
+            }
+            self.watch_asked = false;
+            return;
+        }
+        if self.watching || self.watch_asked {
+            return;
+        }
+        self.watch_asked = true;
+        let tx = self.tx.clone();
+        let sink: PointerSink = Arc::new(move |m: PointerMove| {
+            let _ = tx.send(Msg::LocalMotion { x: m.x, y: m.y, dx: m.dx, dy: m.dy });
+        });
+        match self.inner.host.watch_pointer(sink) {
+            Ok(()) => {
+                self.watching = true;
+                tracing::info!("desk: pointer watch on");
+            }
+            Err(why) => tracing::info!(reason = why.as_str(), "desk: pointer watch unavailable, polling"),
+        }
+    }
+
+    /// A local pointer move from the watch: judged like a poll look, with the move the watch reports.
+    fn on_local_motion(&mut self, pos: (i32, i32), delta: (i32, i32)) {
+        if !self.watching || !self.inner.labs() {
+            return;
+        }
+        self.last_look = Some(pos);
+        self.look_at_pointer(pos, delta, "event");
+    }
+
     fn poll_edge(&mut self) {
         self.flush_publish();
+        // With the watch on, the moves arrive as events (`on_local_motion`); the poll is only the fallback.
+        if self.watching {
+            return;
+        }
         if !self.inner.labs() {
             self.last_look = None;
             return;
@@ -455,13 +507,14 @@ impl Hub {
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
         let delta = self.last_look.map_or((0, 0), |p| (pos.0 - p.0, pos.1 - p.1));
         self.last_look = Some(pos);
-        self.look_at_pointer(pos, delta);
+        self.look_at_pointer(pos, delta, "poll");
     }
 
-    /// The pointer was seen at `pos`, `delta` away from where it was last seen. It crosses on this look when it was
-    /// pushed through an edge that faces a linked computer (`crossing::pushed_through`): one outward look, no dwell.
-    /// A pointer resting on an edge, or moved inward along it, does not cross.
-    fn look_at_pointer(&mut self, pos: (i32, i32), delta: (i32, i32)) {
+    /// The pointer was seen at `pos`, `delta` away from where it was last seen (`by`: "event" from the watch, "poll").
+    /// It crosses on this look when it was pushed through an edge that faces a linked computer
+    /// (`crossing::pushed_through`): one outward look, no dwell. A pointer resting on an edge, or moved inward along
+    /// it, does not cross.
+    fn look_at_pointer(&mut self, pos: (i32, i32), delta: (i32, i32), by: &'static str) {
         let now = self.ms();
         self.refused_until.retain(|_, until| *until > now);
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
@@ -515,7 +568,7 @@ impl Hub {
         if self.inner.host.buttons_held() {
             return self.say_not_crossing(Block::ButtonHeld(peer));
         }
-        if self.cross_to(peer, &dep, pos) {
+        if self.cross_to(peer, &dep, pos, by) {
             self.publish();
         }
     }
@@ -528,7 +581,7 @@ impl Hub {
         }
     }
 
-    fn cross_to(&mut self, peer: NodeId, dep: &arrange::Departure, pos: (i32, i32)) -> bool {
+    fn cross_to(&mut self, peer: NodeId, dep: &arrange::Departure, pos: (i32, i32), by: &'static str) -> bool {
         let side = dep.side;
         if !self.inner.input_allowed(&peer) || self.inner.host.buttons_held() {
             return false;
@@ -553,7 +606,7 @@ impl Hub {
         self.control.handle(ControlEvent::CrossTo { peer: desk_core::DeviceId(peer.to_hex()), button_held: false });
         self.remote = Some(Remote { peer, home, side });
         self.error = None;
-        tracing::info!(peer = short(&peer).as_str(), side = side_name(side), "desk: the pointer left for another computer");
+        tracing::info!(peer = short(&peer).as_str(), side = side_name(side), by, "desk: the pointer left for another computer");
         clip_link::spawn_send(&self.inner, peer);
         true
     }
@@ -610,11 +663,14 @@ impl Hub {
         }
         self.inner.host.stop_capture();
         self.chords = Chords::default();
-        let target = arrival.unwrap_or(r.home);
-        if let Err(e) = self.inner.host.move_cursor(target.0, target.1) {
-            self.fail(&format!("Could not move the pointer back: {e}"));
+        // Only a hand-back puts the pointer on the exact point it came back to. Every other way home (leave, stall, the
+        // link ending, a hotkey, panic, pause, a refusal) leaves the pointer where it is: nothing is moved.
+        if let Some(at) = arrival {
+            if let Err(e) = self.inner.host.move_cursor(at.0, at.1) {
+                self.fail(&format!("Could not move the pointer back: {e}"));
+            }
         }
-        self.last_look = Some(target);
+        self.last_look = self.inner.host.cursor_pos().ok();
         self.inner.set_emergency(false, r.home);
     }
 
@@ -953,6 +1009,10 @@ impl Hub {
         self.go_home(None, Home::Ended);
         self.release_controlled();
         self.inner.host.stop_capture();
+        if self.watching {
+            self.inner.host.unwatch_pointer();
+            self.watching = false;
+        }
         for (_, l) in self.live.drain() {
             l.link.close(CLOSE_STOPPED, "bye");
         }

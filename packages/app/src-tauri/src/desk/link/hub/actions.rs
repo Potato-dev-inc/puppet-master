@@ -45,7 +45,7 @@ impl Hub {
             }
         }
         let Some(dep) = dep else { return self.fail(&format!("{name} is not next to any of this computer's screens in the layout")) };
-        if !self.cross_to(peer, &dep, pos) && self.error.is_none() {
+        if !self.cross_to(peer, &dep, pos, "hotkey") && self.error.is_none() {
             self.fail(&format!("Could not move the mouse to {name} (a button may be held, or its mouse switch is off)"));
         }
     }

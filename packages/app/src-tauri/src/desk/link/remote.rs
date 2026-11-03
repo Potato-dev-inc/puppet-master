@@ -30,6 +30,18 @@ pub enum Capture {
 /// Called on the capture thread, so it must never block.
 pub type CaptureSink = Arc<dyn Fn(Capture) + Send + Sync>;
 
+/// One local pointer move on this computer, as a watch reports it: where the pointer is now, and how far it moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PointerMove {
+    pub x: i32,
+    pub y: i32,
+    pub dx: i32,
+    pub dy: i32,
+}
+
+/// Called for every local pointer move while watched. Called on the watch's own thread, so it must never block.
+pub type PointerSink = Arc<dyn Fn(PointerMove) + Send + Sync>;
+
 /// What travels with a copy. Text and one image; files come later (DL-10).
 #[derive(Clone, PartialEq, Eq)]
 pub enum ClipItem {
@@ -89,6 +101,14 @@ pub trait RemoteHost: Send + Sync {
     fn start_capture(&self, sink: CaptureSink, exit: (i32, i32)) -> Result<(), String>;
     /// Give the pointer and keyboard back. Does not move the pointer. Safe to call when not capturing.
     fn stop_capture(&self);
+
+    /// Report every local pointer move to `sink` until `unwatch_pointer`: the hub decides crossings from those moves.
+    /// A system that cannot watch says so with an error, and the hub looks at the pointer on a 10 ms poll instead.
+    fn watch_pointer(&self, _sink: PointerSink) -> Result<(), String> {
+        Err("unsupported".into())
+    }
+    /// Stop reporting local moves. Safe to call when not watching.
+    fn unwatch_pointer(&self) {}
 
     fn clipboard_read(&self) -> Result<Vec<ClipItem>, String>;
     fn clipboard_write(&self, items: &[ClipItem]) -> Result<(), String>;
