@@ -241,9 +241,11 @@ fn the_hook_is_installed_only_on_its_own_named_thread() {
 #[test]
 fn the_capture_hooks_are_installed_only_on_their_own_named_thread() {
     let text = code_only(&read(&tauri_src().join("desk").join("os").join("windows").join("capture.rs")));
-    assert_eq!(text.matches("SetWindowsHookExW(").count(), 2, "one mouse hook and one keyboard hook");
+    assert_eq!(text.matches("SetWindowsHookExW(").count(), 3, "capture: one mouse and one keyboard hook; watch: one mouse hook");
     let spawn = text.find("thread::Builder::new().name(\"desk-capture\"").expect("a named capture thread");
     assert!(spawn < text.find("SetWindowsHookExW(").unwrap());
+    let watch = text.find("thread::Builder::new().name(\"desk-watch\"").expect("a named watch thread");
+    assert!(watch < text.find("SetWindowsHookExW(WH_MOUSE_LL, Some(watch_proc)").unwrap());
     assert!(text.contains("GetMessageW"));
     let callbacks = &text[text.find("unsafe extern \"system\" fn mouse_proc").unwrap()..];
     assert!(!callbacks.contains(".lock()"), "capture callbacks use try_lock only");

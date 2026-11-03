@@ -24,7 +24,7 @@ use super::{capture, clipboard, cursor, display};
 use crate::desk::host::DisplayInfo;
 use crate::desk::link::park::{park_point, PARK_SPAN};
 use crate::desk::link::release;
-use crate::desk::link::remote::{CaptureSink, ClipItem, Inject, RemoteHost};
+use crate::desk::link::remote::{CaptureSink, ClipItem, Inject, PointerSink, RemoteHost};
 
 #[derive(Default)]
 struct Held {
@@ -34,13 +34,14 @@ struct Held {
 
 pub struct WindowsRemote {
     capture: Mutex<Option<capture::CaptureHook>>,
+    watch: Mutex<Option<capture::WatchHook>>,
     held: Mutex<Held>,
 }
 
 impl WindowsRemote {
     /// No side effects: no hook, no key press, no clipboard access.
     pub fn new() -> Self {
-        Self { capture: Mutex::new(None), held: Mutex::new(Held::default()) }
+        Self { capture: Mutex::new(None), watch: Mutex::new(None), held: Mutex::new(Held::default()) }
     }
 }
 
@@ -215,6 +216,22 @@ impl RemoteHost for WindowsRemote {
         // here a Ctrl-click or Alt-click. Release those (the same rule the old app applied when remote mode ended).
         for vk in release::modifiers_to_release(&modifiers_logically_down(), &modifiers_physically_down()) {
             let _ = send(&[key_input(vk, false)]);
+        }
+    }
+
+    fn watch_pointer(&self, sink: PointerSink) -> Result<(), String> {
+        let mut slot = self.watch.lock().unwrap_or_else(|p| p.into_inner());
+        if slot.is_some() {
+            return Ok(());
+        }
+        *slot = Some(capture::start_watch(sink)?);
+        Ok(())
+    }
+
+    fn unwatch_pointer(&self) {
+        let hook = self.watch.lock().unwrap_or_else(|p| p.into_inner()).take();
+        if let Some(hook) = hook {
+            hook.stop();
         }
     }
 

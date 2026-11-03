@@ -10,8 +10,15 @@
 //! Fixed against DevHop: a key that was already down when the pointer left, and whose release was swallowed here,
 //! is released again on `stop`, so the local keyboard is never left with a key stuck down. Callbacks never wait: a
 //! busy lock lets the event through, and the sink only queues.
+//!
+//! Two modes share this file and never mix. Pass-through (the watch, `start_watch`): one low-level mouse hook reports
+//! every local move and lets it through. Remote (`start`): the mouse and keyboard are swallowed and the pointer is
+//! parked. `REMOTE_MODE` says which one is on; the watch reports nothing while remote mode is on, and starts its
+//! deltas afresh after every change of mode (`REMOTE_EPOCH`), so the first local move after a release is never a
+//! jump from the park point.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -29,7 +36,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::dpi::DpiScope;
-use crate::desk::link::remote::{Capture, CaptureSink};
+use crate::desk::link::remote::{Capture, CaptureSink, PointerMove, PointerSink};
 
 const LLMHF_INJECTED: u32 = 1;
 /// A position further than this from the park point is not a mouse move (it was queued before the pointer was
@@ -54,6 +61,16 @@ struct Ctx {
 
 static ACTIVE: ArcSwapOption<Ctx> = ArcSwapOption::const_empty();
 
+/// True from the start of a capture until its stop: the mouse is parked and swallowed.
+static REMOTE_MODE: AtomicBool = AtomicBool::new(false);
+/// Counts every change of remote mode. The watch starts its deltas afresh when it changes.
+static REMOTE_EPOCH: AtomicU32 = AtomicU32::new(0);
+
+fn set_remote_mode(on: bool) {
+    REMOTE_MODE.store(on, Ordering::SeqCst);
+    REMOTE_EPOCH.fetch_add(1, Ordering::SeqCst);
+}
+
 pub struct CaptureHook {
     thread_id: u32,
     join: JoinHandle<()>,
@@ -69,6 +86,15 @@ pub fn start(sink: CaptureSink, park: (i32, i32)) -> Result<CaptureHook, String>
     if ACTIVE.load().is_some() {
         return Err("the mouse is already taken".into());
     }
+    set_remote_mode(true);
+    let result = start_hooks(sink, park);
+    if result.is_err() {
+        set_remote_mode(false);
+    }
+    result
+}
+
+fn start_hooks(sink: CaptureSink, park: (i32, i32)) -> Result<CaptureHook, String> {
     let down_at_start: BTreeSet<u16> = (0x08u16..=0xFE).filter(|vk| key_down(*vk)).collect();
     let ctx = Arc::new(Ctx { sink, park, down_at_start, swallowed_ups: Mutex::new(BTreeSet::new()) });
     ACTIVE.store(Some(ctx.clone()));
@@ -127,6 +153,7 @@ impl CaptureHook {
     /// Ends the hooks and waits for the thread. Returns the virtual keys that were down when the pointer left and
     /// were let go meanwhile: their release never reached this computer and must be sent now.
     pub fn stop(self) -> Vec<u16> {
+        set_remote_mode(false);
         ACTIVE.store(None);
         // SAFETY: plain call to the capture thread's id.
         unsafe {
@@ -135,6 +162,140 @@ impl CaptureHook {
         let _ = self.join.join();
         self.ctx.swallowed_ups.lock().map(|s| s.iter().copied().collect()).unwrap_or_default()
     }
+}
+
+/// The pass-through watch's state: the last point it reported, and the remote epoch that point belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct WatchTrack {
+    last: Option<(i32, i32)>,
+    epoch: u32,
+}
+
+impl WatchTrack {
+    const FRESH: Self = Self { last: None, epoch: 0 };
+}
+
+/// One non-injected mouse move at `pt`, seen by the watch. Returns the move to report (none while remote mode is on)
+/// and the new bookkeeping. The first move after a start or after any change of mode reports a delta of zero.
+pub(super) fn watch_step(track: WatchTrack, epoch: u32, remote: bool, pt: (i32, i32)) -> (Option<PointerMove>, WatchTrack) {
+    if remote {
+        return (None, WatchTrack { last: None, epoch });
+    }
+    let last = if track.epoch == epoch { track.last } else { None };
+    let (dx, dy) = match last {
+        Some((x, y)) => (pt.0 - x, pt.1 - y),
+        None => (0, 0),
+    };
+    (Some(PointerMove { x: pt.0, y: pt.1, dx, dy }), WatchTrack { last: Some(pt), epoch })
+}
+
+struct WatchCtx {
+    sink: PointerSink,
+}
+
+static WATCH: ArcSwapOption<WatchCtx> = ArcSwapOption::const_empty();
+/// Only the watch's own hook thread reads or writes this, from its callback (try_lock) or from `start_watch`.
+static WATCH_TRACK: Mutex<WatchTrack> = Mutex::new(WatchTrack::FRESH);
+
+/// A running pass-through watch: its own thread and its own message loop.
+pub struct WatchHook {
+    thread_id: u32,
+    join: JoinHandle<()>,
+}
+
+pub fn start_watch(sink: PointerSink) -> Result<WatchHook, String> {
+    if WATCH.load().is_some() {
+        return Err("the pointer is already watched".into());
+    }
+    *WATCH_TRACK.lock().unwrap_or_else(|p| p.into_inner()) = WatchTrack::FRESH;
+    WATCH.store(Some(Arc::new(WatchCtx { sink })));
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
+    let spawned = thread::Builder::new().name("desk-watch".into()).spawn(move || {
+        let _dpi = DpiScope::new();
+        // SAFETY: the hook procedure is a plain function; this thread runs the message loop it needs.
+        unsafe {
+            match SetWindowsHookExW(WH_MOUSE_LL, Some(watch_proc), None, 0) {
+                Ok(hook) => {
+                    let _ = ready_tx.send(Ok(GetCurrentThreadId()));
+                    pump_messages();
+                    let _ = UnhookWindowsHookEx(hook);
+                }
+                Err(e) => {
+                    let _ = ready_tx.send(Err(format!("could not install the pointer watch: {e}")));
+                }
+            }
+        }
+    });
+    let join = match spawned {
+        Ok(j) => j,
+        Err(e) => {
+            WATCH.store(None);
+            return Err(e.to_string());
+        }
+    };
+    match ready_rx.recv_timeout(Duration::from_secs(2)) {
+        Ok(Ok(thread_id)) => Ok(WatchHook { thread_id, join }),
+        Ok(Err(e)) => {
+            WATCH.store(None);
+            let _ = join.join();
+            Err(e)
+        }
+        Err(_) => {
+            WATCH.store(None);
+            Err("the pointer watch did not start".into())
+        }
+    }
+}
+
+impl WatchHook {
+    /// Removes the hook and waits for its thread. Reports nothing after it returns.
+    pub fn stop(self) {
+        WATCH.store(None);
+        // SAFETY: plain call to the watch thread's id.
+        unsafe {
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+        }
+        let _ = self.join.join();
+    }
+}
+
+fn pump_messages() {
+    let mut msg = MSG::default();
+    // SAFETY: a plain message loop on the thread that installed the hook.
+    unsafe {
+        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
+/// Called from the watch callback: reports the move (if any) and lets nothing else happen. Never waits.
+fn report_local_move(pt: (i32, i32)) {
+    let Some(ctx) = WATCH.load_full() else {
+        return;
+    };
+    let Ok(mut track) = WATCH_TRACK.try_lock() else {
+        return;
+    };
+    let (next, now) = watch_step(*track, REMOTE_EPOCH.load(Ordering::SeqCst), REMOTE_MODE.load(Ordering::SeqCst), pt);
+    *track = now;
+    drop(track);
+    if let Some(m) = next {
+        (ctx.sink)(m);
+    }
+}
+
+unsafe extern "system" fn watch_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code < 0 {
+        return CallNextHookEx(None, code, wparam, lparam);
+    }
+    let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+    if wparam.0 as u32 == WM_MOUSEMOVE && info.flags & LLMHF_INJECTED == 0 {
+        report_local_move((info.pt.x, info.pt.y));
+    }
+    // The pass-through watch never swallows: the person's pointer moves as usual.
+    CallNextHookEx(None, code, wparam, lparam)
 }
 
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -218,5 +379,51 @@ mod tests {
         assert_eq!(motion_from_park((1919, 500), (1000, 500)), None);
         assert_eq!(motion_from_park((1000 + MAX_STEP, 500), (1000, 500)), Some((MAX_STEP, 0)));
         assert_eq!(motion_from_park((1000 + MAX_STEP + 1, 500), (1000, 500)), None);
+    }
+
+    fn fresh() -> WatchTrack {
+        WatchTrack::FRESH
+    }
+
+    #[test]
+    fn the_first_local_move_reports_no_delta() {
+        let (m, track) = watch_step(fresh(), 0, false, (500, 300));
+        assert_eq!(m, Some(PointerMove { x: 500, y: 300, dx: 0, dy: 0 }));
+        assert_eq!(track.last, Some((500, 300)));
+    }
+
+    #[test]
+    fn later_moves_report_the_distance_from_the_last_point() {
+        let (_, t1) = watch_step(fresh(), 0, false, (500, 300));
+        let (m, t2) = watch_step(t1, 0, false, (497, 310));
+        assert_eq!(m, Some(PointerMove { x: 497, y: 310, dx: -3, dy: 10 }));
+        let (m, _) = watch_step(t2, 0, false, (497, 310));
+        assert_eq!(m, Some(PointerMove { x: 497, y: 310, dx: 0, dy: 0 }));
+    }
+
+    #[test]
+    fn nothing_is_reported_while_remote_mode_is_on() {
+        let (_, t1) = watch_step(fresh(), 0, false, (500, 300));
+        let (m, t2) = watch_step(t1, 0, true, (1760, 540));
+        assert_eq!(m, None);
+        assert_eq!(t2.last, None);
+    }
+
+    #[test]
+    fn the_first_move_after_a_release_starts_fresh_and_never_jumps() {
+        // Local pointer last seen at (500, 300). A capture starts (epoch 1) and ends (epoch 2): the pointer is
+        // back at a far-away point. That first move must report no delta, not a jump from the park point or from
+        // the stale point before the capture.
+        let (_, t1) = watch_step(fresh(), 0, false, (500, 300));
+        let (_, t2) = watch_step(t1, 1, true, (1760, 540));
+        let (m, _) = watch_step(t2, 2, false, (1700, 540));
+        assert_eq!(m, Some(PointerMove { x: 1700, y: 540, dx: 0, dy: 0 }));
+    }
+
+    #[test]
+    fn a_stale_track_from_an_earlier_epoch_is_never_used() {
+        let stale = WatchTrack { last: Some((10, 10)), epoch: 1 };
+        let (m, _) = watch_step(stale, 2, false, (900, 900));
+        assert_eq!(m, Some(PointerMove { x: 900, y: 900, dx: 0, dy: 0 }));
     }
 }
