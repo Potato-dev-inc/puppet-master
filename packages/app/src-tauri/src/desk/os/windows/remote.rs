@@ -20,7 +20,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
 };
 
-use super::{capture, clipboard, cursor, display};
+use super::{capture, clipboard, cursor, cursor_lock, display};
 use crate::desk::host::DisplayInfo;
 use crate::desk::link::park::{park_point, PARK_SPAN};
 use crate::desk::link::release;
@@ -213,11 +213,15 @@ impl RemoteHost for WindowsRemote {
             end_hook(hook);
             return Err(e);
         }
+        // Clip the PC pointer around the park point (it is hidden later, after the first forwarded motion).
+        cursor_lock::engage(park, PARK_SPAN);
         *slot = Some(hook);
         Ok(())
     }
 
     fn stop_capture(&self) {
+        // Clip and hide go first, whatever state the capture is in; safe when nothing is engaged.
+        cursor_lock::release();
         let hook = self.capture.lock().unwrap_or_else(|p| p.into_inner()).take();
         if let Some(hook) = hook {
             end_hook(hook);

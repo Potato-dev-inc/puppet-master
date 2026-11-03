@@ -178,7 +178,11 @@ fn desk_has_no_network_code() {
 #[test]
 fn input_injection_and_capture_live_in_two_files_only() {
     let only_there = ["SendInput", "mouse_event", "keybd_event", "WH_MOUSE_LL", "WH_KEYBOARD_LL"];
-    let never = ["RegisterHotKey", "SetProcessDpiAwarenessContext", "SetProcessDPIAware", "ClipCursor", "ShowCursor", "BlockInput", "SetSystemCursor"];
+    // Clipping and hiding the PC pointer are allowed in one file only: os/windows/cursor_lock.rs, where the pointer is
+    // given back on every exit (see `the_pointer_lock_gives_the_pointer_back_on_every_exit`). Nothing else may replace
+    // the system cursors or block input, which could leave the person without a pointer.
+    let never = ["RegisterHotKey", "SetProcessDpiAwarenessContext", "SetProcessDPIAware", "BlockInput", "SetSystemCursor"];
+    let cursor_lock_only = ["ClipCursor", "ShowCursor"];
     let allowed = ["remote.rs", "capture.rs", "hook.rs"];
     for file in desk_shipped_files() {
         let text = code_only(&read(&file));
@@ -186,6 +190,9 @@ fn input_injection_and_capture_live_in_two_files_only() {
         let in_windows = file.to_string_lossy().replace('\\', "/").contains("/os/windows/");
         for word in never {
             assert!(!text.contains(word), "{} uses {word}", file.display());
+        }
+        for word in cursor_lock_only {
+            assert!(!text.contains(word) || (in_windows && name == "cursor_lock.rs"), "{} uses {word}: only os/windows/cursor_lock.rs may", file.display());
         }
         for word in only_there {
             if !(in_windows && allowed.contains(&name)) {
@@ -250,6 +257,49 @@ fn the_capture_hooks_are_installed_only_on_their_own_named_thread() {
     let callbacks = &text[text.find("unsafe extern \"system\" fn mouse_proc").unwrap()..];
     assert!(!callbacks.contains(".lock()"), "capture callbacks use try_lock only");
     assert!(!callbacks.contains("recv") && !callbacks.contains("sleep") && !callbacks.contains(".send("));
+}
+
+/// The PC pointer is clipped and hidden only by cursor_lock.rs, and it is given back on every way a capture can end:
+/// the capture's stop, the capture thread's exit, the watchdog, the panic hook and the lock's own drop. The hide happens
+/// only after a forwarded remote motion. Emergency and panic paths reach the release through `stop_capture`.
+#[test]
+fn the_pointer_lock_gives_the_pointer_back_on_every_exit() {
+    let windows = tauri_src().join("desk").join("os").join("windows");
+    let lock = code_only(&read(&windows.join("cursor_lock.rs")));
+    assert!(lock.contains("impl<O: CursorOps> Drop for CursorLock<O>"), "the lock gives the pointer back when dropped");
+    assert!(lock.contains("take_hook()") && lock.contains("set_hook("), "a panic hook gives the pointer back, chained to the previous hook");
+    assert!(lock.contains("fn panic_release") && lock.contains("ENGAGED.swap(false"), "the panic path acts only while engaged");
+    assert!(lock.contains("MAX_SHOW_CALLS"), "every ShowCursor loop is capped");
+    assert!(lock.contains("ClipCursor(None)") && lock.contains("ShowCursor(show)"));
+    assert!(!lock.contains("SetSystemCursor") && !lock.contains("BlockInput"));
+
+    let capture = code_only(&read(&windows.join("capture.rs")));
+    let thread_start = capture.find("name(\"desk-capture\"").expect("a named capture thread");
+    assert!(capture[thread_start..].contains("cursor_lock::release()"), "the capture thread gives the pointer back when it exits");
+    assert!(capture.contains("WM_TIMER") && capture.contains("watchdog()"), "the capture thread runs a watchdog");
+    let watchdog = &capture[capture.find("fn watchdog()").expect("the watchdog")..];
+    let watchdog = &watchdog[..watchdog.find("fn report_local_move").unwrap()];
+    assert!(watchdog.contains("!REMOTE_MODE") && watchdog.contains("cursor_lock::is_engaged()") && watchdog.contains("cursor_lock::release()"));
+    let mouse = &capture[capture.find("unsafe extern \"system\" fn mouse_proc").unwrap()..];
+    let mouse = &mouse[..mouse.find("unsafe extern \"system\" fn key_proc").unwrap()];
+    let forwarded = mouse.find("(ctx.sink)(e);").expect("the mouse forwards its events");
+    let hidden = mouse.find("cursor_lock::hide_after_first_motion()").expect("the pointer is hidden after a motion");
+    assert!(forwarded < hidden, "the pointer is hidden only after the motion was forwarded");
+
+    let remote = code_only(&read(&windows.join("remote.rs")));
+    let stop = &remote[remote.find("fn stop_capture").unwrap()..];
+    let stop = &stop[..stop.find("fn clipboard_read").unwrap()];
+    assert!(stop.contains("cursor_lock::release()"), "stop_capture gives the pointer back");
+    let start = &remote[remote.find("fn start_capture").unwrap()..];
+    let start = &start[..start.find("fn stop_capture").unwrap()];
+    assert!(start.contains("cursor_lock::engage(park, PARK_SPAN)"), "start_capture clips the pointer around the park point");
+    assert!(start.find("cursor::warp(park.0, park.1)").unwrap() < start.find("cursor_lock::engage").unwrap(), "clip after the warp");
+
+    // Emergency and panic paths end the capture through the host, which releases the pointer.
+    let link = code_only(&read(&tauri_src().join("desk").join("link").join("mod.rs")));
+    let emergency = &link[link.find("fn emergency_home").unwrap()..];
+    let emergency = &emergency[..emergency.find("fn set_clip_note").unwrap()];
+    assert!(emergency.contains("self.host.stop_capture()"), "emergency_home stops the capture, which gives the pointer back");
 }
 
 /// Files with behaviour taken from desktoplab say so on their first line.

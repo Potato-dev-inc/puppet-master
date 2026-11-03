@@ -4,8 +4,9 @@
 //! `stop`, never while the pointer is home.
 //!
 //! The pointer is held still at the park point near the edge it left by; motion is reported as the distance the
-//! hardware moved it from there. It is not hidden: hiding it means replacing the system cursors, and a crash would
-//! leave the person without one. (DevHop did hide it.)
+//! hardware moved it from there. The PC pointer is also clipped to a box around the park point and hidden after the
+//! first forwarded motion (`cursor_lock.rs`, DevHop's behaviour). Clip and hide are undone on every exit: stop, the
+//! thread's end, the watchdog and the panic hook.
 //!
 //! Fixed against DevHop: a key that was already down when the pointer left, and whose release was swallowed here,
 //! is released again on `stop`, so the local keyboard is never left with a key stuck down. Callbacks never wait: a
@@ -29,14 +30,18 @@ use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-    WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, DispatchMessageW, GetMessageW, KillTimer, PostThreadMessageW, SetTimer, SetWindowsHookExW, TranslateMessage,
+    UnhookWindowsHookEx, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
+    WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
 };
 
+use super::cursor_lock;
 use super::dpi::DpiScope;
 use crate::desk::link::remote::{Capture, CaptureSink, PointerMove, PointerSink};
+
+/// How often the capture thread checks that the pointer is not left clipped or hidden without remote mode.
+const WATCHDOG_MS: u32 = 250;
 
 const LLMHF_INJECTED: u32 = 1;
 /// Remote-mode motion in the first milliseconds after the pointer is parked is not forwarded: it is the park warp and
@@ -137,11 +142,21 @@ fn start_hooks(sink: CaptureSink, park: (i32, i32), span: i32) -> Result<Capture
             match (mouse, keys) {
                 (Ok(m), Ok(k)) => {
                     let _ = ready_tx.send(Ok(GetCurrentThreadId()));
+                    let timer = SetTimer(None, 0, WATCHDOG_MS, None);
                     let mut msg = MSG::default();
                     while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+                        if msg.message == WM_TIMER {
+                            watchdog();
+                            continue;
+                        }
                         let _ = TranslateMessage(&msg);
                         DispatchMessageW(&msg);
                     }
+                    if timer != 0 {
+                        let _ = KillTimer(None, timer);
+                    }
+                    // However the loop ended, the pointer comes back: clip and hide go, with the hooks.
+                    cursor_lock::release();
                     let _ = UnhookWindowsHookEx(m);
                     let _ = UnhookWindowsHookEx(k);
                 }
@@ -299,6 +314,14 @@ fn pump_messages() {
     }
 }
 
+/// The capture thread's watchdog: remote mode is off but the pointer is still clipped or hidden, so give it back. Runs
+/// on the capture thread between events, never inside a hook callback.
+fn watchdog() {
+    if !REMOTE_MODE.load(Ordering::SeqCst) && cursor_lock::is_engaged() {
+        cursor_lock::release();
+    }
+}
+
 /// Called from the watch callback: reports the move (if any) and lets nothing else happen. Never waits.
 fn report_local_move(pt: (i32, i32)) {
     let Some(ctx) = WATCH.load_full() else {
@@ -354,7 +377,13 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         _ => None,
     };
     if let Some(e) = event {
+        let motion = matches!(e, Capture::Motion { .. });
         (ctx.sink)(e);
+        // The PC pointer is hidden only once a remote motion has really gone out: a crossing that never moves leaves
+        // it visible.
+        if motion {
+            cursor_lock::hide_after_first_motion();
+        }
     }
     // Back to the park point after every mouse event, so the next position is again the distance moved since this
     // one. Swallowing the event does not keep the position from drifting: without this the distances grow until
