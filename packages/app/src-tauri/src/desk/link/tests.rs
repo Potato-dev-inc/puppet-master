@@ -294,10 +294,12 @@ async fn a_quiet_computer_using_this_one_is_told_to_come_home() {
 }
 
 /// The controlled side hands the pointer back, and the other computer's pointer is left resting on the edge facing it
-/// (an injected move can leave it there). It does not cross straight back: for one second. After that, the same
-/// resting pointer crosses, which is normal.
+/// (an injected move can leave it there). It does not cross straight back. Nor does it cross after the one-second pause
+/// while it still rests on that edge: it must leave the edge first (`local_use::Arming`). Once it has left and comes
+/// back, it crosses.
 #[tokio::test(start_paused = true)]
-async fn a_handed_back_pointer_resting_on_the_edge_is_not_taken_straight_back() {
+async fn a_handed_back_pointer_resting_on_the_edge_does_not_cross_until_it_leaves() {
+    let (log, _guard) = log_capture();
     let (_net, a, b) = together();
     up(&a, &b).await;
     a.host.put_cursor(1919, 300);
@@ -309,14 +311,17 @@ async fn a_handed_back_pointer_resting_on_the_edge_is_not_taken_straight_back() 
     }
     wait_until("a is home", || !a.host.capturing()).await;
     assert_eq!(b.link.view().controlled_by, None);
-    // b's pointer is put on the edge facing a and stays there.
+    // b's pointer is put on the edge facing a and stays there: not across the edge during the pause, nor after it.
     b.host.put_cursor(0, 300);
-    sleep(Duration::from_millis(600)).await;
-    assert!(!b.host.capturing(), "b took the pointer straight back across the edge");
+    sleep(Duration::from_secs(5)).await;
+    assert!(!b.host.capturing(), "b took a pointer that never left the edge");
     assert_eq!(a.link.view().controlled_by, None);
-    // The pause is over: the pointer resting on the edge crosses now.
-    sleep(Duration::from_millis(500)).await;
-    wait_until("b crosses once the pause is over", || b.host.capturing() && a.link.view().controlled_by.as_deref() == Some("Laptop")).await;
+    assert!(log_text(&log).contains("desk: not crossing reason=waiting for the pointer to leave the edge"), "{}", log_text(&log));
+    // The pointer leaves the edge, then comes back to it: now it crosses.
+    b.host.put_cursor(960, 540);
+    sleep(Duration::from_millis(100)).await;
+    b.host.put_cursor(0, 300);
+    wait_until("b crosses once the pointer has left the edge", || b.host.capturing() && a.link.view().controlled_by.as_deref() == Some("Laptop")).await;
 }
 
 /// A person moves the mouse of the computer that is being controlled: it takes the mouse back, the other computer comes
@@ -1159,6 +1164,9 @@ async fn crossing_there_and_back_after_every_swap_of_sides_never_sticks() {
             "top" => ((600, 0), (0, 30)),
             _ => ((600, 1079), (0, -30)),
         };
+        // The pointer comes back inside the edge; it must leave the edge before it may cross again.
+        a.host.put_cursor(960, 540);
+        sleep(Duration::from_millis(30)).await;
         a.host.put_cursor(edge.0, edge.1);
         wait_until(&format!("round {i} ({side}): crossed"), || a.host.capturing() && b.link.view().devices[0].controls_me).await;
         for _ in 0..8 {

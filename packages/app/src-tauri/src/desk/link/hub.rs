@@ -25,8 +25,8 @@ use crate::p2p::endpoint::{Link, NodeId};
 use crate::p2p::session::{DialLedger, Reach, Sessions};
 
 use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
-use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
-use super::local_use;
+use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name, union};
+use super::local_use::{self, Arming};
 use super::pushback::PushBack;
 use super::ratelog::RateLimit;
 use super::remote::{Capture, Inject};
@@ -138,6 +138,7 @@ enum Block {
     ControlledBy(NodeId),
     Locked,
     Waiting(NodeId),
+    Unarmed,
     ButtonHeld(NodeId),
     InputOff(NodeId),
 }
@@ -151,6 +152,7 @@ impl Block {
             Block::ControlledBy(p) => ("controlled", format!("controlled by peer={}", short(&p))),
             Block::Locked => ("locked", "pointer locked".to_string()),
             Block::Waiting(p) => ("waiting", format!("waiting after a refusal peer={}", short(&p))),
+            Block::Unarmed => ("unarmed", "waiting for the pointer to leave the edge".to_string()),
             Block::ButtonHeld(p) => ("button", format!("button held peer={}", short(&p))),
             Block::InputOff(p) => ("input", format!("input off peer={}", short(&p))),
         }
@@ -235,6 +237,8 @@ pub struct Hub {
     edge_candidate: Option<(NodeId, u32)>,
     /// A computer that said no to the pointer, and until when it is not tried again.
     refused_until: HashMap<NodeId, u64>,
+    /// Which peers the pointer must first be seen away from the edges for (see `local_use::Arming`).
+    arming: Arming,
     /// Keeps "desk: not crossing" to one line a second for each reason.
     not_crossing: RateLimit,
     upkeeps: u64,
@@ -262,6 +266,7 @@ impl Hub {
             origin: (0, 0),
             edge_candidate: None,
             refused_until: HashMap::new(),
+            arming: Arming::default(),
             not_crossing: RateLimit::new(NOT_CROSSING_EVERY_MS),
             upkeeps: 0,
             error: None,
@@ -470,6 +475,10 @@ impl Hub {
         if self.controlled.is_some() && self.hand_back_if_used_here(pos, now) {
             return;
         }
+        // The pointer seen away from every edge: every computer may be crossed to again.
+        if union(&self.displays).is_some_and(|u| local_use::away_from_edges(pos, u, local_use::ARM_MARGIN)) {
+            self.arming.saw_away();
+        }
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
         self.refused_until.retain(|_, until| *until > now);
         let blocked = if self.paused {
@@ -494,10 +503,15 @@ impl Hub {
         }
         let mut hit = None;
         let mut waiting = None;
+        let mut unarmed = false;
         for peer in self.live.keys() {
             let Some(dep) = self.inner.depart_to(peer, &self.shapes, local, &ALL_SIDES) else { continue };
             if self.refused_until.contains_key(peer) {
                 waiting.get_or_insert(*peer);
+                continue;
+            }
+            if !self.arming.armed(peer) {
+                unarmed = true;
                 continue;
             }
             hit = Some((*peer, dep));
@@ -507,6 +521,8 @@ impl Hub {
             self.edge_candidate = None;
             if let Some(p) = waiting {
                 self.say_not_crossing(Block::Waiting(p));
+            } else if unarmed {
+                self.say_not_crossing(Block::Unarmed);
             }
             return;
         };
@@ -611,6 +627,10 @@ impl Hub {
     fn go_home(&mut self, arrival: Option<(i32, i32)>, why: Home) {
         let Some(r) = self.remote.take() else { return };
         let peer = r.peer;
+        // The pointer came back from the other computer (or it let go): it must leave the edge before crossing again.
+        if matches!(why, Home::Edge | Home::Leave) {
+            self.arming.disarm(peer);
+        }
         let why = why.text();
         tracing::info!(peer = short(&peer).as_str(), "desk: pointer home reason={why}");
         // The machine keeps the phase in step; what must happen does not depend on what it thinks.
@@ -691,6 +711,7 @@ impl Hub {
                     self.release_controlled();
                     // The other computer let go of its pointer here: do not take it straight back across that edge.
                     self.refused_until.insert(peer, self.ms() + RETURN_PAUSE_MS);
+                    self.arming.disarm(peer);
                 }
                 // "Leave" from the computer we hold: it refuses, or its pointer came home on its own.
                 if leave && self.remote.as_ref().is_some_and(|r| r.peer == peer) {
@@ -857,6 +878,7 @@ impl Hub {
             self.release_controlled();
             // Not straight back across this edge (see RETURN_PAUSE_MS).
             self.refused_until.insert(peer, self.ms() + RETURN_PAUSE_MS);
+            self.arming.disarm(peer);
             // Step off the edge. Resting on it, this computer would take the pointer straight back across (when it
             // sees the other computer on this same edge, as after the layout was swapped) and be left holding the
             // mouse the person is not using.
@@ -881,6 +903,7 @@ impl Hub {
         }
         self.release_controlled();
         self.refused_until.insert(peer, now + RETURN_PAUSE_MS);
+        self.arming.disarm(peer);
         true
     }
 
