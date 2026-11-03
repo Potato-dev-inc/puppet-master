@@ -26,6 +26,7 @@ use crate::p2p::session::{DialLedger, Reach, Sessions};
 
 use super::arrange::{self, localize, outward, Shape, ALL_SIDES};
 use super::geometry::{entry_point, from_milli, inward, milli, onto_screens, parse_side, side_name};
+use super::local_use;
 use super::pushback::PushBack;
 use super::ratelog::RateLimit;
 use super::remote::{Capture, Inject};
@@ -180,6 +181,10 @@ struct Controlled {
     buttons: BTreeSet<u8>,
     /// Pushes at the entry edge in a row (see `pushback`).
     pushback: PushBack,
+    /// Where this computer last put the pointer (the entry placement, then each injected move), and when the last
+    /// remote motion was handled. A pointer found elsewhere, with no fresh motion, is a person here (`local_use`).
+    expected: (i32, i32),
+    last_motion: u64,
 }
 
 #[derive(Default)]
@@ -459,8 +464,13 @@ impl Hub {
             return;
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
-        let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
         let now = self.ms();
+        // A person is using this computer's own mouse while it is being controlled: the pointer goes back to them.
+        // This runs before the "controlled by" return below, which would otherwise ignore the pointer for good.
+        if self.controlled.is_some() && self.hand_back_if_used_here(pos, now) {
+            return;
+        }
+        let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
         self.refused_until.retain(|_, until| *until > now);
         let blocked = if self.paused {
             Some(Block::Paused)
@@ -800,7 +810,8 @@ impl Hub {
         if let Err(e) = self.inner.host.move_cursor(at.0, at.1) {
             return self.refuse_enter(peer, &format!("{me} could not place the pointer: {e}"), true);
         }
-        self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new(), pushback: PushBack::default() });
+        let expected = self.inner.host.cursor_pos().unwrap_or(at);
+        self.controlled = Some(Controlled { peer, keys: BTreeSet::new(), buttons: BTreeSet::new(), pushback: PushBack::default(), expected, last_motion: self.ms() });
         self.error = None;
         tracing::info!(peer = short(&peer).as_str(), side = side_name(entry), "desk: another computer is using this one");
     }
@@ -825,6 +836,11 @@ impl Hub {
             return self.refuse_enter(peer, &format!("{me} could not move the pointer: {e}"), true);
         }
         let Ok(pos) = self.inner.host.cursor_pos() else { return };
+        let now = self.ms();
+        if let Some(c) = self.controlled.as_mut() {
+            c.expected = pos;
+            c.last_motion = now;
+        }
         // Pushing on through an edge that faces the other computer sends the pointer back, to the matching spot, but
         // only after deliberate pushes in a row (`pushback`): one jitter at the edge does nothing.
         let local = (pos.0 - self.origin.0, pos.1 - self.origin.1);
@@ -848,6 +864,24 @@ impl Hub {
             let _ = self.inner.host.move_cursor(off.0, off.1);
             clip_link::spawn_send(&self.inner, peer);
         }
+    }
+
+    /// A person is using this computer's own mouse (see `local_use::used_here`): the mouse goes back to the other
+    /// computer, which is told to come home, and this computer does not take the pointer straight back across.
+    fn hand_back_if_used_here(&mut self, pos: (i32, i32), now: u64) -> bool {
+        let Some(c) = self.controlled.as_ref() else { return false };
+        let since = now.saturating_sub(c.last_motion);
+        if !local_use::used_here(c.expected, pos, since, self.inner.host.buttons_held(), c.buttons.len()) {
+            return false;
+        }
+        let peer = c.peer;
+        tracing::info!(peer = short(&peer).as_str(), "desk: taking the mouse back: this computer is being used locally");
+        if let Some(l) = self.live.get(&peer) {
+            let _ = l.ctl.send(StreamMsg::Leave);
+        }
+        self.release_controlled();
+        self.refused_until.insert(peer, now + RETURN_PAUSE_MS);
+        true
     }
 
     /// Key-up and button-up for everything pressed on behalf of the peer.

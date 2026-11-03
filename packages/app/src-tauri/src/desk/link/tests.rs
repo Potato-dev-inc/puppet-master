@@ -319,6 +319,62 @@ async fn a_handed_back_pointer_resting_on_the_edge_is_not_taken_straight_back() 
     wait_until("b crosses once the pause is over", || b.host.capturing() && a.link.view().controlled_by.as_deref() == Some("Laptop")).await;
 }
 
+/// A person moves the mouse of the computer that is being controlled: it takes the mouse back, the other computer comes
+/// home, and nothing is left held.
+#[tokio::test(start_paused = true)]
+async fn a_person_using_the_controlled_computer_takes_the_mouse_back() {
+    let (log, _guard) = log_capture();
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    b.host.put_cursor(500, 500);
+    sleep(Duration::from_millis(300)).await;
+    assert_eq!(b.link.view().controlled_by, None, "b kept a pointer a person moved");
+    assert!(!a.host.capturing(), "a is still holding the mouse");
+    assert!(log_text(&log).contains("desk: taking the mouse back: this computer is being used locally"), "{}", log_text(&log));
+}
+
+/// Motion from the other computer is the pointer's own movement: a jump that comes with it does not take the mouse back.
+#[tokio::test(start_paused = true)]
+async fn remote_motion_keeps_the_pointer_here_even_when_it_jumps() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    b.host.put_cursor(500, 500);
+    for _ in 0..15 {
+        a.host.person(Capture::Motion { dx: 1, dy: 0 });
+        sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(b.link.view().controlled_by.as_deref(), Some("Ren-PC"));
+    assert!(a.host.capturing());
+}
+
+/// A button held on this computer, which the other computer did not press, takes the mouse back.
+#[tokio::test(start_paused = true)]
+async fn a_button_held_here_takes_the_mouse_back() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    b.host.with(|s| s.buttons_down = true);
+    sleep(Duration::from_millis(300)).await;
+    assert_eq!(b.link.view().controlled_by, None);
+    assert!(!a.host.capturing());
+}
+
+/// A button the other computer pressed is held on this computer too: that one does not count as a person here.
+#[tokio::test(start_paused = true)]
+async fn a_button_pressed_by_the_other_computer_does_not_take_the_mouse_back() {
+    let (_net, a, b) = together();
+    up(&a, &b).await;
+    cross(&a, &b).await;
+    a.host.person(Capture::Button { button: 0, down: true });
+    wait_until("button held there", || b.host.with(|s| s.held_buttons.contains(&0))).await;
+    b.host.with(|s| s.buttons_down = true);
+    sleep(Duration::from_millis(300)).await;
+    assert_eq!(b.link.view().controlled_by.as_deref(), Some("Ren-PC"));
+    assert!(a.host.capturing());
+}
+
 /// While a pointer rests on an edge that faces a connected computer, the log says why it does not cross, at most once a
 /// second for each reason. Away from the edges it says nothing.
 #[tokio::test(start_paused = true)]
