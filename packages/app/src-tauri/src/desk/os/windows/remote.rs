@@ -20,11 +20,11 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
 };
 
-use super::{capture, clipboard, cursor, display};
+use super::{capture, clipboard, cursor, cursor_lock, display};
 use crate::desk::host::DisplayInfo;
 use crate::desk::link::park::{park_point, PARK_SPAN};
 use crate::desk::link::release;
-use crate::desk::link::remote::{CaptureSink, ClipItem, Inject, RemoteHost};
+use crate::desk::link::remote::{CaptureSink, ClipItem, Inject, PointerSink, RemoteHost};
 
 #[derive(Default)]
 struct Held {
@@ -34,13 +34,14 @@ struct Held {
 
 pub struct WindowsRemote {
     capture: Mutex<Option<capture::CaptureHook>>,
+    watch: Mutex<Option<capture::WatchHook>>,
     held: Mutex<Held>,
 }
 
 impl WindowsRemote {
     /// No side effects: no hook, no key press, no clipboard access.
     pub fn new() -> Self {
-        Self { capture: Mutex::new(None), held: Mutex::new(Held::default()) }
+        Self { capture: Mutex::new(None), watch: Mutex::new(None), held: Mutex::new(Held::default()) }
     }
 }
 
@@ -92,6 +93,14 @@ fn modifiers_logically_down() -> Vec<u16> {
 fn modifiers_physically_down() -> Vec<u16> {
     // SAFETY: plain call per key.
     release::MODIFIER_VKS.iter().copied().filter(|vk| unsafe { GetAsyncKeyState(i32::from(*vk)) } < 0).collect()
+}
+
+/// Ends a capture: the hooks go, and the keys that were down when the pointer left and were let go meanwhile are
+/// released here, because their release never reached this computer.
+fn end_hook(hook: capture::CaptureHook) {
+    for vk in hook.stop() {
+        let _ = send(&[key_input(vk, false)]);
+    }
 }
 
 fn contains(d: &DisplayInfo, pos: (i32, i32)) -> bool {
@@ -198,23 +207,45 @@ impl RemoteHost for WindowsRemote {
             Some(d) => park_point(exit, (d.x, d.y, d.width as i32, d.height as i32), PARK_SPAN),
             None => center_of(&displays, cursor::position()?),
         };
-        cursor::warp(park.0, park.1)?;
-        *slot = Some(capture::start(sink, park)?);
+        // Remote mode is on before the warp (the hook is installed inside `start`), as DevHop did.
+        let hook = capture::start(sink, park, PARK_SPAN)?;
+        if let Err(e) = cursor::warp(park.0, park.1) {
+            end_hook(hook);
+            return Err(e);
+        }
+        // Clip the PC pointer around the park point (it is hidden later, after the first forwarded motion).
+        cursor_lock::engage(park, PARK_SPAN);
+        *slot = Some(hook);
         Ok(())
     }
 
     fn stop_capture(&self) {
+        // Clip and hide go first, whatever state the capture is in; safe when nothing is engaged.
+        cursor_lock::release();
         let hook = self.capture.lock().unwrap_or_else(|p| p.into_inner()).take();
         if let Some(hook) = hook {
-            // Keys that were down when the pointer left and were let go meanwhile: tell this computer.
-            for vk in hook.stop() {
-                let _ = send(&[key_input(vk, false)]);
-            }
+            end_hook(hook);
         }
         // A modifier the system still thinks is down, but the person is not holding, would make every later click
         // here a Ctrl-click or Alt-click. Release those (the same rule the old app applied when remote mode ended).
         for vk in release::modifiers_to_release(&modifiers_logically_down(), &modifiers_physically_down()) {
             let _ = send(&[key_input(vk, false)]);
+        }
+    }
+
+    fn watch_pointer(&self, sink: PointerSink) -> Result<(), String> {
+        let mut slot = self.watch.lock().unwrap_or_else(|p| p.into_inner());
+        if slot.is_some() {
+            return Ok(());
+        }
+        *slot = Some(capture::start_watch(sink)?);
+        Ok(())
+    }
+
+    fn unwatch_pointer(&self) {
+        let hook = self.watch.lock().unwrap_or_else(|p| p.into_inner()).take();
+        if let Some(hook) = hook {
+            hook.stop();
         }
     }
 

@@ -18,10 +18,10 @@ use desk_proto::hid_to_mac;
 
 use super::capture::{self, ACCESS_NEEDED, WHEEL_UNITS_PER_PIXEL};
 use super::ffi::{self, CFTypeRef, CGEventRef, CGEventSourceRef, CGPoint};
-use super::{clipboard, cursor, display, hook};
+use super::{clipboard, cursor, display, hook, pointer_watch};
 use crate::desk::host::DisplayInfo;
 use crate::desk::link::clickstate::{next_click_count, LastClick};
-use crate::desk::link::remote::{CaptureSink, ClipItem, Inject, RemoteHost};
+use crate::desk::link::remote::{CaptureSink, ClipItem, Inject, PointerSink, RemoteHost};
 
 /// The screen list is reused for this long on the move path; it is read on every injected move otherwise.
 const SCREEN_CACHE: Duration = Duration::from_millis(500);
@@ -45,6 +45,8 @@ struct Held {
 
 pub struct MacosRemote {
     capture: Mutex<Option<capture::CaptureHook>>,
+    /// The local pointer watch the hub reads crossings from (`pointer_watch.rs`), while one is wanted.
+    watch: Mutex<Option<pointer_watch::PointerWatch>>,
     held: Mutex<Held>,
     /// The screen list and when it was read (see `SCREEN_CACHE`).
     screen_cache: Mutex<Option<(Vec<DisplayInfo>, Instant)>>,
@@ -53,7 +55,12 @@ pub struct MacosRemote {
 impl MacosRemote {
     /// No side effects: no tap, no key press, no clipboard access.
     pub fn new() -> Self {
-        Self { capture: Mutex::new(None), held: Mutex::new(Held::default()), screen_cache: Mutex::new(None) }
+        Self {
+            capture: Mutex::new(None),
+            watch: Mutex::new(None),
+            held: Mutex::new(Held::default()),
+            screen_cache: Mutex::new(None),
+        }
     }
 
     /// The screens, read again only once the cached list is older than `SCREEN_CACHE`.
@@ -332,6 +339,23 @@ impl RemoteHost for MacosRemote {
             for code in hook.stop() {
                 let _ = key_event(code, false, 0);
             }
+        }
+    }
+
+    fn watch_pointer(&self, sink: PointerSink) -> Result<(), String> {
+        let mut slot = self.watch.lock().unwrap_or_else(|p| p.into_inner());
+        // A new sink replaces the old watch: two taps would report every move twice.
+        if let Some(old) = slot.take() {
+            old.stop();
+        }
+        *slot = Some(pointer_watch::start(sink)?);
+        Ok(())
+    }
+
+    fn unwatch_pointer(&self) {
+        let watch = self.watch.lock().unwrap_or_else(|p| p.into_inner()).take();
+        if let Some(watch) = watch {
+            watch.stop();
         }
     }
 

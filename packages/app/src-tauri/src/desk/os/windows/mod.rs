@@ -4,6 +4,7 @@
 mod capture;
 mod clipboard;
 mod cursor;
+mod cursor_lock;
 mod display;
 mod dpi;
 mod hook;

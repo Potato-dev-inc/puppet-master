@@ -47,6 +47,8 @@ pub const CG_SESSION_EVENT_TAP: u32 = 1;
 pub const CG_HEAD_INSERT_EVENT_TAP: u32 = 0;
 /// An active tap: it may drop events (the default, as opposed to a listen-only tap).
 pub const CG_EVENT_TAP_OPTION_DEFAULT: u32 = 0;
+/// A listen-only tap: it sees events but can never drop or change one.
+pub const CG_EVENT_TAP_OPTION_LISTEN_ONLY: u32 = 1;
 pub const CG_EVENT_KEY_DOWN: u32 = 10;
 pub const CG_EVENT_KEY_UP: u32 = 11;
 pub const CG_EVENT_FLAGS_CHANGED: u32 = 12;
@@ -91,6 +93,11 @@ pub const POINTER_EVENTS_MASK: u64 = (1 << CG_EVENT_LEFT_MOUSE_DOWN)
     | (1 << CG_EVENT_OTHER_MOUSE_DRAGGED);
 /// Key down, key up and flags changed (the modifier keys).
 pub const KEY_EVENTS_MASK: u64 = (1 << CG_EVENT_KEY_DOWN) | (1 << CG_EVENT_KEY_UP) | (1 << CG_EVENT_FLAGS_CHANGED);
+/// Plain move and the three drag types: every change of the local pointer position (`pointer_watch.rs`).
+pub const MOVE_EVENTS_MASK: u64 = (1 << CG_EVENT_MOUSE_MOVED)
+    | (1 << CG_EVENT_LEFT_MOUSE_DRAGGED)
+    | (1 << CG_EVENT_RIGHT_MOUSE_DRAGGED)
+    | (1 << CG_EVENT_OTHER_MOUSE_DRAGGED);
 
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {

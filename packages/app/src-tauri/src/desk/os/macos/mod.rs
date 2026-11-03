@@ -10,6 +10,7 @@ mod cursor;
 mod display;
 mod ffi;
 mod hook;
+mod pointer_watch;
 mod remote;
 
 pub use remote::MacosRemote;
