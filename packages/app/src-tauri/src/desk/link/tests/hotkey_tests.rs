@@ -140,6 +140,10 @@ async fn the_pause_chord_pauses_and_the_pointer_stays_home_until_resumed() {
     sleep(Duration::from_millis(300)).await;
     assert!(!a.host.capturing(), "paused: no crossing");
     a.link.pause(false);
+    // The pointer rests on the edge: it must move outward again before it crosses.
+    a.host.put_cursor(960, 540);
+    sleep(Duration::from_millis(30)).await;
+    a.host.put_cursor(1919, 540);
     wait_until("crosses again", || a.host.capturing()).await;
     assert!(!a.link.view().paused);
 }
@@ -168,5 +172,9 @@ async fn a_locked_pointer_does_not_cross_and_crosses_again_once_free() {
     sleep(Duration::from_millis(300)).await;
     assert!(!a.host.capturing(), "locked: the edge is only an edge");
     port.set_locked(false);
+    // The pointer rests on the edge: it must move outward again before it crosses.
+    a.host.put_cursor(960, 540);
+    sleep(Duration::from_millis(30)).await;
+    a.host.put_cursor(1919, 540);
     wait_until("crosses", || a.host.capturing()).await;
 }

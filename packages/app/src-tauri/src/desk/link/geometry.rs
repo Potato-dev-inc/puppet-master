@@ -10,8 +10,9 @@ use desk_core::Side;
 
 use super::super::host::DisplayInfo;
 
-/// How far inside the edge the pointer appears, so a small jiggle does not send it straight back. Six points: on a Mac
-/// (points, not pixels) three was inside a hand's jitter. The return also needs deliberate pushes (`pushback`).
+/// How far inside an edge the pointer is put by a step-off or a park (not by a crossing: a crossing arrives ON the
+/// edge pixel, see `crossing::ARRIVAL_INSET`). Six points: on a Mac (points, not pixels) three was inside a hand's
+/// jitter.
 pub const INSET: i32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,38 +67,16 @@ pub fn parse_side(name: &str) -> Option<Side> {
     }
 }
 
-/// The edge of the union that faces `side`, where `pos` rests: how far along it (0.0..=1.0), if the pointer is
-/// there. "There" means on the last pixel row or column of a screen that touches the outer edge.
-pub fn edge_hit(displays: &[DisplayInfo], pos: (i32, i32), side: Side) -> Option<f64> {
-    let u = union(displays)?;
-    let (x, y) = pos;
-    let on_screen = displays.iter().map(rect).find(|r| x >= r.left && x < r.right && y >= r.top && y < r.bottom)?;
-    match side {
-        Side::Right if x == on_screen.right - 1 && on_screen.right == u.right => Some(along(y, u.top, u.height())),
-        Side::Left if x == on_screen.left && on_screen.left == u.left => Some(along(y, u.top, u.height())),
-        Side::Bottom if y == on_screen.bottom - 1 && on_screen.bottom == u.bottom => Some(along(x, u.left, u.width())),
-        Side::Top if y == on_screen.top && on_screen.top == u.top => Some(along(x, u.left, u.width())),
-        _ => None,
-    }
-}
-
-fn along(v: i32, start: i32, len: i32) -> f64 {
-    if len <= 1 {
-        return 0.5;
-    }
-    (f64::from(v - start) / f64::from(len - 1)).clamp(0.0, 1.0)
-}
-
-/// Where the pointer appears when it enters through `entry` (an edge of THIS computer) at `t` along it.
-/// `INSET` pixels inside, on a real screen.
-pub fn entry_point(displays: &[DisplayInfo], entry: Side, t: f64) -> Option<(i32, i32)> {
+/// Where the pointer appears when it enters through `entry` (an edge of THIS computer) at `t` along it, `inset` pixels
+/// inside that edge. A crossing passes `crossing::ARRIVAL_INSET` (zero: the edge pixel itself).
+pub fn entry_point(displays: &[DisplayInfo], entry: Side, t: f64, inset: i32) -> Option<(i32, i32)> {
     let u = union(displays)?;
     let t = if t.is_finite() { t.clamp(0.0, 1.0) } else { 0.5 };
     let (x, y) = match entry {
-        Side::Left => (u.left + INSET, u.top + (t * f64::from(u.height() - 1)).round() as i32),
-        Side::Right => (u.right - 1 - INSET, u.top + (t * f64::from(u.height() - 1)).round() as i32),
-        Side::Top => (u.left + (t * f64::from(u.width() - 1)).round() as i32, u.top + INSET),
-        Side::Bottom => (u.left + (t * f64::from(u.width() - 1)).round() as i32, u.bottom - 1 - INSET),
+        Side::Left => (u.left + inset, u.top + (t * f64::from(u.height() - 1)).round() as i32),
+        Side::Right => (u.right - 1 - inset, u.top + (t * f64::from(u.height() - 1)).round() as i32),
+        Side::Top => (u.left + (t * f64::from(u.width() - 1)).round() as i32, u.top + inset),
+        Side::Bottom => (u.left + (t * f64::from(u.width() - 1)).round() as i32, u.bottom - 1 - inset),
     };
     Some(onto_screens(displays, (x, y), entry))
 }
@@ -127,29 +106,19 @@ pub fn onto_screens(displays: &[DisplayInfo], p: (i32, i32), entry: Side) -> (i3
     best.map_or(p, |(q, _)| q)
 }
 
-/// The controlled computer: the pointer entered through `entry`; after moving by `(dx, dy)` it rests on that edge and
-/// the motion points back out. Returns how far along the edge it was.
-pub fn pushing_back(displays: &[DisplayInfo], entry: Side, pos: (i32, i32), delta: (i32, i32)) -> Option<f64> {
-    let outward = match entry {
-        Side::Left => delta.0 < 0,
-        Side::Right => delta.0 > 0,
-        Side::Top => delta.1 < 0,
-        Side::Bottom => delta.1 > 0,
-    };
-    if !outward {
-        return None;
+/// `pos`, moved `inset` pixels away from the edge `exit` (the edge the pointer left through).
+pub fn inward_by(pos: (i32, i32), exit: Side, inset: i32) -> (i32, i32) {
+    match exit {
+        Side::Left => (pos.0 + inset, pos.1),
+        Side::Right => (pos.0 - inset, pos.1),
+        Side::Top => (pos.0, pos.1 + inset),
+        Side::Bottom => (pos.0, pos.1 - inset),
     }
-    edge_hit(displays, pos, entry)
 }
 
 /// `pos`, moved `INSET` pixels away from the edge `exit` (the edge the pointer left through).
 pub fn inward(pos: (i32, i32), exit: Side) -> (i32, i32) {
-    match exit {
-        Side::Left => (pos.0 + INSET, pos.1),
-        Side::Right => (pos.0 - INSET, pos.1),
-        Side::Top => (pos.0, pos.1 + INSET),
-        Side::Bottom => (pos.0, pos.1 - INSET),
-    }
+    inward_by(pos, exit, INSET)
 }
 
 /// 0..1000 on the wire.
@@ -178,53 +147,33 @@ mod tests {
     }
 
     #[test]
-    fn the_pointer_crosses_only_on_the_outer_edge_facing_the_other_computer() {
-        let ds = [d("a", 0, 0, 1920, 1080), d("b", 1920, 0, 1920, 1080)];
-        // Between the two screens of this computer is not an edge.
-        assert_eq!(edge_hit(&ds, (1919, 500), Side::Right), None);
-        // The far right edge is.
-        let t = edge_hit(&ds, (3839, 540), Side::Right).unwrap();
-        assert!((t - 540.0 / 1079.0).abs() < 1e-9);
-        // Not on the edge, or on the wrong side.
-        assert_eq!(edge_hit(&ds, (3838, 540), Side::Right), None);
-        assert_eq!(edge_hit(&ds, (3839, 540), Side::Left), None);
-        assert!(edge_hit(&ds, (0, 0), Side::Left).is_some());
-        assert!(edge_hit(&ds, (0, 0), Side::Top).is_some());
-        assert!(edge_hit(&ds, (100, 1079), Side::Bottom).is_some());
-    }
-
-    #[test]
-    fn the_pointer_appears_at_the_same_relative_height_inside_the_facing_edge() {
+    fn the_pointer_appears_at_the_same_relative_height_on_the_facing_edge() {
         let theirs = [d("x", 0, 0, 1280, 800)];
-        let (x, y) = entry_point(&theirs, Side::Left, 0.5).unwrap();
-        assert_eq!(x, INSET);
+        let (x, y) = entry_point(&theirs, Side::Left, 0.5, 0).unwrap();
+        assert_eq!(x, 0, "the edge pixel itself");
         assert!((y - 400).abs() <= 1);
-        let (x, _) = entry_point(&theirs, Side::Right, 0.0).unwrap();
-        assert_eq!(x, 1280 - 1 - INSET);
-        let (_, y) = entry_point(&theirs, Side::Top, 1.0).unwrap();
-        assert_eq!(y, INSET);
+        let (x, _) = entry_point(&theirs, Side::Right, 0.0, 0).unwrap();
+        assert_eq!(x, 1280 - 1);
+        let (_, y) = entry_point(&theirs, Side::Top, 1.0, 0).unwrap();
+        assert_eq!(y, 0);
+        let (x, _) = entry_point(&theirs, Side::Right, 0.0, INSET).unwrap();
+        assert_eq!(x, 1280 - 1 - INSET, "a step-off or a park passes the inset");
     }
 
     #[test]
     fn a_hole_in_the_union_is_snapped_onto_a_screen() {
         // A small screen beside a tall one: entering at the bottom of the left edge lands where there is no screen.
         let theirs = [d("tall", 0, 0, 1000, 2000), d("small", 1000, 0, 1000, 500)];
-        let (x, y) = entry_point(&theirs, Side::Right, 1.0).unwrap();
+        let (x, y) = entry_point(&theirs, Side::Right, 1.0, 0).unwrap();
         assert!(theirs.iter().any(|s| x >= s.x && x < s.x + s.width as i32 && y >= s.y && y < s.y + s.height as i32), "{x},{y}");
     }
 
     #[test]
-    fn a_jiggle_right_after_entering_does_not_send_the_pointer_back() {
-        let theirs = [d("x", 0, 0, 1280, 800)];
-        let at = entry_point(&theirs, Side::Left, 0.5).unwrap();
-        // Entered INSET pixels inside: a small move outward does not rest on the edge.
-        assert!(at.0 > 2, "entry is inside the edge");
-        assert_eq!(pushing_back(&theirs, Side::Left, (at.0 - 2, at.1), (-2, 0)), None);
-        assert_eq!(pushing_back(&theirs, Side::Left, (at.0 - INSET + 1, at.1), (-2, 0)), None, "one pixel off the edge");
-        // Pushing on until the edge does.
-        assert!(pushing_back(&theirs, Side::Left, (0, at.1), (-5, 0)).is_some());
-        // Moving inward on the edge is not a push back.
-        assert_eq!(pushing_back(&theirs, Side::Left, (0, at.1), (5, 0)), None);
+    fn inward_moves_the_pointer_the_given_distance_away_from_the_exit_edge() {
+        assert_eq!(inward((0, 5), Side::Left), (INSET, 5));
+        assert_eq!(inward((9, 5), Side::Right), (9 - INSET, 5));
+        assert_eq!(inward_by((0, 5), Side::Top, 0), (0, 5));
+        assert_eq!(inward_by((5, 9), Side::Bottom, 2), (5, 7));
     }
 
     #[test]
@@ -233,7 +182,7 @@ mod tests {
         assert_eq!(milli(2.0), 1000);
         assert_eq!(milli(0.5), 500);
         assert_eq!(from_milli(60_000), 1.0);
-        assert!(entry_point(&[d("x", 0, 0, 100, 100)], Side::Left, f64::NAN).is_some());
+        assert!(entry_point(&[d("x", 0, 0, 100, 100)], Side::Left, f64::NAN, 0).is_some());
     }
 
     #[test]
