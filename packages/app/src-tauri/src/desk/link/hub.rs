@@ -759,7 +759,7 @@ impl Hub {
                 if self.remote.as_ref().is_some_and(|r| r.peer == peer) {
                     let side = self.remote.as_ref().map_or(Side::Right, |r| r.side);
                     self.refresh_displays();
-                    let arrival = entry_point(&self.displays, side, from_milli(t_milli));
+                    let arrival = entry_point(&self.displays, side, from_milli(t_milli), super::crossing::ARRIVAL_INSET);
                     self.go_home(arrival, Home::Edge);
                 }
             }
@@ -829,7 +829,7 @@ impl Hub {
         };
         let at = match exact {
             Some((_, p)) => Some(onto_screens(&self.displays, (p.0.saturating_add(self.origin.0), p.1.saturating_add(self.origin.1)), entry)),
-            None => entry_point(&self.displays, entry, t),
+            None => entry_point(&self.displays, entry, t, super::crossing::ARRIVAL_INSET),
         };
         let Some(at) = at else {
             return self.refuse_enter(peer, &format!("{me} could not find a screen to put the pointer on."), true);

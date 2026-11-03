@@ -16,7 +16,8 @@ use desk_core::{cross_with_mode, CrossMode, Device, DeviceId, Layout, Monitor, M
 use serde::{Deserialize, Serialize};
 
 use super::super::host::DisplayInfo;
-use super::geometry::{inward, union};
+use super::crossing::ARRIVAL_INSET;
+use super::geometry::{inward_by, union};
 
 /// One screen in a computer's local space.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,7 +171,7 @@ pub struct Departure {
     pub to: (i32, i32),
 }
 
-fn on_edge(r: PhysRect, p: (i32, i32), side: Side) -> bool {
+pub(super) fn on_edge(r: PhysRect, p: (i32, i32), side: Side) -> bool {
     match side {
         Side::Left => p.0 == r.x,
         Side::Right => p.0 == r.right() - 1,
@@ -179,7 +180,7 @@ fn on_edge(r: PhysRect, p: (i32, i32), side: Side) -> bool {
     }
 }
 
-fn step(p: (i32, i32), side: Side) -> (i32, i32) {
+pub(super) fn step(p: (i32, i32), side: Side) -> (i32, i32) {
     match side {
         Side::Left => (p.0 - 1, p.1),
         Side::Right => (p.0 + 1, p.1),
@@ -197,6 +198,11 @@ fn clamp_into(r: PhysRect, p: (i32, i32)) -> (i32, i32) {
 /// that edge is one of this computer's own, when nothing of theirs faces the edge within the gap, or when the
 /// pointer is beside the overlap (the gap in the middle of a staggered pair is a wall).
 pub fn depart(mine: &[Shape], theirs: &[Shape], at: (i32, i32), pos: (i32, i32), sides: &[Side]) -> Option<Departure> {
+    depart_inset(mine, theirs, at, pos, sides, ARRIVAL_INSET)
+}
+
+/// `depart` with the arrival `inset` (pixels inside the arriving edge) given: a crossing uses zero.
+pub fn depart_inset(mine: &[Shape], theirs: &[Shape], at: (i32, i32), pos: (i32, i32), sides: &[Side], inset: i32) -> Option<Departure> {
     let (index, src) = mine.iter().enumerate().find(|(_, s)| s.rect.contains(pos.0, pos.1))?;
     let mut layout = None;
     let from = MonitorId(format!("{ME}:{index}"));
@@ -221,7 +227,7 @@ pub fn depart(mine: &[Shape], theirs: &[Shape], at: (i32, i32), pos: (i32, i32),
             Side::Bottom => (pos.0 - at.0, r.y),
             Side::Top => (pos.0 - at.0, r.bottom() - 1),
         };
-        let to = clamp_into(r, inward(clamp_into(r, local), side.opposite()));
+        let to = clamp_into(r, inward_by(clamp_into(r, local), side.opposite(), inset));
         return Some(Departure { side, screen: target.id.clone(), to });
     }
     None
@@ -321,7 +327,7 @@ mod tests {
         let d = depart(&a, &b, (1920, 0), (1919, 300), &[Side::Right]).unwrap();
         assert_eq!(d.side, Side::Right);
         assert_eq!(d.screen, "a");
-        assert_eq!(d.to, (6, 300));
+        assert_eq!(d.to, (0, 300), "the edge pixel of the other computer, same row");
     }
 
     #[test]
@@ -350,8 +356,8 @@ mod tests {
         assert_eq!(depart(&a, &b, (1920, 200), (1919, 100), &ALL_SIDES), None, "above B");
         assert_eq!(depart(&a, &b, (1920, 200), (1919, 1050), &ALL_SIDES), None, "below B");
         let d = depart(&a, &b, (1920, 200), (1919, 500), &ALL_SIDES).unwrap();
-        assert_eq!(d.to, (6, 300), "the same place in the shared space: 500 down A is 300 down B");
-        assert_eq!(depart(&a, &b, (1920, 200), (1919, 200), &ALL_SIDES).unwrap().to, (6, 0));
+        assert_eq!(d.to, (0, 300), "the same place in the shared space: 500 down A is 300 down B");
+        assert_eq!(depart(&a, &b, (1920, 200), (1919, 200), &ALL_SIDES).unwrap().to, (0, 0));
     }
 
     #[test]
@@ -363,7 +369,7 @@ mod tests {
         // B's pointer pushes left from where it arrived (the edge pixel at the same height).
         let back = depart(&b, &a, Spot::At { x: at.0, y: at.1 }.mirror().resolve(size_of(&b), size_of(&a)), (0, there.to.1), &[Side::Left]).unwrap();
         assert_eq!(back.side, Side::Left);
-        assert_eq!(back.to, (1920 - 1 - 6, 500));
+        assert_eq!(back.to, (1920 - 1, 500));
     }
 
     #[test]
@@ -398,10 +404,10 @@ mod tests {
         assert_eq!(pa, (2000, -300));
         assert_eq!(pb, (-2000, 300));
         let out = depart(&a, &b, pa, (1999, 100), &ALL_SIDES).unwrap();
-        assert_eq!(out.to, (6, 400));
+        assert_eq!(out.to, (0, 400));
         let back = depart(&b, &a, pb, (0, 400), &ALL_SIDES).unwrap();
         assert_eq!(back.screen, "a2");
-        assert_eq!(back.to, (1993, 100));
+        assert_eq!(back.to, (1999, 100), "the right edge pixel of a2");
     }
 
     #[test]
@@ -431,7 +437,7 @@ mod tests {
         assert_eq!(at, (-800, 0));
         let pos = (0, 400); // OS (-1280, 400)
         let d = depart(&a, &b, at, pos, &ALL_SIDES).unwrap();
-        assert_eq!((d.side, d.to), (Side::Left, (800 - 1 - 6, 400)));
+        assert_eq!((d.side, d.to), (Side::Left, (800 - 1, 400)));
         // The top of that screen is above where B's screen ends only if y < 600: y 700 is below B.
         assert_eq!(depart(&a, &b, at, (0, 700), &ALL_SIDES), None);
         // Negative placement of the other computer.
@@ -446,7 +452,7 @@ mod tests {
         let b = one(1000, 1000);
         // B below A, 500 px to the right.
         let d = depart(&a, &b, (500, 1080), (1000, 1079), &[Side::Bottom]).unwrap();
-        assert_eq!(d.to, (500, 6));
+        assert_eq!(d.to, (500, 0));
         assert_eq!(depart(&a, &b, (500, 1080), (100, 1079), &[Side::Bottom]), None);
     }
 

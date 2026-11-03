@@ -433,8 +433,8 @@ async fn the_pointer_crosses_the_edge_and_the_other_computer_is_driven() {
     cross(&a, &b).await;
     // It appears just inside b's left edge at the same relative height; b says who has the mouse.
     let (bx, by) = b.host.cursor();
-    // INSET (6) points inside the left edge.
-    assert!((bx - 6).abs() <= 1 && (by - 540).abs() <= 2, "{bx},{by}");
+    // The pointer arrives on the edge pixel of b (no inset).
+    assert!(bx == 0 && (by - 540).abs() <= 2, "{bx},{by}");
     assert_eq!(a.link.view().mouse_on.as_deref(), Some("Laptop"));
     assert_eq!(b.link.view().controlled_by.as_deref(), Some("Ren-PC"));
     // Motion, keys, buttons and wheel arrive.
@@ -483,7 +483,7 @@ async fn one_push_at_the_edge_does_not_send_the_pointer_home() {
     up(&a, &b).await;
     a.host.put_cursor(1919, 300);
     wait_until("crossed", || a.host.capturing()).await;
-    // b's pointer entered INSET (6) inside: this push lands on its left edge.
+    // b's pointer arrived on its left edge pixel: this push is one push on the edge.
     a.host.person(Capture::Motion { dx: -30, dy: 0 });
     wait_until("the push arrives", || b.host.cursor().0 == 0).await;
     sleep(Duration::from_millis(200)).await;
@@ -1264,7 +1264,7 @@ async fn the_pointer_crosses_only_where_the_screens_touch_and_lands_at_the_match
     a.host.put_cursor(1919, 500);
     wait_until("crossed", || a.host.capturing() && b.link.view().devices[0].controls_me).await;
     let (bx, by) = b.host.cursor();
-    assert_eq!((bx, by), (6, 300), "500 down the big screen is 300 down the laptop");
+    assert_eq!((bx, by), (0, 300), "500 down the big screen is 300 down the laptop, on the laptop's edge pixel");
 }
 
 #[tokio::test(start_paused = true)]
@@ -1282,7 +1282,7 @@ async fn the_way_back_lands_at_the_matching_spot_of_the_big_screen() {
     }
     wait_until("pointer home", || !a.host.capturing()).await;
     let (x, y) = a.host.cursor();
-    assert_eq!((x, y), (1913, 500), "came back to the same height");
+    assert_eq!((x, y), (1919, 500), "came back to the same height, on the PC's edge pixel");
     assert!(b.link.view().controlled_by.is_none());
     sleep(Duration::from_millis(300)).await;
     assert!(!a.host.capturing(), "it does not cross again by itself");

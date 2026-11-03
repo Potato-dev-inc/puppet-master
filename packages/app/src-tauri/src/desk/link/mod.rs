@@ -36,6 +36,7 @@ pub mod clickstate;
 pub mod clip_link;
 pub mod clipboard;
 pub mod commands;
+mod crossing;
 pub mod geometry;
 pub mod hub;
 pub mod io;
