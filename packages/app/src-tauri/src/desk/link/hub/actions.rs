@@ -48,7 +48,6 @@ impl Hub {
         if !self.cross_to(peer, &dep, pos) && self.error.is_none() {
             self.fail(&format!("Could not move the mouse to {name} (a button may be held, or its mouse switch is off)"));
         }
-        self.edge_candidate = None;
     }
 
     /// Bring the pointer back from the other computer, or take it back from one using this computer. Nothing to do
