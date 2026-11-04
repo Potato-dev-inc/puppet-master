@@ -82,12 +82,12 @@ After:
 ```
 A bot uses it through six tools (computer_observe, computer_act, browser_navigate, browser_snapshot, browser_act,
 ask_person_for_screen). You can watch its screen and take over from this PC. A paired phone can watch; control from a
-phone needs a yes on this PC first (see docs/plans/social/13-potato-bot-sandbox-finish.md, slices S2-S4).
+phone needs a yes on this PC first (see docs/plans/1104plans/13-potato-bot-sandbox-finish.md, slices S2-S4).
 ```
 New line in the "Not yet" area:
 ```
 Not yet: the phone control yes, a Local / Sandbox switch per bot, copying a Git folder in, and bringing work back as
-a branch (docs/plans/social/13-potato-bot-sandbox-finish.md).
+a branch (docs/plans/1104plans/13-potato-bot-sandbox-finish.md).
 ```
 
 ### Tests to write

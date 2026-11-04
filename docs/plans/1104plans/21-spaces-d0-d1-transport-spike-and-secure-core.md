@@ -352,7 +352,7 @@ may use `p2p` in the existing p2p guard.
 ```rust
 //! Spaces (Labs `spaces_enabled`): small-group chat between people's own computers.
 //! No server keeps messages. Only `net.rs` talks to the link layer (`crate::p2p`).
-//! See docs/plans/social/20-spaces-overview.md.
+//! See docs/plans/1104plans/20-spaces-overview.md.
 
 pub mod limits;
 
@@ -562,7 +562,7 @@ relay, how long it takes, and the round-trip time; record the numbers in this pl
 - create `packages/app/src-tauri/src/spaces/spike.rs`
 - edit `packages/app/src-tauri/src/spaces/mod.rs`
 - edit `packages/app/src-tauri/Cargo.toml`
-- edit `docs/plans/social/21-spaces-d0-d1-transport-spike-and-secure-core.md` (fill the Results table below)
+- edit `docs/plans/1104plans/21-spaces-d0-d1-transport-spike-and-secure-core.md` (fill the Results table below)
 
 ### Steps
 1. `Cargo.toml` `[features]`: add the line `spaces-spike = []` directly after `dev-fake-tui = []`.

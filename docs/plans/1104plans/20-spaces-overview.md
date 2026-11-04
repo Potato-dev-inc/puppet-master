@@ -2,7 +2,7 @@
 
 Status: plan only. No code is changed by this document.
 
-Sources: the writer read only `docs/plans/social/00-FORMAT.md` and `docs/plans/social/_facts/spaces-facts.md`
+Sources: the writer read only `docs/plans/1104plans/00-FORMAT.md` and `docs/plans/1104plans/_facts/spaces-facts.md`
 (founder instruction: no source reading). Every claim about existing code cites the facts file as `facts §N`.
 Anything the facts file does not say is listed as `NEEDS-FACT` in `Open facts` of the plan that needs it. The builder
 of each slice reads the files in that slice's `Read first` list before touching anything, and stops if what they see

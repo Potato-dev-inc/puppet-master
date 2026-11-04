@@ -665,7 +665,7 @@ npx vitest run packages/app/src/components/spaces/MailboxSettings.test.tsx
   `capabilities/`.
 - NEEDS-FACT B-1: where a headless mailbox node program would live and be deployed (`relay/server/` exists per facts
   §8; whether it can host an iroh node). Read `relay/server/src/lib.rs` header and the relay plan
-  (`docs/plans/social/_facts/relay-facts.md` was not read by this writer).
+  (`docs/plans/1104plans/_facts/relay-facts.md` was not read by this writer).
 - NEEDS-FACT B-2: whether the founder's "paid SaaS relay" plan (memory: Co-work Heads-up decisions) covers hosting a
   Spaces mailbox node. Ask the founder; until then D9.1 stays unbuilt.
 

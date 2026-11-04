@@ -2,8 +2,8 @@
 
 Status: plan only, no code changed. Written 2026-11-04.
 
-Sources the writer used: `docs/plans/social/00-FORMAT.md`, `docs/plans/social/_facts/relay-facts.md` (cited below as
-"relay facts §N"), `docs/plans/social/_facts/spaces-facts.md` (cited as "spaces facts §N"). The writer was told not to
+Sources the writer used: `docs/plans/1104plans/00-FORMAT.md`, `docs/plans/1104plans/_facts/relay-facts.md` (cited below as
+"relay facts §N"), `docs/plans/1104plans/_facts/spaces-facts.md` (cited as "spaces facts §N"). The writer was told not to
 open source code. Every claim about existing code cites a facts section. Anything the facts do not cover is a
 `NEEDS-FACT` line in `Open facts` at the end of the plan that needs it. Builders still follow 00-FORMAT rule 4: they
 read the files in each slice's `Read first` before they touch anything.

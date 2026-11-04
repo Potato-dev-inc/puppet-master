@@ -1163,7 +1163,7 @@ npx vitest run packages/app/src/components/spaces
   `render::clean` and `fn clean` in `packages/app/src-tauri/src` and `packages/potato-brain/src`. If it exists and
   cleans model output, call it in `accept_reply` before `clean_text`.
 - NEEDS-FACT P-7: the fishd modules the P-6 plan ports into `potato-brain/src/rooms/` (facts §7.1 says "same work as
-  P-6"). Read the P-6 plan (`docs/plans/social/` potato-bot plans) to avoid two versions of `gate`/`caps`.
+  P-6"). Read the P-6 plan (`docs/plans/1104plans/` potato-bot plans) to avoid two versions of `gate`/`caps`.
 
 ## Security
 

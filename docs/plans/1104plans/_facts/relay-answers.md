@@ -282,8 +282,8 @@ Source: relay.rs:228-240, 265-282, 332-340; service.rs:248-256.
 
 ## Plan lines that contradict the code
 
-1. `docs/plans/social/31-relay-server-hardening-and-config.md:1504` (Security table, "Fill the disk") says the defence is `--max-db-bytes`, 507. The code has no `--max-db-bytes` flag. `relay/server/src/main.rs:31-51` lists `--listen`, `--db`, `--memory`, `--trusted-proxy`, and eight Live Room limit flags only. The 507 response exists (lib.rs:733, `INSUFFICIENT_STORAGE`) but for team mailbox size, not a database byte cap.
-2. `docs/plans/social/32-relay-deploy-flows.md:1694` (Security table, "Token in a file") says the defence is `KeyStore::set_relay_token`. No such function exists: `grep set_relay_token` over `packages/app/src-tauri/src` returns nothing. `keystore.rs` has `member`, `device_sign`, `p2p_node`, `device_kem`, `epoch_key`, `set_epoch_key`, `invite_code`, `set_invite_code`, `forget_invite`, `forget_team` (keystore.rs:89-129).
+1. `docs/plans/1104plans/31-relay-server-hardening-and-config.md:1504` (Security table, "Fill the disk") says the defence is `--max-db-bytes`, 507. The code has no `--max-db-bytes` flag. `relay/server/src/main.rs:31-51` lists `--listen`, `--db`, `--memory`, `--trusted-proxy`, and eight Live Room limit flags only. The 507 response exists (lib.rs:733, `INSUFFICIENT_STORAGE`) but for team mailbox size, not a database byte cap.
+2. `docs/plans/1104plans/32-relay-deploy-flows.md:1694` (Security table, "Token in a file") says the defence is `KeyStore::set_relay_token`. No such function exists: `grep set_relay_token` over `packages/app/src-tauri/src` returns nothing. `keystore.rs` has `member`, `device_sign`, `p2p_node`, `device_kem`, `epoch_key`, `set_epoch_key`, `invite_code`, `set_invite_code`, `forget_invite`, `forget_team` (keystore.rs:89-129).
 
 Not checked: a full sweep of every existing-type or file reference in plans 30 to 35. Only the two items above were verified against the code.
 

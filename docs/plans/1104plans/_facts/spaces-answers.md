@@ -582,9 +582,9 @@ Source: search only; packages/app/src-tauri/src/agent_hooks/mod.rs:23.
 
 ### 26-spaces-d6-d7-rooms-and-social-mode.md / P-7 the fishd modules the P-6 plan ports into potato-brain/src/rooms/ (facts §7.1 says "same work as
 
-Answer: The P-6 plan is `docs/plans/social/12-potato-bot-app-groups.md`. It names these fishd modules (lines 24-26): `addressing.ts` (`aimedElsewhere`), `burst.ts` (last 10 minutes, up to 12 lines), `gate.ts` (`makeGate()`, modes `heuristic`, `jev`, `llm`, `chain`, default heuristic), `ambient.ts` (arm delay, ...), `silence.ts`. Its exact file list for `packages/potato-brain/src/rooms/` (lines 71-78) is `types.ts`, `addressing.ts`, `burst.ts`, `silence.ts`, `gate.ts`, `transport.ts`, `prompt.ts`, `runner.ts`, `index.ts`. `packages/potato-brain/src/rooms/` does not exist in the repo. The fishd source itself is not in this repo (only named in docs and `packages/potato-brain/NOTICE.md`).
+Answer: The P-6 plan is `docs/plans/1104plans/12-potato-bot-app-groups.md`. It names these fishd modules (lines 24-26): `addressing.ts` (`aimedElsewhere`), `burst.ts` (last 10 minutes, up to 12 lines), `gate.ts` (`makeGate()`, modes `heuristic`, `jev`, `llm`, `chain`, default heuristic), `ambient.ts` (arm delay, ...), `silence.ts`. Its exact file list for `packages/potato-brain/src/rooms/` (lines 71-78) is `types.ts`, `addressing.ts`, `burst.ts`, `silence.ts`, `gate.ts`, `transport.ts`, `prompt.ts`, `runner.ts`, `index.ts`. `packages/potato-brain/src/rooms/` does not exist in the repo. The fishd source itself is not in this repo (only named in docs and `packages/potato-brain/NOTICE.md`).
 
-Source: docs/plans/social/12-potato-bot-app-groups.md:16, 24-26, 71-78; packages/potato-brain/src (no rooms/ folder).
+Source: docs/plans/1104plans/12-potato-bot-app-groups.md:16, 24-26, 71-78; packages/potato-brain/src (no rooms/ folder).
 
 ---
 
@@ -612,10 +612,10 @@ Source: as listed.
 Answer: No program exists yet, and the relay cannot host an iroh node as it is.
 - `relay/server` is an axum + SQLite HTTP/WebSocket server (crate `pm-relay`, lib `pm_relay`, bin `pm-relay`). Its header says it is "a dumb, untrusted post office" with a per-team mailbox, signed state slots, join requests, rate limits. It is self-hostable as one binary (`relay/server/src/main.rs`, flags `--listen`, `--db`, `--trusted-proxy`).
 - `relay/server/Cargo.toml` has no `iroh` dependency (grep: no match). The app's iroh dependency is only in `packages/app/src-tauri/Cargo.toml:99`.
-- The relay facts file (`docs/plans/social/_facts/relay-facts.md`, read as instructed) says the same: `relay/server/` is HTTP and WebSocket only, one binary, no iroh.
+- The relay facts file (`docs/plans/1104plans/_facts/relay-facts.md`, read as instructed) says the same: `relay/server/` is HTTP and WebSocket only, one binary, no iroh.
 - Nothing in the repo decides where a mailbox node would be deployed.
 
-Source: relay/server/src/lib.rs:1-25 (header); relay/server/Cargo.toml (no iroh); packages/app/src-tauri/Cargo.toml:99; docs/plans/social/_facts/relay-facts.md sections 1, 2.
+Source: relay/server/src/lib.rs:1-25 (header); relay/server/Cargo.toml (no iroh); packages/app/src-tauri/Cargo.toml:99; docs/plans/1104plans/_facts/relay-facts.md sections 1, 2.
 
 ### 27-spaces-d8-d9-files-presence-mailbox.md / B-2 whether the founder's "paid SaaS relay" plan (memory: Co-work Heads-up decisions) covers hosting a
 
@@ -648,4 +648,4 @@ Also worth knowing (not a contradiction): `22-spaces-d2-identity-invite-roster.m
 - Items answered: 35.
 - Items NOT FOUND: 5 (W-1, W-2, `26` P-6, `27` F-1, `27` B-2).
 - Contradictions listed: 5.
-- Plan file written: `docs/plans/social/_facts/spaces-answers.md` (this file). No other file was changed. No cargo run.
+- Plan file written: `docs/plans/1104plans/_facts/spaces-answers.md` (this file). No other file was changed. No cargo run.
